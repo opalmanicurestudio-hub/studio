@@ -36,29 +36,29 @@ import {
     KeyRound, 
     Sparkles, 
     ArrowRight, 
-    AlertTriangle,
-    CheckCircle2,
-    Undo2,
-    Printer,
-    Landmark,
-    FileText,
-    ArrowDownToLine,
-    ArrowUpFromLine,
-    Users,
-    ShieldCheck,
-    User,
-    History,
-    FileSignature,
-    Search,
-    Filter,
-    Calendar,
-    ChevronRight,
-    ArrowDown,
-    HeartHandshake,
-    PackageOpen,
-    Check,
-    DollarSign,
-    TrendingDown
+    AlertTriangle, 
+    CheckCircle2, 
+    Undo2, 
+    Printer, 
+    Landmark, 
+    FileText, 
+    ArrowDownToLine, 
+    ArrowUpFromLine, 
+    Users, 
+    ShieldCheck, 
+    User, 
+    History, 
+    FileSignature, 
+    Search, 
+    Filter, 
+    Calendar, 
+    ChevronRight, 
+    ArrowDown, 
+    HeartHandshake, 
+    PackageOpen, 
+    Check, 
+    DollarSign, 
+    TrendingDown 
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -780,7 +780,7 @@ export const TillManagement = ({
                             <>
                                 {step === 'count' && (
                                     <div className="flex gap-3">
-                                        <Button variant="ghost" onClick={handleClose} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                                        <Button variant="ghost" type="button" onClick={handleClose} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
                                         <Button onClick={handleStepTransition} disabled={actualTotal <= 0} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">
                                             {activeTill ? 'Next: Float Selection' : 'Next: Identity'} <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                                         </Button>
@@ -788,25 +788,25 @@ export const TillManagement = ({
                                 )}
                                 {step === 'float_select' && (
                                     <div className="flex gap-3">
-                                        <Button variant="ghost" onClick={() => setStep('count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
+                                        <Button variant="ghost" type="button" onClick={() => setStep('count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
                                         <Button onClick={handleStepTransition} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Allocate Deposit <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
                                     </div>
                                 )}
                                 {step === 'allocation' && (
                                     <div className="flex gap-3">
-                                        <Button variant="ghost" onClick={() => setStep('float_select')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
+                                        <Button variant="ghost" type="button" onClick={() => setStep('float_select')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
                                         <Button onClick={handleStepTransition} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Audit Verification <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
                                     </div>
                                 )}
                                 {step === 'verify' && (
                                     <div className="flex gap-3">
-                                        <Button variant="ghost" onClick={() => setStep('allocation')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
+                                        <Button variant="ghost" type="button" onClick={() => setStep('allocation')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
                                         <Button onClick={handleStepTransition} disabled={primaryPin.length < 4 || (activeTill && requireTillWitness && witnessPin.length < 4)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Sign Audit <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
                                     </div>
                                 )}
                                 {step === 'sign' && (
                                     <div className="flex gap-3">
-                                        <Button variant="ghost" onClick={() => setStep('verify')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
+                                        <Button variant="ghost" type="button" onClick={() => setStep('verify')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
                                         <Button onClick={handleAction} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Commit Archive</Button>
                                     </div>
                                 )}
@@ -815,7 +815,7 @@ export const TillManagement = ({
                                         <Button className="w-full h-16 rounded-2xl font-black uppercase text-sm tracking-widest shadow-2xl shadow-primary/30 group" onClick={() => window.print()}>
                                             <Printer className="mr-3 h-5 w-5" /> Print Certified Slip
                                         </Button>
-                                        <Button variant="ghost" onClick={handleClose} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-slate-400">Return to Terminal</Button>
+                                        <Button variant="ghost" type="button" onClick={handleClose} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-slate-400">Return to Terminal</Button>
                                     </div>
                                 )}
                             </>

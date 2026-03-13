@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -28,6 +29,7 @@ import {
   Car,
   KeyRound,
   ChevronRight,
+  Landmark,
 } from 'lucide-react';
 import {
   ChartContainer,
@@ -116,7 +118,8 @@ const OwnerDashboard = ({
   barChartData,
   revenueBreakdown,
   recentActivities,
-  onGenerateDebrief 
+  onGenerateDebrief,
+  activeTill
 }: any) => {
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -144,15 +147,15 @@ const OwnerDashboard = ({
         <Card className="border-2 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-              Sessions
+              Studio Till
             </CardTitle>
-            <CalendarIcon className="h-4 w-4 text-muted-foreground opacity-40" />
+            <Landmark className="h-4 w-4 text-muted-foreground opacity-40" />
           </CardHeader>
           <CardContent className="p-3 md:p-4 pt-0">
             <div className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">
-              {isLoading ? <Skeleton className="h-10 w-10 inline-block" /> : todayAppointments?.length || 0}
+              {isLoading ? <Skeleton className="h-10 w-20 inline-block" /> : activeTill ? `$${activeTill.expectedCash.toFixed(2)}` : 'Closed'}
             </div>
-             {!isLoading && <p className="text-[10px] font-bold uppercase text-muted-foreground opacity-60 mt-1 truncate">{todayAppointments?.filter((a: any) => a.status === 'completed').length || 0} DONE &middot; {todayAppointments?.filter((a: any) => a.status !== 'completed').length || 0} LEFT</p>}
+             {!isLoading && <p className="text-[10px] font-bold uppercase text-muted-foreground opacity-60 mt-1 truncate">{activeTill ? 'Active Session' : 'No open till'}</p>}
           </CardContent>
         </Card>
 
@@ -440,7 +443,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
             <CardTitle className="text-3xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">Hello, {staffMember?.name?.split(' ')[0] || 'Staff'}!</CardTitle>
             {staffMember && (
                  <Badge variant={staffMember.active ? (staffMember.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize w-fit mx-auto mt-4 h-6 md:h-7 px-3 md:px-4 rounded-full font-black uppercase text-[9px] md:text-[10px] tracking-[0.2em] border-2 shadow-sm", {
-                    'bg-green-500 text-white border-none': staffMember.active && !staffMember.onBreak,
+                    'bg-green-50 text-white border-none': staffMember.active && !staffMember.onBreak,
                     'bg-amber-500 text-white border-none': staffMember.active && staffMember.onBreak,
                  })}>
                     {staffMember.active ? (staffMember.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
@@ -597,7 +600,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
 export default function DashboardPage() {
   const { firestore, user } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { staff, inventory, clients, services, appointments: allAppointments, transactions: allTransactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
+  const { staff, inventory, clients, services, appointments: allAppointments, transactions: allTransactions, activityLogs, isLoading: isInventoryLoading, tillSessions } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
@@ -615,6 +618,8 @@ export default function DashboardPage() {
         weekStart: startOfWeek(now, { weekStartsOn: 0 }),
     });
   }, []);
+
+  const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
 
   const todayTransactionsQuery = useMemoFirebase(() => {
     if (!firestore || !user || !dateRange || !tenantId) return null;
@@ -822,6 +827,7 @@ export default function DashboardPage() {
             revenueBreakdown={revenueBreakdown}
             recentActivities={recentActivities}
             onGenerateDebrief={handleGenerateDebrief}
+            activeTill={activeTill}
           />
         ) : (
           <StaffDashboardView 
