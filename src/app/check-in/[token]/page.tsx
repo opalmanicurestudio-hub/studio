@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint, Star, ArrowRight } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint, Star, ArrowRight, Cake, PartyPopper, Gift } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse, isSameMonth } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
@@ -55,6 +55,57 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
         <CardTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
         <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
+);
+
+const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, onDone: () => void }) => (
+    <ViewContainer>
+        <div className="relative overflow-hidden">
+            {/* Animated background element */}
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <motion.div 
+                    animate={{ rotate: 360 }} 
+                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                    className="absolute -top-20 -right-20 opacity-5"
+                >
+                    <Sparkles className="w-64 h-64 text-primary" />
+                </motion.div>
+            </div>
+
+            <ViewHeader title="Happy Birthday!" subtitle="Celebrating Excellence" icon={Cake} />
+            
+            <CardContent className="p-10 text-center space-y-8 relative z-10">
+                <motion.div 
+                    initial={{ scale: 0, rotate: -180 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    transition={{ type: "spring", damping: 12, stiffness: 200 }}
+                    className="w-32 h-32 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-12"
+                >
+                    <PartyPopper className="w-16 h-16 text-primary -rotate-12" />
+                </motion.div>
+                
+                <div className="space-y-3">
+                    <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                        Cheers to <br/>
+                        <span className="text-primary italic font-serif lowercase tracking-normal">{clientName.split(' ')[0]}!</span>
+                    </h2>
+                    <p className="text-sm md:text-base font-medium text-slate-500 leading-relaxed max-w-xs mx-auto">
+                        We're thrilled to have you in the studio on your special day. Today is all about you!
+                    </p>
+                </div>
+
+                <div className="p-5 rounded-2xl bg-primary/5 border-2 border-dashed border-primary/20 flex items-center justify-center gap-3 shadow-inner">
+                    <Gift className="w-5 h-5 text-primary animate-bounce" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-primary">Ask your pro for a birthday surprise</span>
+                </div>
+            </CardContent>
+            
+            <CardFooter className="p-8 pt-0">
+                <Button onClick={onDone} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
+                    Check In Now <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
+                </Button>
+            </CardFooter>
+        </div>
+    </ViewContainer>
 );
 
 const ServicingView = ({ serviceName }: { serviceName: string }) => (
@@ -218,8 +269,16 @@ export default function CheckInPage() {
     const [showLateOptions, setShowLateOptions] = useState(false);
     const [isReviewFlow, setIsReviewFlow] = useState(false);
     const [reviewSubmitted, setReviewSubmitted] = useState(false);
+    const [showBirthdayCelebration, setShowBirthdayCelebration] = useState(false);
 
     const appointment = useMemo(() => appointmentData ? { ...appointmentData, startTime: safeDate(appointmentData.startTime), endTime: safeDate(appointmentData.endTime) } : null, [appointmentData]);
+
+    const isBirthdayToday = useMemo(() => {
+        if (!client?.birthday) return false;
+        const birth = safeDate(client.birthday);
+        const today = new Date();
+        return isSameMonth(today, birth) && birth.getDate() === today.getDate();
+    }, [client?.birthday]);
 
     useEffect(() => { if (appointment?.checkInStatus) { setCurrentStatus(appointment.checkInStatus); if (appointment.checkInStatus === 'running_late') setLateTime(appointment.lateTimeMinutes || 0); } }, [appointment]);
 
@@ -271,7 +330,12 @@ export default function CheckInPage() {
                 read: false 
             });
         }
-        batch.commit().then(() => setCurrentStatus(newStatus));
+        batch.commit().then(() => {
+            setCurrentStatus(newStatus);
+            if (newStatus === 'arrived' && isBirthdayToday) {
+                setShowBirthdayCelebration(true);
+            }
+        });
     };
 
     const handleSettleFee = async () => {
@@ -301,13 +365,17 @@ export default function CheckInPage() {
     };
     
     if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) return <div className="flex flex-col items-center gap-4"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Initializing Portal...</p></div>;
-    if (!appointment || !client || !service || !tenant) return <CancelledView />;
     if (reviewSubmitted) return <ReviewSubmittedView onDone={() => { setReviewSubmitted(false); setIsReviewFlow(false); }} />;
     if (isReviewFlow) return <ReviewFormView serviceName={service.name} staffName={assignedStaff?.name || 'your professional'} onSubmit={handleSubmitReview} onCancel={() => setIsReviewFlow(false)} />;
-    if (appointment.status === 'servicing') return <ServicingView serviceName={service.name} />;
-    if (appointment.status === 'ready_for_checkout') return <CheckoutView qrCodeUrl={`https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`} ticketId={appointment.id.slice(-6).toUpperCase()} />;
-    if (appointment.status === 'completed') return <ThankYouView tenantId={tenant.id} onLeaveReview={() => setIsReviewFlow(true)} />;
-    if (appointment.status === 'cancelled' || currentStatus === 'auto_cancelled') return <CancelledView tenantId={tenant.id} fee={appointment.cancellationFeeApplied} onSettle={handleSettleFee} />;
+    
+    if (showBirthdayCelebration) return <BirthdayCelebrationView clientName={client?.name || 'Guest'} onDone={() => setShowBirthdayCelebration(false)} />;
+
+    if (appointment?.status === 'servicing') return <ServicingView serviceName={service.name} />;
+    if (appointment?.status === 'ready_for_checkout') return <CheckoutView qrCodeUrl={`https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`} ticketId={appointment.id.slice(-6).toUpperCase()} />;
+    if (appointment?.status === 'completed') return <ThankYouView tenantId={tenant.id} onLeaveReview={() => setIsReviewFlow(true)} />;
+    if (appointment?.status === 'cancelled' || currentStatus === 'auto_cancelled') return <CancelledView tenantId={tenant.id} fee={appointment.cancellationFeeApplied} onSettle={handleSettleFee} />;
+
+    if (!appointment || !client || !service || !tenant) return <CancelledView />;
 
     return (
         <ViewContainer>
@@ -325,7 +393,24 @@ export default function CheckInPage() {
                         <Avatar className="w-16 h-16 md:w-20 md:h-20 rounded-2xl border-4 border-background shadow-xl"><AvatarImage src={service.imageUrl} className="object-cover" /><AvatarFallback className="bg-primary/10 text-primary"><Activity className="w-8 h-8" /></AvatarFallback></Avatar>
                         <div className="min-w-0 flex-1 text-left"><p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-slate-900 leading-none mb-2 truncate">{service.name}</p><p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{format(appointment.startTime, 'EEEE, MMMM d')} &middot; {format(appointment.startTime, 'h:mm a')}</p></div>
                     </div>
-                    {assignedStaff && (<div className="pt-6 border-t border-dashed border-border/50"><div className="flex items-center gap-4"><Avatar className="h-10 w-10 border-2 border-background shadow-md rounded-xl"><AvatarImage src={assignedStaff.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar><div className="text-left"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p><p className="font-black text-sm uppercase tracking-tight text-slate-800 leading-none">{assignedStaff.name}</p></div></div></div>)}
+                    {assignedStaff && (
+                        <div className="pt-6 border-t border-dashed border-border/50">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <Avatar className="h-10 w-10 border-2 border-background shadow-md rounded-xl"><AvatarImage src={assignedStaff.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar>
+                                    <div className="text-left">
+                                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
+                                        <p className="font-black text-sm uppercase tracking-tight text-slate-800 leading-none">{assignedStaff.name}</p>
+                                    </div>
+                                </div>
+                                {isBirthdayToday && (
+                                    <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] uppercase h-6 px-3 rounded-lg shadow-sm">
+                                        <Cake className="w-3 h-3 mr-1.5" /> BIRTHDAY MODE
+                                    </Badge>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 pt-6 border-t border-dashed border-border/50"><div className="flex items-center gap-2"><Clock className="w-3.5 h-3.5"/> {service.duration}m</div><div className="flex items-center gap-2 truncate max-w-[150px]"><MapPin className="w-3.5 h-3.5"/> {tenant.name}</div></div>
                 </div>
                 {showLateOptions ? (
