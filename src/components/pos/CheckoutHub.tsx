@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -725,8 +724,8 @@ export const CheckoutHub = ({
                     <div className="p-3 md:p-4 rounded-xl md:rounded-[1.5rem] border-2 bg-muted/10 space-y-2 md:space-y-3">
                         <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 x-3" /> Distribution Matrix</p>
                         {allInvolvedStaff.map((member: any) => (
-                            <div key={member.id} className="flex items-center justify-between gap-4">
-                                <div className="flex items-center gap-2 min-w-0">
+                            <div key={member.id} className="flex items-center gap-3">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
                                     <Avatar className="h-5 w-5 md:h-6 md:w-6 border-2 border-white shadow-sm rounded-lg">
                                         <AvatarImage src={member.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[7px] md:text-[8px]">{(member.name || 'S')[0]}</AvatarFallback>
@@ -776,12 +775,12 @@ export const CheckoutHub = ({
                                 {amountTendered > total && (
                                     <div className="space-y-1.5 text-left">
                                         <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600 ml-2">Change Due</Label>
-                                        <div className="h-12 md:h-14 flex items-center justify-between px-4 bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
+                                        <div className="h-12 md:h-14 flex items-center justify-between pl-4 pr-2 bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
                                             <p className="font-black text-lg md:text-2xl text-green-600 font-mono tracking-tighter">-${(amountTendered - total).toFixed(2)}</p>
                                             <Button 
                                                 variant="ghost" 
                                                 size="xs" 
-                                                className="h-7 px-2 text-[8px] font-black uppercase tracking-widest text-green-700 bg-green-500/20 hover:bg-green-500/30 rounded-lg"
+                                                className="h-8 md:h-9 px-3 text-[9px] font-black uppercase tracking-widest text-green-700 bg-green-500/20 hover:bg-green-500/30 rounded-xl transition-all"
                                                 onClick={() => handleTotalTipChange(tipAmount + (amountTendered - total))}
                                             >
                                                 Keep as Tip
