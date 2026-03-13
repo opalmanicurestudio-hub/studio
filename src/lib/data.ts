@@ -778,6 +778,8 @@ export type TillSession = {
     status: 'open' | 'closed';
     openingFloat: number;
     expectedCash: number;
+    totalCashSales?: number;
+    totalCashTips?: number;
     actualCash?: number;
     cashToDeposit?: number;
     nextDayFloat?: number;

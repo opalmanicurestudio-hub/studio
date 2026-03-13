@@ -46,7 +46,8 @@ import {
     Filter,
     Calendar,
     ChevronRight,
-    ArrowDown
+    ArrowDown,
+    HeartHandshake
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -141,7 +142,7 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
             <Separator className="border-dashed border-black" />
 
             <div className="space-y-4">
-                <p className="text-[10px] font-black uppercase tracking-widest border-b border-black pb-1">Denomination Manifest</p>
+                <p className="text-[10px] font-black uppercase tracking-widest border-b border-black pb-1 text-center">Denomination Manifest</p>
                 <div className="space-y-1">
                     {usedDenoms.map(d => (
                         <div key={d.key} className="flex justify-between items-center">
@@ -156,15 +157,23 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
                 </div>
             </div>
 
-            <Separator className="border-dashed border-black" />
-
-            <div className="space-y-2 uppercase font-bold text-[10px]">
-                <div className="flex justify-between items-center">
-                    <span>Opening Float</span>
-                    <span className="font-black">${session.openingFloat?.toFixed(2)}</span>
-                </div>
-                {session.status === 'closed' && (
-                    <>
+            {session.status === 'closed' && (
+                <>
+                    <Separator className="border-dashed border-black" />
+                    <div className="space-y-2 uppercase font-bold text-[10px]">
+                        <p className="text-[9px] font-black tracking-widest border-b border-black pb-1 text-center">Financial Breakdown</p>
+                        <div className="flex justify-between items-center">
+                            <span>Cash Revenue</span>
+                            <span className="font-black">${(session.totalCashSales || 0).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <span>Cash Gratuity</span>
+                            <span className="font-black">${(session.totalCashTips || 0).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-t border-black/10">
+                            <span>Opening Float</span>
+                            <span className="font-black">${session.openingFloat?.toFixed(2)}</span>
+                        </div>
                         <div className="flex justify-between items-center">
                             <span>Next Day Float</span>
                             <span className="font-black">-${session.nextDayFloat?.toFixed(2)}</span>
@@ -183,9 +192,9 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
                                 <p className="text-[8px] italic opacity-60">Verified variance recorded in studio ledger.</p>
                             </div>
                         )}
-                    </>
-                )}
-            </div>
+                    </div>
+                </>
+            )}
 
             <Separator className="border-dashed border-black" />
 
@@ -269,7 +278,6 @@ export const TillManagement = ({
     const [mainView, setMainView] = useState<'active' | 'history'>('active');
     const [historicalSession, setHistoricalSession] = useState<TillSession | null>(null);
 
-    // Archive Filtering
     const [historySearch, setHistorySearch] = useState('');
     const [historyDateFilter, setHistoryDateFilter] = useState('all');
 
@@ -326,7 +334,7 @@ export const TillManagement = ({
         } else if (step === 'verify') {
             const authorizedStaff = staff.find(s => s.pin === primaryPin);
             if (!authorizedStaff) {
-                toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Primary authenticator not found.' });
+                toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Primary auditor not identified.' });
                 return;
             }
             if (activeTill && requireTillWitness) {
@@ -413,7 +421,7 @@ export const TillManagement = ({
 
     return (
         <DialogComponent open={open} onOpenChange={handleClose}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[95dvh]")}>
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Calculator className="w-5 h-5 text-primary" />
@@ -519,6 +527,7 @@ export const TillManagement = ({
                                                         <div className="space-y-1 text-left">
                                                             <p className="text-[9px] font-black uppercase text-primary tracking-widest">Expected Balance</p>
                                                             <p className="text-3xl font-black font-mono tracking-tighter text-primary">${activeTill.expectedCash.toFixed(2)}</p>
+                                                            <p className="text-[8px] font-bold text-primary/60 uppercase">Incl. Gratuity</p>
                                                         </div>
                                                         <div className="space-y-1 text-right border-l border-dashed border-primary/20 pl-6">
                                                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Opened</p>
@@ -534,7 +543,7 @@ export const TillManagement = ({
                                     )}
 
                                     {step === 'allocation' && (
-                                        <motion.div key="allocation" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-20">
+                                        <motion.div key="allocation" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-20 text-left">
                                             <div className="p-8 rounded-[2.5rem] bg-slate-900 text-white text-center space-y-4 shadow-2xl relative overflow-hidden">
                                                 <div className="absolute top-0 right-0 p-6 opacity-5"><Banknote className="w-32 h-32" /></div>
                                                 <div className="space-y-1 relative z-10">
@@ -549,8 +558,19 @@ export const TillManagement = ({
                                                 )}
                                             </div>
 
-                                            <div className="space-y-6">
-                                                <div className="space-y-3 text-left">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div className="p-5 rounded-[1.5rem] border-2 bg-muted/10 space-y-1">
+                                                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Verified Revenue</p>
+                                                    <p className="text-xl font-black font-mono text-slate-900">${(activeTill?.totalCashSales || 0).toFixed(2)}</p>
+                                                </div>
+                                                <div className="p-5 rounded-[1.5rem] border-2 bg-indigo-500/5 border-indigo-500/10 space-y-1">
+                                                    <p className="text-[9px] font-black uppercase text-indigo-600 opacity-60 flex items-center gap-2"><HeartHandshake className="w-3 h-3" /> Team Gratuity</p>
+                                                    <p className="text-xl font-black font-mono text-indigo-600">${(activeTill?.totalCashTips || 0).toFixed(2)}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-6 pt-4 border-t border-dashed">
+                                                <div className="space-y-3">
                                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Float Retention (Remaining in Drawer)</Label>
                                                     <div className="relative">
                                                         <ArrowDownToLine className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-indigo-500 opacity-40" />
