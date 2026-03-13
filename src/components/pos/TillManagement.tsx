@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -53,11 +54,13 @@ import {
     Calendar,
     ChevronRight,
     ArrowDown,
-    HeartHandshake
+    HeartHandshake,
+    PackageOpen,
+    Check
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
-import { type TillSession, type Staff } from '@/lib/data';
+import { type TillSession, type Staff, type TillDenominations } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -98,7 +101,7 @@ const denominations = [
     { key: 'coins_01', label: '1¢', val: 0.01, icon: Coins },
 ];
 
-const DenominationInput = ({ denom, count, onChange }: any) => {
+const DenominationInput = ({ denom, count, onChange, disabled }: any) => {
     const Icon = denom.icon;
     return (
         <div className="flex items-center justify-between p-3 rounded-2xl border-2 bg-background hover:border-primary/20 transition-all group">
@@ -114,6 +117,7 @@ const DenominationInput = ({ denom, count, onChange }: any) => {
                     value={count || ''} 
                     onChange={e => onChange(denom.key, parseInt(e.target.value) || 0)}
                     placeholder="0"
+                    disabled={disabled}
                     className="w-20 h-10 text-center font-black rounded-xl border-2 focus-visible:ring-primary/20 bg-muted/5 shadow-inner"
                 />
                 <div className="w-20 text-right">
@@ -129,9 +133,9 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
     const verifiedBy = staff.find(s => s.id === session.verifiedBy);
     const openedBy = staff.find(s => s.id === session.openedBy);
 
-    const usedDenoms = denominations.map(d => ({
+    const depositDenoms = denominations.map(d => ({
         ...d,
-        count: (session.closingDenominations || session.openingDenominations)?.[d.key] || 0
+        count: session.depositDenominations?.[d.key] || 0
     })).filter(d => d.count > 0);
 
     return (
@@ -148,59 +152,54 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
             <Separator className="border-dashed border-black" />
 
             <div className="space-y-4">
-                <p className="text-[10px] font-black uppercase tracking-widest border-b border-black pb-1 text-center">Denomination Manifest</p>
+                <p className="text-[10px] font-black uppercase tracking-widest border-b border-black pb-1 text-center">Bank Deposit Manifest</p>
                 <div className="space-y-1">
-                    {usedDenoms.map(d => (
+                    {depositDenoms.length > 0 ? depositDenoms.map(d => (
                         <div key={d.key} className="flex justify-between items-center">
                             <span>{d.count} x {d.label}</span>
                             <span>${(d.count * d.val).toFixed(2)}</span>
                         </div>
-                    ))}
+                    )) : <p className="text-center italic opacity-40 py-2">No physical deposit</p>}
                 </div>
                 <div className="flex justify-between font-black border-t border-dashed border-black pt-2 text-sm">
-                    <span>Physical Total</span>
-                    <span>${(session.actualCash || session.openingFloat).toFixed(2)}</span>
+                    <span>Net Deposit</span>
+                    <span>${(session.cashToDeposit || 0).toFixed(2)}</span>
                 </div>
             </div>
 
-            {session.status === 'closed' && (
-                <>
-                    <Separator className="border-dashed border-black" />
-                    <div className="space-y-2 uppercase font-bold text-[10px]">
-                        <p className="text-[9px] font-black tracking-widest border-b border-black pb-1 text-center">Financial Breakdown</p>
-                        <div className="flex justify-between items-center">
-                            <span>Cash Revenue</span>
-                            <span className="font-black">${(session.totalCashSales || 0).toFixed(2)}</span>
+            <Separator className="border-dashed border-black" />
+            <div className="space-y-2 uppercase font-bold text-[10px]">
+                <p className="text-[9px] font-black tracking-widest border-b border-black pb-1 text-center">Audit Summary</p>
+                <div className="flex justify-between items-center">
+                    <span>Opening Float</span>
+                    <span className="font-black">${session.openingFloat?.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span>Total Cash sales</span>
+                    <span className="font-black">${(session.totalCashSales || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span>Total Tips</span>
+                    <span className="font-black">${(session.totalCashTips || 0).toFixed(2)}</span>
+                </div>
+                <Separator className="border-black opacity-20" />
+                <div className="flex justify-between items-center">
+                    <span>Actual Physical Count</span>
+                    <span className="font-black">${(session.actualCash || session.openingFloat).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span>Next Day Float</span>
+                    <span className="font-black">-${session.nextDayFloat?.toFixed(2)}</span>
+                </div>
+                {Math.abs(session.discrepancy || 0) > 0.01 && (
+                    <div className="mt-2 p-2 bg-slate-100 flex flex-col gap-1">
+                        <div className="flex justify-between items-center text-destructive">
+                            <span>Audit Delta</span>
+                            <span>{session.discrepancy > 0 ? '+' : ''}${session.discrepancy?.toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between items-center">
-                            <span>Cash Gratuity</span>
-                            <span className="font-black">${(session.totalCashTips || 0).toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between items-center pt-1 border-t border-black/10">
-                            <span>Opening Float</span>
-                            <span className="font-black">${session.openingFloat?.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span>Next Day Float</span>
-                            <span className="font-black">-${session.nextDayFloat?.toFixed(2)}</span>
-                        </div>
-                        <Separator className="border-black opacity-20" />
-                        <div className="flex justify-between items-baseline text-sm font-black pt-1">
-                            <span>Net Deposit</span>
-                            <span className="text-lg tracking-tighter">${session.cashToDeposit?.toFixed(2)}</span>
-                        </div>
-                        {Math.abs(session.discrepancy || 0) > 0.01 && (
-                            <div className="mt-2 p-2 bg-slate-100 flex flex-col gap-1">
-                                <div className="flex justify-between items-center text-destructive">
-                                    <span>Audit Delta</span>
-                                    <span>{session.discrepancy > 0 ? '+' : ''}${session.discrepancy?.toFixed(2)}</span>
-                                </div>
-                                <p className="text-[8px] italic opacity-60">Verified variance recorded in studio ledger.</p>
-                            </div>
-                        )}
                     </div>
-                </>
-            )}
+                )}
+            </div>
 
             <Separator className="border-dashed border-black" />
 
@@ -276,9 +275,10 @@ export const TillManagement = ({
     const { tillSessions } = useInventory();
     
     const [counts, setCounts] = useState<Record<string, number>>({});
+    const [floatCounts, setFloatCounts] = useState<Record<string, number>>({});
     const [primaryPin, setPrimaryPin] = useState('');
     const [witnessPin, setWitnessPin] = useState('');
-    const [step, setStep] = useState<'count' | 'allocation' | 'verify' | 'sign' | 'success'>('count');
+    const [step, setStep] = useState<'count' | 'float_select' | 'allocation' | 'verify' | 'sign' | 'success'>('count');
     const [nextDayFloat, setNextDayFloat] = useState<number>(0);
     const [finalSessionData, setFinalSessionData] = useState<any | null>(null);
     const [mainView, setMainView] = useState<'active' | 'history'>('active');
@@ -293,6 +293,10 @@ export const TillManagement = ({
     const actualTotal = useMemo(() => {
         return denominations.reduce((acc, d) => acc + (counts[d.key] || 0) * d.val, 0);
     }, [counts]);
+
+    const floatTotal = useMemo(() => {
+        return denominations.reduce((acc, d) => acc + (floatCounts[d.key] || 0) * d.val, 0);
+    }, [floatCounts]);
 
     const filteredSessions = useMemo(() => {
         if (!tillSessions) return [];
@@ -318,23 +322,25 @@ export const TillManagement = ({
         return list.sort((a,b) => safeDate(b.openedAt).getTime() - safeDate(a.openedAt).getTime());
     }, [tillSessions, historySearch, historyDateFilter, staff]);
 
-    useEffect(() => {
-        if (open && activeTill && step === 'count') {
-            setNextDayFloat(activeTill.openingFloat || 0);
-        }
-    }, [open, activeTill, step]);
-
-    const cashToDeposit = useMemo(() => {
-        return Math.max(0, actualTotal - nextDayFloat);
-    }, [actualTotal, nextDayFloat]);
-
     const handleCountChange = (key: string, val: number) => {
         setCounts(prev => ({ ...prev, [key]: val }));
     };
 
+    const handleFloatChange = (key: string, val: number) => {
+        const totalInDrawer = counts[key] || 0;
+        if (val > totalInDrawer) {
+            toast({ variant: 'destructive', title: 'Invalid Selection', description: `Only ${totalInDrawer} units of ${key.replace('_', ' ')} available in drawer.` });
+            return;
+        }
+        setFloatCounts(prev => ({ ...prev, [key]: val }));
+    };
+
     const handleStepTransition = () => {
         if (step === 'count') {
-            setStep(activeTill ? 'allocation' : 'verify');
+            setStep(activeTill ? 'float_select' : 'verify');
+        } else if (step === 'float_select') {
+            setNextDayFloat(floatTotal);
+            setStep('allocation');
         } else if (step === 'allocation') {
             setStep('verify');
         } else if (step === 'verify') {
@@ -378,11 +384,21 @@ export const TillManagement = ({
             }
 
             const discrepancy = actualTotal - activeTill.expectedCash;
+            
+            // Calculate what goes to the bank
+            const depositDenoms: Record<string, number> = {};
+            denominations.forEach(d => {
+                const remaining = (counts[d.key] || 0) - (floatCounts[d.key] || 0);
+                if (remaining > 0) depositDenoms[d.key] = remaining;
+            });
+
             const closingData = {
                 actualCash: actualTotal,
-                cashToDeposit,
-                nextDayFloat,
+                cashToDeposit: actualTotal - floatTotal,
+                nextDayFloat: floatTotal,
                 closingDenominations: counts,
+                nextDayDenominations: floatCounts,
+                depositDenominations: depositDenoms,
                 closedBy: authorizedStaff.id,
                 verifiedBy: witnessStaff?.id,
                 closedBySignature: mainSig,
@@ -407,6 +423,7 @@ export const TillManagement = ({
 
     const resetState = () => {
         setCounts({});
+        setFloatCounts({});
         setPrimaryPin('');
         setWitnessPin('');
         setStep('count');
@@ -427,20 +444,20 @@ export const TillManagement = ({
 
     return (
         <DialogComponent open={open} onOpenChange={handleClose}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[92dvh]")}>
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
-                        <Calculator className="w-5 h-5 text-primary" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Financial Protocol</span>
+                        <Landmark className="w-5 h-5 text-primary" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Accounting Suite</span>
                     </div>
                     <div className="flex justify-between items-center">
                         <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                            {step === 'success' ? 'Audit Certified' : mainView === 'history' ? 'Session History' : activeTill ? 'Till Reconciliation' : 'Open Studio Till'}
+                            {step === 'success' ? 'Audit Certified' : mainView === 'history' ? 'Archives' : activeTill ? 'Closing Protocol' : 'Open Studio Till'}
                         </DialogTitle>
                         {step === 'count' && (
                             <Tabs value={mainView} onValueChange={(v: any) => setMainView(v)} className="w-fit">
                                 <TabsList className="bg-muted/50 rounded-xl h-9 border p-1">
-                                    <TabsTrigger value="active" className="rounded-lg h-7 px-3 text-[9px] font-black uppercase tracking-widest">Terminal</TabsTrigger>
+                                    <TabsTrigger value="active" className="rounded-lg h-7 px-3 text-[9px] font-black uppercase tracking-widest">Active</TabsTrigger>
                                     <TabsTrigger value="history" className="rounded-lg h-7 px-3 text-[9px] font-black uppercase tracking-widest">Archives</TabsTrigger>
                                 </TabsList>
                             </Tabs>
@@ -513,12 +530,6 @@ export const TillManagement = ({
                                                         </button>
                                                     );
                                                 })}
-                                                {filteredSessions.length === 0 && (
-                                                    <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                                                        <History className="w-16 h-16" />
-                                                        <p className="text-[10px] font-black uppercase tracking-widest">No Matches in Archives</p>
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -536,14 +547,32 @@ export const TillManagement = ({
                                                             <p className="text-[8px] font-bold text-primary/60 uppercase">Incl. Gratuity</p>
                                                         </div>
                                                         <div className="space-y-1 text-right border-l border-dashed border-primary/20 pl-6">
-                                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Opened</p>
+                                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Started</p>
                                                             <p className="text-sm font-black text-slate-900">{format(safeDate(activeTill.openedAt), 'h:mm a')}</p>
                                                         </div>
                                                     </CardContent>
                                                 </Card>
                                             )}
+                                            <div className="space-y-4">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Physical Drawer Count</p>
+                                                <div className="grid grid-cols-1 gap-2">
+                                                    {denominations.map(d => <DenominationInput key={d.key} denom={d} count={counts[d.key] || 0} onChange={handleCountChange} />)}
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    )}
+
+                                    {step === 'float_select' && (
+                                        <motion.div key="float_select" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-20 text-left">
+                                            <div className="p-8 rounded-[2.5rem] border-2 border-dashed border-indigo-500/30 bg-indigo-500/[0.02] text-center space-y-4 shadow-inner">
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-600">Tomorrow's Float Target</p>
+                                                    <p className="text-5xl font-black font-mono tracking-tighter text-indigo-700">${floatTotal.toFixed(2)}</p>
+                                                </div>
+                                                <p className="text-[9px] font-bold uppercase text-slate-500 max-w-xs mx-auto">Select the specific bills and coins remaining in the drawer for tomorrow's opening.</p>
+                                            </div>
                                             <div className="grid grid-cols-1 gap-2">
-                                                {denominations.map(d => <DenominationInput key={d.key} denom={d} count={counts[d.key] || 0} onChange={handleCountChange} />)}
+                                                {denominations.map(d => <DenominationInput key={d.key} denom={d} count={floatCounts[d.key] || 0} onChange={handleFloatChange} />)}
                                             </div>
                                         </motion.div>
                                     )}
@@ -553,7 +582,7 @@ export const TillManagement = ({
                                             <div className="p-8 rounded-[2.5rem] bg-slate-900 text-white text-center space-y-4 shadow-2xl relative overflow-hidden">
                                                 <div className="absolute top-0 right-0 p-6 opacity-5"><Banknote className="w-32 h-32" /></div>
                                                 <div className="space-y-1 relative z-10">
-                                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40">Total Physical Count</p>
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40">Total Physical count</p>
                                                     <p className="text-6xl font-black font-mono tracking-tighter text-primary">${actualTotal.toFixed(2)}</p>
                                                 </div>
                                                 {activeTill && (
@@ -575,28 +604,15 @@ export const TillManagement = ({
                                                 </div>
                                             </div>
 
-                                            <div className="space-y-6 pt-4 border-t border-dashed">
-                                                <div className="space-y-3">
-                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Float Retention (Remaining in Drawer)</Label>
-                                                    <div className="relative">
-                                                        <ArrowDownToLine className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-indigo-500 opacity-40" />
-                                                        <Input 
-                                                            type="number" 
-                                                            value={nextDayFloat || ''} 
-                                                            onChange={e => setNextDayFloat(parseFloat(e.target.value) || 0)}
-                                                            className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 focus-visible:ring-primary/20"
-                                                        />
+                                            <div className="p-6 rounded-[2rem] border-4 border-primary/20 bg-primary/5 flex justify-between items-center shadow-xl">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 rounded-xl bg-primary text-white shadow-lg"><ArrowUpFromLine className="w-5 h-5" /></div>
+                                                    <div className="space-y-0.5">
+                                                        <span className="font-black uppercase tracking-tight text-xs text-slate-900">Bank Deposit Bag</span>
+                                                        <p className="text-[8px] font-black text-primary/60 uppercase">Net removed from drawer</p>
                                                     </div>
-                                                    <p className="text-[9px] font-bold text-indigo-600/60 uppercase ml-1">Suggested Reset: ${activeTill?.openingFloat.toFixed(2)}</p>
                                                 </div>
-
-                                                <div className="p-6 rounded-[2rem] border-4 border-primary/20 bg-primary/5 flex justify-between items-center shadow-xl">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="p-2 rounded-xl bg-primary text-white shadow-lg"><ArrowUpFromLine className="w-5 h-5" /></div>
-                                                        <span className="font-black uppercase tracking-tight text-sm text-slate-900">Final Bank Deposit</span>
-                                                    </div>
-                                                    <p className="text-3xl font-black font-mono tracking-tighter text-primary">${cashToDeposit.toFixed(2)}</p>
-                                                </div>
+                                                <p className="text-3xl font-black font-mono tracking-tighter text-primary">${cashToDeposit.toFixed(2)}</p>
                                             </div>
                                         </motion.div>
                                     )}
@@ -633,10 +649,6 @@ export const TillManagement = ({
                                                             className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 border-primary/20 focus-visible:ring-primary/20 shadow-inner bg-white"
                                                             placeholder="••••"
                                                         />
-                                                        <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 flex items-start gap-3">
-                                                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                                                            <p className="text-[9px] font-bold text-amber-700 uppercase leading-relaxed">Dual-authorization required. A witness must verify the physical count.</p>
-                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -708,7 +720,7 @@ export const TillManagement = ({
                 <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-8 pt-4")}>
                     <div className="flex flex-col gap-3 w-full">
                         {mainView === 'history' ? (
-                            <Button variant="outline" onClick={handleClose} className="w-full h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-white">Close Archive</Button>
+                            <Button variant="outline" onClick={handleClose} className="w-full h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-white">Close Archives</Button>
                         ) : (
                             <>
                                 {step === 'count' && (
@@ -719,15 +731,21 @@ export const TillManagement = ({
                                         </Button>
                                     </div>
                                 )}
-                                {step === 'allocation' && (
+                                {step === 'float_select' && (
                                     <div className="flex gap-3">
                                         <Button variant="ghost" onClick={() => setStep('count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
+                                        <Button onClick={handleStepTransition} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Confirm Float <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
+                                    </div>
+                                )}
+                                {step === 'allocation' && (
+                                    <div className="flex gap-3">
+                                        <Button variant="ghost" onClick={() => setStep('float_select')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
                                         <Button onClick={handleStepTransition} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Audit Verification <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
                                     </div>
                                 )}
                                 {step === 'verify' && (
                                     <div className="flex gap-3">
-                                        <Button variant="ghost" onClick={() => setStep(activeTill ? 'allocation' : 'count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
+                                        <Button variant="ghost" onClick={() => setStep('allocation')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
                                         <Button onClick={handleStepTransition} disabled={primaryPin.length < 4 || (activeTill && requireTillWitness && witnessPin.length < 4)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Biometric Sign <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
                                     </div>
                                 )}

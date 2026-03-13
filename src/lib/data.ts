@@ -786,6 +786,8 @@ export type TillSession = {
     discrepancy?: number;
     openingDenominations: TillDenominations;
     closingDenominations?: TillDenominations;
+    nextDayDenominations?: TillDenominations;
+    depositDenominations?: TillDenominations;
     notes?: string;
     openedBySignature?: string;
     closedBySignature?: string;
