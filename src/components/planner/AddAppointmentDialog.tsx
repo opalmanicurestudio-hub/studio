@@ -81,6 +81,7 @@ import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -365,6 +366,7 @@ const AddAppointmentForm = ({
                 if (isToday(startDateTime) && (!s.active || s.onBreak) && !data.overrideBusinessHours) return false;
                 
                 const dayName = format(startDateTime, 'eeee').toLowerCase();
+                const dDate = safeDate(data.date);
                 const sched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
                 
                 if (!data.overrideBusinessHours) {

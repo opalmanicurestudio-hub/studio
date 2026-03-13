@@ -50,9 +50,11 @@ import {
   Briefcase, 
   User, 
   Lock, 
+  Award, 
+  CalendarCheck, 
+  Clock, 
   Users, 
   Sparkles, 
-  Clock, 
   Activity, 
   ArrowRight, 
   Check, 
@@ -61,7 +63,7 @@ import {
   ShoppingCart,
   MapPin,
   FlaskConical,
-  CalendarCheck,
+  CalendarCheck as CalendarCheckIcon,
   Edit,
   Mail,
   Phone,
@@ -82,7 +84,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useTenant } from '@/context/TenantContext';
 import { Textarea } from '@/components/ui/textarea';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -449,7 +451,7 @@ const EditAppointmentForm = ({
 
                 <div className="space-y-8">
                     <div className="flex items-center justify-between">
-                        <SectionHeader icon={CalendarCheck} title="Timing" />
+                        <SectionHeader icon={CalendarCheckIcon} title="Timing" />
                         <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
                             <TooltipProvider>
                                 <Tooltip>
