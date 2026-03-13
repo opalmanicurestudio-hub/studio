@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -32,6 +33,7 @@ import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { FloatingActionButton } from '@/components/planner/FloatingActionButton';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
+import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -202,7 +204,7 @@ function PlannerPageContent() {
   const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
     if (!firestore || !tenantId || !selectedTenant) return;
     const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
-    const tmhr = selectedTenant.tmhr || 50;
+    const tmhrValue = selectedTenant.tmhr || 50;
     const premium = selectedTenant.lateInconveniencePremium || 0;
 
     if (status === 'running_late' && lateMinutes && !isWalkIn) {
@@ -237,13 +239,13 @@ function PlannerPageContent() {
             }
 
             if ((lateMinutes > grace && autoCancel) || clash) {
-                const reason = clash ? 'clash' : 'late';
-                const overheadRecovery = (fullSessionBlock / 60) * tmhr;
+                const cancelReason = clash ? 'clash' : 'late';
+                const overheadRecovery = (fullSessionBlock / 60) * tmhrValue;
                 const materialRecovery = (primarySvc?.cost || 0) + addOns.reduce((sum, a) => sum + (a.cost || 0), 0);
                 const fee = Number((overheadRecovery + materialRecovery).toFixed(2));
 
                 const batch = writeBatch(firestore);
-                batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: reason, cancellationFeeApplied: fee });
+                batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: cancelReason, cancellationFeeApplied: fee });
                 if (fee > 0 && apt.clientId) {
                     batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (${fullSessionBlock}m session block)` }) });
                 }
@@ -252,7 +254,7 @@ function PlannerPageContent() {
                 });
                 return;
             } else if (lateMinutes > grace) {
-                const timeLostCost = (lateMinutes / 60) * tmhr;
+                const timeLostCost = (lateMinutes / 60) * tmhrValue;
                 const fee = Number((timeLostCost + premium).toFixed(2));
                 
                 const batch = writeBatch(firestore);
@@ -385,6 +387,7 @@ function PlannerPageContent() {
       updateDocumentNonBlocking(appointmentRef, apt);
       if (apt.checkInToken) updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...apt, tenantId });
       setIsEditAppointmentOpen(false);
+      setIsRescheduleOpen(false);
       toast({ title: "Session Updated" });
   };
 
@@ -608,6 +611,18 @@ function PlannerPageContent() {
             services={services || []} 
             appointments={appointments} 
             onConfirm={handleUpdateAppointment} 
+          />
+      )}
+
+      {selectedAppointment && (
+          <RescheduleDialog
+            open={isRescheduleOpen}
+            onOpenChange={setIsRescheduleOpen}
+            appointment={selectedAppointment}
+            clients={clients || []}
+            services={services || []}
+            appointments={appointments || []}
+            onConfirm={handleUpdateAppointment}
           />
       )}
 

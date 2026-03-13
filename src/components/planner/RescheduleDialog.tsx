@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -9,7 +10,6 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogTrigger
 } from '@/components/ui/dialog';
 import {
   Sheet,
@@ -18,41 +18,30 @@ import {
   SheetTitle,
   SheetDescription,
   SheetFooter,
-  SheetTrigger,
 } from '@/components/ui/sheet';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, ChevronLeft, ChevronRight, Clock, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { CalendarIcon, ChevronLeft, ChevronRight, Clock, AlertTriangle, ArrowRight, Sparkles, User, CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, Staff } from '@/lib/data';
+import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, differenceInHours } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useInventory } from '@/context/InventoryContext';
-import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useTenant } from '@/context/TenantContext';
+import { ScrollArea } from '../ui/scroll-area';
+import { Separator } from '../ui/separator';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
-
-    if (!timeStr) {
-      return d;
-    }
-
+    if (!timeStr) return d;
     const [time, period] = timeStr.split(' ');
     let [hours, minutes] = time.split(':').map(Number);
-
-    if (period === 'PM' && hours < 12) {
-        hours += 12;
-    }
-    if (period === 'AM' && hours === 12) {
-        hours = 0;
-    }
-
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
     d.setHours(hours, minutes);
     return d;
 }
@@ -74,16 +63,16 @@ const RescheduleAppointmentForm = ({
 }) => {
     const { scheduleProfiles, staff } = useInventory();
     const { selectedTenant: tenant } = useTenant();
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
 
-    const [rescheduleDate, setRescheduleDate] = useState(appointment.startTime);
-    const [rescheduleTime, setRescheduleTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
+    const [rescheduleDate, setRescheduleDate] = useState(safeDate(appointment.startTime));
+    const [rescheduleTime, setRescheduleTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
 
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
 
     const isWithinCancellationWindow = useMemo(() => {
         if (!appointment || !tenant?.cancellationWindowHours) return false;
-        const startTime = appointment.startTime instanceof Date ? appointment.startTime : new Date(appointment.startTime);
+        const startTime = safeDate(appointment.startTime);
         const hoursUntil = differenceInHours(startTime, new Date());
         return hoursUntil < tenant.cancellationWindowHours;
     }, [appointment, tenant]);
@@ -95,267 +84,150 @@ const RescheduleAppointmentForm = ({
     const handleNextWeek = () => setRescheduleDate(prev => addWeeks(prev, 1));
     const handleDateSelect = (day: Date) => setRescheduleDate(day);
 
-     const isDayClosed = (day: Date) => {
-        if (!publicScheduleProfile) return true;
-        const dayName = format(day, 'eeee').toLowerCase();
-        const staffDaySchedule = assignedStaff?.availability?.week?.[dayName as keyof typeof assignedStaff.availability.week];
-        if (staffDaySchedule?.enabled) {
-            return false;
-        }
-        if (staffDaySchedule && !staffDaySchedule.enabled) {
-            return true;
-        }
-        const dayHours = publicScheduleProfile.week[dayName];
-        return !dayHours || !dayHours.enabled;
-    }
-
     const timeSlots = useMemo(() => {
         if (!service || !rescheduleDate || !publicScheduleProfile || !staff || !services) return [];
-
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
         const dayName = format(rescheduleDate, 'eeee').toLowerCase();
         
-        let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
-
+        let workingHours;
         const staffDaySchedule = assignedStaff?.availability?.week?.[dayName as keyof typeof assignedStaff.availability.week];
-
-        if (staffDaySchedule?.enabled) {
-            workingHours = staffDaySchedule;
-        } else if (staffDaySchedule && !staffDaySchedule.enabled) {
-            return []; // Staff is explicitly not working this day
-        }
-        else {
-            workingHours = publicScheduleProfile?.week?.[dayName];
-        }
+        if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
+        else workingHours = publicScheduleProfile?.week?.[dayName];
         
-        if (!workingHours || !workingHours.enabled) {
-          return [];
-        }
+        if (!workingHours || !workingHours.enabled) return [];
 
         const openTime = timeStringToDate(workingHours.start, rescheduleDate);
         const closeTime = timeStringToDate(workingHours.end, rescheduleDate);
         
-        const existingAppointmentsOnDate = appointments.filter(
-            apt => apt.id !== appointment.id && isSameDay(apt.startTime, rescheduleDate) && apt.staffId === appointment.staffId
-        ).map(apt => {
-            const serviceForApt = services.find(s => s.id === apt.serviceId);
-            const padBefore = serviceForApt?.padBefore || 0;
-            const padAfter = serviceForApt?.padAfter || 0;
-            return {
-                start: addMinutes(apt.startTime, -padBefore),
-                end: addMinutes(apt.endTime, padAfter)
-            }
+        const busyIntervals: { start: Date, end: Date }[] = [];
+        appointments.filter(apt => apt.id !== appointment.id && isSameDay(safeDate(apt.startTime), rescheduleDate) && apt.staffId === appointment.staffId).forEach(apt => {
+            const svc = services.find(s => s.id === apt.serviceId);
+            busyIntervals.push({ start: addMinutes(safeDate(apt.startTime), -(svc?.padBefore || 0)), end: addMinutes(safeDate(apt.endTime), (svc?.padAfter || 0)) });
         });
 
         const options: string[] = [];
         let currentTime = openTime;
-        
         while (currentTime < closeTime) {
-            const potentialStartTime = currentTime;
-            const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
-            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-
-            if (potentialEndTime > closeTime) {
-                break;
-            }
-
-            const isOverlapping = existingAppointmentsOnDate.some(apt =>
-                areIntervalsOverlapping(
-                    { start: potentialStartTime, end: potentialEndTime },
-                    { start: apt.start, end: apt.end },
-                    { inclusive: false }
-                )
-            );
-
-            if (!isOverlapping) {
-                options.push(format(potentialStartTime, 'HH:mm'));
-            }
-
+            const potentialEnd = addMinutes(currentTime, service.duration + (service.padBefore || 0) + (service.padAfter || 0));
+            if (potentialEnd > closeTime) break;
+            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+            if (!isOverlapping) options.push(format(currentTime, 'HH:mm'));
             currentTime = addMinutes(currentTime, bookingInterval);
         }
         
-        const originalTimeFormatted = format(appointment.startTime, 'HH:mm');
-        if (!options.includes(originalTimeFormatted) && isSameDay(appointment.startTime, rescheduleDate)) {
-            options.unshift(originalTimeFormatted);
+        const originalTimeFormatted = format(safeDate(appointment.startTime), 'HH:mm');
+        if (isSameDay(rescheduleDate, safeDate(appointment.startTime)) && !options.includes(originalTimeFormatted)) {
+            options.push(originalTimeFormatted);
             options.sort();
         }
-
         return options;
-    }, [rescheduleDate, service, appointments, appointment.id, appointment.startTime, appointment.staffId, services, publicScheduleProfile, staff, assignedStaff]);
-
+    }, [rescheduleDate, service, appointments, appointment, services, publicScheduleProfile, assignedStaff, staff]);
 
     const handleSubmit = () => {
-        if (!client || !service || !rescheduleDate || !rescheduleTime) return;
-
+        if (!rescheduleTime) return;
         const [hours, minutes] = rescheduleTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(rescheduleDate), hours), minutes);
-
-        const endDateTime = new Date(startDateTime.getTime() + (service.duration * 60000));
-
-        const updatedAppointment: Appointment = {
-            ...appointment,
-            startTime: startDateTime,
-            endTime: endDateTime,
-        };
-        
-        onConfirm(updatedAppointment);
+        const endDateTime = addMinutes(startDateTime, service.duration);
+        onConfirm({ ...appointment, startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString() });
     }
     
     return (
-        <form id="reschedule-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
-            <div className="space-y-6">
-                {isWithinCancellationWindow && (
-                    <Alert className="bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400 border-2 shadow-sm">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle className="text-xs font-black uppercase tracking-tight">Policy Alert: Late Reschedule</AlertTitle>
-                        <AlertDescription className="text-xs">
-                            This appointment is within the {tenant?.cancellationWindowHours}-hour window. Consider if a late-move fee of ${tenant?.cancellationFee?.toFixed(2)} should be applied.
-                        </AlertDescription>
-                    </Alert>
-                )}
-
-                <Card>
-                    <CardContent className="p-4">
-                        <div className="flex items-center gap-4">
-                            <Avatar className="w-12 h-12">
-                                <AvatarImage src={client.avatarUrl} alt={client.name} />
-                                <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                                <p className="font-semibold">{client.name}</p>
-                                <p className="text-sm text-muted-foreground">{service.name}</p>
-                                {assignedStaff && (
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground pt-1">
-                                        <Avatar className="w-5 h-5">
-                                            <AvatarImage src={assignedStaff.avatarUrl} />
-                                            <AvatarFallback>{assignedStaff.name.charAt(0)}</AvatarFallback>
-                                        </Avatar>
-                                        <span>{assignedStaff.name}</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">New Date & Time</h3>
-                    <div className="space-y-2">
-                        <Label>Date</Label>
-                        <div className="rounded-lg border p-4 space-y-4">
-                            <div className="flex justify-between items-center">
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={handlePreviousWeek} type="button"><ChevronLeft className="w-4 h-4"/></Button>
-                                <span className="font-semibold">{format(rescheduleDate, 'MMMM yyyy')}</span>
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleNextWeek}><ChevronRight className="w-4 h-4"/></Button>
-                            </div>
-                            <div className="grid grid-cols-7 gap-2">
-                                {weekDays.map(day => (
-                                    <button
-                                        key={day.toISOString()}
-                                        onClick={() => handleDateSelect(day)}
-                                        disabled={isDayClosed(day)}
-                                        type="button"
-                                        className={cn(
-                                            "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
-                                            isSameDay(day, rescheduleDate)
-                                                ? "bg-primary text-primary-foreground border-primary"
-                                                : "bg-background hover:bg-accent",
-                                            isDayClosed(day) && "bg-muted/50 text-muted-foreground cursor-not-allowed"
-                                        )}
-                                    >
-                                        <span className="text-xs">{format(day, 'E')}</span>
-                                        <span className="font-bold text-lg">{format(day, 'd')}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
+        <div className="space-y-8">
+            <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl overflow-hidden">
+                <CardContent className="p-6 flex items-center gap-6 text-left">
+                    <Avatar className="w-16 h-16 border-4 border-background shadow-xl rounded-2xl">
+                        <AvatarImage src={client.avatarUrl} className="object-cover" />
+                        <AvatarFallback className="font-black bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                        <p className="font-black text-xl uppercase tracking-tighter text-slate-900 leading-none mb-1">{client.name}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{service.name}</p>
                     </div>
-                    
-                    <div>
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold text-foreground">Select Time</h3>
-                            <span className="text-sm text-muted-foreground">{timeSlots.length} Slots</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            {timeSlots.map(slot => (
-                                <Button 
-                                    key={slot} 
-                                    type="button"
-                                    variant={rescheduleTime === slot ? 'default' : 'outline'}
-                                    onClick={() => setRescheduleTime(slot)}
-                                >
-                                    {format(parseISO(`1970-01-01T${slot}:00`), 'h:mm a')}
-                                </Button>
-                            ))}
-                            {timeSlots.length === 0 && <p className="col-span-3 text-center text-sm text-muted-foreground py-4">No available slots for this day.</p>}
-                        </div>
+                </CardContent>
+            </Card>
+
+            {isWithinCancellationWindow && (
+                <Alert variant="destructive" className="border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl">
+                    <AlertTriangle className="h-6 w-6 text-destructive" />
+                    <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Policy Restriction</AlertTitle>
+                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
+                        This session is within the <strong>{tenant?.cancellationWindowHours}h window</strong>. Consider applying a late-move fee.
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            <div className="space-y-4">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><CalendarDays className="w-3.5 h-3.5 opacity-40" /> Schedule Refinement</Label>
+                <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner">
+                    <div className="flex justify-between items-center px-2">
+                        <Button variant="outline" size="icon" onClick={handlePreviousWeek} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
+                        <span className="font-black uppercase tracking-widest text-sm">{format(rescheduleDate, 'MMMM yyyy')}</span>
+                        <Button variant="outline" size="icon" onClick={handleNextWeek} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
+                    </div>
+                    <div className="grid grid-cols-7 gap-2">
+                        {weekDays.map(day => (
+                            <button key={day.toISOString()} onClick={() => handleDateSelect(day)} type="button" className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, rescheduleDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", isBefore(day, startOfDay(new Date())) && !isToday(day) && "opacity-20 cursor-not-allowed")}>
+                                <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'EEE')}</span>
+                                <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 pt-8 border-t-2 border-dashed border-white/50">
+                        {timeSlots.map(slot => (
+                            <Button key={slot} type="button" variant={rescheduleTime === slot ? 'default' : 'outline'} className={cn("h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", rescheduleTime === slot ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background")} onClick={() => setRescheduleTime(slot)}>
+                                {format(timeStringToDate(slot, new Date()), 'h:mm a')}
+                            </Button>
+                        ))}
+                        {timeSlots.length === 0 && <div className="col-span-full text-center py-12 border-2 border-dashed rounded-[2rem] opacity-30 font-black uppercase text-[10px]">No Availability</div>}
                     </div>
                 </div>
             </div>
-        </form>
+            <Button id="submit-reschedule" className="hidden" onClick={handleSubmit}>Submit</Button>
+        </div>
     );
 };
 
-export const RescheduleDialog = ({ 
-    open, 
-    onOpenChange, 
-    appointment, 
-    clients, 
-    services, 
-    appointments, 
-    onConfirm 
-}: { 
-    open: boolean, 
-    onOpenChange: (open: boolean) => void, 
-    appointment: Appointment, 
-    clients: Client[], 
-    services: Service[], 
-    appointments: Appointment[], 
-    onConfirm: (apt: Appointment) => void 
-}) => {
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val?.toDate === 'function') return val.toDate();
+    return new Date(val);
+};
+
+export const RescheduleDialog = ({ open, onOpenChange, appointment, clients, services, appointments, onConfirm }: { open: boolean, onOpenChange: (open: boolean) => void, appointment: Appointment, clients: Client[], services: Service[], appointments: Appointment[], onConfirm: (apt: Appointment) => void }) => {
   const isMobile = useIsMobile();
-  const { events } = useInventory();
   const client = clients.find(c => c.id === appointment.clientId);
   const service = services.find(s => s.id === appointment.serviceId);
 
   if (!client || !service) return null;
 
-  const title = "Reschedule Appointment";
-  const description = "Select a new date and time for this appointment.";
-  
-  const FormContent = <RescheduleAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} services={services} onConfirm={onConfirm} />;
-
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left px-4">
-            <SheetTitle>{title}</SheetTitle>
-            <SheetDescription>{description}</SheetDescription>
-          </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
-          <SheetFooter className="px-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" form="reschedule-appointment-form" className="w-full">Save Changes</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    );
-  }
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-         <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <div className="py-4">{FormContent}</div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" form="reschedule-appointment-form">Save Changes</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+        <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics Suite</span>
+            </div>
+            <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Reschedule Protocol</SheetTitle>
+            <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Shift session timing in the studio manifest.</SheetDescription>
+        </SheetHeader>
+        <ScrollArea className="flex-1">
+            <div className={cn("p-8", isMobile && "p-6")}>
+                <RescheduleAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} services={services} onConfirm={onConfirm} />
+            </div>
+        </ScrollArea>
+        <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
+            <div className="grid grid-cols-2 gap-3 w-full">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button onClick={() => document.getElementById('submit-reschedule')?.click()} className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Confirm Shift <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+            </div>
+        </SheetFooter>
+      </ContentComponent>
+    </DialogContainer>
   );
 };
