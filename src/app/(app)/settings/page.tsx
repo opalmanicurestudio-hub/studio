@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
@@ -46,7 +47,8 @@ import {
   MessageSquare,
   ListChecks,
   Loader,
-  DollarSign
+  DollarSign,
+  ShieldCheck
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -279,6 +281,7 @@ function SettingsContent() {
         'noShowFee', 
         'autoCancelLateArrivals', 
         'allowDiscountStacking', 
+        'requireTillWitness',
         'cancellationPolicy', 
         'lateArrivalPolicy', 
         'noShowPolicy'
@@ -762,6 +765,36 @@ function SettingsContent() {
                                     {isPoliciesEditing && <Button variant="ghost" size="sm" className="h-7 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))}>Auto-Draft Strategy</Button>}
                                 </div>
                                 <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder="Draft protocol conditions..." rows={4} className="rounded-2xl border-2 bg-muted/5 font-medium leading-relaxed text-slate-700" disabled={!isPoliciesEditing} />
+                            </div>
+                        </div>
+
+                        <Separator className="border-dashed" />
+
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                <ShieldCheck className="w-4 h-4" /> Terminal Governance
+                            </h3>
+                            
+                            <div className="grid grid-cols-1 gap-8">
+                                <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner">
+                                    <div className='space-y-1 text-left'>
+                                        <Label htmlFor="require-witness" className="text-base font-black uppercase tracking-tight flex items-center gap-2"><Users className="w-4 h-4" /> Dual-Audit Requirement</Label>
+                                        <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Requires a witness signature to close the studio till</p>
+                                    </div>
+                                    <Switch 
+                                        id="require-witness" 
+                                        checked={tenantData.requireTillWitness !== false} 
+                                        onCheckedChange={(checked) => setTenantData(prev => ({...prev, requireTillWitness: checked}))} 
+                                        disabled={!isPoliciesEditing} 
+                                        className="scale-125" 
+                                    />
+                                </div>
+                                <div className="p-5 rounded-2xl border-2 border-dashed bg-muted/10 flex items-start gap-4 text-left">
+                                    <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
+                                    <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
+                                        Independent studios may disable witness verification to streamline the end-of-shift reconciliation for solo providers.
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </CardContent>

@@ -626,6 +626,7 @@ export type Tenant = {
   cancellationWindowHours?: number;
   noShowFee?: number;
   allowDiscountStacking?: boolean;
+  requireTillWitness?: boolean;
   cancellationPolicy?: string;
   noShowPolicy?: string;
   lateArrivalPolicy?: string;

@@ -196,14 +196,16 @@ export const TillManagement = ({
     activeTill, 
     staff,
     onOpenTill,
-    onCloseTill 
+    onCloseTill,
+    requireTillWitness = true
 }: { 
     open: boolean, 
     onOpenChange: (open: boolean) => void, 
     activeTill: TillSession | null,
     staff: Staff[],
     onOpenTill: (data: any) => void,
-    onCloseTill: (data: any) => void
+    onCloseTill: (data: any) => void,
+    requireTillWitness?: boolean
 }) => {
     const isMobile = useIsMobile();
     const { toast } = useToast();
@@ -219,7 +221,6 @@ export const TillManagement = ({
 
     const sigCanvasRef = useRef<SignatureCanvas | null>(null);
     const witnessSigCanvasRef = useRef<SignatureCanvas | null>(null);
-    const [signatures, setSignatures] = useState<Record<string, string>>({});
 
     const actualTotal = useMemo(() => {
         return denominations.reduce((acc, d) => acc + (counts[d.key] || 0) * d.val, 0);
@@ -250,7 +251,7 @@ export const TillManagement = ({
                 toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Primary authenticator not found.' });
                 return;
             }
-            if (activeTill) {
+            if (activeTill && requireTillWitness) {
                 const witnessStaff = staff.find(s => s.pin === witnessPin);
                 if (!witnessStaff) {
                     toast({ variant: 'destructive', title: 'Witness Required', description: 'Invalid Witness PIN.' });
@@ -267,7 +268,7 @@ export const TillManagement = ({
 
     const handleAction = () => {
         const authorizedStaff = staff.find(s => s.pin === primaryPin);
-        if (!authorizedStaff) return; // Should already be caught in previous step
+        if (!authorizedStaff) return;
 
         const mainSig = sigCanvasRef.current?.getTrimmedCanvas().toDataURL('image/png');
         if (!mainSig) {
@@ -276,9 +277,10 @@ export const TillManagement = ({
         }
 
         if (activeTill) {
-            const witnessStaff = staff.find(s => s.pin === witnessPin);
-            const witnessSig = witnessSigCanvasRef.current?.getTrimmedCanvas().toDataURL('image/png');
-            if (!witnessSig) {
+            const witnessStaff = requireTillWitness ? staff.find(s => s.pin === witnessPin) : null;
+            const witnessSig = requireTillWitness ? witnessSigCanvasRef.current?.getTrimmedCanvas().toDataURL('image/png') : null;
+            
+            if (requireTillWitness && !witnessSig) {
                 toast({ variant: 'destructive', title: 'Witness Signature Required' });
                 return;
             }
@@ -319,7 +321,6 @@ export const TillManagement = ({
         setFinalSessionData(null);
         setMainView('active');
         setHistoricalSession(null);
-        setSignatures({});
     };
 
     const handleClose = () => {
@@ -354,14 +355,14 @@ export const TillManagement = ({
                 </DialogHeader>
 
                 <ScrollArea className="flex-1">
-                    <div className="p-8 pb-32">
+                    <div className="p-8">
                         <AnimatePresence mode="wait">
                             {mainView === 'history' ? (
-                                <motion.div key="history" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                                <motion.div key="history" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4 pb-20">
                                     {historicalSession ? (
                                         <div className="space-y-6">
                                             <Button variant="ghost" size="sm" onClick={() => setHistoricalSession(null)} className="h-8 font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5">
-                                                <History className="mr-2 h-3.5 w-3.5"/> Back to Archives
+                                                <Undo2 className="mr-2 h-3.5 w-3.5"/> Back to Archives
                                             </Button>
                                             <DepositSlip session={historicalSession} staff={staff} />
                                             <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl" onClick={() => window.print()}>
@@ -402,7 +403,7 @@ export const TillManagement = ({
                             ) : (
                                 <>
                                     {step === 'count' && (
-                                        <motion.div key="count" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-10">
+                                        <motion.div key="count" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-10 pb-20">
                                             {activeTill && (
                                                 <Card className="bg-primary/5 border-2 border-primary/10 rounded-[2rem] shadow-inner overflow-hidden">
                                                     <CardContent className="p-6 grid grid-cols-2 gap-6">
@@ -424,7 +425,7 @@ export const TillManagement = ({
                                     )}
 
                                     {step === 'allocation' && (
-                                        <motion.div key="allocation" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
+                                        <motion.div key="allocation" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-20">
                                             <div className="p-8 rounded-[2.5rem] bg-slate-900 text-white text-center space-y-4 shadow-2xl relative overflow-hidden">
                                                 <div className="absolute top-0 right-0 p-6 opacity-5"><Banknote className="w-32 h-32" /></div>
                                                 <div className="space-y-1 relative z-10">
@@ -466,10 +467,10 @@ export const TillManagement = ({
                                     )}
 
                                     {step === 'verify' && (
-                                        <motion.div key="verify" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-10 py-6">
-                                            <div className="space-y-8">
+                                        <motion.div key="verify" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-10 py-6 pb-20">
+                                            <div className="space-y-8 text-left">
                                                 <div className="space-y-4">
-                                                    <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-3 px-1">
                                                         <div className="p-2 bg-primary/10 rounded-xl"><User className="w-5 h-5 text-primary" /></div>
                                                         <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Primary Auditor PIN</Label>
                                                     </div>
@@ -483,9 +484,9 @@ export const TillManagement = ({
                                                     />
                                                 </div>
 
-                                                {activeTill && (
+                                                {activeTill && requireTillWitness && (
                                                     <div className="space-y-4 pt-10 border-t-2 border-dashed">
-                                                        <div className="flex items-center gap-3">
+                                                        <div className="flex items-center gap-3 px-1">
                                                             <div className="p-2 bg-primary/10 rounded-xl"><ShieldCheck className="w-5 h-5 text-primary" /></div>
                                                             <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Witness Verification PIN</Label>
                                                         </div>
@@ -497,7 +498,7 @@ export const TillManagement = ({
                                                             className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 border-primary/20 focus-visible:ring-primary/20 shadow-inner bg-white"
                                                             placeholder="••••"
                                                         />
-                                                        <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 flex items-start gap-3 text-left">
+                                                        <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 flex items-start gap-3">
                                                             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                                                             <p className="text-[9px] font-bold text-amber-700 uppercase leading-relaxed">Dual-authorization required. A witness must verify the physical count.</p>
                                                         </div>
@@ -508,7 +509,7 @@ export const TillManagement = ({
                                     )}
 
                                     {step === 'sign' && (
-                                        <motion.div key="sign" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-10">
+                                        <motion.div key="sign" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-10 pb-20">
                                             <div className="space-y-4 text-left">
                                                 <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
                                                     <FileSignature className="w-4 h-4" /> Primary Signature
@@ -527,7 +528,7 @@ export const TillManagement = ({
                                                 <Button variant="ghost" size="sm" onClick={() => sigCanvasRef.current?.clear()} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground h-6 px-3">Clear Pad</Button>
                                             </div>
 
-                                            {activeTill && (
+                                            {activeTill && requireTillWitness && (
                                                 <div className="space-y-4 pt-10 border-t-2 border-dashed text-left">
                                                     <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
                                                         <ShieldCheck className="w-4 h-4" /> Witness Signature
@@ -550,7 +551,7 @@ export const TillManagement = ({
                                     )}
 
                                     {step === 'success' && finalSessionData && (
-                                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
+                                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8 pb-20">
                                             <div className="p-8 rounded-[3rem] border-4 border-green-500/20 bg-green-500/5 text-center space-y-4 shadow-xl">
                                                 <div className="w-20 h-20 bg-green-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/20 rotate-6">
                                                     <CheckCircle2 className="w-12 h-12 text-white -rotate-6" />
@@ -592,7 +593,7 @@ export const TillManagement = ({
                                 {step === 'verify' && (
                                     <div className="flex gap-3">
                                         <Button variant="ghost" onClick={() => setStep(activeTill ? 'allocation' : 'count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
-                                        <Button onClick={handleStepTransition} disabled={primaryPin.length < 4 || (activeTill && witnessPin.length < 4)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Biometric Sign</Button>
+                                        <Button onClick={handleStepTransition} disabled={primaryPin.length < 4 || (activeTill && requireTillWitness && witnessPin.length < 4)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Biometric Sign</Button>
                                     </div>
                                 )}
                                 {step === 'sign' && (
