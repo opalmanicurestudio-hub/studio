@@ -248,15 +248,16 @@ export const CheckoutHub = ({
     }, [appointmentsData, staff]);
 
     const handleTotalTipChange = (value: number) => {
-        setTipAmount(value);
+        const roundedValue = Number(value.toFixed(2));
+        setTipAmount(roundedValue);
         if (allInvolvedStaff.length > 0) {
-            const splitAmount = Number((value / allInvolvedStaff.length).toFixed(2));
+            const splitAmount = Number((roundedValue / allInvolvedStaff.length).toFixed(2));
             const newAllocations: Record<string, number> = {};
             let currentTotal = 0;
             
             allInvolvedStaff.forEach((member, index) => {
                 if (index === allInvolvedStaff.length - 1) {
-                    newAllocations[member.id] = Number((value - currentTotal).toFixed(2));
+                    newAllocations[member.id] = Number((roundedValue - currentTotal).toFixed(2));
                 } else {
                     newAllocations[member.id] = splitAmount;
                     currentTotal += splitAmount;
@@ -585,8 +586,8 @@ export const CheckoutHub = ({
                                             <div className="pt-3 border-t border-dashed flex justify-between items-center">
                                                 <span className="text-[10px] font-black uppercase text-muted-foreground">Audit Overage</span>
                                                 <div className="flex items-center gap-3">
-                                                    <span className={cn("font-black font-mono text-xs", isWaived ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
-                                                    {isOwnerOrAdmin && (isWaived ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
+                                                    <span className={cn("font-black font-mono text-xs", isWaiveAuthOpen ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
+                                                    {isOwnerOrAdmin && (isWaiveAuthOpen ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
                                                 </div>
                                             </div>
                                         )}
@@ -733,7 +734,7 @@ export const CheckoutHub = ({
                                     </Avatar>
                                     <span className="text-[9px] md:text-[10px] font-black uppercase tracking-tight truncate text-slate-700">{member.name.split(' ')[0]}</span>
                                 </div>
-                                <div className="relative w-20 md:w-24">
+                                <div className="relative w-24 md:w-32">
                                     <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
                                     <Input 
                                         type="number" 
@@ -747,7 +748,7 @@ export const CheckoutHub = ({
                     </div>
                 )}
 
-                <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4">
+                <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4 border-t border-border/50">
                     <div className="space-y-0.5 text-left">
                         <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
                         <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
@@ -755,25 +756,51 @@ export const CheckoutHub = ({
                     <p className="font-mono text-2xl md:text-4xl">${total.toFixed(2)}</p>
                 </div>
 
-                {amountTendered > total && paymentTab === 'cash' && (
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
-                        <Button 
-                            variant="outline" 
-                            className="w-full h-12 rounded-2xl border-2 border-green-500/20 bg-green-500/5 hover:bg-green-500/10 text-green-700 font-black uppercase text-[10px] tracking-widest shadow-sm"
-                            onClick={() => handleTotalTipChange(tipAmount + (amountTendered - total))}
-                        >
-                            <Sparkles className="w-3.5 h-3.5 mr-2" />
-                            Keep Full Change as Tip (${(amountTendered - total).toFixed(2)})
-                        </Button>
-                    </motion.div>
-                )}
+                <AnimatePresence>
+                    {amountTendered > total && paymentTab === 'cash' && (
+                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="pt-2">
+                            <Button 
+                                variant="outline" 
+                                className="w-full h-12 rounded-2xl border-2 border-green-500/20 bg-green-500/5 hover:bg-green-500/10 text-green-700 font-black uppercase text-[10px] tracking-widest shadow-sm"
+                                onClick={() => handleTotalTipChange(tipAmount + (amountTendered - total))}
+                            >
+                                <Sparkles className="w-3.5 h-3.5 mr-2" />
+                                Keep Full Change as Tip (${(amountTendered - total).toFixed(2)})
+                            </Button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 <div className="space-y-3 md:space-y-4 pt-6">
                     <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-                        <div><RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" disabled={!activeTill} /><RadioLabel htmlFor="hub-pay-cash" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !activeTill && "opacity-40 grayscale")}><Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Cash</RadioLabel></div>
-                        <div><RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-card" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Card</RadioLabel></div>
-                        <div><RadioGroupItem value="card_on_file" id="hub-pay-cof" className="peer sr-only" disabled={!hasCardOnFile}/><RadioLabel htmlFor="hub-pay-cof" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !hasCardOnFile && "opacity-40 grayscale")}><ShieldCheck className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Vaulted</RadioLabel></div>
-                        <div><RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-scan" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><ScanIcon className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Scan</RadioLabel></div>
+                        <div>
+                            <RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" disabled={!activeTill} />
+                            <RadioLabel htmlFor="hub-pay-cash" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !activeTill && "opacity-40 grayscale")}>
+                                <Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />
+                                Cash
+                            </RadioLabel>
+                        </div>
+                        <div>
+                            <RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" />
+                            <RadioLabel htmlFor="hub-pay-card" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm")}>
+                                <CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />
+                                Card
+                            </RadioLabel>
+                        </div>
+                        <div>
+                            <RadioGroupItem value="card_on_file" id="hub-pay-cof" className="peer sr-only" disabled={!hasCardOnFile}/>
+                            <RadioLabel htmlFor="hub-pay-cof" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !hasCardOnFile && "opacity-40 grayscale")}>
+                                <ShieldCheck className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />
+                                Vaulted
+                            </RadioLabel>
+                        </div>
+                        <div>
+                            <RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" />
+                            <RadioLabel htmlFor="hub-pay-scan" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm")}>
+                                <ScanIcon className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />
+                                Scan
+                            </RadioLabel>
+                        </div>
                     </RadioGroup>
 
                     {paymentTab === 'cash' && (
