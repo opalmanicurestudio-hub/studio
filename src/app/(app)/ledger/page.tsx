@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -52,7 +53,10 @@ import {
   Briefcase,
   List,
   Package,
-  Users
+  Users,
+  CheckCircle2,
+  Activity,
+  Star
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -219,7 +223,6 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         if (!svc) return { overhead: 0, materials: 0, labor: 0, total: 0 };
 
         // 1. MATERIAL COSTS: Pulling from Actual Technician Review (Formula)
-        // Correct precision logic: checkoutState.formula items now store base cost per unit (e.g., cost per ml)
         let materials = 0;
         if (apt.checkoutState?.formula && apt.checkoutState.formula.length > 0) {
             materials = apt.checkoutState.formula.reduce((acc: number, item: any) => {
@@ -239,6 +242,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
         let labor = 0;
         if (staffMember?.payStructure === 'commission') {
+            // LABOR COST IS THE PAYOUT TO THE TECH
             labor = transaction.amount * ((staffMember.commissionRate || 40) / 100);
         } else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) {
             labor = (actualDuration / 60) * staffMember.hourlyRate;
@@ -270,7 +274,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         setRefundAmount(Number(safeAmount.toFixed(2)));
         toast({
             title: "Costs Protected",
-            description: `Retained $${costsBreakdown.total.toFixed(2)} based on actual material usage and labor.`
+            description: `Retained $${costsBreakdown.total.toFixed(2)} based on technician-verified usage and labor.`
         });
     };
 
@@ -282,7 +286,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         }
         
         if (!reason.trim()) {
-            toast({ variant: 'destructive', title: 'Reason Required', description: 'A detailed justification is mandatory for audit compliance.' });
+            toast({ variant: 'destructive', title: 'Reason Required', description: 'A detailed justification is mandatory.' });
             return;
         }
         
@@ -319,7 +323,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                             <div className="pt-3 border-t border-destructive/10">
                                 <p className="text-[10px] font-bold text-slate-600 uppercase flex items-center justify-center gap-2">
                                     {isCardPayment ? <Lock className="w-3 h-3" /> : <Banknote className="w-3 h-3" />}
-                                    Method: {isCardPayment ? 'Locked to Card' : transaction.paymentMethod}
+                                    Method: {isCardPayment ? 'Original Card (Locked)' : transaction.paymentMethod}
                                 </p>
                             </div>
                         </div>
@@ -342,20 +346,23 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                             <span className="font-mono">${costsBreakdown.overhead.toFixed(2)}</span>
                                         </div>
                                         <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
-                                            <span className="flex items-center gap-2"><Package className="w-3 h-3" /> Product formula</span>
+                                            <span className="flex items-center gap-2"><Package className="w-3 h-3" /> Actual Formula</span>
                                             <span className="font-mono">${costsBreakdown.materials.toFixed(2)}</span>
                                         </div>
                                         <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
-                                            <span className="flex items-center gap-2"><Users className="w-3 h-3" /> Staff Labor</span>
+                                            <span className="flex items-center gap-2"><Users className="w-3 h-3" /> Technician Labor</span>
                                             <span className="font-mono">${costsBreakdown.labor.toFixed(2)}</span>
                                         </div>
                                         <Separator className="border-dashed" />
                                         <div className="flex justify-between items-center text-[10px] font-black uppercase text-primary">
-                                            <span>Total Protected Costs</span>
+                                            <span>Total Hard-Loss Protection</span>
                                             <span className="font-mono">${costsBreakdown.total.toFixed(2)}</span>
                                         </div>
                                     </CardContent>
                                 </Card>
+                                <p className="text-[8px] font-bold text-muted-foreground uppercase leading-relaxed text-center px-4">
+                                    "Technician Labor" represents the commission already generated for this session. Protect this cost if you intend to pay the pro for their work despite the refund.
+                                </p>
                             </div>
                         )}
 
@@ -364,7 +371,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reversal Parameters</Label>
                                 <div className="p-4 rounded-2xl border-2 bg-muted/5 space-y-4 shadow-inner">
                                     <div className="flex justify-between items-center">
-                                        <span className="text-[11px] font-black uppercase text-slate-700">Refund Amount</span>
+                                        <span className="text-[11px] font-black uppercase text-slate-700">Refund Service Base</span>
                                         <div className="relative w-24">
                                             <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
                                             <Input type="number" value={refundAmount} onChange={e => setRefundAmount(parseFloat(e.target.value) || 0)} className="h-8 pl-6 pr-2 rounded-lg border-2 text-right font-black font-mono text-xs" />
@@ -382,7 +389,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                             <AnimatePresence>
                                                 {refundTip && (
                                                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 pt-2">
-                                                        <Label className="text-[9px] font-black uppercase tracking-widest text-primary ml-1">Tip Payout Strategy</Label>
+                                                        <Label className="text-[9px] font-black uppercase tracking-widest text-primary ml-1">Tip Allocation Adjustment</Label>
                                                         <RadioGroup value={tipStrategy} onValueChange={(v: any) => setTipStrategy(v)} className="grid grid-cols-2 gap-2">
                                                             <label htmlFor="strategy-clawback" className="cursor-pointer">
                                                                 <div className={cn("p-2 rounded-xl border-2 text-center transition-all", tipStrategy === 'clawback' ? "border-primary bg-primary/5 shadow-sm text-primary" : "border-border bg-white text-slate-400")}>
@@ -392,7 +399,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                                             </label>
                                                             <label htmlFor="strategy-absorb" className="cursor-pointer">
                                                                 <div className={cn("p-2 rounded-xl border-2 text-center transition-all", tipStrategy === 'absorb' ? "border-primary bg-primary/5 shadow-sm text-primary" : "border-border bg-white text-slate-400")}>
-                                                                    <span className="text-[9px] font-black uppercase">Absorb</span>
+                                                                    <span className="text-[9px] font-black uppercase">Studio Absorb</span>
                                                                     <RadioGroupItem value="absorb" id="strategy-absorb" className="sr-only" />
                                                                 </div>
                                                             </label>
@@ -418,7 +425,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                             <div className="flex items-center justify-between p-5 rounded-2xl border-2 border-dashed bg-muted/5 shadow-inner">
                                 <div className="space-y-0.5 text-left">
                                     <Label className="text-xs font-black uppercase tracking-tight flex items-center gap-2"><FileWarning className="w-4 h-4 text-amber-600" /> Log as Incident</Label>
-                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Record this event in the guest dossier</p>
+                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">File a report in the guest dossier</p>
                                 </div>
                                 <Switch checked={logIncident} onCheckedChange={setLogIncident} />
                             </div>
@@ -440,7 +447,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                         </div>
                     </div>
                 </ScrollArea>
-                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3">
+                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 shrink-0">
                     <Button onClick={handleAction} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Authorize Reversal</Button>
                     <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest text-slate-400">Abort Reversal</Button>
                 </DialogFooter>
@@ -726,11 +733,11 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
   return (
     <TableRow className="group hover:bg-primary/[0.02] cursor-pointer" onClick={() => onViewDetails(transaction)}>
       <TableCell>
-        <div className="flex items-center gap-4 py-1">
-          <div className={cn("p-2 rounded-full", transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-primary/10')}>
+        <div className="flex items-center gap-4 py-1 text-left">
+          <div className={cn("p-2 rounded-full shrink-0", transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-primary/10')}>
             <TransactionIcon type={transaction.type} />
           </div>
-          <div className='flex flex-col min-w-0 text-left'>
+          <div className='flex flex-col min-w-0'>
             <span className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate">{transaction.description}</span>
             <span className='text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-60 truncate'>{transaction.clientOrVendor}</span>
           </div>
@@ -740,11 +747,11 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
       <TableCell>
         {staffMember ? (
             <div className="flex items-center gap-2">
-                <Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl">
+                <Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl shrink-0">
                     <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
                     <AvatarFallback className="text-[9px] bg-primary/10 text-primary font-black uppercase">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
                 </Avatar>
-                <span className="text-[10px] font-black uppercase tracking-tight text-slate-700">{staffMember.name.split(' ')[0]}</span>
+                <span className="text-[10px] font-black uppercase tracking-tight text-slate-700 truncate">{staffMember.name.split(' ')[0]}</span>
             </div>
         ) : <span className="text-[9px] font-black uppercase text-muted-foreground italic opacity-40">System</span>}
       </TableCell>
@@ -761,8 +768,8 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
       </TableCell>
       <TableCell className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider text-left">
           <div className="flex items-center gap-2">
-            <CreditCard className="w-3.5 h-3.5 opacity-40"/>
-            <span>{transaction.paymentMethod}</span>
+            <CreditCard className="w-3.5 h-3.5 opacity-40 shrink-0"/>
+            <span className="truncate">{transaction.paymentMethod}</span>
           </div>
       </TableCell>
       <TableCell className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60 text-left">{transaction.category}</TableCell>
@@ -772,13 +779,13 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
                 <Button 
                     variant="ghost" 
                     size="icon" 
-                    className="h-8 w-8 rounded-full hover:bg-primary/10 group/proof" 
+                    className="h-8 w-8 rounded-full hover:bg-primary/10 group/proof shrink-0" 
                     onClick={(e) => { e.stopPropagation(); onPreviewReceipt(transaction); }}
                 >
                     <Paperclip className="h-4 w-4 text-primary/40 group-hover:proof:text-primary transition-colors" />
                 </Button>
             )}
-            <span className={cn('font-mono text-sm md:text-base font-black tracking-tighter', {
+            <span className={cn('font-mono text-sm md:text-base font-black tracking-tighter shrink-0', {
                 'text-green-600': transaction.type === 'income',
                 'text-destructive': transaction.type === 'expense' || transaction.type === 'payment',
                 'text-slate-400': transaction.type === 'reversal',
@@ -790,7 +797,7 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
       <TableCell>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+            <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={e => e.stopPropagation()}>
               <MoreHorizontal className="h-4 w-4" />
               <span className="sr-only">Actions</span>
             </Button>
@@ -816,7 +823,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
         <Card className="border-2 shadow-sm rounded-3xl overflow-hidden group cursor-pointer" onClick={() => onViewDetails(transaction)}>
             <CardContent className="p-5 space-y-4">
                 <div className="flex items-start gap-4">
-                    <div className={cn("p-2.5 rounded-2xl shadow-inner", {
+                    <div className={cn("p-2.5 rounded-2xl shadow-inner shrink-0", {
                         'bg-green-500/10': transaction.type === 'income',
                         'bg-destructive/10': transaction.type === 'expense' || transaction.type === 'payment',
                         'bg-muted': transaction.type === 'reversal'
@@ -828,15 +835,15 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
                         <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest opacity-60">{transaction.clientOrVendor} &middot; {format(safeDate(transaction.date), 'MMM d, p')}</p>
                         {staffMember && (
                             <div className="flex items-center gap-2 mt-2">
-                                <Avatar className="h-6 w-6 border rounded-xl shadow-sm">
+                                <Avatar className="h-6 w-6 border rounded-xl shadow-sm shrink-0">
                                     <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
                                     <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0).toUpperCase()}</AvatarFallback>
                                 </Avatar>
-                                <span className="text-[10px] font-black uppercase text-primary tracking-tight">{staffMember.name}</span>
+                                <span className="text-[10px] font-black uppercase text-primary tracking-tight truncate">{staffMember.name}</span>
                             </div>
                         )}
                     </div>
-                    <div className='text-right'>
+                    <div className='text-right shrink-0'>
                         <p className={cn('font-black font-mono text-lg tracking-tighter', {
                             'text-green-600': transaction.type === 'income',
                             'text-destructive': transaction.type === 'expense' || transaction.type === 'payment',
@@ -848,7 +855,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
                             <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-8 w-8 rounded-full hover:bg-primary/10 mt-1" 
+                                className="h-8 w-8 rounded-full hover:bg-primary/10 mt-1 shrink-0" 
                                 onClick={(e) => { e.stopPropagation(); onPreviewReceipt(transaction); }}
                             >
                                 <Paperclip className="h-4 w-4 text-primary opacity-40" />
@@ -870,12 +877,12 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
                         <Badge variant="outline" className="text-[9px] h-5 px-2 uppercase font-black tracking-widest text-muted-foreground/60 border-2">{transaction.category}</Badge>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="text-[9px] text-muted-foreground font-black uppercase tracking-widest opacity-50 flex items-center gap-1.5">
-                            <CreditCard className="w-3 h-3"/> {transaction.paymentMethod}
+                        <div className="text-[9px] text-muted-foreground font-black uppercase tracking-widest opacity-50 flex items-center gap-1.5 truncate max-w-[80px]">
+                            <CreditCard className="w-3 h-3 shrink-0"/> {transaction.paymentMethod}
                         </div>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button aria-haspopup="true" size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-full group-hover:bg-primary/10" onClick={e => e.stopPropagation()}>
+                                <Button aria-haspopup="true" size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-full group-hover:bg-primary/10 shrink-0" onClick={e => e.stopPropagation()}>
                                     <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                             </DropdownMenuTrigger>
@@ -939,7 +946,6 @@ const LedgerPage = () => {
             setDate({ from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) });
             break;
         case 'custom':
-            // Manual
             break;
     }
   }, [periodPreset]);
@@ -1119,7 +1125,7 @@ const LedgerPage = () => {
             {isMobile ? (
                 <Accordion type="single" collapsible className="w-full mb-6">
                     <AccordionItem value="filters" className="border-none">
-                        <AccordionTrigger className="p-5 bg-primary/5 rounded-[2rem] border-2 border-primary/10 hover:no-underline shadow-sm">
+                        <AccordionTrigger className="p-5 bg-primary/5 rounded-[2rem] border-2 border-primary/10 hover:no-underline shadow-sm text-left">
                             <div className="flex items-center gap-3">
                                 <Filter className="w-5 h-5 text-primary" />
                                 <span className="font-black uppercase text-xs tracking-widest text-primary">Summary & Filters</span>
@@ -1280,7 +1286,7 @@ const LedgerPage = () => {
     <AlertDialog open={!!transactionToRevert} onOpenChange={() => setTransactionToRevert(null)}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
             <AlertDialogHeader className="p-6 pb-0">
-            <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Reversal</AlertDialogTitle>
+            <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl text-left">Confirm Reversal</AlertDialogTitle>
             <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed text-left uppercase tracking-tight">
                 You are about to create an audit-trail reversal for &quot;{transactionToRevert?.description}&quot;. This will permanently record an opposite entry to zero-out this balance.
             </AlertDialogDescription>
