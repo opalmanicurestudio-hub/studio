@@ -43,7 +43,9 @@ import {
   AlertTriangle,
   FileWarning,
   Banknote,
-  Info
+  Info,
+  DollarSign,
+  Banknote as BanknoteIcon
 } from 'lucide-react';
 import {
   DropdownMenu,
