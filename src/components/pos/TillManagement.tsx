@@ -42,6 +42,23 @@ import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
+
 const denominations = [
     { key: 'bills_100', label: '$100', val: 100, icon: Banknote },
     { key: 'bills_50', label: '$50', val: 50, icon: Banknote },
@@ -170,7 +187,7 @@ export const TillManagement = ({
                                                 </div>
                                                 <div className="space-y-1 text-right border-l border-dashed border-primary/20 pl-6">
                                                     <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Opened</p>
-                                                    <p className="text-sm font-black text-slate-900">{format(parseISO(activeTill.openedAt), 'h:mm a')}</p>
+                                                    <p className="text-sm font-black text-slate-900">{format(safeDate(activeTill.openedAt), 'h:mm a')}</p>
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -226,14 +243,14 @@ export const TillManagement = ({
                         <div className="grid grid-cols-2 gap-3">
                             {step === 'count' ? (
                                 <>
-                                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                                    <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
                                     <Button onClick={() => setStep('verify')} disabled={total <= 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">
                                         Next: Identity Verify <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                                     </Button>
                                 </>
                             ) : (
                                 <>
-                                    <Button variant="ghost" onClick={() => setStep('count')} className="h-14 font-black uppercase tracking-widest text-[10px] text-slate-400">Back to Count</Button>
+                                    <Button variant="ghost" type="button" onClick={() => setStep('count')} className="h-14 font-black uppercase tracking-widest text-[10px] text-slate-400">Back to Count</Button>
                                     <Button onClick={handleAction} disabled={pin.length < 4} className="h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">
                                         {activeTill ? 'Commit Reconciliation' : 'Initialize Float'}
                                     </Button>
