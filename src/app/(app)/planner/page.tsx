@@ -1,13 +1,12 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2 } from 'lucide-react';
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service, type Client, type Package, type Redemption } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMinutes } from 'date-fns';
-import { query, where, collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { query, where, collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -44,9 +43,17 @@ import { nanoid } from 'nanoid';
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
     if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
     return new Date(val);
 };
 
@@ -450,12 +457,46 @@ function PlannerPageContent() {
     });
 };
 
+  const handleOverrideConfirm = async (staffId: string, reason: string) => {
+    if (!selectedAppointment || !firestore || !tenantId) return;
+    
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+    
+    const batch = writeBatch(firestore);
+    batch.update(appointmentRef, {
+        status: 'confirmed',
+        checkInStatus: 'pending',
+        overrideReason: reason,
+        overriddenBy: staffId,
+        cancellationReason: deleteField() as any,
+        cancellationFeeApplied: 0,
+    });
+
+    if (selectedAppointment.checkInToken) {
+        batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), {
+            status: 'confirmed',
+            checkInStatus: 'pending',
+            tenantId
+        });
+    }
+
+    batch.commit().then(() => {
+        setIsOverrideOpen(false);
+        setIsDetailsOpen(false);
+        toast({ title: "Cancellation Overridden", description: "Appointment restored to active state." });
+    });
+  };
+
   const billInstancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
     const today = startOfDay(new Date());
     return billInstances.filter(i => { const d = safeDate(i.dueDate); return i.status !== 'paid' && (isPast(d) || isToday(d) || differenceInDays(d, today) <= 7); })
         .map(instance => { const definition = billDefinitions.find(def => def.id === instance.billDefinitionId); return definition ? { ...instance, definition } : null; }).filter((i): i is any => i !== null);
   }, [billInstances, billDefinitions]);
+
+  const handleLogPaymentConfirm = (paymentData: any) => {
+    // Logic for logging payment (from Bills page)
+  };
 
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 

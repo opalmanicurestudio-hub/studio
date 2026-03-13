@@ -59,7 +59,6 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
 const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, onDone: () => void }) => (
     <ViewContainer>
         <div className="relative overflow-hidden">
-            {/* Animated background element */}
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
                 <motion.div 
                     animate={{ rotate: 360 }} 
@@ -158,7 +157,7 @@ const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveRe
 );
 
 const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: number, onSettle?: () => void }) => {
-    const [step, setStep] = useState<'info' | 'payment'>(fee && Number(fee) > 0 ? 'info' : 'info');
+    const [step, setStep] = useState<'info' | 'payment'>('info');
 
     return (
         <ViewContainer>
@@ -169,9 +168,9 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                         <div className="w-24 h-24 bg-destructive/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5 rotate-12">
                             <XCircle className="w-12 h-12 text-destructive -rotate-12" />
                         </div>
-                        <div className="space-y-2">
-                            <p className="font-black text-xl uppercase tracking-tight text-slate-900">Session Voided</p>
-                            <p className="text-sm font-medium text-slate-500 leading-relaxed">This appointment has been cancelled due to policy violation (late notice or scheduling conflict).</p>
+                        <div className="space-y-2 text-left">
+                            <p className="font-black text-xl uppercase tracking-tight text-slate-900 text-center">Session Voided</p>
+                            <p className="text-sm font-medium text-slate-500 leading-relaxed text-center">This appointment has been cancelled due to policy violation (late notice or scheduling conflict).</p>
                         </div>
                         {fee && Number(fee) > 0 && (
                             <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 space-y-2 shadow-inner text-left">
@@ -185,13 +184,13 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                         )}
                     </>
                 ) : (
-                    <div className="space-y-6 animate-in fade-in zoom-in-95">
+                    <div className="space-y-6 animate-in fade-in zoom-in-95 text-left">
                         <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4"><CreditCard className="w-8 h-8 text-primary" /></div>
-                        <div className="space-y-2">
+                        <div className="space-y-2 text-center">
                             <h3 className="text-xl font-black uppercase tracking-tighter">Settle Balance</h3>
                             <p className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize ${Number(fee).toFixed(2)}</p>
                         </div>
-                        <div className="space-y-4 text-left">
+                        <div className="space-y-4">
                             <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
                             <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
                         </div>
@@ -233,7 +232,7 @@ const ReviewFormView = ({ onSubmit, onCancel, serviceName, staffName }: { onSubm
             <ViewHeader title="Feedback" subtitle={`How was your ${serviceName}?`} icon={Star} />
             <CardContent className="p-8 space-y-8 text-center">
                 <div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div>
-                <div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts on the treatment..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20" value={text} onChange={(e) => setText(e.target.value)} /></div>
+                <div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts on the treatment..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium" value={text} onChange={(e) => setText(e.target.value)} /></div>
             </CardContent>
             <CardFooter className="p-8 pt-0 flex flex-col gap-3"><Button onClick={() => onSubmit(rating, text)} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30">Submit Review</Button><Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase tracking-widest text-[10px]">Maybe Later</Button></CardFooter>
         </ViewContainer>
@@ -384,7 +383,7 @@ export default function CheckInPage() {
                     <Alert variant="destructive" className="bg-destructive/5 border-destructive border-4 rounded-[2rem] p-6 shadow-2xl shadow-destructive/10">
                         <Wallet className="h-6 w-6 text-destructive" />
                         <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Arrears Alert</AlertTitle>
-                        <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">Account balance of <strong className="text-lg tracking-tighter text-destructive">${Number(client.outstandingBalance).toFixed(2)}</strong> detected. Settle with your professional today.</AlertDescription>
+                        <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">Account balance of <strong className="text-lg tracking-tighter text-destructive">${Number(client.outstandingBalance).toFixed(2)}</strong> detected. Settle with your professional today.</AlertDescription>
                     </Alert>
                 )}
                 <div className="p-6 md:p-8 rounded-[2.5rem] bg-muted/10 border-2 border-border/50 space-y-6 shadow-inner">
@@ -416,7 +415,7 @@ export default function CheckInPage() {
                     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
                          <h4 className="text-lg font-black uppercase tracking-tighter text-center text-slate-900">Estimated Delay?</h4>
                         <RadioGroup value={lateTime > 0 ? String(lateTime) : undefined} onValueChange={(val) => setLateTime(parseInt(val))} className="grid grid-cols-4 gap-3">{['5', '10', '15', '20'].map(m => (<div key={m}><RadioGroupItem value={m} id={`late-${m}`} className="peer sr-only" /><Label htmlFor={`late-${m}`} className="flex items-center justify-center h-14 rounded-2xl border-4 border-muted font-black text-lg cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary hover:bg-muted/50">{m === '20' ? '20+' : m}</Label></div>))}</RadioGroup>
-                        {lateTime > (tenant.lateArrivalGracePeriod || 15) && (<motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2rem] bg-destructive/10 border-4 border-destructive/20 text-destructive text-center space-y-3 shadow-xl shadow-destructive/5"><AlertTriangle className="w-8 h-8 mx-auto mb-1 animate-pulse"/><p className="font-black uppercase tracking-tight text-base leading-none">Protocol Warning</p><p className="text-[10px] font-bold uppercase leading-relaxed tracking-tight opacity-80">Arrivals past {tenant.lateArrivalGracePeriod || 15}m may require a protocol recovery fee.</p></motion.div>)}
+                        {lateTime > (tenant.lateArrivalGracePeriod || 15) && (<motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2rem] bg-destructive/10 border-4 border-destructive/20 text-destructive text-center space-y-3 shadow-xl shadow-destructive/5"><AlertTriangle className="w-8 h-8 mx-auto mb-1 animate-pulse"/><p className="font-black uppercase tracking-tight text-base leading-none">Protocol Warning</p><p className="text-[10px] font-bold uppercase leading-relaxed tracking-tight opacity-80 text-center">Arrivals past {tenant.lateArrivalGracePeriod || 15}m may require a protocol recovery fee.</p></motion.div>)}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><button className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Back</button><Button onClick={() => handleUpdateStatus('running_late', lateTime)} disabled={lateTime === 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/20">Update Arrival</Button></div>
                     </div>
                 ) : currentStatus === 'pending' ? (

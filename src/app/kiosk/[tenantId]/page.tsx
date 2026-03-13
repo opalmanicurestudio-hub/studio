@@ -190,7 +190,7 @@ const StepDetails = ({
     onUpdate: (updates: Partial<PartyMember>) => void; 
     primaryMember?: PartyMember; 
     isGroup: boolean; 
-    bannedClient: Client | null;
+    bannedClient: Client | null; 
     existingClientWithBalance: Client | null;
     isResolvingIdentity: boolean;
     matchedAppointment: Appointment | null;
@@ -231,7 +231,7 @@ const StepDetails = ({
                     <User className="w-3.5 h-3.5 text-primary"/>
                     <span>Full Name</span>
                 </Label>
-                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 focus-visible:border-primary transition-all shadow-inner text-slate-900 placeholder:text-slate-300"/>
+                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-within:ring-primary/20 focus-visible:border-primary transition-all shadow-inner text-slate-900 placeholder:text-slate-300"/>
             </div>
 
             {isGroup && !member.isPrimary && ( 
@@ -368,7 +368,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
     );
 };
 
-const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string, pricingTiers: PricingTier[] }) => {
+const ServiceSelectionCard = ({ service, isSelected, onToggle, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; pricingTiers: PricingTier[] }) => {
     const { priceText, durationText } = useMemo(() => {
         let finalDuration = service.duration;
         let finalPrice = service.price;
@@ -599,7 +599,7 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
                         <div className="space-y-1">
                             <p className="text-[10px] md:text-xs text-primary font-black uppercase tracking-widest opacity-60 mb-1">Queue Spot</p>
                             <p className="font-black text-2xl md:text-5xl uppercase tracking-tighter text-slate-900">#{ticket.queuePosition}</p>
-                            <p className="text-xs md:text-lg font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px]">{ticket.name}</p>
+                            <p className="text-xs md:lg font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px]">{ticket.name}</p>
                         </div>
                         <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10 rounded-3xl h-14 w-14 md:h-20 md:w-20 transition-all active:scale-90 bg-white/50 border border-white shadow-sm">
                             <Printer className="w-7 h-7 md:w-10 md:h-10" />
@@ -660,7 +660,6 @@ export default function WalkInPage() {
     if (!birthdayStr) return false;
     const birth = safeDate(birthdayStr);
     const today = new Date();
-    // CRITICAL FIX: Only compare month and date to ignore birth year mismatch
     return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
   };
 
