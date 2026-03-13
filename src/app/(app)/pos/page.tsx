@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption, type TillSession } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -21,7 +21,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -36,6 +36,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { TillManagement } from '@/components/pos/TillManagement';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -152,7 +153,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
 };
 
 function POSPage() {
-    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, memberships, packages, resources, discounts, isLoading: isInventoryLoading } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -176,6 +177,7 @@ function POSPage() {
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
     const [isCartCollapsed, setIsCartCollapsed] = useState(false);
+    const [isTillManagementOpen, setIsTillManagementOpen] = useState(false);
 
     const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
@@ -192,6 +194,9 @@ function POSPage() {
     const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
 
     const [policyEnforcementData, setPolicyEnforcementData] = useState<any | null>(null);
+
+    const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointmentsFromInventory || !clients || !services || !staff) return [];
@@ -491,7 +496,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -702,6 +707,8 @@ function POSPage() {
         const now = new Date().toISOString();
         const selectedClient = (clients || []).find(c => c.id === selectedClientId);
         let totalLtvIncrease = 0;
+        let totalCashIncrease = 0;
+
         for (const aptData of selectedAptsData) {
             const { appointment: apt, service, addOnServices } = aptData;
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
@@ -739,6 +746,8 @@ function POSPage() {
             const isMainRedeemed = redeemedOffer?.id === service.id;
             const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember)) + additional; 
             totalLtvIncrease += mainPartRevenue;
+            if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
+
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
             addOnServices.forEach(addon => {
                 const addonStaffId = overrides[addon.id] || apt.staffId;
@@ -746,6 +755,7 @@ function POSPage() {
                 const isAddonRedeemed = redeemedOffer?.id === addon.id;
                 const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaffMember);
                 totalLtvIncrease += addonPrice;
+                if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice;
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
             });
             batch.update(appointmentRef, { status: 'completed', revenue: totalLtvIncrease, actualEndTime: now });
@@ -761,10 +771,13 @@ function POSPage() {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}` });
         });
         totalLtvIncrease += retailTotalValue;
+        if (paymentData.paymentMethod === 'cash') totalCashIncrease += retailTotalValue;
+
         if (selectedClient && appliedAdjustments.size > 0) {
             const currentUnpaid = selectedClient.unpaidFees || [];
             const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + (fee?.feeAmount || 0); }, 0);
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) });
+            if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
             appliedAdjustments.forEach(id => {
                 const fee = currentUnpaid.find(f => f.feeId === id);
                 if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: selectedClient.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false });
@@ -782,11 +795,20 @@ function POSPage() {
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
         }
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
-            if (amount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
+            if (amount > 0) {
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
+                if (paymentData.paymentMethod === 'cash') totalCashIncrease += amount;
+            }
         });
         if (discount > 0) {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
         }
+
+        // Apply cash increase to active till if payment was cash
+        if (paymentData.paymentMethod === 'cash' && activeTill) {
+            batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), { expectedCash: increment(totalCashIncrease + tax) });
+        }
+
         try {
             await batch.commit();
             toast({ title: "Checkout Successful" });
@@ -794,6 +816,50 @@ function POSPage() {
         } catch (e) {
             console.error(e); toast({ variant: 'destructive', title: 'Checkout Failed' });
         } finally { setIsSubmitting(false); }
+    };
+
+    const handleOpenTill = async (data: any) => {
+        if (!firestore || !tenantId) return;
+        const sessionId = nanoid();
+        const session: TillSession = {
+            id: sessionId,
+            status: 'open',
+            openedAt: new Date().toISOString(),
+            expectedCash: data.openingFloat,
+            ...data
+        };
+        await setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, sessionId), session, {});
+        toast({ title: "Till Opened", description: `Session initialized with $${data.openingFloat.toFixed(2)}.` });
+    };
+
+    const handleCloseTill = async (data: any) => {
+        if (!firestore || !tenantId || !activeTill) return;
+        const discrepancy = data.actualCash - activeTill.expectedCash;
+        const updates: Partial<TillSession> = {
+            status: 'closed',
+            closedAt: new Date().toISOString(),
+            discrepancy,
+            ...data
+        };
+        updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), updates);
+        
+        // Log discrepancy in ledger if it exists
+        if (Math.abs(discrepancy) > 0.01) {
+            const txn: Omit<Transaction, 'id'> = {
+                date: new Date().toISOString(),
+                description: `Till Discrepancy: ${discrepancy > 0 ? 'Overage' : 'Shortage'}`,
+                clientOrVendor: 'Internal Audit',
+                type: discrepancy > 0 ? 'income' : 'expense',
+                context: 'Business',
+                category: 'Audit Adjustment',
+                amount: Math.abs(discrepancy),
+                paymentMethod: 'Till Internal',
+                hasReceipt: false,
+            };
+            addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), txn);
+        }
+
+        toast({ title: "Till Reconciled", description: discrepancy === 0 ? "Drawer balanced perfectly." : `Discrepancy of $${discrepancy.toFixed(2)} recorded.` });
     };
 
     const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
@@ -812,6 +878,7 @@ function POSPage() {
         allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
         waivedAppointmentFees, onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => onWaiveFeeToggle(id, waive, authorizerId, reason),
         tipAllocations, setTipAllocations,
+        activeTill
     };
 
     useEffect(() => {
@@ -847,11 +914,23 @@ function POSPage() {
             <AppHeader title="Studio POS" />
             <div className={cn("flex-1 grid transition-all duration-500 ease-in-out overflow-hidden", isCartCollapsed ? "lg:grid-cols-[1fr,80px]" : "lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px]")}>
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-32 lg:pb-10">
-                    <div className="grid gap-4 md:gap-6 grid-cols-2 lg:grid-cols-4">
-                        <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
-                        <KpiCard title="Success Rate" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500" />} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-in conversion." />
-                        <KpiCard title="Arrival Count" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500" />} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total guests today." />
-                        <KpiCard title="Daily Gross" value={`$${kpiData.totalDailyGrossRevenue.toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-2">
+                        <div className="grid gap-4 md:gap-6 grid-cols-2 lg:grid-cols-4 flex-1 w-full">
+                            <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
+                            <KpiCard title="Success Rate" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500" />} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-in conversion." />
+                            <KpiCard title="Arrival Count" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500" />} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total guests today." />
+                            <KpiCard title="Daily Gross" value={`$${kpiData.totalDailyGrossRevenue.toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
+                        </div>
+                        {isOwnerOrAdmin && (
+                            <Button 
+                                variant={activeTill ? "outline" : "default"} 
+                                onClick={() => setIsTillManagementOpen(true)}
+                                className={cn("h-14 md:h-20 px-8 rounded-3xl font-black uppercase text-xs shadow-xl border-4 flex flex-col items-center justify-center gap-1", activeTill ? "border-green-500/20 bg-green-500/5 text-green-700" : "shadow-primary/20")}
+                            >
+                                <Landmark className="w-5 h-5 mb-1" />
+                                {activeTill ? `Till: $${activeTill.expectedCash.toFixed(2)}` : "Open Studio Till"}
+                            </Button>
+                        )}
                     </div>
                     <div className="grid gap-10 grid-cols-1 text-left">
                         <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />
@@ -892,6 +971,7 @@ function POSPage() {
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl"><DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left"><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Scan Terminal</DialogTitle><DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authenticate asset codes or session tickets.</DialogDescription></DialogHeader><div className="p-10 relative"><div id="qr-reader-pos" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" /><div className="absolute inset-10 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-1/2 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div><DialogFooter className="p-6 pt-4 border-t bg-muted/5"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button></DialogFooter></DialogContent></Dialog>
             <PolicyEnforcementDialog open={!!policyEnforcementData} onOpenChange={() => setPolicyEnforcementData(null)} data={policyEnforcementData} staff={staff || []} onResolve={handleResolvePolicyEnforcement} />
+            <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} />
         </div>
     );
 }

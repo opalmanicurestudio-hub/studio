@@ -1066,6 +1066,26 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
+    },
+    "TillSession": {
+      "title": "Till Session",
+      "type": "object",
+      "description": "Represents a cash drawer session (till) from opening float to closing reconciliation.",
+      "properties": {
+        "id": { "type": "string" },
+        "openedAt": { "type": "string", "format": "date-time" },
+        "openedBy": { "type": "string", "description": "Staff ID" },
+        "closedAt": { "type": "string", "format": "date-time" },
+        "closedBy": { "type": "string", "description": "Staff ID" },
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "openingFloat": { "type": "number" },
+        "expectedCash": { "type": "number", "description": "Opening + Cash Sales + Cash Tips" },
+        "actualCash": { "type": "number", "description": "Physical count at close" },
+        "discrepancy": { "type": "number", "description": "Actual - Expected" },
+        "openingDenominations": { "type": "object" },
+        "closingDenominations": { "type": "object" }
+      },
+      "required": ["id", "openedAt", "openedBy", "status", "openingFloat", "expectedCash"]
     }
   },
   "auth": {
@@ -1076,149 +1096,155 @@
   "firestore": {
     "/users/{userId}": {
       "schema": {
-        "$ref": "#/backend/entities/User"
+        "$ref": "#/entities/User"
       },
       "description": "Stores user profiles."
     },
     "/tenants/{tenantId}": {
       "schema": {
-        "$ref": "#/backend/entities/Tenant"
+        "$ref": "#/entities/Tenant"
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
     },
     "/appointmentCheckIns/{token}": {
         "schema": {
-            "$ref": "#/backend/entities/Appointment"
+            "$ref": "#/entities/Appointment"
         },
         "description": "Publicly readable appointment data for check-in links. The document ID is the secret token."
     },
     "/tenants/{tenantId}/staff/{staffId}": {
       "schema": {
-        "$ref": "#/backend/entities/Staff"
+        "$ref": "#/entities/Staff"
       },
       "description": "Staff members belonging to a specific tenant."
     },
     "/tenants/{tenantId}/activityLogs/{logId}": {
         "schema": {
-            "$ref": "#/backend/entities/ActivityLog"
+            "$ref": "#/entities/ActivityLog"
         },
         "description": "Immutable log of all staff activities for a tenant."
     },
     "/tenants/{tenantId}/services/{serviceId}": {
       "schema": {
-        "$ref": "#/backend/entities/Service"
+        "$ref": "#/entities/Service"
       },
       "description": "Services offered by a specific tenant."
     },
     "/tenants/{tenantId}/resources/{resourceId}": {
       "schema": {
-        "$ref": "#/backend/entities/Resource"
+        "$ref": "#/entities/Resource"
       },
       "description": "Bookable assets like rooms or specific equipment."
     },
     "/tenants/{tenantId}/products/{productId}": {
       "schema": {
-        "$ref": "#/backend/entities/Product"
+        "$ref": "#/entities/Product"
       },
       "description": "Products sold or used by a specific tenant."
     },
     "/tenants/{tenantId}/clients/{clientId}": {
       "schema": {
-        "$ref": "#/backend/entities/Client"
+        "$ref": "#/entities/Client"
       },
       "description": "Clients belonging to a specific tenant."
     },
     "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
-        "schema": { "$ref": "#/backend/entities/SignedConsent" },
+        "schema": { "$ref": "#/entities/SignedConsent" },
         "description": "Stores instances of consent forms signed by a specific client."
     },
     "/tenants/{tenantId}/appointments/{appointmentId}": {
       "schema": {
-        "$ref": "#/backend/entities/Appointment"
+        "$ref": "#/entities/Appointment"
       },
       "description": "Appointments for a specific tenant."
     },
     "/tenants/{tenantId}/walkIns/{walkInId}": {
       "schema": {
-        "$ref": "#/backend/entities/WalkIn"
+        "$ref": "#/entities/WalkIn"
       },
       "description": "The smart queue for walk-in customers."
     },
     "/tenants/{tenantId}/events/{eventId}": {
       "schema": {
-        "$ref": "#/backend/entities/Event"
+        "$ref": "#/entities/Event"
       },
       "description": "Calendar events for a tenant, including booked quotes."
     },
     "/tenants/{tenantId}/orders/{orderId}": {
-        "schema": { "$ref": "#/backend/entities/Order" },
+        "schema": { "$ref": "#/entities/Order" },
         "description": "Purchase orders for inventory supplies."
     },
     "/tenants/{tenantId}/quotes/{quoteId}": {
       "schema": {
-        "$ref": "#/backend/entities/Quote"
+        "$ref": "#/entities/Quote"
       },
       "description": "Quotes or proposals for a specific tenant."
     },
     "/tenants/{tenantId}/bills/{billId}": {
       "schema": {
-        "$ref": "#/backend/entities/Bill"
+        "$ref": "#/entities/Bill"
       },
       "description": "Recurring bills and expenses for a specific tenant."
     },
      "/tenants/{tenantId}/lifestyleProfiles/{profileId}": {
       "schema": {
-        "$ref": "#/backend/entities/LifestyleProfile"
+        "$ref": "#/entities/LifestyleProfile"
       },
       "description": "Personal financial profiles for the user owning the tenant."
     },
     "/tenants/{tenantId}/businessProfiles/{profileId}": {
       "schema": {
-        "$ref": "#/backend/entities/BusinessProfile"
+        "$ref": "#/entities/BusinessProfile"
       },
       "description": "Business cost profiles for a specific tenant."
     },
     "/tenants/{tenantId}/scheduleProfiles/{profileId}": {
       "schema": {
-        "$ref": "#/backend/entities/ScheduleProfile"
+        "$ref": "#/entities/ScheduleProfile"
       },
       "description": "Work schedule profiles for a specific tenant."
     },
     "/tenants/{tenantId}/transactions/{transactionId}": {
       "schema": {
-        "$ref": "#/backend/entities/Transaction"
+        "$ref": "#/entities/Transaction"
       },
       "description": "Financial transaction log for a specific tenant."
     },
     "/tenants/{tenantId}/stockCorrections/{correctionId}": {
       "schema": {
-        "$ref": "#/backend/entities/StockCorrection"
+        "$ref": "#/entities/StockCorrection"
       },
       "description": "An audit log of all inventory stock changes."
     },
     "/tenants/{tenantId}/consentForms/{formId}": {
       "schema": {
-        "$ref": "#/backend/entities/ConsentForm"
+        "$ref": "#/entities/ConsentForm"
       },
       "description": "Stores consent form templates created by the tenant."
     },
     "/tenants/{tenantId}/discounts/{discountId}": {
       "schema": {
-        "$ref": "#/backend/entities/Discount"
+        "$ref": "#/entities/Discount"
       },
       "description": "Stores discount codes for a specific tenant."
     },
     "/tenants/{tenantId}/campaigns/{campaignId}": {
       "schema": {
-        "$ref": "#/backend/entities/Campaign"
+        "$ref": "#/entities/Campaign"
       },
       "description": "Stores marketing campaigns for a tenant."
     },
     "/tenants/{tenantId}/reviews/{reviewId}": {
       "schema": {
-        "$ref": "#/backend/entities/Review"
+        "$ref": "#/entities/Review"
       },
       "description": "Client reviews for the tenant."
+    },
+    "/tenants/{tenantId}/tillSessions/{sessionId}": {
+      "schema": {
+        "$ref": "#/entities/TillSession"
+      },
+      "description": "Daily till sessions for cash drawer management."
     }
   }
 }

@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -72,6 +73,11 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn();
       allow update: if true;
+    }
+    
+    // Till Session Access
+    match /tenants/{tenantId}/tillSessions/{sessionId} {
+      allow read, write: if isStaff(tenantId);
     }
   }
 }

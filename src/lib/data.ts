@@ -43,7 +43,7 @@ export type Staff = {
   name: string;
   email: string;
   phone?: string;
-  role: 'admin' | 'staff';
+  role: 'admin' | 'staff' | 'owner';
   pricingTierId?: string;
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary';
@@ -752,6 +752,35 @@ export type Notification = {
   link: string;
   createdAt: string; // ISO date string
   read: boolean;
+};
+
+export type TillDenominations = {
+    bills_100: number;
+    bills_50: number;
+    bills_20: number;
+    bills_10: number;
+    bills_5: number;
+    bills_1: number;
+    coins_25: number;
+    coins_10: number;
+    coins_05: number;
+    coins_01: number;
+};
+
+export type TillSession = {
+    id: string;
+    openedAt: string;
+    openedBy: string;
+    closedAt?: string;
+    closedBy?: string;
+    status: 'open' | 'closed';
+    openingFloat: number;
+    expectedCash: number;
+    actualCash?: number;
+    discrepancy?: number;
+    openingDenominations: TillDenominations;
+    closingDenominations?: TillDenominations;
+    notes?: string;
 };
 
 export const getServicePrice = (service: Service | undefined, staffMember: Staff | undefined): number => {

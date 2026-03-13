@@ -175,6 +175,7 @@ export const CheckoutHub = ({
     tipAllocations,
     setTipAllocations,
     isGroupCheckout,
+    activeTill
 }: any) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -660,7 +661,7 @@ export const CheckoutHub = ({
                 {suggestedDiscounts.length > 0 && (
                     <div className="space-y-3 pt-2 text-left">
                         <p className="text-[9px] font-black uppercase text-amber-600 tracking-[0.2em] flex items-center gap-2 px-1"><Wand2 className="h-3 w-3" /> System Recommendation</p>
-                        {suggestedDiscounts.map(d => (
+                        {suggestedDiscounts.map((d: any) => (
                             <Button key={d.id} variant="outline" className="w-full justify-between h-auto py-3 md:py-4 px-4 md:px-5 border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/10 border-2 rounded-2xl md:rounded-[1.5rem] group transition-all" onClick={() => handleApplyDiscount(d.code)}>
                                 <div className="text-left min-w-0 flex-1">
                                     <p className="text-[11px] md:text-xs font-black uppercase tracking-widest text-amber-700">{d.code}</p>
@@ -756,7 +757,7 @@ export const CheckoutHub = ({
 
                 <div className="space-y-3 md:space-y-4 pt-6">
                     <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-                        <div><RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-cash" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Cash</RadioLabel></div>
+                        <div><RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" disabled={!activeTill} /><RadioLabel htmlFor="hub-pay-cash" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !activeTill && "opacity-40 grayscale")}><Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Cash</RadioLabel></div>
                         <div><RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-card" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Card</RadioLabel></div>
                         <div><RadioGroupItem value="card_on_file" id="hub-pay-cof" className="peer sr-only" disabled={!hasCardOnFile}/><RadioLabel htmlFor="hub-pay-cof" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !hasCardOnFile && "opacity-40 grayscale")}><ShieldCheck className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Vaulted</RadioLabel></div>
                         <div><RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-scan" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><ScanIcon className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Scan</RadioLabel></div>
@@ -787,6 +788,15 @@ export const CheckoutHub = ({
                                 ))}
                                 <Button variant="outline" size="sm" className="flex-1 font-black h-9 md:h-11 rounded-xl border-2 border-primary text-primary text-[9px] md:text-xs shrink-0 hover:bg-primary/5" onClick={() => setAmountTendered(total)}>EXACT AMOUNT</Button>
                             </div>
+                        </div>
+                    )}
+
+                    {!activeTill && (
+                        <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3 text-left">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <p className="text-[9px] font-bold text-amber-700 uppercase leading-relaxed">
+                                Cash payments disabled. Please open a till session to reconcile physical currency.
+                            </p>
                         </div>
                     )}
 
