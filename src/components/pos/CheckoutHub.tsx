@@ -39,7 +39,8 @@ import {
     ArrowRight,
     Star,
     Check,
-    Lock
+    Lock,
+    Sparkles
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -754,12 +755,25 @@ export const CheckoutHub = ({
                     <p className="font-mono text-2xl md:text-4xl">${total.toFixed(2)}</p>
                 </div>
 
+                {amountTendered > total && paymentTab === 'cash' && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
+                        <Button 
+                            variant="outline" 
+                            className="w-full h-12 rounded-2xl border-2 border-green-500/20 bg-green-500/5 hover:bg-green-500/10 text-green-700 font-black uppercase text-[10px] tracking-widest shadow-sm"
+                            onClick={() => handleTotalTipChange(tipAmount + (amountTendered - total))}
+                        >
+                            <Sparkles className="w-3.5 h-3.5 mr-2" />
+                            Keep Full Change as Tip (${(amountTendered - total).toFixed(2)})
+                        </Button>
+                    </motion.div>
+                )}
+
                 <div className="space-y-3 md:space-y-4 pt-6">
                     <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
                         <div><RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" disabled={!activeTill} /><RadioLabel htmlFor="hub-pay-cash" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !activeTill && "opacity-40 grayscale")}><Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Cash</RadioLabel></div>
-                        <div><RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-card" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Card</RadioLabel></div>
+                        <div><RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-card" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Card</RadioLabel></div>
                         <div><RadioGroupItem value="card_on_file" id="hub-pay-cof" className="peer sr-only" disabled={!hasCardOnFile}/><RadioLabel htmlFor="hub-pay-cof" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !hasCardOnFile && "opacity-40 grayscale")}><ShieldCheck className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Vaulted</RadioLabel></div>
-                        <div><RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-scan" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><ScanIcon className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Scan</RadioLabel></div>
+                        <div><RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-scan" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><ScanIcon className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Scan</RadioLabel></div>
                     </RadioGroup>
 
                     {paymentTab === 'cash' && (
@@ -775,16 +789,8 @@ export const CheckoutHub = ({
                                 {amountTendered > total && (
                                     <div className="space-y-1.5 text-left">
                                         <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600 ml-2">Change Due</Label>
-                                        <div className="h-12 md:h-14 flex items-center justify-between pl-4 pr-2 bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
+                                        <div className="h-12 md:h-14 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
                                             <p className="font-black text-lg md:text-2xl text-green-600 font-mono tracking-tighter">-${(amountTendered - total).toFixed(2)}</p>
-                                            <Button 
-                                                variant="ghost" 
-                                                size="xs" 
-                                                className="h-8 md:h-9 px-3 text-[9px] font-black uppercase tracking-widest text-green-700 bg-green-500/20 hover:bg-green-500/30 rounded-xl transition-all"
-                                                onClick={() => handleTotalTipChange(tipAmount + (amountTendered - total))}
-                                            >
-                                                Keep as Tip
-                                            </Button>
                                         </div>
                                     </div>
                                 )}
