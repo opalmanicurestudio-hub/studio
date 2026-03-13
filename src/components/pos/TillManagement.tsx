@@ -38,7 +38,8 @@ import {
     ArrowDownToLine,
     ArrowUpFromLine,
     Users,
-    ShieldCheck
+    ShieldCheck,
+    User
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -233,7 +234,7 @@ export const TillManagement = ({
                                                     <p className="text-3xl font-black font-mono tracking-tighter text-primary">${activeTill.expectedCash.toFixed(2)}</p>
                                                 </div>
                                                 <div className="space-y-1 text-right border-l border-dashed border-primary/20 pl-6">
-                                                    <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Window</p>
+                                                    <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Opened</p>
                                                     <p className="text-sm font-black text-slate-900">{format(safeDate(activeTill.openedAt), 'h:mm a')}</p>
                                                 </div>
                                             </CardContent>
@@ -320,7 +321,7 @@ export const TillManagement = ({
                                                     placeholder="••••"
                                                 />
                                                 <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-100 text-left">
-                                                    <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                                                     <p className="text-[9px] font-bold text-amber-700 uppercase leading-relaxed">
                                                         A second provider must witness this count and authorize with their unique studio PIN.
                                                     </p>
