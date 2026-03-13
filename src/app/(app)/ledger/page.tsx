@@ -218,22 +218,31 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         const svc = services.find((s: Service) => s.id === apt.serviceId);
         if (!svc) return { overhead: 0, materials: 0, labor: 0, total: 0 };
 
-        const overhead = ((svc.duration || 60) / 60) * tmhr;
-        
-        // Use actual formula from checkout if available, otherwise fallback to service cost
+        // 1. MATERIAL COSTS: Pulling from Actual Technician Review (Formula)
         let materials = 0;
         if (apt.checkoutState?.formula && apt.checkoutState.formula.length > 0) {
-            materials = apt.checkoutState.formula.reduce((acc: number, item: any) => acc + (item.quantity * item.costPerUnit), 0);
+            materials = apt.checkoutState.formula.reduce((acc: number, item: any) => {
+                // Item in formula has quantity and costPerUnit
+                return acc + (item.quantity * item.costPerUnit);
+            }, 0);
         } else {
+            // Fallback to library estimate if checkout formula is missing
             materials = svc.cost || 0;
         }
+
+        // 2. OVERHEAD COSTS: Pulling from Actual Duration
+        const actualDuration = apt.actualStartTime && apt.actualEndTime 
+            ? differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime))
+            : (apt.checkoutState?.actualDuration || svc.duration || 60);
+        const overhead = (actualDuration / 60) * tmhr;
         
+        // 3. LABOR COSTS: Based on assigned professional
         const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
         let labor = 0;
         if (staffMember?.payStructure === 'commission') {
             labor = transaction.amount * ((staffMember.commissionRate || 40) / 100);
         } else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) {
-            labor = ((svc.duration || 60) / 60) * staffMember.hourlyRate;
+            labor = (actualDuration / 60) * staffMember.hourlyRate;
         }
 
         return { 
@@ -262,7 +271,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         setRefundAmount(Number(safeAmount.toFixed(2)));
         toast({
             title: "Costs Protected",
-            description: `Retained $${costsBreakdown.total.toFixed(2)} to cover overhead, labor, and materials.`
+            description: `Retained $${costsBreakdown.total.toFixed(2)} based on actual material usage and labor.`
         });
     };
 
@@ -328,7 +337,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                     </Button>
                                 </div>
                                 <Card className="rounded-2xl border-2 bg-muted/5 shadow-inner overflow-hidden">
-                                    <CardContent className="p-4 space-y-3">
+                                    <CardContent className="p-4 space-y-3 text-left">
                                         <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
                                             <span className="flex items-center gap-2"><Clock className="w-3 h-3" /> Reserved Time</span>
                                             <span className="font-mono">${costsBreakdown.overhead.toFixed(2)}</span>
