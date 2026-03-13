@@ -209,18 +209,6 @@ const StepDetails = ({
     return (
         <div className="space-y-6">
             <div className="space-y-2">
-                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-xs md:text-sm font-black uppercase tracking-widest text-muted-foreground">
-                    <User className="w-3.5 h-3.5 text-primary"/>
-                    <span>Full Name</span>
-                </Label>
-                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 focus-visible:border-primary transition-all shadow-inner text-slate-900 placeholder:text-slate-300"/>
-            </div>
-            {isGroup && !member.isPrimary && ( 
-                <Button variant="outline" size="sm" onClick={usePrimaryContact} className="w-full rounded-xl h-10 border-white/40 bg-white/40 backdrop-blur-sm text-slate-600 font-bold">
-                    Same as {primaryMember?.name.split(' ')[0] || 'first guest'}
-                </Button> 
-            )}
-            <div className="space-y-2">
                 <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-xs md:text-sm font-black uppercase tracking-widest text-muted-foreground">
                     <Phone className="w-3.5 h-3.5 text-primary"/>
                     <span>Phone Number</span>
@@ -236,7 +224,23 @@ const StepDetails = ({
                         className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-within:ring-4 focus-within:ring-primary/20 focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 [&_input]:bg-transparent shadow-inner text-slate-900"
                     />
                 </div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 ml-1">Enter phone first for auto-recognition</p>
             </div>
+
+            <div className="space-y-2">
+                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-xs md:text-sm font-black uppercase tracking-widest text-muted-foreground">
+                    <User className="w-3.5 h-3.5 text-primary"/>
+                    <span>Full Name</span>
+                </Label>
+                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 focus-visible:border-primary transition-all shadow-inner text-slate-900 placeholder:text-slate-300"/>
+            </div>
+
+            {isGroup && !member.isPrimary && ( 
+                <Button variant="outline" size="sm" onClick={usePrimaryContact} className="w-full rounded-xl h-10 border-white/40 bg-white/40 backdrop-blur-sm text-slate-600 font-bold">
+                    Same as {primaryMember?.name.split(' ')[0] || 'first guest'}
+                </Button> 
+            )}
+
             <div className="space-y-2">
                 <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-xs md:text-sm font-black uppercase tracking-widest text-muted-foreground">
                     <Mail className="w-3.5 h-3.5 text-primary"/>
@@ -735,12 +739,13 @@ export default function WalkInPage() {
 
   const handleNextSubStep = async (next: MemberSubStep) => {
     const member = partyMembers[currentMemberIndex];
-    if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Name Required' });
     
-    if (memberSubStep === 'details' && !member.email?.trim()) return toast({ variant: 'destructive', title: 'Email Required' });
-    if (memberSubStep === 'details' && !/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email' });
-
     if (memberSubStep === 'details') {
+        if (!member.phone || member.phone.length < 5) return toast({ variant: 'destructive', title: 'Phone Required', description: 'Enter your phone number to help us identify your record.' });
+        if (!member.name.trim()) return toast({ variant: 'destructive', title: 'Name Required' });
+        if (!member.email?.trim()) return toast({ variant: 'destructive', title: 'Email Required' });
+        if (!/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email' });
+
         await resolveIdentity(member.email, member.phone);
         if (bannedClient || existingClientWithBalance) {
             return; 

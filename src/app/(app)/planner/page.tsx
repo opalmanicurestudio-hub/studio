@@ -64,30 +64,12 @@ function PlannerPageContent() {
   const router = useRouter();
   
   const { 
-      inventory, clients, services, staff: allStaff, appointments: appointmentsFromInventory, events: eventsFromInventory, walkIns, billDefinitions, billInstances, transactions, memberships, packages, isLoading
+      inventory, clients, services, staff: allStaff, appointments, events: eventsFromInventory, walkIns, billDefinitions, billInstances, transactions, memberships, packages, isLoading
   } = useInventory();
 
   const [tmhr, setTmhr] = useState(0);
   useEffect(() => { setTmhr(selectedTenant?.tmhr || 50); }, [selectedTenant]);
 
-  const { data: checkIns } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
-  
-  const appointments = useMemo(() => {
-    if (!appointmentsFromInventory) return [];
-    if (!checkIns) return appointmentsFromInventory;
-    const checkInMap = new Map(checkIns.map(ci => [ci.checkInToken, ci]));
-    return appointmentsFromInventory.map(apt => {
-        const ci = apt.checkInToken ? checkInMap.get(apt.checkInToken) : null;
-        const shouldOverrideStatus = apt.status === 'confirmed' || apt.status === 'deposit_pending';
-        return ci ? { 
-            ...apt, 
-            checkInStatus: ci.checkInStatus || apt.checkInStatus, 
-            lateTimeMinutes: ci.lateTimeMinutes ?? apt.lateTimeMinutes, 
-            status: (shouldOverrideStatus && ci.status) ? ci.status : apt.status 
-        } : apt;
-    });
-  }, [appointmentsFromInventory, checkIns]);
-  
   const events = eventsFromInventory || [];
   
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -390,31 +372,6 @@ function PlannerPageContent() {
 
   const handleFinishService = (apt: Appointment) => { setSelectedAppointment(apt); setIsTechnicianReviewOpen(true); };
 
-  const handleLogPaymentConfirm = (paymentData: any) => {
-    if (!selectedBill || !firestore || !tenantId) return;
-    const isVirtual = selectedBill.id.startsWith('virtual-');
-    const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
-    const newAmountDue = selectedBill.amountDue - paymentData.amount;
-    const newStatus = newAmountDue <= 0 ? 'paid' : 'partially-paid';
-    const batch = writeBatch(firestore);
-    const finalInstanceId = isVirtual ? doc(collection(firestore, 'tenants', tenantId, 'billInstances')).id : selectedBill.id;
-    if (isVirtual) batch.set(doc(firestore, 'tenants', tenantId, 'billInstances', finalInstanceId), { id: finalInstanceId, billDefinitionId: selectedBill.billDefinitionId, dueDate: selectedBill.dueDate, amountDue: newAmountDue, amountPaid: newAmountPaid, status: newStatus });
-    else batch.update(doc(firestore, 'tenants', tenantId, 'billInstances', finalInstanceId), { amountPaid: newAmountPaid, amountDue: newAmountDue, status: newStatus });
-    batch.set(doc(collection(firestore, 'tenants', tenantId, 'transactions')), { date: paymentData.date.toISOString(), description: `Payment for ${selectedBill.definition.name}`, clientOrVendor: selectedBill.definition.name, type: 'payment', context: 'Business', category: 'Rent & Facility', amount: paymentData.amount, paymentMethod: paymentData.paymentMethod, hasReceipt: !!paymentData.receiptUrl, receiptUrl: paymentData.receiptUrl, relatedBillInstanceId: finalInstanceId });
-    batch.commit().then(() => { toast({ title: "Payment Logged" }); });
-    setSelectedBill(null);
-  };
-
-  const handleOverrideConfirm = async (staffId: string, reason: string) => {
-    if (!selectedAppointment || !firestore || !tenantId) return;
-    const updates = { status: 'confirmed', checkInStatus: 'pending', overrideReason: reason, overriddenBy: staffId, cancellationFeeWaived: true };
-    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id), updates);
-    if (selectedAppointment.checkInToken) updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), { ...updates, tenantId });
-    toast({ title: "Override Complete" });
-    setIsOverrideOpen(false);
-    setIsDetailsOpen(false);
-  };
-
   const handleUpdateAppointment = (apt: Appointment) => {
       if (!firestore || !tenantId) return;
       const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
@@ -428,7 +385,7 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     
-    const apt = (appointmentsFromInventory || []).find(a => a.id === appointmentId);
+    const apt = (appointments || []).find(a => a.id === appointmentId);
     if (!apt) return;
 
     const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
@@ -492,57 +449,6 @@ function PlannerPageContent() {
         setIsDetailsOpen(false);
     });
 };
-
-  const handleAddAndConfigureConfirm = (selectedAddOns: Service[], configs: Record<string, any>) => {
-    if (!firestore || !tenantId || !selectedAppointment) return;
-
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
-    const currentCheckoutState = selectedAppointment.checkoutState || {};
-    const nextStaffOverrides = { ...(currentCheckoutState.serviceStaffOverrides || {}) };
-    const nextConcurrentIds = [...(currentCheckoutState.concurrentServiceIds || [])];
-
-    const batch = writeBatch(firestore);
-    const now = new Date().toISOString();
-
-    selectedAddOns.forEach((s) => {
-      const config = configs[s.id];
-      if (config) {
-        nextStaffOverrides[s.id] = config.staffId;
-        if (config.isConcurrent) {
-          nextConcurrentIds.push(s.id);
-        }
-
-        // DISPATCH NOTIFICATION
-        const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-        batch.set(notificationRef, {
-            id: notificationRef.id,
-            userId: config.staffId,
-            type: 'new_part_added',
-            message: `New Part Added: You've been assigned to '${s.name}' for ${selectedAppointment.clientName || 'Guest'} at ${format(safeDate(selectedAppointment.startTime), 'h:mm a')}.`,
-            link: '/planner',
-            createdAt: now,
-            read: false,
-        });
-      }
-    });
-
-    batch.update(appointmentRef, {
-      addOnIds: selectedAddOns.map(s => s.id),
-      checkoutState: {
-        ...currentCheckoutState,
-        serviceStaffOverrides: nextStaffOverrides,
-        concurrentServiceIds: Array.from(new Set(nextConcurrentIds)),
-      },
-    });
-
-    batch.commit().then(() => {
-        toast({
-            title: 'Appointment Refined',
-            description: 'New parts have been added and team members notified.',
-        });
-        setIsAddAndConfigureOpen(false);
-    });
-  };
 
   const billInstancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
