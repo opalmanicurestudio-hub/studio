@@ -776,8 +776,16 @@ export const CheckoutHub = ({
                                 {amountTendered > total && (
                                     <div className="space-y-1.5 text-left">
                                         <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600 ml-2">Change Due</Label>
-                                        <div className="h-12 md:h-14 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
+                                        <div className="h-12 md:h-14 flex items-center justify-between px-4 bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
                                             <p className="font-black text-lg md:text-2xl text-green-600 font-mono tracking-tighter">-${(amountTendered - total).toFixed(2)}</p>
+                                            <Button 
+                                                variant="ghost" 
+                                                size="xs" 
+                                                className="h-7 px-2 text-[8px] font-black uppercase tracking-widest text-green-700 bg-green-500/20 hover:bg-green-500/30 rounded-lg"
+                                                onClick={() => handleTotalTipChange(tipAmount + (amountTendered - total))}
+                                            >
+                                                Keep as Tip
+                                            </Button>
                                         </div>
                                     </div>
                                 )}
