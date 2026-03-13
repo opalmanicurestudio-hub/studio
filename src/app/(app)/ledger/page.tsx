@@ -45,7 +45,13 @@ import {
   Banknote,
   Info,
   DollarSign,
-  Banknote as BanknoteIcon
+  Banknote as BanknoteIcon,
+  Scale,
+  Zap,
+  Hammer,
+  Clock,
+  Briefcase,
+  List
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -88,8 +94,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { type Transaction } from '@/lib/financial-data';
-import { type Staff, type Incident } from '@/lib/data';
+import { type Staff, type Incident, type Service, type Appointment } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { format, startOfDay, endOfDay, parseISO, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { Input } from '@/components/ui/input';
@@ -127,7 +134,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { nanoid } from 'nanoid';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -191,7 +197,7 @@ const ReceiptPreviewDialog = ({ url, open, onOpenChange, description }: { url: s
     </Dialog>
 );
 
-const RefundProtocolDialog = ({ transaction, activeTill, staff, open, onOpenChange, onConfirm }: any) => {
+const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appointments, tenant, open, onOpenChange, onConfirm }: any) => {
     const [pin, setPin] = useState('');
     const [refundAmount, setRefundAmount] = useState(transaction?.amount || 0);
     const [refundTip, setRefundTip] = useState(true);
@@ -199,6 +205,36 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, open, onOpenChan
     const [reason, setReason] = useState('');
     const [logIncident, setLogIncident] = useState(false);
     const { toast } = useToast();
+
+    const tmhr = tenant?.tmhr || 50;
+
+    const costsBreakdown = useMemo(() => {
+        if (!transaction || !services || !appointments) return { overhead: 0, materials: 0, labor: 0, total: 0 };
+        
+        const apt = appointments.find((a: Appointment) => a.id === transaction.appointmentId);
+        if (!apt) return { overhead: 0, materials: 0, labor: 0, total: 0 };
+
+        const svc = services.find((s: Service) => s.id === apt.serviceId);
+        if (!svc) return { overhead: 0, materials: 0, labor: 0, total: 0 };
+
+        const overhead = ((svc.duration || 60) / 60) * tmhr;
+        const materials = svc.cost || 0;
+        
+        const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
+        let labor = 0;
+        if (staffMember?.payStructure === 'commission') {
+            labor = transaction.amount * ((staffMember.commissionRate || 40) / 100);
+        } else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) {
+            labor = ((svc.duration || 60) / 60) * staffMember.hourlyRate;
+        }
+
+        return { 
+            overhead, 
+            materials, 
+            labor, 
+            total: overhead + materials + labor 
+        };
+    }, [transaction, services, appointments, tmhr, staff]);
 
     useEffect(() => {
         if (transaction) {
@@ -212,6 +248,15 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, open, onOpenChan
     if (!transaction) return null;
 
     const isCardPayment = transaction.paymentMethod.toLowerCase().includes('card') || transaction.paymentMethod.toLowerCase().includes('visa') || transaction.paymentMethod.toLowerCase().includes('master');
+
+    const handleProtectCosts = () => {
+        const safeAmount = Math.max(0, transaction.amount - costsBreakdown.total);
+        setRefundAmount(Number(safeAmount.toFixed(2)));
+        toast({
+            title: "Costs Protected",
+            description: `Retained $${costsBreakdown.total.toFixed(2)} to cover overhead, labor, and materials.`
+        });
+    };
 
     const handleAction = () => {
         const authorized = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
@@ -263,13 +308,39 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, open, onOpenChan
                             </div>
                         </div>
 
-                        {isCardPayment && (
-                            <Alert className="bg-amber-50 border-amber-200 border-2 rounded-2xl p-4">
-                                <Info className="h-4 w-4 text-amber-600" />
-                                <AlertDescription className="text-[10px] font-bold uppercase text-amber-700 leading-relaxed">
-                                    Card payments cannot be refunded as cash. This reversal will be attributed back to the original funding source.
-                                </AlertDescription>
-                            </Alert>
+                        {costsBreakdown.total > 0 && (
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between px-1">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                        <Scale className="w-3.5 h-3.5" />
+                                        Cost Recovery Matrix
+                                    </p>
+                                    <Button variant="ghost" size="xs" onClick={handleProtectCosts} className="h-6 px-2 text-[8px] font-black uppercase text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                                        Protect Business Costs
+                                    </Button>
+                                </div>
+                                <Card className="rounded-2xl border-2 bg-muted/5 shadow-inner overflow-hidden">
+                                    <CardContent className="p-4 space-y-3">
+                                        <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
+                                            <span className="flex items-center gap-2"><Clock className="w-3 h-3" /> Reserved Time</span>
+                                            <span className="font-mono">${costsBreakdown.overhead.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
+                                            <span className="flex items-center gap-2"><Package className="w-3 h-3" /> Product formula</span>
+                                            <span className="font-mono">${costsBreakdown.materials.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
+                                            <span className="flex items-center gap-2"><Users className="w-3 h-3" /> Staff Labor</span>
+                                            <span className="font-mono">${costsBreakdown.labor.toFixed(2)}</span>
+                                        </div>
+                                        <Separator className="border-dashed" />
+                                        <div className="flex justify-between items-center text-[10px] font-black uppercase text-primary">
+                                            <span>Total Protected Costs</span>
+                                            <span className="font-mono">${costsBreakdown.total.toFixed(2)}</span>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </div>
                         )}
 
                         <div className="space-y-6 text-left">
@@ -277,7 +348,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, open, onOpenChan
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reversal Parameters</Label>
                                 <div className="p-4 rounded-2xl border-2 bg-muted/5 space-y-4 shadow-inner">
                                     <div className="flex justify-between items-center">
-                                        <span className="text-[11px] font-black uppercase text-slate-700">Refund Service Base</span>
+                                        <span className="text-[11px] font-black uppercase text-slate-700">Refund Amount</span>
                                         <div className="relative w-24">
                                             <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
                                             <Input type="number" value={refundAmount} onChange={e => setRefundAmount(parseFloat(e.target.value) || 0)} className="h-8 pl-6 pr-2 rounded-lg border-2 text-right font-black font-mono text-xs" />
@@ -688,7 +759,7 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
                     className="h-8 w-8 rounded-full hover:bg-primary/10 group/proof" 
                     onClick={(e) => { e.stopPropagation(); onPreviewReceipt(transaction); }}
                 >
-                    <Paperclip className="h-4 w-4 text-primary/40 group-hover/proof:text-primary transition-colors" />
+                    <Paperclip className="h-4 w-4 text-primary/40 group-hover:proof:text-primary transition-colors" />
                 </Button>
             )}
             <span className={cn('font-mono text-sm md:text-base font-black tracking-tighter', {
@@ -818,7 +889,7 @@ export default function LedgerPage() {
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const { transactions, staff, tillSessions, clients, isLoading: areTransactionsLoading } = useInventory();
+  const { transactions, staff, tillSessions, clients, services, appointments, isLoading: areTransactionsLoading } = useInventory();
 
   const [periodPreset, setPeriodPreset] = useState('30days');
   const [date, setDate] = React.useState<DateRange | undefined>(undefined);
@@ -1022,7 +1093,7 @@ export default function LedgerPage() {
                 </p>
             </div>
             <div className="flex items-center gap-3 w-full md:w-auto">
-                <Button variant="outline" onClick={handlePrint} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm"><Printer className='mr-2 h-4 w-4' /> Print Log</Button>
+                <Button variant="outline" onClick={handlePrint} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm"><Printer className='mr-2 h-4 w-4' /> Print Log</Button>
                 <Button onClick={() => setIsAddTxnOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20"><PlusCircle className='mr-2 h-4 w-4' /> New Entry</Button>
             </div>
         </div>
@@ -1227,6 +1298,9 @@ export default function LedgerPage() {
         onOpenChange={(v: any) => !v && setTransactionToRefund(null)}
         transaction={transactionToRefund}
         staff={staff}
+        services={services}
+        appointments={appointments}
+        tenant={selectedTenant}
         onConfirm={handleRefundConfirm}
     />
     </>
