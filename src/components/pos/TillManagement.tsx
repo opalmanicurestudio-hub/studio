@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -18,6 +17,13 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -473,7 +479,7 @@ export const TillManagement = ({
                                                     <SelectTrigger className="h-11 w-full sm:w-40 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
                                                         <SelectValue placeholder="Period" />
                                                     </SelectTrigger>
-                                                    <SelectContent className="rounded-xl border-2">
+                                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
                                                         <SelectItem value="all" className="font-bold">ALL TIME</SelectItem>
                                                         <SelectItem value="today" className="font-bold">TODAY</SelectItem>
                                                         <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
