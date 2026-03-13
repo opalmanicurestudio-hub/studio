@@ -23,6 +23,14 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    return new Date(val);
+};
+
 export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartService, onSkip, onCancel, onReturnToQueue }) => {
     const { selectedTenant } = useTenant();
     const { clients } = useInventory();
@@ -47,9 +55,9 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
 
     const isBirthdayToday = useMemo(() => {
         if (!client?.birthday) return false;
+        const birth = safeDate(client.birthday);
         const today = new Date();
-        const birth = new Date(client.birthday);
-        return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
+        return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
     }, [client]);
 
     const isMember = !!(client?.activeMembershipId || client?.subscription);
@@ -66,9 +74,9 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
             <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-start gap-4">
                     <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap text-left">
+                            {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-bounce shrink-0" />}
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{walkIn.customerName}</p>
-                            {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 font-black uppercase"><Cake className="w-2.5 h-2.5 mr-1" /> B-Day</Badge>}
                             {isMember && (
                                 <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
                                     <Award className="w-2 h-2 mr-0.5" /> MEM

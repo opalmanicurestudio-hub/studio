@@ -1,8 +1,7 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { format, differenceInMinutes, parseISO, differenceInSeconds, isSameMonth, addMinutes } from 'date-fns';
+import { format, differenceInMinutes, parseISO, differenceInSeconds, addMinutes } from 'date-fns';
 import {
   Award,
   MoreHorizontal,
@@ -32,7 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { type Appointment, type Client, type Service, Resource, type Transaction } from '@/lib/data';
+import { type Appointment, type Client, type Service, Staff } from '@/lib/data';
 import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
@@ -88,7 +87,7 @@ export function AppointmentCard({
     if (!client?.birthday) return false;
     const birth = safeDate(client.birthday);
     const today = new Date();
-    return isSameMonth(today, birth) && birth.getDate() === today.getDate();
+    return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
   }, [client?.birthday]);
 
   const handleCopyCheckInLink = (e: React.MouseEvent) => {
@@ -169,14 +168,14 @@ export function AppointmentCard({
         >
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
             <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1 flex-wrap">
+                <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1 flex-wrap">
+                    {isBirthdayToday && <Cake className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-pink-500 animate-bounce shrink-0" />}
                     {checkInIndicator}
                     {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
                     {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Award className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />MEM</Badge>}
                     {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Repeat className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PKG</Badge>}
                     {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
                     {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
-                    {isBirthdayToday && <Cake className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-pink-500" />}
                 </div>
                 <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-slate-900 truncate leading-none mb-0.5 sm:mb-1">{client.name}</p>
                 <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service.name}</p>

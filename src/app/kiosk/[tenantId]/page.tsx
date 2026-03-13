@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -661,7 +660,8 @@ export default function WalkInPage() {
     if (!birthdayStr) return false;
     const birth = safeDate(birthdayStr);
     const today = new Date();
-    return isSameMonth(today, birth) && birth.getDate() === today.getDate();
+    // CRITICAL FIX: Only compare month and date to ignore birth year mismatch
+    return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
   };
 
   const resolveIdentity = useCallback(async (email?: string, phone?: string) => {

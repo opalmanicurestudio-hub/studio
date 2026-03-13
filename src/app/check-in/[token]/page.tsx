@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -10,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint, Star, ArrowRight, Cake, PartyPopper, Gift } from 'lucide-react';
-import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse, isSameMonth } from 'date-fns';
+import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -277,7 +276,7 @@ export default function CheckInPage() {
         if (!client?.birthday) return false;
         const birth = safeDate(client.birthday);
         const today = new Date();
-        return isSameMonth(today, birth) && birth.getDate() === today.getDate();
+        return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
     }, [client?.birthday]);
 
     useEffect(() => { if (appointment?.checkInStatus) { setCurrentStatus(appointment.checkInStatus); if (appointment.checkInStatus === 'running_late') setLateTime(appointment.lateTimeMinutes || 0); } }, [appointment]);

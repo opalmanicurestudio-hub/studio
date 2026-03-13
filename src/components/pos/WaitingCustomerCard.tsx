@@ -1,11 +1,10 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Staff, type Appointment, Service } from '@/lib/data';
-import { formatDistanceToNow, parseISO, format, isSameMonth } from 'date-fns';
+import { formatDistanceToNow, parseISO, format } from 'date-fns';
 import { 
     Clock, 
     Users, 
@@ -86,7 +85,8 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
     const isBirthdayToday = useMemo(() => {
         if (!client?.birthday) return false;
         const birth = safeDate(client.birthday);
-        return isSameMonth(new Date(), birth) && birth.getDate() === new Date().getDate();
+        const today = new Date();
+        return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
     }, [client]);
 
     const isMember = !!(client?.activeMembershipId || client?.subscription);
@@ -107,8 +107,8 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                 <div className="flex justify-between items-start gap-4">
                     <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
+                            {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-bounce shrink-0" />}
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{customerName}</p>
-                            {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 font-black uppercase animate-bounce"><Cake className="w-2.5 h-2.5 mr-1" /> B-Day</Badge>}
                             {isMember && (
                                 <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
                                     <Award className="w-2 h-2 mr-0.5" /> MEM
@@ -179,7 +179,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                 {preferredStaff && !isAutoCancelled && (
                     <div className={cn("flex items-center gap-2 p-2 rounded-xl border-2 w-fit", isWalkIn ? "bg-primary/5 border-primary/10" : "bg-indigo-500/5 border-indigo-500/10")}>
                         <Avatar className="h-6 w-6 border-2 border-background shadow-inner rounded-lg"><AvatarImage src={preferredStaff.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black">{(preferredStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar>
-                        <span className={cn("text-[9px] font-black uppercase tracking-widest", isWalkIn ? "text-primary" : "text-indigo-700")}>{isWalkIn ? 'Pref:' : 'With:'} {preferredStaff.name.split(' ')[0]}</span>
+                        <span className={cn("text-[9px] font-black uppercase tracking-widest", isWalkIn ? 'Pref:' : 'With:')} >{isWalkIn ? 'Pref:' : 'With:'} {preferredStaff.name.split(' ')[0]}</span>
                     </div>
                 )}
             </CardContent>
