@@ -202,25 +202,30 @@ const ReceiptPreviewDialog = ({ url, open, onOpenChange, description }: { url: s
     </Dialog>
 );
 
-const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appointments, tenant, open, onOpenChange, onConfirm }: any) => {
+const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appointments, inventory, tenant, open, onOpenChange, onConfirm }: any) => {
     const [pin, setPin] = useState('');
     const [refundAmount, setRefundAmount] = useState(transaction?.amount || 0);
     const [refundTip, setRefundTip] = useState(true);
     const [tipStrategy, setTipStrategy] = useState<'clawback' | 'absorb'>('clawback');
     const [reason, setReason] = useState('');
     const [logIncident, setLogIncident] = useState(false);
-    const { toast } = useToast();
+    
+    // Recovery Toggles
+    const [withholdOverhead, setWithholdOverhead] = useState(false);
+    const [withholdMaterials, setWithholdMaterials] = useState(false);
+    const [withholdLabor, setWithholdLabor] = useState(false);
 
+    const { toast } = useToast();
     const tmhr = tenant?.tmhr || 50;
 
     const costsBreakdown = useMemo(() => {
-        if (!transaction || !services || !appointments) return { overhead: 0, materials: 0, labor: 0, total: 0 };
+        if (!transaction || !services || !appointments || !staff) return { overhead: 0, materials: 0, labor: 0, total: 0, staffMember: null };
         
         const apt = appointments.find((a: Appointment) => a.id === transaction.appointmentId);
-        if (!apt) return { overhead: 0, materials: 0, labor: 0, total: 0 };
+        if (!apt) return { overhead: 0, materials: 0, labor: 0, total: 0, staffMember: null };
 
         const svc = services.find((s: Service) => s.id === apt.serviceId);
-        if (!svc) return { overhead: 0, materials: 0, labor: 0, total: 0 };
+        if (!svc) return { overhead: 0, materials: 0, labor: 0, total: 0, staffMember: null };
 
         // 1. MATERIAL COSTS: Pulling from Actual Technician Review (Formula)
         let materials = 0;
@@ -228,8 +233,16 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
             materials = apt.checkoutState.formula.reduce((acc: number, item: any) => {
                 return acc + (item.quantity * item.costPerUnit);
             }, 0);
-        } else {
-            materials = svc.cost || 0;
+        } else if (svc.products && svc.products.length > 0) {
+            // Fallback to library standard if review formula is missing
+            materials = svc.products.reduce((acc: number, p: any) => {
+                const item = inventory.find((i: any) => i.id === p.id);
+                if (!item) return acc;
+                let cpu = item.costPerUnit || 0;
+                if (item.costingMethod === 'size' && item.size) cpu = cpu / item.size;
+                else if (item.costingMethod === 'uses' && item.estimatedUses) cpu = cpu / item.estimatedUses;
+                return acc + (p.quantityUsed * cpu);
+            }, 0);
         }
 
         // 2. OVERHEAD COSTS: Pulling from Actual Duration
@@ -242,7 +255,6 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
         let labor = 0;
         if (staffMember?.payStructure === 'commission') {
-            // LABOR COST IS THE PAYOUT TO THE TECH
             labor = transaction.amount * ((staffMember.commissionRate || 40) / 100);
         } else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) {
             labor = (actualDuration / 60) * staffMember.hourlyRate;
@@ -252,31 +264,40 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
             overhead, 
             materials, 
             labor, 
-            total: overhead + materials + labor 
+            total: overhead + materials + labor,
+            staffMember
         };
-    }, [transaction, services, appointments, tmhr, staff]);
+    }, [transaction, services, appointments, tmhr, staff, inventory]);
 
     useEffect(() => {
-        if (transaction) {
+        if (transaction && costsBreakdown.staffMember) {
             setRefundAmount(transaction.amount);
             setRefundTip(!!transaction.tipAmount);
             setReason('');
             setLogIncident(false);
+            
+            // Default toggles
+            setWithholdOverhead(false);
+            setWithholdMaterials(false);
+            // Default labor recovery to true for hourly staff, false for commission (as commission is usually automatically lost)
+            setWithholdLabor(costsBreakdown.staffMember.payStructure === 'hourly');
         }
-    }, [transaction]);
+    }, [transaction, costsBreakdown.staffMember]);
+
+    // Update refund amount based on toggles
+    useEffect(() => {
+        if (!transaction) return;
+        let totalWithheld = 0;
+        if (withholdOverhead) totalWithheld += costsBreakdown.overhead;
+        if (withholdMaterials) totalWithheld += costsBreakdown.materials;
+        if (withholdLabor) totalWithheld += costsBreakdown.labor;
+        
+        setRefundAmount(Math.max(0, Number((transaction.amount - totalWithheld).toFixed(2))));
+    }, [withholdOverhead, withholdMaterials, withholdLabor, transaction, costsBreakdown]);
 
     if (!transaction) return null;
 
     const isCardPayment = transaction.paymentMethod.toLowerCase().includes('card') || transaction.paymentMethod.toLowerCase().includes('visa') || transaction.paymentMethod.toLowerCase().includes('master');
-
-    const handleProtectCosts = () => {
-        const safeAmount = Math.max(0, transaction.amount - costsBreakdown.total);
-        setRefundAmount(Number(safeAmount.toFixed(2)));
-        toast({
-            title: "Costs Protected",
-            description: `Retained $${costsBreakdown.total.toFixed(2)} based on technician-verified usage and labor.`
-        });
-    };
 
     const handleAction = () => {
         const authorized = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
@@ -328,43 +349,45 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                             </div>
                         </div>
 
-                        {costsBreakdown.total > 0 && (
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between px-1">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                        <Scale className="w-3.5 h-3.5" />
-                                        Cost Recovery Matrix
-                                    </p>
-                                    <Button variant="ghost" size="xs" onClick={handleProtectCosts} className="h-6 px-2 text-[8px] font-black uppercase text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
-                                        Protect Business Costs
-                                    </Button>
-                                </div>
-                                <Card className="rounded-2xl border-2 bg-muted/5 shadow-inner overflow-hidden">
-                                    <CardContent className="p-4 space-y-3 text-left">
-                                        <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
-                                            <span className="flex items-center gap-2"><Clock className="w-3 h-3" /> Reserved Time</span>
-                                            <span className="font-mono">${costsBreakdown.overhead.toFixed(2)}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
-                                            <span className="flex items-center gap-2"><Package className="w-3 h-3" /> Actual Formula</span>
-                                            <span className="font-mono">${costsBreakdown.materials.toFixed(2)}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-60">
-                                            <span className="flex items-center gap-2"><Users className="w-3 h-3" /> Technician Labor</span>
-                                            <span className="font-mono">${costsBreakdown.labor.toFixed(2)}</span>
-                                        </div>
-                                        <Separator className="border-dashed" />
-                                        <div className="flex justify-between items-center text-[10px] font-black uppercase text-primary">
-                                            <span>Total Hard-Loss Protection</span>
-                                            <span className="font-mono">${costsBreakdown.total.toFixed(2)}</span>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                                <p className="text-[8px] font-bold text-muted-foreground uppercase leading-relaxed text-center px-4">
-                                    "Technician Labor" represents the commission already generated for this session. Protect this cost if you intend to pay the pro for their work despite the refund.
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between px-1">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                    <Scale className="w-3.5 h-3.5" />
+                                    Cost Recovery Matrix
                                 </p>
                             </div>
-                        )}
+                            <Card className="rounded-2xl border-2 bg-muted/5 shadow-inner overflow-hidden">
+                                <CardContent className="p-4 space-y-3 text-left">
+                                    <div className="flex justify-between items-center group">
+                                        <div className="flex items-center gap-3">
+                                            <Switch checked={withholdOverhead} onCheckedChange={setWithholdOverhead} />
+                                            <span className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2"><Clock className="w-3 h-3" /> Overhead</span>
+                                        </div>
+                                        <span className="font-mono text-[10px]">${costsBreakdown.overhead.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center group">
+                                        <div className="flex items-center gap-3">
+                                            <Switch checked={withholdMaterials} onCheckedChange={setWithholdMaterials} />
+                                            <span className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2"><Package className="w-3 h-3" /> Materials</span>
+                                        </div>
+                                        <span className="font-mono text-[10px]">${costsBreakdown.materials.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center group">
+                                        <div className="flex items-center gap-3">
+                                            <Switch checked={withholdLabor} onCheckedChange={setWithholdLabor} />
+                                            <div className="space-y-0.5">
+                                                <span className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2"><Users className="w-3 h-3" /> Labor</span>
+                                                <p className="text-[7px] font-black text-primary/60 uppercase leading-none pl-5">{costsBreakdown.staffMember?.payStructure === 'commission' ? 'Protect Commission' : 'Protect Hourly'}</p>
+                                            </div>
+                                        </div>
+                                        <span className="font-mono text-[10px]">${costsBreakdown.labor.toFixed(2)}</span>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                            <p className="text-[8px] font-bold text-muted-foreground uppercase leading-relaxed text-center px-4">
+                                Toggling a cost recovery switch will automatically deduct that amount from the guest's refund to protect the studio's bottom line.
+                            </p>
+                        </div>
 
                         <div className="space-y-6 text-left">
                             <div className="space-y-3">
@@ -912,7 +935,7 @@ const LedgerPage = () => {
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const { transactions, staff, tillSessions, clients, services, appointments, isLoading: areTransactionsLoading } = useInventory();
+  const { transactions, staff, tillSessions, clients, services, appointments, inventory, isLoading: areTransactionsLoading } = useInventory();
 
   const [periodPreset, setPeriodPreset] = useState('30days');
   const [date, setDate] = React.useState<DateRange | undefined>(undefined);
@@ -1322,6 +1345,7 @@ const LedgerPage = () => {
         staff={staff}
         services={services}
         appointments={appointments}
+        inventory={inventory}
         tenant={selectedTenant}
         onConfirm={handleRefundConfirm}
     />
