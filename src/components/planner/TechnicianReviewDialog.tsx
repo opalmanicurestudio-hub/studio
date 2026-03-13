@@ -100,12 +100,20 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         const checkoutState = appointment.checkoutState;
         const initialFormula = checkoutState?.formula || service.products?.map(p => {
             const product = inventory.find(i => i.id === p.id);
+            let baseCpu = product?.costPerUnit || 0;
+            if (product) {
+                if (product.costingMethod === 'size' && product.size) {
+                    baseCpu = (product.costPerUnit || 0) / product.size;
+                } else if (product.costingMethod === 'uses' && product.estimatedUses) {
+                    baseCpu = (product.costPerUnit || 0) / product.estimatedUses;
+                }
+            }
             return {
                 id: p.id,
                 name: p.name,
                 quantity: p.quantityUsed,
                 unit: product?.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product?.unit || 'unit'),
-                costPerUnit: product?.costPerUnit || 0,
+                costPerUnit: baseCpu,
             }
         }) || [];
         setEditableFormula(initialFormula);
@@ -189,14 +197,20 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   };
 
   const handleAddProduct = (products: InventoryItem[]) => {
-      const newItems: EditableFormulaItem[] = products.map(p => ({
-        id: p.id,
-        name: p.name,
-        quantity: 1,
-        unit: p.costingMethod === 'uses' ? (p.useUnit || 'uses') : (p.unit || 'unit'),
-        costPerUnit: p.costPerUnit || 0,
-        isCustom: true,
-      }));
+      const newItems: EditableFormulaItem[] = products.map(p => {
+        let baseCpu = p.costPerUnit || 0;
+        if (p.costingMethod === 'size' && p.size) baseCpu = (p.costPerUnit || 0) / p.size;
+        else if (p.costingMethod === 'uses' && p.estimatedUses) baseCpu = (p.costPerUnit || 0) / p.estimatedUses;
+
+        return {
+            id: p.id,
+            name: p.name,
+            quantity: 1,
+            unit: p.costingMethod === 'uses' ? (p.useUnit || 'uses') : (p.unit || 'unit'),
+            costPerUnit: baseCpu,
+            isCustom: true,
+        }
+      });
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
       setIsProductBrowserOpen(false);
   };
@@ -211,8 +225,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
     const standardCost = service.products?.reduce((acc, p) => {
         const item = inventory.find(inv => inv.id === p.id);
-        const cpu = item?.costPerUnit || 0;
-        return acc + (p.quantityUsed * cpu);
+        if (!item) return acc;
+        let baseCpu = item.costPerUnit || 0;
+        if (item.costingMethod === 'size' && item.size) baseCpu = (item.costPerUnit || 0) / item.size;
+        else if (item.costingMethod === 'uses' && item.estimatedUses) baseCpu = (item.costPerUnit || 0) / item.estimatedUses;
+        
+        return acc + (p.quantityUsed * baseCpu);
     }, 0) || 0;
     const productOverage = Math.max(0, currentCost - standardCost);
     return timeOverage + productOverage;
@@ -224,12 +242,17 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       if (formulaNameToApply === "default") {
           const defaultFormula = service?.products?.map(p => {
               const product = inventory.find(i => i.id === p.id);
+              let baseCpu = product?.costPerUnit || 0;
+              if (product) {
+                  if (product.costingMethod === 'size' && product.size) baseCpu = (product.costPerUnit || 0) / product.size;
+                  else if (product.costingMethod === 'uses' && product.estimatedUses) baseCpu = (product.costPerUnit || 0) / product.estimatedUses;
+              }
               return {
                 id: p.id,
                 name: p.name,
                 quantity: p.quantityUsed,
                 unit: product?.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product?.unit || 'unit'),
-                costPerUnit: product?.costPerUnit || 0,
+                costPerUnit: baseCpu,
             }
           }) || [];
           setEditableFormula(defaultFormula);
@@ -240,8 +263,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       if (!formula) return;
       const newFormula: EditableFormulaItem[] = formula.items.map(item => {
         const product = inventory.find(p => p.id === item.productId);
+        let baseCpu = product?.costPerUnit || 0;
+        if (product) {
+            if (product.costingMethod === 'size' && product.size) baseCpu = (product.costPerUnit || 0) / product.size;
+            else if (product.costingMethod === 'uses' && product.estimatedUses) baseCpu = (product.costPerUnit || 0) / product.estimatedUses;
+        }
         return {
-            id: item.productId, name: item.productName, quantity: item.quantityUsed, unit: item.unit, costPerUnit: product?.costPerUnit || 0,
+            id: item.productId, name: item.productName, quantity: item.quantityUsed, unit: item.unit, costPerUnit: baseCpu,
         }
       });
       setEditableFormula(newFormula);
@@ -291,7 +319,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             <AvatarImage src={client.avatarUrl} />
                             <AvatarFallback>{(client.name || 'G').substring(0,2).toUpperCase()}</AvatarFallback>
                         </Avatar>
-                        <div>
+                        <div className="text-left">
                             <p className="font-semibold">{client.name}</p>
                             <p className="text-sm text-muted-foreground">{service.name}</p>
                         </div>
@@ -299,7 +327,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
 
                 <Card className="border-2 border-primary/10">
-                  <CardHeader className="pb-3 flex-shrink-0"><CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground">Flow Control</CardTitle></CardHeader>
+                  <CardHeader className="pb-3 flex-shrink-0 text-left"><CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground">Flow Control</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                         <div className="space-y-3">
                             <div className="space-y-2 p-3 bg-muted/20 rounded-2xl border-2 transition-all has-[:checked]:border-primary">
@@ -310,7 +338,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                             checked={completedServiceIds.includes(service.id)} 
                                             onCheckedChange={() => toggleServiceComplete(service.id)}
                                         />
-                                        <div className="min-w-0">
+                                        <div className="min-w-0 text-left">
                                             <Label htmlFor={`complete-${service.id}`} className="text-sm font-bold block truncate">{service.name}</Label>
                                             <p className="text-[10px] font-black uppercase text-primary tracking-widest">Main Service</p>
                                         </div>
@@ -341,7 +369,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                                 checked={completedServiceIds.includes(addon.id)} 
                                                 onCheckedChange={() => toggleServiceComplete(addon.id)}
                                             />
-                                            <div className="min-w-0">
+                                            <div className="min-w-0 text-left">
                                                 <Label htmlFor={`complete-${addon.id}`} className="text-sm font-bold block truncate">{addon.name}</Label>
                                                 <Badge variant="outline" className={cn("text-[8px] h-4 px-1 uppercase font-black cursor-pointer", (concurrentServiceIds.includes(addon.id)) ? "bg-primary/10 text-primary border-primary/20" : "bg-muted text-muted-foreground border-transparent")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
                                                     {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2 h-2 mr-0.5" /> Concurrent</> : <><Workflow className="w-2 h-2 mr-0.5" /> Sequential</>}
@@ -371,12 +399,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
 
                 <Card>
-                    <CardHeader>
+                    <CardHeader className="text-left">
                         <CardTitle>Usage Actuals</CardTitle>
                         <CardDescription>Verify time and product formula used.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 text-sm">
-                        <div className="space-y-2">
+                        <div className="space-y-2 text-left">
                           <Label htmlFor="actual-duration-rev" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground"><Clock className="w-3 h-3" /> Actual Duration (minutes)</Label>
                           <Input 
                               id="actual-duration-rev"
@@ -413,7 +441,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         <div className="space-y-2">
                             {editableFormula.map((item) => (
                             <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-xl border-2 border-transparent gap-2">
-                                <span className="font-bold text-xs flex-1 truncate pr-2">{item.name}</span>
+                                <span className="font-bold text-xs flex-1 truncate pr-2 text-left">{item.name}</span>
                                 <div className="flex items-center gap-2">
                                     <Input
                                         type="number"
@@ -438,7 +466,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
 
                 <Card>
-                    <CardHeader className="pb-3">
+                    <CardHeader className="pb-3 text-left">
                         <CardTitle className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                             <MessageSquare className="w-3 h-3 text-primary" />
                             Session Debrief Notes

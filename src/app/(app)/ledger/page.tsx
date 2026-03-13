@@ -219,6 +219,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         if (!svc) return { overhead: 0, materials: 0, labor: 0, total: 0 };
 
         // 1. MATERIAL COSTS: Pulling from Actual Technician Review (Formula)
+        // Correct precision logic: checkoutState.formula items now store base cost per unit (e.g., cost per ml)
         let materials = 0;
         if (apt.checkoutState?.formula && apt.checkoutState.formula.length > 0) {
             materials = apt.checkoutState.formula.reduce((acc: number, item: any) => {
@@ -741,7 +742,7 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
             <div className="flex items-center gap-2">
                 <Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl">
                     <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
-                    <AvatarFallback className="text-[9px] bg-primary/10 text-primary font-black uppercase">{staffMember.name.charAt(0)}</AvatarFallback>
+                    <AvatarFallback className="text-[9px] bg-primary/10 text-primary font-black uppercase">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
                 </Avatar>
                 <span className="text-[10px] font-black uppercase tracking-tight text-slate-700">{staffMember.name.split(' ')[0]}</span>
             </div>
