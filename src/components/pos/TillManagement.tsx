@@ -42,7 +42,11 @@ import {
     User,
     History,
     FileSignature,
-    Signature
+    Search,
+    Filter,
+    Calendar,
+    ChevronRight,
+    ArrowDown
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -52,7 +56,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isSameDay, startOfDay, subDays, isAfter } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SignatureCanvas from 'react-signature-canvas';
 import { useInventory } from '@/context/InventoryContext';
@@ -118,75 +122,120 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
     const verifiedBy = staff.find(s => s.id === session.verifiedBy);
     const openedBy = staff.find(s => s.id === session.openedBy);
 
+    const usedDenoms = denominations.map(d => ({
+        ...d,
+        count: (session.closingDenominations || session.openingDenominations)?.[d.key] || 0
+    })).filter(d => d.count > 0);
+
     return (
-        <Card className="rounded-[2.5rem] border-2 shadow-sm overflow-hidden bg-white text-left" id="deposit-slip-print">
-            <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-primary" />
-                    <CardTitle className="text-[10px] font-black uppercase tracking-widest">Bank Deposit Slip</CardTitle>
+        <div className="bg-white p-6 md:p-8 rounded-none border shadow-none font-mono text-xs text-black space-y-6 w-[300px] mx-auto text-left" id="deposit-slip-print">
+            <div className="text-center space-y-2">
+                <div className="flex justify-center mb-2">
+                    <Landmark className="w-10 h-10" />
                 </div>
-                <p className="text-[9px] font-black font-mono">#{session.id.slice(-6).toUpperCase()}</p>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-                <div className="space-y-2 text-[10px] font-bold uppercase text-slate-600">
-                    <div className="flex justify-between"><span>Physical Count</span><span className="font-mono text-slate-900">${session.actualCash?.toFixed(2) || session.openingFloat?.toFixed(2)}</span></div>
-                    {session.nextDayFloat !== undefined && <div className="flex justify-between"><span>Retained Float</span><span className="font-mono text-indigo-600">-${session.nextDayFloat.toFixed(2)}</span></div>}
-                    <Separator className="border-dashed" />
-                    <div className="flex justify-between text-base font-black text-primary pt-2">
-                        <span>{session.status === 'open' ? 'INITIAL FLOAT' : 'NET DEPOSIT TOTAL'}</span>
-                        <span className="font-mono">${session.status === 'open' ? session.openingFloat.toFixed(2) : session.cashToDeposit?.toFixed(2)}</span>
-                    </div>
-                </div>
+                <h2 className="text-sm font-black uppercase tracking-widest">Studio Deposit Slip</h2>
+                <p className="text-[10px] font-bold">Session ID: {session.id.toUpperCase()}</p>
+                <p className="text-[9px] opacity-60">{format(safeDate(session.closedAt || session.openedAt), 'MMM d, yyyy @ h:mm a')}</p>
+            </div>
 
-                <div className="grid grid-cols-2 gap-6 pt-4 border-t border-dashed">
-                    {openedBy && (
-                        <div className="space-y-3">
-                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Opened By</p>
-                            <div className="space-y-2">
-                                <p className="text-[10px] font-black uppercase">{openedBy.name}</p>
-                                {session.openedBySignature && (
-                                    <div className="relative h-12 w-full bg-muted/20 rounded-lg border">
-                                        <img src={session.openedBySignature} alt="Signature" className="h-full w-full object-contain" />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                    {closedBy && (
-                        <div className="space-y-3">
-                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Closed By</p>
-                            <div className="space-y-2">
-                                <p className="text-[10px] font-black uppercase">{closedBy.name}</p>
-                                {session.closedBySignature && (
-                                    <div className="relative h-12 w-full bg-muted/20 rounded-lg border">
-                                        <img src={session.closedBySignature} alt="Signature" className="h-full w-full object-contain" />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
+            <Separator className="border-dashed border-black" />
 
-                {verifiedBy && (
-                    <div className="pt-4 border-t border-dashed space-y-3">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Witnessed & Verified By</p>
-                        <div className="flex items-center gap-6">
-                            <p className="text-[10px] font-black uppercase flex-1">{verifiedBy.name}</p>
-                            {session.verifiedBySignature && (
-                                <div className="relative h-12 w-32 bg-muted/20 rounded-lg border">
-                                    <img src={session.verifiedBySignature} alt="Signature" className="h-full w-full object-contain" />
+            <div className="space-y-4">
+                <p className="text-[10px] font-black uppercase tracking-widest border-b border-black pb-1">Denomination Manifest</p>
+                <div className="space-y-1">
+                    {usedDenoms.map(d => (
+                        <div key={d.key} className="flex justify-between items-center">
+                            <span>{d.count} x {d.label}</span>
+                            <span>${(d.count * d.val).toFixed(2)}</span>
+                        </div>
+                    ))}
+                </div>
+                <div className="flex justify-between font-black border-t border-dashed border-black pt-2 text-sm">
+                    <span>Physical Total</span>
+                    <span>${(session.actualCash || session.openingFloat).toFixed(2)}</span>
+                </div>
+            </div>
+
+            <Separator className="border-dashed border-black" />
+
+            <div className="space-y-2 uppercase font-bold text-[10px]">
+                <div className="flex justify-between items-center">
+                    <span>Opening Float</span>
+                    <span className="font-black">${session.openingFloat?.toFixed(2)}</span>
+                </div>
+                {session.status === 'closed' && (
+                    <>
+                        <div className="flex justify-between items-center">
+                            <span>Next Day Float</span>
+                            <span className="font-black">-${session.nextDayFloat?.toFixed(2)}</span>
+                        </div>
+                        <Separator className="border-black opacity-20" />
+                        <div className="flex justify-between items-baseline text-sm font-black pt-1">
+                            <span>Net Deposit</span>
+                            <span className="text-lg tracking-tighter">${session.cashToDeposit?.toFixed(2)}</span>
+                        </div>
+                        {Math.abs(session.discrepancy || 0) > 0.01 && (
+                            <div className="mt-2 p-2 bg-slate-100 flex flex-col gap-1">
+                                <div className="flex justify-between items-center text-destructive">
+                                    <span>Audit Delta</span>
+                                    <span>{session.discrepancy > 0 ? '+' : ''}${session.discrepancy?.toFixed(2)}</span>
                                 </div>
-                            )}
+                                <p className="text-[8px] italic opacity-60">Verified variance recorded in studio ledger.</p>
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+
+            <Separator className="border-dashed border-black" />
+
+            <div className="space-y-6 pt-2">
+                {openedBy && (
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-baseline">
+                            <span className="text-[8px] font-black opacity-40">Opened By:</span>
+                            <span className="text-[9px] font-black">{openedBy.name}</span>
                         </div>
+                        {session.openedBySignature && (
+                            <div className="relative h-12 w-full bg-slate-50 border">
+                                <img src={session.openedBySignature} alt="Signature" className="h-full w-full object-contain" />
+                            </div>
+                        )}
                     </div>
                 )}
+                {closedBy && (
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-baseline">
+                            <span className="text-[8px] font-black opacity-40">Closed By:</span>
+                            <span className="text-[9px] font-black">{closedBy.name}</span>
+                        </div>
+                        {session.closedBySignature && (
+                            <div className="relative h-12 w-full bg-slate-50 border">
+                                <img src={session.closedBySignature} alt="Signature" className="h-full w-full object-contain" />
+                            </div>
+                        )}
+                    </div>
+                )}
+                {verifiedBy && (
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-baseline">
+                            <span className="text-[8px] font-black opacity-40">Witnessed By:</span>
+                            <span className="text-[9px] font-black">{verifiedBy.name}</span>
+                        </div>
+                        {session.verifiedBySignature && (
+                            <div className="relative h-12 w-full bg-slate-50 border">
+                                <img src={session.verifiedBySignature} alt="Signature" className="h-full w-full object-contain" />
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
-                <div className="pt-4 border-t border-dashed space-y-1 text-[8px] font-black uppercase opacity-40 text-center">
-                    <p>Timestamp: {format(safeDate(session.closedAt || session.openedAt), 'MMM d, yyyy @ h:mm a')}</p>
-                    <p>Studio Audit Certified &middot; ClarityFlow POS</p>
-                </div>
-            </CardContent>
-        </Card>
+            <div className="pt-4 text-center space-y-1">
+                <p className="text-[8px] font-black opacity-40 tracking-widest">CLARITYFLOW AUDIT SYSTEM</p>
+                <p className="text-[7px] opacity-30 italic">Certified Digital Record &middot; Non-Transferable</p>
+            </div>
+        </div>
     );
 }
 
@@ -210,6 +259,7 @@ export const TillManagement = ({
     const isMobile = useIsMobile();
     const { toast } = useToast();
     const { tillSessions } = useInventory();
+    
     const [counts, setCounts] = useState<Record<string, number>>({});
     const [primaryPin, setPrimaryPin] = useState('');
     const [witnessPin, setWitnessPin] = useState('');
@@ -219,12 +269,40 @@ export const TillManagement = ({
     const [mainView, setMainView] = useState<'active' | 'history'>('active');
     const [historicalSession, setHistoricalSession] = useState<TillSession | null>(null);
 
+    // Archive Filtering
+    const [historySearch, setHistorySearch] = useState('');
+    const [historyDateFilter, setHistoryDateFilter] = useState('all');
+
     const sigCanvasRef = useRef<SignatureCanvas | null>(null);
     const witnessSigCanvasRef = useRef<SignatureCanvas | null>(null);
 
     const actualTotal = useMemo(() => {
         return denominations.reduce((acc, d) => acc + (counts[d.key] || 0) * d.val, 0);
     }, [counts]);
+
+    const filteredSessions = useMemo(() => {
+        if (!tillSessions) return [];
+        let list = [...tillSessions];
+
+        if (historySearch.trim()) {
+            const search = historySearch.toLowerCase();
+            list = list.filter(s => 
+                s.id.toLowerCase().includes(search) || 
+                staff.find(sm => sm.id === s.openedBy)?.name.toLowerCase().includes(search) ||
+                staff.find(sm => sm.id === s.closedBy)?.name.toLowerCase().includes(search)
+            );
+        }
+
+        if (historyDateFilter !== 'all') {
+            const now = new Date();
+            let cutoff = startOfDay(now);
+            if (historyDateFilter === '7days') cutoff = subDays(cutoff, 7);
+            if (historyDateFilter === '30days') cutoff = subDays(cutoff, 30);
+            list = list.filter(s => safeDate(s.openedAt) >= cutoff);
+        }
+
+        return list.sort((a,b) => safeDate(b.openedAt).getTime() - safeDate(a.openedAt).getTime());
+    }, [tillSessions, historySearch, historyDateFilter, staff]);
 
     useEffect(() => {
         if (open && activeTill && step === 'count') {
@@ -321,6 +399,8 @@ export const TillManagement = ({
         setFinalSessionData(null);
         setMainView('active');
         setHistoricalSession(null);
+        setHistorySearch('');
+        setHistoryDateFilter('all');
     };
 
     const handleClose = () => {
@@ -333,7 +413,7 @@ export const TillManagement = ({
 
     return (
         <DialogComponent open={open} onOpenChange={handleClose}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Calculator className="w-5 h-5 text-primary" />
@@ -358,45 +438,74 @@ export const TillManagement = ({
                     <div className="p-8">
                         <AnimatePresence mode="wait">
                             {mainView === 'history' ? (
-                                <motion.div key="history" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4 pb-20">
+                                <motion.div key="history" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6 pb-20">
                                     {historicalSession ? (
-                                        <div className="space-y-6">
+                                        <div className="space-y-8 animate-in zoom-in-95 duration-300">
                                             <Button variant="ghost" size="sm" onClick={() => setHistoricalSession(null)} className="h-8 font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5">
                                                 <Undo2 className="mr-2 h-3.5 w-3.5"/> Back to Archives
                                             </Button>
                                             <DepositSlip session={historicalSession} staff={staff} />
-                                            <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl" onClick={() => window.print()}>
-                                                <Printer className="mr-2 h-4 w-4" /> Reprint Certified Slip
+                                            <Button className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-primary/20" onClick={() => window.print()}>
+                                                <Printer className="mr-3 h-5 w-5" /> Print Certified Slip
                                             </Button>
                                         </div>
                                     ) : (
-                                        <div className="grid gap-3">
-                                            {tillSessions?.sort((a,b) => safeDate(b.openedAt).getTime() - safeDate(a.openedAt).getTime()).map(session => (
-                                                <button key={session.id} onClick={() => setHistoricalSession(session)} className="text-left w-full p-4 rounded-2xl border-2 bg-white hover:border-primary/20 transition-all group flex items-center justify-between">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="p-3 bg-muted rounded-2xl group-hover:bg-primary/5 transition-colors">
-                                                            <Landmark className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-black uppercase tracking-tight text-xs text-slate-900">{format(safeDate(session.openedAt), 'MMM d, yyyy')}</p>
-                                                            <div className="flex items-center gap-2 mt-0.5">
-                                                                <Badge variant="outline" className={cn("text-[8px] font-black uppercase h-4 px-1.5 border-none", session.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground')}>{session.status}</Badge>
-                                                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">By {staff.find(s => s.id === session.openedBy)?.name.split(' ')[0]}</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <p className="font-black font-mono text-sm tracking-tighter text-slate-900">${(session.actualCash || session.openingFloat).toFixed(2)}</p>
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Final Value</p>
-                                                    </div>
-                                                </button>
-                                            ))}
-                                            {(!tillSessions || tillSessions.length === 0) && (
-                                                <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                                                    <History className="w-16 h-16" />
-                                                    <p className="text-[10px] font-black uppercase tracking-widest">Archives Empty</p>
+                                        <div className="space-y-6">
+                                            <div className="flex flex-col sm:flex-row gap-3">
+                                                <div className="relative flex-1">
+                                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                                                    <Input 
+                                                        placeholder="SEARCH BY ID OR TECH..." 
+                                                        value={historySearch} 
+                                                        onChange={e => setHistorySearch(e.target.value)}
+                                                        className="pl-9 h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner"
+                                                    />
                                                 </div>
-                                            )}
+                                                <Select value={historyDateFilter} onValueChange={setHistoryDateFilter}>
+                                                    <SelectTrigger className="h-11 w-full sm:w-40 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                                                        <SelectValue placeholder="Period" />
+                                                    </SelectTrigger>
+                                                    <SelectContent className="rounded-xl border-2">
+                                                        <SelectItem value="all" className="font-bold">ALL TIME</SelectItem>
+                                                        <SelectItem value="today" className="font-bold">TODAY</SelectItem>
+                                                        <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
+                                                        <SelectItem value="30days" className="font-bold">LAST 30 DAYS</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="grid gap-3">
+                                                {filteredSessions.map(session => {
+                                                    const staffMember = staff.find(s => s.id === session.openedBy);
+                                                    const isDiff = Math.abs(session.discrepancy || 0) > 0.01;
+                                                    return (
+                                                        <button key={session.id} onClick={() => setHistoricalSession(session)} className="text-left w-full p-4 rounded-2xl border-2 bg-white hover:border-primary/20 transition-all group flex items-center justify-between">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className="p-3 bg-muted rounded-2xl group-hover:bg-primary/5 transition-colors shrink-0">
+                                                                    <Landmark className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{format(safeDate(session.openedAt), 'MMM d, yyyy')}</p>
+                                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                                        <Badge variant="outline" className={cn("text-[8px] font-black uppercase h-4 px-1.5 border-none", session.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground')}>{session.status}</Badge>
+                                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate">By {staffMember?.name.split(' ')[0]}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right shrink-0 ml-4">
+                                                                <p className="font-black font-mono text-sm tracking-tighter text-slate-900">${(session.actualCash || session.openingFloat).toFixed(2)}</p>
+                                                                {isDiff && <p className="text-[8px] font-black uppercase text-destructive animate-pulse">Variance Logged</p>}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                                {filteredSessions.length === 0 && (
+                                                    <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                                        <History className="w-16 h-16" />
+                                                        <p className="text-[10px] font-black uppercase tracking-widest">No Matches in Archives</p>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
                                 </motion.div>
@@ -551,14 +660,14 @@ export const TillManagement = ({
                                     )}
 
                                     {step === 'success' && finalSessionData && (
-                                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8 pb-20">
+                                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-10 pb-20">
                                             <div className="p-8 rounded-[3rem] border-4 border-green-500/20 bg-green-500/5 text-center space-y-4 shadow-xl">
                                                 <div className="w-20 h-20 bg-green-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/20 rotate-6">
                                                     <CheckCircle2 className="w-12 h-12 text-white -rotate-6" />
                                                 </div>
                                                 <div className="space-y-1">
                                                     <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Audit Finalized</h3>
-                                                    <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Digital Record Secure</p>
+                                                    <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Protocol Entry Verified</p>
                                                 </div>
                                             </div>
                                             <DepositSlip session={finalSessionData} staff={staff} />
@@ -587,13 +696,13 @@ export const TillManagement = ({
                                 {step === 'allocation' && (
                                     <div className="flex gap-3">
                                         <Button variant="ghost" onClick={() => setStep('count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
-                                        <Button onClick={handleStepTransition} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Audit Verification</Button>
+                                        <Button onClick={handleStepTransition} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Audit Verification <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
                                     </div>
                                 )}
                                 {step === 'verify' && (
                                     <div className="flex gap-3">
                                         <Button variant="ghost" onClick={() => setStep(activeTill ? 'allocation' : 'count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
-                                        <Button onClick={handleStepTransition} disabled={primaryPin.length < 4 || (activeTill && requireTillWitness && witnessPin.length < 4)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Biometric Sign</Button>
+                                        <Button onClick={handleStepTransition} disabled={primaryPin.length < 4 || (activeTill && requireTillWitness && witnessPin.length < 4)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Biometric Sign <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
                                     </div>
                                 )}
                                 {step === 'sign' && (
@@ -604,7 +713,7 @@ export const TillManagement = ({
                                 )}
                                 {step === 'success' && (
                                     <div className="flex flex-col gap-3">
-                                        <Button className="w-full h-16 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-primary/30 group" onClick={() => window.print()}>
+                                        <Button className="w-full h-16 rounded-2xl font-black uppercase text-sm tracking-widest shadow-2xl shadow-primary/30 group" onClick={() => window.print()}>
                                             <Printer className="mr-3 h-5 w-5" /> Print Certified Slip
                                         </Button>
                                         <Button variant="ghost" onClick={handleClose} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-slate-400">Return to Terminal</Button>
@@ -619,7 +728,7 @@ export const TillManagement = ({
                 @media print {
                     body * { visibility: hidden; }
                     #deposit-slip-print, #deposit-slip-print * { visibility: visible; }
-                    #deposit-slip-print { position: absolute; left: 0; top: 0; width: 3.5in; margin: 0; border: none; box-shadow: none; }
+                    #deposit-slip-print { position: absolute; left: 0; top: 0; width: 3.5in; margin: 0; border: none; box-shadow: none; padding: 0.25in; }
                 }
             `}</style>
         </DialogComponent>
