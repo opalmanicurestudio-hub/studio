@@ -61,12 +61,12 @@ import {
   Wallet, 
   Check,
   ArrowRight,
-  Loader
+  Loader,
+  Unlock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff, Event, InventoryItem, PricingTier, getServicePrice } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, addMonths, parseISO } from 'date-fns';
-import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, addMonths, parseISO, endOfDay } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -162,6 +162,7 @@ const AddAppointmentForm = ({
             startTime: '',
             addOnIds: [] as string[],
             isRecurring: false,
+            overrideBusinessHours: false,
             recurrence: {
                 frequency: 'weekly',
                 endDate: addMonths(new Date(), 3),
@@ -186,6 +187,7 @@ const AddAppointmentForm = ({
                 startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : '',
                 addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
                 isRecurring: false,
+                overrideBusinessHours: false,
                 recurrence: {
                     frequency: 'weekly',
                     endDate: addMonths(new Date(), 3),
@@ -205,6 +207,7 @@ const AddAppointmentForm = ({
     const date = watch('date');
     const startTime = watch('startTime');
     const addOnIds = watch('addOnIds');
+    const overrideBusinessHours = watch('overrideBusinessHours');
     
     const selectedService = useMemo(() => services?.find(s => s.id === serviceId), [services, serviceId]);
     const selectedClient = useMemo(() => clients?.find(c => c.id === clientId) || initialClient, [clients, clientId, initialClient]);
@@ -250,12 +253,14 @@ const AddAppointmentForm = ({
             let workingHours;
             const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
             if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
-            else if (staffDaySchedule && !staffDaySchedule.enabled) return;
+            else if (staffDaySchedule && !staffDaySchedule.enabled && !overrideBusinessHours) return;
             else workingHours = publicScheduleProfile?.week?.[dayName];
             
-            if (!workingHours || !workingHours.enabled) return;
-            const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
-            const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
+            const dayStartWithBusinessHours = overrideBusinessHours ? startOfDay(date) : timeStringToDate(workingHours?.start || '09:00 AM', date);
+            const dayEndWithBusinessHours = overrideBusinessHours ? endOfDay(date) : timeStringToDate(workingHours?.end || '05:00 PM', date);
+            
+            if (!overrideBusinessHours && (!workingHours || !workingHours.enabled)) return;
+
             const busyIntervals: { start: Date, end: Date }[] = [];
 
             appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id).forEach(apt => {
@@ -285,14 +290,15 @@ const AddAppointmentForm = ({
                 
                 const isStaffActiveForSameDay = !isToday(date) || (staffMember.active && !staffMember.onBreak);
 
-                if (!isOverlapping && isStaffActiveForSameDay) {
+                // Internal planner always shows slots regardless of staff active state if override is on
+                if (!isOverlapping && (overrideBusinessHours || isStaffActiveForSameDay)) {
                     options.add(format(currentTime, 'HH:mm'));
                 }
                 currentTime = addMinutes(currentTime, bookingInterval);
             }
         });
         return Array.from(options).sort();
-    }, [date, staffId, selectedTierId, qualifiedStaff, selectedService, staff, appointments, events, publicScheduleProfile, services]);
+    }, [date, staffId, selectedTierId, qualifiedStaff, selectedService, staff, appointments, events, publicScheduleProfile, services, overrideBusinessHours]);
 
     useEffect(() => {
         if (!selectedService || !date || !startTime || !services || !appointments) {
@@ -356,15 +362,17 @@ const AddAppointmentForm = ({
         if (finalStaffId === 'any') {
             let candidates = qualifiedStaff.filter(s => {
                 if (data.selectedTierId !== 'any' && s.pricingTierId !== data.selectedTierId) return false;
-                if (isToday(startDateTime) && (!s.active || s.onBreak)) return false;
+                if (isToday(startDateTime) && (!s.active || s.onBreak) && !data.overrideBusinessHours) return false;
                 
                 const dayName = format(startDateTime, 'eeee').toLowerCase();
                 const sched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
-                if (!sched?.enabled) return false;
                 
-                const openT = timeStringToDate(sched.start, startDateTime);
-                const closeT = timeStringToDate(sched.end, startDateTime);
-                if (startDateTime < openT || endDateTime > closeT) return false;
+                if (!data.overrideBusinessHours) {
+                    if (!sched?.enabled) return false;
+                    const openT = timeStringToDate(sched.start, startDateTime);
+                    const closeT = timeStringToDate(sched.end, startDateTime);
+                    if (startDateTime < openT || endDateTime > closeT) return false;
+                }
 
                 const isAptOverlapping = appointments.some(apt => 
                     apt.staffId === s.id && 
@@ -592,10 +600,29 @@ const AddAppointmentForm = ({
                     </div>
 
                     <div className="space-y-6 pt-6 border-t border-dashed">
-                        <h3 className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
-                            <CalendarCheck className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-                            Timing
-                        </h3>
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
+                                <CalendarCheck className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+                                Timing
+                            </h3>
+                            <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <div className="flex items-center gap-2">
+                                                <Unlock className={cn("w-3.5 h-3.5 transition-colors", overrideBusinessHours ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                <Switch 
+                                                    id="override-hours" 
+                                                    checked={overrideBusinessHours} 
+                                                    onCheckedChange={(val) => setValue('overrideBusinessHours', val)} 
+                                                />
+                                            </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Business Hours</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            </div>
+                        </div>
                         <div className="space-y-3 text-left">
                             <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
                             <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-6 md:space-y-8 shadow-inner">
@@ -609,11 +636,11 @@ const AddAppointmentForm = ({
                                         <button 
                                             key={day.toISOString()} 
                                             onClick={() => setValue('date', day)} 
-                                            disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} 
+                                            disabled={!overrideBusinessHours && isBefore(day, startOfDay(new Date())) && !isToday(day)} 
                                             className={cn(
                                                 "flex flex-col items-center justify-center p-2 md:p-3 rounded-xl md:rounded-2xl border-2 transition-all aspect-square", 
                                                 isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
-                                                (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
+                                                (!overrideBusinessHours && isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
                                             )} 
                                             type="button"
                                         >

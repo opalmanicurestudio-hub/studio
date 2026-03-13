@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -65,11 +64,12 @@ import {
   CalendarCheck,
   Edit,
   Mail,
-  Phone
+  Phone,
+  Unlock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type InventoryItem, type Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, startOfWeek } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, startOfWeek, endOfDay } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { useInventory } from '@/context/InventoryContext';
@@ -82,6 +82,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useTenant } from '@/context/TenantContext';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -156,6 +157,7 @@ const EditAppointmentForm = ({
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [notes, setNotes] = useState(appointment.notes || '');
+    const [overrideBusinessHours, setOverrideBusinessHours] = useState(false);
     
     const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
     const [isOverlapping, setIsOverlapping] = useState(false);
@@ -194,9 +196,11 @@ const EditAppointmentForm = ({
         if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
         else workingHours = publicScheduleProfile?.week?.[dayName];
         
-        if (!workingHours || !workingHours.enabled) return [];
-        const openT = timeStringToDate(workingHours.start, date);
-        const closeT = timeStringToDate(workingHours.end, date);
+        if (!overrideBusinessHours && (!workingHours || !workingHours.enabled)) return [];
+        
+        const openT = overrideBusinessHours ? startOfDay(date) : timeStringToDate(workingHours?.start || '09:00 AM', date);
+        const closeT = overrideBusinessHours ? endOfDay(date) : timeStringToDate(workingHours?.end || '05:00 PM', date);
+        
         const busyIntervals: { start: Date, end: Date }[] = [];
 
         (appointments || []).filter(apt => {
@@ -240,7 +244,7 @@ const EditAppointmentForm = ({
         }
 
         return options;
-    }, [date, selectedStaffId, selectedService, staff, appointments, events, publicScheduleProfile, services, appointment]);
+    }, [date, selectedStaffId, selectedService, staff, appointments, events, publicScheduleProfile, services, appointment, overrideBusinessHours]);
 
     useEffect(() => {
         if (!selectedService || !date || !startTime || !services || !appointments) {
@@ -444,7 +448,26 @@ const EditAppointmentForm = ({
                 <Separator className="border-dashed" />
 
                 <div className="space-y-8">
-                    <SectionHeader icon={CalendarCheck} title="Timing" />
+                    <div className="flex items-center justify-between">
+                        <SectionHeader icon={CalendarCheck} title="Timing" />
+                        <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="flex items-center gap-2">
+                                            <Unlock className={cn("w-3.5 h-3.5 transition-colors", overrideBusinessHours ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            <Switch 
+                                                id="override-hours-edit" 
+                                                checked={overrideBusinessHours} 
+                                                onCheckedChange={setOverrideBusinessHours} 
+                                            />
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Business Hours</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        </div>
+                    </div>
                     <div className="space-y-3 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
                         <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-6 md:space-y-8 shadow-inner">
@@ -458,11 +481,11 @@ const EditAppointmentForm = ({
                                     <button 
                                         key={day.toISOString()} 
                                         onClick={() => setDate(day)} 
-                                        disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} 
+                                        disabled={!overrideBusinessHours && isBefore(day, startOfDay(new Date())) && !isToday(day)} 
                                         className={cn(
                                             "flex flex-col items-center justify-center p-2 md:p-3 rounded-xl md:rounded-2xl border-2 transition-all aspect-square", 
                                             isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
-                                            (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
+                                            (!overrideBusinessHours && isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
                                         )} 
                                         type="button"
                                     >
