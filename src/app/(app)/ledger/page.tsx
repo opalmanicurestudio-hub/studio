@@ -52,7 +52,8 @@ import {
   Clock,
   Briefcase,
   List,
-  Package
+  Package,
+  Users
 } from 'lucide-react';
 import {
   DropdownMenu,
