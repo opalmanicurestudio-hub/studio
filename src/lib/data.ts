@@ -781,6 +781,7 @@ export type TillSession = {
     expectedCash: number;
     totalCashSales?: number;
     totalCashTips?: number;
+    totalCashRefunds?: number;
     cashTipsByStaff?: Record<string, number>;
     actualCash?: number;
     cashToDeposit?: number;

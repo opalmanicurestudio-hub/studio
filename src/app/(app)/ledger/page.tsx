@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -35,12 +36,16 @@ import {
   ShoppingCart,
   CalendarCheck,
   User as UserIcon,
-  FileX
+  FileX,
+  Undo2,
+  Lock,
+  HeartHandshake
 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -99,7 +104,7 @@ import {
 } from '@/components/ui/select';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
-import { useFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, useUser, updateDocumentNonBlocking } from '@/firebase';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { useToast } from '@/hooks/use-toast';
 import { PrintableReport } from '@/components/ledger/PrintableReport';
@@ -107,9 +112,10 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, increment } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Switch } from '@/components/ui/switch';
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -174,6 +180,129 @@ const ReceiptPreviewDialog = ({ url, open, onOpenChange, description }: { url: s
         </DialogContent>
     </Dialog>
 );
+
+const RefundProtocolDialog = ({ transaction, activeTill, staff, open, onOpenChange, onConfirm }: any) => {
+    const [pin, setPin] = useState('');
+    const [refundAmount, setRefundAmount] = useState(transaction?.amount || 0);
+    const [refundTip, setRefundTip] = useState(true);
+    const [tipStrategy, setTipStrategy] = useState<'clawback' | 'absorb'>('clawback');
+    const { toast } = useToast();
+
+    useEffect(() => {
+        if (transaction) {
+            setRefundAmount(transaction.amount);
+            setRefundTip(!!transaction.tipAmount);
+        }
+    }, [transaction]);
+
+    const handleAction = () => {
+        const authorized = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
+        if (!authorized) {
+            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager PIN required for cash distribution.' });
+            return;
+        }
+        
+        onConfirm({
+            amount: refundAmount,
+            refundTip: refundTip && (transaction.tipAmount || 0) > 0,
+            tipStrategy,
+            authorizerId: authorized.id
+        });
+        setPin('');
+    };
+
+    if (!transaction) return null;
+
+    const tipToRefund = refundTip ? (transaction.tipAmount || 0) : 0;
+    const totalOutlay = refundAmount + tipToRefund;
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
+                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
+                    <div className="flex items-center gap-3 mb-2">
+                        <Undo2 className="w-5 h-5 text-destructive" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Revenue Reversal</span>
+                    </div>
+                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Refund Protocol</DialogTitle>
+                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Initiating cash-out sequence.</DialogDescription>
+                </DialogHeader>
+                <div className="p-8 space-y-8">
+                    <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 text-center space-y-2 shadow-inner">
+                        <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Authorized Cash-Out</p>
+                        <p className="text-5xl font-black text-destructive tracking-tighter font-mono">${totalOutlay.toFixed(2)}</p>
+                    </div>
+
+                    <div className="space-y-6 text-left">
+                        <div className="space-y-3">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reversal Parameters</Label>
+                            <div className="p-4 rounded-2xl border-2 bg-muted/5 space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-[11px] font-black uppercase text-slate-700">Refund Service Base</span>
+                                    <div className="relative w-24">
+                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
+                                        <Input type="number" value={refundAmount} onChange={e => setRefundAmount(parseFloat(e.target.value) || 0)} className="h-8 pl-6 pr-2 rounded-lg border-2 text-right font-black font-mono text-xs" />
+                                    </div>
+                                </div>
+                                {transaction.tipAmount > 0 && (
+                                    <div className="pt-4 border-t border-dashed border-border/50 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <div className="space-y-0.5">
+                                                <span className="text-[11px] font-black uppercase text-slate-700">Refund Gratuity (${transaction.tipAmount.toFixed(2)})</span>
+                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Return tip to guest</p>
+                                            </div>
+                                            <Switch checked={refundTip} onCheckedChange={setRefundTip} />
+                                        </div>
+                                        <AnimatePresence>
+                                            {refundTip && (
+                                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 pt-2">
+                                                    <Label className="text-[9px] font-black uppercase tracking-widest text-primary ml-1">Tip Payout Strategy</Label>
+                                                    <RadioGroup value={tipStrategy} onValueChange={(v: any) => setTipStrategy(v)} className="grid grid-cols-2 gap-2">
+                                                        <label htmlFor="strategy-clawback" className="cursor-pointer">
+                                                            <div className={cn("p-2 rounded-xl border-2 text-center transition-all", tipStrategy === 'clawback' ? "border-primary bg-primary/5 shadow-sm text-primary" : "border-border bg-white text-slate-400")}>
+                                                                <span className="text-[9px] font-black uppercase">Clawback</span>
+                                                                <RadioGroupItem value="clawback" id="strategy-clawback" className="sr-only" />
+                                                            </div>
+                                                        </label>
+                                                        <label htmlFor="strategy-absorb" className="cursor-pointer">
+                                                            <div className={cn("p-2 rounded-xl border-2 text-center transition-all", tipStrategy === 'absorb' ? "border-primary bg-primary/5 shadow-sm text-primary" : "border-border bg-white text-slate-400")}>
+                                                                <span className="text-[9px] font-black uppercase">Absorb</span>
+                                                                <RadioGroupItem value="absorb" id="strategy-absorb" className="sr-only" />
+                                                            </div>
+                                                        </label>
+                                                    </RadioGroup>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 pt-4 border-t border-dashed">
+                            <div className="flex items-center gap-3 px-1">
+                                <div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-slate-400" /></div>
+                                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Manager PIN Authorization</Label>
+                            </div>
+                            <Input 
+                                type="password" 
+                                maxLength={4} 
+                                value={pin} 
+                                onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+                                className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 focus-visible:ring-primary/20 shadow-inner bg-muted/5"
+                                placeholder="••••"
+                            />
+                        </div>
+                    </div>
+                </div>
+                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3">
+                    <Button onClick={handleAction} disabled={pin.length < 4} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Authorize Cash-Out</Button>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest text-slate-400">Abort Reversal</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
 
 const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRevert }: { transaction: Transaction | null, staff: Staff[], open: boolean, onOpenChange: (open: boolean) => void, onRevert: (t: Transaction) => void }) => {
     if (!transaction) return null;
@@ -448,7 +577,7 @@ const TransactionFilters = ({
   );
 };
 
-const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void, onPreviewReceipt: (t: Transaction) => void, onViewDetails: (t: Transaction) => void }) => {
+const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails, onRefundClick }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void, onPreviewReceipt: (t: Transaction) => void, onViewDetails: (t: Transaction) => void, onRefundClick: (t: Transaction) => void }) => {
   return (
     <TableRow className="group hover:bg-primary/[0.02] cursor-pointer" onClick={() => onViewDetails(transaction)}>
       <TableCell>
@@ -522,6 +651,9 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2">
+            {transaction.type === 'income' && (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRefundClick(transaction); }} className="font-bold uppercase text-[10px] tracking-widest text-destructive">Protocol Refund</DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRevertClick(transaction); }} disabled={transaction.type === 'reversal'} className="font-bold uppercase text-[10px] tracking-widest">Revert Entry</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -530,7 +662,7 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
   );
 };
 
-const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void, onPreviewReceipt: (t: Transaction) => void, onViewDetails: (t: Transaction) => void }) => {
+const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails, onRefundClick }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void, onPreviewReceipt: (t: Transaction) => void, onViewDetails: (t: Transaction) => void, onRefundClick: (t: Transaction) => void }) => {
     return (
         <Card className="border-2 shadow-sm rounded-3xl overflow-hidden group cursor-pointer" onClick={() => onViewDetails(transaction)}>
             <CardContent className="p-5 space-y-4">
@@ -599,6 +731,9 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2">
+                                {transaction.type === 'income' && (
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRefundClick(transaction); }} className="font-bold uppercase text-[10px] tracking-widest text-destructive">Protocol Refund</DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRevertClick(transaction); }} disabled={transaction.type === 'reversal'} className="font-bold uppercase text-[10px] tracking-widest">Revert Entry</DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -618,7 +753,7 @@ export default function LedgerPage() {
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const { transactions, staff, isLoading: areTransactionsLoading } = useInventory();
+  const { transactions, staff, tillSessions, isLoading: areTransactionsLoading } = useInventory();
 
   const [periodPreset, setPeriodPreset] = useState('30days');
   const [date, setDate] = React.useState<DateRange | undefined>(undefined);
@@ -629,6 +764,8 @@ export default function LedgerPage() {
   const [transactionToRevert, setTransactionToRevert] = useState<Transaction | null>(null);
   const [previewTransaction, setPreviewTransaction] = useState<Transaction | null>(null);
   const [selectedTransactionForDossier, setSelectedTransactionForDossier] = useState<Transaction | null>(null);
+  
+  const [transactionToRefund, setTransactionToRefund] = useState<Transaction | null>(null);
 
   useEffect(() => {
     const now = new Date();
@@ -700,10 +837,6 @@ export default function LedgerPage() {
     if (!firestore || !tenantId) return;
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
     addDocumentNonBlocking(transactionsRef, data);
-    toast({
-        title: 'Transaction Logged',
-        description: `Your transaction for $${data.amount.toFixed(2)} has been recorded.`
-    })
     setIsAddTxnOpen(false);
   }
   
@@ -729,6 +862,61 @@ export default function LedgerPage() {
     setTransactionToRevert(null);
     setSelectedTransactionForDossier(null);
   }
+
+  const handleRefundConfirm = async (data: any) => {
+    if (!transactionToRefund || !firestore || !tenantId) return;
+    const activeTill = tillSessions?.find(s => s.status === 'open');
+    
+    if (transactionToRefund.paymentMethod.toLowerCase() === 'cash' && !activeTill) {
+        toast({ variant: 'destructive', title: 'Till Required', description: 'Cannot process cash refund without an active till session.' });
+        return;
+    }
+
+    const batch = writeBatch(firestore);
+    const now = new Date().toISOString();
+    const refundTotal = data.amount + (data.refundTip ? (transactionToRefund.tipAmount || 0) : 0);
+
+    // 1. Create Reversal Transaction
+    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+    batch.set(txnRef, {
+        id: txnRef.id,
+        date: now,
+        description: `Refund for: ${transactionToRefund.description}`,
+        clientOrVendor: transactionToRefund.clientOrVendor,
+        clientId: transactionToRefund.clientId,
+        type: 'reversal',
+        context: transactionToRefund.context,
+        category: 'Refunds',
+        amount: refundTotal,
+        paymentMethod: transactionToRefund.paymentMethod,
+        reversalOf: transactionToRefund.id,
+        hasReceipt: false,
+    });
+
+    // 2. Update Till Session (If Cash)
+    if (transactionToRefund.paymentMethod.toLowerCase() === 'cash' && activeTill) {
+        const updates: any = {
+            expectedCash: increment(-refundTotal),
+            totalCashRefunds: increment(refundTotal)
+        };
+        
+        if (data.refundTip && data.tipStrategy === 'clawback' && transactionToRefund.staffId) {
+            updates[`cashTipsByStaff.${transactionToRefund.staffId}`] = increment(-(transactionToRefund.tipAmount || 0));
+            updates.totalCashTips = increment(-(transactionToRefund.tipAmount || 0));
+        }
+        
+        batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), updates);
+    }
+
+    try {
+        await batch.commit();
+        toast({ title: "Refund Authorized", description: `Record reversal of $${refundTotal.toFixed(2)} synchronized.` });
+        setTransactionToRefund(null);
+    } catch (e) {
+        console.error(e);
+        toast({ variant: 'destructive', title: "Process Error" });
+    }
+  };
   
   const handlePrint = () => {
     window.print();
@@ -836,6 +1024,7 @@ export default function LedgerPage() {
                         onRevertClick={() => setTransactionToRevert(transaction)} 
                         onPreviewReceipt={(t) => setPreviewTransaction(t)}
                         onViewDetails={(t) => setSelectedTransactionForDossier(t)}
+                        onRefundClick={setTransactionToRefund}
                       />
                     ))}
                      {!isLoading && filteredTransactions.length === 0 && (
@@ -869,6 +1058,7 @@ export default function LedgerPage() {
                                 onRevertClick={() => setTransactionToRevert(transaction)} 
                                 onPreviewReceipt={(t) => setPreviewTransaction(t)}
                                 onViewDetails={(t) => setSelectedTransactionForDossier(t)}
+                                onRefundClick={setTransactionToRefund}
                             />
                         ))}
                     </div>
@@ -945,6 +1135,14 @@ export default function LedgerPage() {
         transaction={selectedTransactionForDossier} 
         staff={staff}
         onRevert={handleRevertTransaction}
+    />
+
+    <RefundProtocolDialog 
+        open={!!transactionToRefund}
+        onOpenChange={(v: any) => !v && setTransactionToRefund(null)}
+        transaction={transactionToRefund}
+        staff={staff}
+        onConfirm={handleRefundConfirm}
     />
     </>
   );

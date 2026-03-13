@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -56,7 +57,8 @@ import {
     HeartHandshake,
     PackageOpen,
     Check,
-    DollarSign
+    DollarSign,
+    TrendingDown
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -222,6 +224,12 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
                     <span>Cash Tips</span>
                     <span className="font-black">${(session.totalCashTips || 0).toFixed(2)}</span>
                 </div>
+                {session.totalCashRefunds > 0 && (
+                    <div className="flex justify-between items-center text-destructive">
+                        <span>Cash Refunds</span>
+                        <span className="font-black">-${session.totalCashRefunds.toFixed(2)}</span>
+                    </div>
+                )}
                 <Separator className="border-black opacity-20" />
                 <div className="flex justify-between items-center text-sm font-black pt-1">
                     <span>Actual Drawer</span>
@@ -579,7 +587,11 @@ export const TillManagement = ({
                                                         <div className="space-y-1 text-left">
                                                             <p className="text-[9px] font-black uppercase text-primary tracking-widest">Expected Ledger</p>
                                                             <p className="text-3xl font-black font-mono tracking-tighter text-primary">${activeTill.expectedCash.toFixed(2)}</p>
-                                                            <p className="text-[8px] font-bold text-primary/60 uppercase">Incl. Gratuity</p>
+                                                            <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2">
+                                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Sales: ${(activeTill.totalCashSales || 0).toFixed(2)}</p>
+                                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Tips: ${(activeTill.totalCashTips || 0).toFixed(2)}</p>
+                                                                {activeTill.totalCashRefunds > 0 && <p className="text-[8px] font-bold text-destructive/60 uppercase">Refunds: -${activeTill.totalCashRefunds.toFixed(2)}</p>}
+                                                            </div>
                                                         </div>
                                                         <div className="space-y-1 text-right border-l border-dashed border-primary/20 pl-6">
                                                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Opened</p>
