@@ -45,7 +45,6 @@ import {
   Banknote,
   Info,
   DollarSign,
-  Banknote as BanknoteIcon,
   Scale,
   Zap,
   Hammer,
@@ -220,7 +219,14 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         if (!svc) return { overhead: 0, materials: 0, labor: 0, total: 0 };
 
         const overhead = ((svc.duration || 60) / 60) * tmhr;
-        const materials = svc.cost || 0;
+        
+        // Use actual formula from checkout if available, otherwise fallback to service cost
+        let materials = 0;
+        if (apt.checkoutState?.formula && apt.checkoutState.formula.length > 0) {
+            materials = apt.checkoutState.formula.reduce((acc: number, item: any) => acc + (item.quantity * item.costPerUnit), 0);
+        } else {
+            materials = svc.cost || 0;
+        }
         
         const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
         let labor = 0;
@@ -883,7 +889,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
     );
 };
 
-export default function LedgerPage() {
+const LedgerPage = () => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
@@ -1308,3 +1314,5 @@ export default function LedgerPage() {
     </>
   );
 }
+
+export default LedgerPage;
