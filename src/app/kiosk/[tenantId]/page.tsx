@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -16,16 +17,16 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap, Cake, PartyPopper, Gift } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { format, getDay, parseISO, parse, isSameDay } from 'date-fns';
+import { format, getDay, parseISO, parse, isSameDay, isSameMonth } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
@@ -126,6 +127,49 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
                     <p className="text-slate-500 mt-2 text-xs md:text-lg font-bold uppercase tracking-widest opacity-60">Group Check-in</p>
                 </div>
             </div>
+        </div>
+    </motion.div>
+);
+
+const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, onDone: () => void }) => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-background/80 backdrop-blur-xl">
+        <div className="relative w-full max-w-lg bg-white rounded-[3rem] border-4 shadow-3xl overflow-hidden p-10 md:p-16 text-center space-y-10">
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <motion.div animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute -top-20 -right-20 opacity-5"><Sparkles className="w-64 h-64 text-primary" /></motion.div>
+            </div>
+            
+            <div className="flex flex-col items-center gap-2 mb-2">
+                <Sparkles className="w-10 h-10 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Special Milestone</span>
+            </div>
+
+            <motion.div 
+                initial={{ scale: 0, rotate: -180 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", damping: 12, stiffness: 200 }}
+                className="w-32 h-32 md:w-48 md:h-48 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-12"
+            >
+                <PartyPopper className="w-16 h-16 md:w-24 md:h-24 text-primary -rotate-12" />
+            </motion.div>
+            
+            <div className="space-y-3">
+                <h2 className="text-3xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                    Happy Birthday, <br/>
+                    <span className="text-primary italic font-serif lowercase tracking-normal">{clientName.split(' ')[0]}!</span>
+                </h2>
+                <p className="text-sm md:text-xl font-medium text-slate-500 leading-relaxed max-w-xs mx-auto">
+                    We're thrilled to celebrate with you today. Expect a little something extra during your visit!
+                </p>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-primary/5 border-2 border-dashed border-primary/20 flex items-center justify-center gap-3 shadow-inner">
+                <Gift className="w-5 h-5 text-primary animate-bounce" />
+                <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">A birthday surprise awaits you</span>
+            </div>
+
+            <Button onClick={onDone} className="w-full h-16 md:h-20 rounded-2xl text-lg md:text-2xl font-black uppercase shadow-2xl shadow-primary/30 group">
+                Check In Now <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
+            </Button>
         </div>
     </motion.div>
 );
@@ -568,29 +612,6 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
     </motion.div>
 );
 
-const ViewContainer = ({ children }: { children: React.ReactNode }) => (
-    <motion.div 
-        initial={{ opacity: 0, y: 20 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        className="w-full max-w-lg"
-    >
-        <Card className="border-4 rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl">
-            {children}
-        </Card>
-    </motion.div>
-);
-
-const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
-    <CardHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
-        <div className="flex items-center gap-3 mb-2">
-            {Icon ? <Icon className="w-5 h-5 text-primary" /> : <Sparkles className="w-5 h-5 text-primary" />}
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
-        </div>
-        <CardTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
-        <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
-    </CardHeader>
-);
-
 export default function WalkInPage() {
   const { firestore } = useFirebase();
   const { toast } = useToast();
@@ -629,6 +650,15 @@ export default function WalkInPage() {
   const [bannedClient, setBannedClient] = useState<Client | null>(null);
   const [isResolvingIdentity, setIsResolvingIdentity] = useState(false);
   const [matchedAppointment, setMatchedAppointment] = useState<Appointment | null>(null);
+  const [showBirthdayCelebration, setShowBirthdayCelebration] = useState(false);
+  const [birthdayName, setBirthdayName] = useState('');
+
+  const isBirthdayToday = (birthdayStr?: string) => {
+    if (!birthdayStr) return false;
+    const birth = safeDate(birthdayStr);
+    const today = new Date();
+    return isSameMonth(today, birth) && birth.getDate() === today.getDate();
+  };
 
   const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
     if (!firestore || !tenantId || (!email && !phone)) return;
@@ -757,6 +787,8 @@ export default function WalkInPage() {
               batch.update(checkInRef, { checkInStatus: 'arrived', tenantId: tenantId });
           }
 
+          const matchedClient = clients?.find(c => c.id === apt.clientId);
+
           if (apt.staffId) {
               const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
               batch.set(notificationRef, {
@@ -778,7 +810,13 @@ export default function WalkInPage() {
               checkInTime: new Date().toISOString(),
           };
           setConfirmedParty([ticketData]);
-          setStep('confirmation');
+
+          if (isBirthdayToday(matchedClient?.birthday)) {
+              setBirthdayName(matchedClient?.name || 'Guest');
+              setShowBirthdayCelebration(true);
+          } else {
+              setStep('confirmation');
+          }
       } catch (e) {
           console.error(e);
           toast({ variant: 'destructive', title: 'Check-in Error' });
@@ -795,6 +833,8 @@ export default function WalkInPage() {
     const now = new Date().toISOString();
     const tickets: WalkInTicketData[] = [];
 
+    let birthdayMemberName = '';
+
     try {
         const queueQuery = query(collection(firestore, `tenants/${tenantId}/walkIns`), where("status", "==", "waiting"));
         const existingQueue = await getDocs(queueQuery);
@@ -803,6 +843,10 @@ export default function WalkInPage() {
         for (const member of partyMembers) {
             let matchedClient = clients?.find(c => (member.email && c.email.toLowerCase() === member.email.toLowerCase()) || (member.phone && c.phone === member.phone));
             let clientId = matchedClient?.id;
+
+            if (isBirthdayToday(matchedClient?.birthday)) {
+                birthdayMemberName = matchedClient?.name || member.name;
+            }
 
             if (!clientId) {
                 clientId = nanoid();
@@ -848,7 +892,13 @@ export default function WalkInPage() {
 
         await batch.commit();
         setConfirmedParty(tickets);
-        setStep('confirmation');
+        
+        if (birthdayMemberName) {
+            setBirthdayName(birthdayMemberName);
+            setShowBirthdayCelebration(true);
+        } else {
+            setStep('confirmation');
+        }
     } catch (e) {
         console.error(e);
         toast({ variant: 'destructive', title: 'Check-in Error' });
@@ -875,7 +925,7 @@ export default function WalkInPage() {
             {!entered ? (
                 <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group z-10" onClick={() => setEntered(true)}>
                     <div className="inline-block p-10 md:p-16 bg-white/60 backdrop-blur-3xl rounded-full shadow-[0_20px_50px_rgba(8,_112,_184,_0.1)] mb-12 md:mb-20 border-2 border-white/50 group-hover:border-primary group-hover:shadow-primary/20 transition-all duration-700 active:scale-95"><ClarityFlowLogo className="w-16 h-16 md:w-32 md:h-32" /></div>
-                    <h1 className="text-5xl md:text-8xl lg:text-[10rem] font-black tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm">Welcome</h1>
+                    <h1 className="text-5xl md:text-[10rem] font-black tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none">Welcome</h1>
                     <p className="text-primary text-sm md:text-4xl font-black tracking-[0.3em] uppercase animate-pulse drop-shadow-sm">Tap to Begin</p>
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-16 md:mt-24 flex justify-center">
                         <ArrowDown className="w-8 h-8 md:w-12 md:h-12 animate-bounce text-slate-400" />
@@ -911,6 +961,19 @@ export default function WalkInPage() {
                 </motion.div>
             )}
         </AnimatePresence>
+
+        <AnimatePresence>
+            {showBirthdayCelebration && (
+                <BirthdayCelebrationView 
+                    clientName={birthdayName} 
+                    onDone={() => {
+                        setShowBirthdayCelebration(false);
+                        setStep('confirmation');
+                    }} 
+                />
+            )}
+        </AnimatePresence>
+
         <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
             <DialogContent className="max-w-sm rounded-3xl"><DialogHeader><DialogTitle className="text-xl font-black uppercase text-center text-slate-900">Ticket Ready</DialogTitle></DialogHeader><div className="flex justify-center p-4">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter><Button className="w-full h-14 rounded-2xl text-xl font-black uppercase shadow-xl" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Print & Close</Button></DialogFooter></DialogContent>
         </Dialog>
