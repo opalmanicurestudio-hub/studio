@@ -99,7 +99,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { type Transaction } from '@/lib/financial-data';
 import { type Staff, type Incident, type Service, type Appointment } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
-import { format, startOfDay, endOfDay, parseISO, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { format, startOfDay, endOfDay, parseISO, subDays, startOfMonth, endOfMonth, subMonths, differenceInMinutes } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import {
   Accordion,
@@ -222,11 +222,9 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         let materials = 0;
         if (apt.checkoutState?.formula && apt.checkoutState.formula.length > 0) {
             materials = apt.checkoutState.formula.reduce((acc: number, item: any) => {
-                // Item in formula has quantity and costPerUnit
                 return acc + (item.quantity * item.costPerUnit);
             }, 0);
         } else {
-            // Fallback to library estimate if checkout formula is missing
             materials = svc.cost || 0;
         }
 
