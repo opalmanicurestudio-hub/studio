@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
-import { type TillSession, type TillDenominations, type Staff } from '@/lib/data';
+import { type TillSession, type Staff } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -160,7 +160,7 @@ export const TillManagement = ({
     return (
         <DialogComponent open={open} onOpenChange={onOpenChange}>
             <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
-                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left flex-shrink-0">
+                <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Calculator className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Financial Protocol</span>

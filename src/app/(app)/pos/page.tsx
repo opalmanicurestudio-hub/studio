@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -161,6 +160,8 @@ function POSPage() {
     const isMobile = useIsMobile();
     const searchParams = useSearchParams();
 
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [retailItems, setRetailItems] = useState<any[]>([]);
@@ -196,7 +197,6 @@ function POSPage() {
     const [policyEnforcementData, setPolicyEnforcementData] = useState<any | null>(null);
 
     const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
-    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointmentsFromInventory || !clients || !services || !staff) return [];
@@ -260,7 +260,6 @@ function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
 
-    // Handle Deep-Linked Arrears Settlement
     useEffect(() => {
         const payerId = searchParams.get('payer_id');
         const action = searchParams.get('action');
@@ -496,7 +495,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
