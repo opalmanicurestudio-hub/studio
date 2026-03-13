@@ -784,6 +784,9 @@ export type TillSession = {
     openingDenominations: TillDenominations;
     closingDenominations?: TillDenominations;
     notes?: string;
+    openedBySignature?: string;
+    closedBySignature?: string;
+    verifiedBySignature?: string;
 };
 
 export const getServicePrice = (service: Service | undefined, staffMember: Staff | undefined): number => {
