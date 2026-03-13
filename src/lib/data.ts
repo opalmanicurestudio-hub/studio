@@ -259,6 +259,7 @@ export type Service = {
   confirmationMessage?: string;
   requiredFormIds?: string[];
   status?: 'active' | 'archived';
+  bottomColor?: string;
   depositType?: 'none' | 'deposit' | 'full' | 'breakeven';
   depositSubType?: 'flat' | 'percentage';
   depositAmount?: number;
@@ -780,6 +781,7 @@ export type TillSession = {
     expectedCash: number;
     totalCashSales?: number;
     totalCashTips?: number;
+    cashTipsByStaff?: Record<string, number>;
     actualCash?: number;
     cashToDeposit?: number;
     nextDayFloat?: number;

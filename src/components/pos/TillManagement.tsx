@@ -56,7 +56,8 @@ import {
     ArrowDown,
     HeartHandshake,
     PackageOpen,
-    Check
+    Check,
+    DollarSign
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -138,6 +139,14 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
         count: session.depositDenominations?.[d.key] || 0
     })).filter(d => d.count > 0);
 
+    const staffTips = useMemo(() => {
+        if (!session.cashTipsByStaff) return [];
+        return Object.entries(session.cashTipsByStaff).map(([staffId, amount]) => ({
+            name: staff.find(s => s.id === staffId)?.name || 'Unknown Staff',
+            amount: amount as number
+        })).filter(t => t.amount > 0);
+    }, [session.cashTipsByStaff, staff]);
+
     return (
         <div className="bg-white p-6 md:p-8 rounded-none border shadow-none font-mono text-xs text-black space-y-6 w-[300px] mx-auto text-left" id="deposit-slip-print">
             <div className="text-center space-y-2">
@@ -168,6 +177,26 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
             </div>
 
             <Separator className="border-dashed border-black" />
+
+            {staffTips.length > 0 && (
+                <div className="space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest border-b border-black pb-1 text-center">Gratuity Attribution</p>
+                    <div className="space-y-1.5">
+                        {staffTips.map((t, idx) => (
+                            <div key={idx} className="flex justify-between items-center">
+                                <span className="truncate pr-2">{t.name}</span>
+                                <span className="font-black">${t.amount.toFixed(2)}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex justify-between font-black border-t border-dashed border-black pt-2">
+                        <span>Total Cash Tips</span>
+                        <span>${(session.totalCashTips || 0).toFixed(2)}</span>
+                    </div>
+                    <Separator className="border-dashed border-black" />
+                </div>
+            )}
+
             <div className="space-y-2 uppercase font-bold text-[10px]">
                 <p className="text-[9px] font-black tracking-widest border-b border-black pb-1 text-center">Audit Summary</p>
                 <div className="flex justify-between items-center">
@@ -178,8 +207,8 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
                     <span>Total Cash sales</span>
                     <span className="font-black">${(session.totalCashSales || 0).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                    <span>Total Tips</span>
+                <div className="flex justify-between items-center text-primary">
+                    <span>Total Cash Tips</span>
                     <span className="font-black">${(session.totalCashTips || 0).toFixed(2)}</span>
                 </div>
                 <Separator className="border-black opacity-20" />
@@ -612,7 +641,7 @@ export const TillManagement = ({
                                                         <p className="text-[8px] font-black text-primary/60 uppercase">Net removed from drawer</p>
                                                     </div>
                                                 </div>
-                                                <p className="text-3xl font-black font-mono tracking-tighter text-primary">${cashToDeposit.toFixed(2)}</p>
+                                                <p className="text-3xl font-black font-mono tracking-tighter text-primary">${Math.max(0, actualTotal - floatTotal).toFixed(2)}</p>
                                             </div>
                                         </motion.div>
                                     )}

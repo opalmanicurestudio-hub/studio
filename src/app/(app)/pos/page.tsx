@@ -708,6 +708,9 @@ function POSPage() {
         const selectedClient = (clients || []).find(c => c.id === selectedClientId);
         let totalLtvIncrease = 0;
         let totalCashIncrease = 0;
+        
+        let cashTipsTotal = 0;
+        const cashTipsByStaffUpdate: Record<string, number> = {};
 
         for (const aptData of selectedAptsData) {
             const { appointment: apt, service, addOnServices } = aptData;
@@ -750,7 +753,7 @@ function POSPage() {
 
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
             addOnServices.forEach((addon: any) => {
-                const addonStaffId = overrides[addon.id] || apt.staffId;
+                const addonStaffId = overrides[addon.id] || data.appointment.staffId;
                 const addonStaffMember = staff.find((s: any) => s.id === addonStaffId);
                 const isAddonRedeemed = redeemedOffer?.id === addon.id;
                 const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaffMember);
@@ -795,11 +798,13 @@ function POSPage() {
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
         }
         
-        let cashTipsTotal = 0;
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
             if ((amount as number) > 0) {
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
-                if (paymentData.paymentMethod === 'cash') cashTipsTotal += (amount as number);
+                if (paymentData.paymentMethod === 'cash') {
+                    cashTipsTotal += (amount as number);
+                    cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(amount as number);
+                }
             }
         });
         
@@ -812,7 +817,8 @@ function POSPage() {
             batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), { 
                 expectedCash: increment(finalCashInput),
                 totalCashSales: increment(totalCashIncrease + tax),
-                totalCashTips: increment(cashTipsTotal)
+                totalCashTips: increment(cashTipsTotal),
+                ...cashTipsByStaffUpdate
             });
         }
 
@@ -835,6 +841,7 @@ function POSPage() {
             expectedCash: data.openingFloat,
             totalCashSales: 0,
             totalCashTips: 0,
+            cashTipsByStaff: {},
             ...data
         };
         await setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, sessionId), session, {});
