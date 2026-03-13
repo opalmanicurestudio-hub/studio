@@ -21,7 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
     Banknote, 
     Coins, 
@@ -36,7 +36,9 @@ import {
     Landmark,
     FileText,
     ArrowDownToLine,
-    ArrowUpFromLine
+    ArrowUpFromLine,
+    Users,
+    ShieldCheck
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -122,7 +124,8 @@ export const TillManagement = ({
     const isMobile = useIsMobile();
     const { toast } = useToast();
     const [counts, setCounts] = useState<Record<string, number>>({});
-    const [pin, setPin] = useState('');
+    const [primaryPin, setPrimaryPin] = useState('');
+    const [witnessPin, setWitnessPin] = useState('');
     const [step, setStep] = useState<'count' | 'allocation' | 'verify' | 'success'>('count');
     const [nextDayFloat, setNextDayFloat] = useState<number>(0);
     const [finalSessionData, setFinalSessionData] = useState<any | null>(null);
@@ -146,13 +149,23 @@ export const TillManagement = ({
     };
 
     const handleAction = () => {
-        const authorizedStaff = staff.find(s => s.pin === pin);
+        const authorizedStaff = staff.find(s => s.pin === primaryPin);
         if (!authorizedStaff) {
-            toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Authentication required.' });
+            toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Primary authenticator not found.' });
             return;
         }
 
         if (activeTill) {
+            const witnessStaff = staff.find(s => s.pin === witnessPin);
+            if (!witnessStaff) {
+                toast({ variant: 'destructive', title: 'Witness Required', description: 'Invalid Witness PIN.' });
+                return;
+            }
+            if (witnessStaff.id === authorizedStaff.id) {
+                toast({ variant: 'destructive', title: 'Audit Conflict', description: 'The witness must be a different staff member.' });
+                return;
+            }
+
             const discrepancy = actualTotal - activeTill.expectedCash;
             const closingData = {
                 actualCash: actualTotal,
@@ -160,10 +173,11 @@ export const TillManagement = ({
                 nextDayFloat,
                 closingDenominations: counts,
                 closedBy: authorizedStaff.id,
+                verifiedBy: witnessStaff.id,
                 discrepancy,
                 closedAt: new Date().toISOString()
             };
-            setFinalSessionData({ ...activeTill, ...closingData, staffName: authorizedStaff.name });
+            setFinalSessionData({ ...activeTill, ...closingData, staffName: authorizedStaff.name, witnessName: witnessStaff.name });
             onCloseTill(closingData);
             setStep('success');
         } else {
@@ -179,7 +193,8 @@ export const TillManagement = ({
 
     const resetState = () => {
         setCounts({});
-        setPin('');
+        setPrimaryPin('');
+        setWitnessPin('');
         setStep('count');
         setFinalSessionData(null);
     };
@@ -201,7 +216,7 @@ export const TillManagement = ({
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Financial Protocol</span>
                     </div>
                     <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                        {step === 'success' ? 'Session Synchronized' : activeTill ? 'Till Reconciliation' : 'Open Studio Till'}
+                        {step === 'success' ? 'Audit Certified' : activeTill ? 'Till Reconciliation' : 'Open Studio Till'}
                     </DialogTitle>
                 </DialogHeader>
 
@@ -218,7 +233,7 @@ export const TillManagement = ({
                                                     <p className="text-3xl font-black font-mono tracking-tighter text-primary">${activeTill.expectedCash.toFixed(2)}</p>
                                                 </div>
                                                 <div className="space-y-1 text-right border-l border-dashed border-primary/20 pl-6">
-                                                    <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Opened</p>
+                                                    <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Window</p>
                                                     <p className="text-sm font-black text-slate-900">{format(safeDate(activeTill.openedAt), 'h:mm a')}</p>
                                                 </div>
                                             </CardContent>
@@ -232,14 +247,23 @@ export const TillManagement = ({
 
                             {step === 'allocation' && (
                                 <motion.div key="allocation" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
-                                    <div className="p-8 rounded-[2.5rem] bg-slate-900 text-white text-center space-y-2 shadow-2xl">
-                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40">Total Physical Count</p>
-                                        <p className="text-6xl font-black font-mono tracking-tighter text-primary">${actualTotal.toFixed(2)}</p>
+                                    <div className="p-8 rounded-[2.5rem] bg-slate-900 text-white text-center space-y-4 shadow-2xl relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 p-6 opacity-5"><Banknote className="w-32 h-32" /></div>
+                                        <div className="space-y-1 relative z-10">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40">Total Physical Count</p>
+                                            <p className="text-6xl font-black font-mono tracking-tighter text-primary">${actualTotal.toFixed(2)}</p>
+                                        </div>
+                                        {activeTill && (
+                                            <div className={cn("inline-flex items-center gap-2 px-4 py-1.5 rounded-full font-black text-[9px] uppercase tracking-widest relative z-10", 
+                                                actualTotal >= activeTill.expectedCash ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-red-400")}>
+                                                {actualTotal >= activeTill.expectedCash ? `Overage: +$${(actualTotal - activeTill.expectedCash).toFixed(2)}` : `Shortage: -$${(activeTill.expectedCash - actualTotal).toFixed(2)}`}
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="space-y-6">
                                         <div className="space-y-3">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Leave in Drawer (Float Retention)</Label>
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Float Retention (Remaining in Drawer)</Label>
                                             <div className="relative">
                                                 <ArrowDownToLine className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-indigo-500 opacity-40" />
                                                 <Input 
@@ -249,13 +273,13 @@ export const TillManagement = ({
                                                     className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5"
                                                 />
                                             </div>
-                                            <p className="text-[9px] font-bold text-indigo-600/60 uppercase ml-1">Suggested: Stay at ${activeTill?.openingFloat.toFixed(2)}</p>
+                                            <p className="text-[9px] font-bold text-indigo-600/60 uppercase ml-1">Suggested: ${activeTill?.openingFloat.toFixed(2)} (Standard Reset)</p>
                                         </div>
 
                                         <div className="p-6 rounded-[2rem] border-4 border-primary/20 bg-primary/5 flex justify-between items-center shadow-xl">
                                             <div className="flex items-center gap-3">
                                                 <div className="p-2 rounded-xl bg-primary text-white shadow-lg"><ArrowUpFromLine className="w-5 h-5" /></div>
-                                                <span className="font-black uppercase tracking-tight text-sm text-slate-900">Bank Deposit</span>
+                                                <span className="font-black uppercase tracking-tight text-sm text-slate-900">Final Bank Deposit</span>
                                             </div>
                                             <p className="text-3xl font-black font-mono tracking-tighter text-primary">${cashToDeposit.toFixed(2)}</p>
                                         </div>
@@ -264,22 +288,46 @@ export const TillManagement = ({
                             )}
 
                             {step === 'verify' && (
-                                <motion.div key="verify" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-10 py-10 flex flex-col items-center">
-                                    <div className="w-24 h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center shadow-2xl shadow-primary/5 rotate-6">
-                                        <KeyRound className="w-12 h-12 text-primary -rotate-6" />
+                                <motion.div key="verify" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-10 py-6 flex flex-col items-center">
+                                    <div className="w-full space-y-8">
+                                        <div className="space-y-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-primary/10 rounded-xl"><User className="w-5 h-5 text-primary" /></div>
+                                                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Primary Auditor PIN</Label>
+                                            </div>
+                                            <Input 
+                                                type="password" 
+                                                maxLength={4} 
+                                                value={primaryPin} 
+                                                onChange={e => setPrimaryPin(e.target.value.replace(/\D/g, ''))}
+                                                className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 focus-visible:ring-primary/20 shadow-inner bg-muted/5"
+                                                placeholder="••••"
+                                            />
+                                        </div>
+
+                                        {activeTill && (
+                                            <div className="space-y-4 pt-6 border-t-2 border-dashed">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-primary/10 rounded-xl"><ShieldCheck className="w-5 h-5 text-primary" /></div>
+                                                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Witness Verification PIN</Label>
+                                                </div>
+                                                <Input 
+                                                    type="password" 
+                                                    maxLength={4} 
+                                                    value={witnessPin} 
+                                                    onChange={e => setWitnessPin(e.target.value.replace(/\D/g, ''))}
+                                                    className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 border-primary/20 focus-visible:ring-primary/20 shadow-inner bg-white"
+                                                    placeholder="••••"
+                                                />
+                                                <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-100 text-left">
+                                                    <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                                    <p className="text-[9px] font-bold text-amber-700 uppercase leading-relaxed">
+                                                        A second provider must witness this count and authorize with their unique studio PIN.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="text-center space-y-2">
-                                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Authorize Protocol</h3>
-                                        <p className="text-sm font-medium text-slate-500 uppercase tracking-tight">Enter your 4-digit PIN to commit counts.</p>
-                                    </div>
-                                    <Input 
-                                        type="password" 
-                                        maxLength={4} 
-                                        value={pin} 
-                                        onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                                        className="h-20 w-48 rounded-3xl border-4 text-center text-5xl font-black tracking-[0.5em] focus-visible:ring-primary/20 shadow-inner"
-                                        autoFocus
-                                    />
                                 </motion.div>
                             )}
 
@@ -291,7 +339,7 @@ export const TillManagement = ({
                                         </div>
                                         <div className="space-y-1">
                                             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Audit Finalized</h3>
-                                            <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Reconciled by {finalSessionData.staffName}</p>
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Certified by {finalSessionData.staffName} & {finalSessionData.witnessName}</p>
                                         </div>
                                     </div>
 
@@ -305,20 +353,19 @@ export const TillManagement = ({
                                         </CardHeader>
                                         <CardContent className="p-6 space-y-4 text-left">
                                             <div className="space-y-2 text-[10px] font-bold uppercase text-slate-600">
-                                                <div className="flex justify-between"><span>Physical Count</span><span className="font-mono text-slate-900">${finalSessionData.actualCash.toFixed(2)}</span></div>
-                                                <div className="flex justify-between"><span>Next Day Float</span><span className="font-mono text-indigo-600">-${finalSessionData.nextDayFloat.toFixed(2)}</span></div>
+                                                <div className="flex justify-between"><span>Closing Physical Count</span><span className="font-mono text-slate-900">${finalSessionData.actualCash.toFixed(2)}</span></div>
+                                                <div className="flex justify-between"><span>Retained Float</span><span className="font-mono text-indigo-600">-${finalSessionData.nextDayFloat.toFixed(2)}</span></div>
                                                 <Separator className="border-dashed" />
                                                 <div className="flex justify-between text-base font-black text-primary pt-2">
-                                                    <span>NET DEPOSIT</span>
+                                                    <span>NET DEPOSIT TOTAL</span>
                                                     <span className="font-mono">${finalSessionData.cashToDeposit.toFixed(2)}</span>
                                                 </div>
                                             </div>
-                                            {Math.abs(finalSessionData.discrepancy) > 0.01 && (
-                                                <div className="p-3 rounded-xl bg-destructive/5 border border-destructive/10 flex items-center gap-2">
-                                                    <AlertTriangle className="w-3 h-3 text-destructive" />
-                                                    <p className="text-[8px] font-bold text-destructive uppercase">Audit Variance: ${finalSessionData.discrepancy.toFixed(2)}</p>
-                                                </div>
-                                            )}
+                                            <div className="pt-4 border-t border-dashed space-y-1 text-[8px] font-black uppercase opacity-40">
+                                                <p>Certified by: {finalSessionData.staffName}</p>
+                                                <p>Witnessed by: {finalSessionData.witnessName}</p>
+                                                <p>Timestamp: {format(new Date(), 'MMM d, yyyy @ h:mm a')}</p>
+                                            </div>
                                         </CardContent>
                                     </Card>
                                 </motion.div>
@@ -331,28 +378,28 @@ export const TillManagement = ({
                     <div className="flex flex-col gap-3 w-full">
                         {step === 'count' && (
                             <div className="flex gap-3">
-                                <Button variant="ghost" onClick={handleClose} className="flex-1 h-14 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel</Button>
+                                <Button variant="ghost" onClick={handleClose} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
                                 <Button onClick={() => setStep(activeTill ? 'allocation' : 'verify')} disabled={actualTotal <= 0} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">
-                                    {activeTill ? 'Next: Reconcile Yield' : 'Next: Identity Verify'} <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                                    {activeTill ? 'Analyze Yield' : 'Identity Verify'} <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                                 </Button>
                             </div>
                         )}
                         {step === 'allocation' && (
                             <div className="flex gap-3">
-                                <Button variant="ghost" onClick={() => setStep('count')} className="flex-1 h-14 font-black uppercase tracking-widest text-[10px] text-slate-400">Back</Button>
-                                <Button onClick={() => setStep('verify')} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Identify & Commit</Button>
+                                <Button variant="ghost" onClick={() => setStep('count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
+                                <Button onClick={() => setStep('verify')} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Dual Authorization</Button>
                             </div>
                         )}
                         {step === 'verify' && (
                             <div className="flex gap-3">
-                                <Button variant="ghost" onClick={() => setStep(activeTill ? 'allocation' : 'count')} className="flex-1 h-14 font-black uppercase tracking-widest text-[10px] text-slate-400">Back</Button>
-                                <Button onClick={handleAction} disabled={pin.length < 4} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Confirm Signature</Button>
+                                <Button variant="ghost" onClick={() => setStep(activeTill ? 'allocation' : 'count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
+                                <Button onClick={handleAction} disabled={primaryPin.length < 4 || (activeTill && witnessPin.length < 4)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Commit Audit</Button>
                             </div>
                         )}
                         {step === 'success' && (
                             <div className="flex flex-col gap-3">
                                 <Button className="w-full h-16 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-primary/30 group" onClick={() => window.print()}>
-                                    <Printer className="mr-3 h-5 w-5" /> Print Deposit Slip
+                                    <Printer className="mr-3 h-5 w-5" /> Print Certified Slip
                                 </Button>
                                 <Button variant="ghost" onClick={handleClose} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-slate-400">Return to Terminal</Button>
                             </div>

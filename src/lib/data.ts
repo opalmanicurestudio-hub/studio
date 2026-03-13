@@ -773,6 +773,7 @@ export type TillSession = {
     openedBy: string;
     closedAt?: string;
     closedBy?: string;
+    verifiedBy?: string;
     status: 'open' | 'closed';
     openingFloat: number;
     expectedCash: number;
