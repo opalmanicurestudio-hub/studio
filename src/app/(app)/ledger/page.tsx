@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -42,7 +41,9 @@ import {
   HeartHandshake,
   ShieldAlert,
   AlertTriangle,
-  FileWarning
+  FileWarning,
+  Banknote,
+  Info
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -115,7 +116,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { collection, doc, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@/components/ui/switch';
@@ -123,6 +124,8 @@ import { Textarea } from '@/components/ui/textarea';
 import Image from 'next/image';
 import Link from 'next/link';
 import { nanoid } from 'nanoid';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -207,7 +210,6 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, open, onOpenChan
     if (!transaction) return null;
 
     const isCardPayment = transaction.paymentMethod.toLowerCase().includes('card') || transaction.paymentMethod.toLowerCase().includes('visa') || transaction.paymentMethod.toLowerCase().includes('master');
-    const isCashPayment = transaction.paymentMethod.toLowerCase() === 'cash';
 
     const handleAction = () => {
         const authorized = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
@@ -808,7 +810,6 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
 
 export default function LedgerPage() {
   const { firestore } = useFirebase();
-  const { user: currentUser } = useUser();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const isMobile = useIsMobile();
