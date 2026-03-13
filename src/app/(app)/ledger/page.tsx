@@ -51,7 +51,8 @@ import {
   Hammer,
   Clock,
   Briefcase,
-  List
+  List,
+  Package
 } from 'lucide-react';
 import {
   DropdownMenu,
