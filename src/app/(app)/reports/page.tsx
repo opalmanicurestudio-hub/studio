@@ -46,7 +46,10 @@ import {
   PlusCircle,
   FileText,
   ListChecks,
-  Sparkles
+  Sparkles,
+  Globe,
+  Phone,
+  Smartphone
 } from 'lucide-react';
 import {
   Select,
@@ -172,7 +175,7 @@ export default function ReportsPage() {
   const effectiveTo = useMemo(() => dateRange?.to ? endOfDay(dateRange.to) : endOfMonth(new Date()), [dateRange]);
 
   const analyticsData = useMemo(() => {
-    if (!staff || !appointments || !services || !transactions || !activityLogs || !selectedTenant) return { performance: [], overall: {} as any, absorbedLedger: [], taxSummary: {} as any, reconciliation: [] };
+    if (!staff || !appointments || !services || !transactions || !activityLogs || !selectedTenant) return { performance: [], overall: {} as any, absorbedLedger: [], taxSummary: {} as any, reconciliation: [], channelStats: [] };
     
     const filterByDate = (date: any) => {
         const d = safeDate(date);
@@ -283,6 +286,23 @@ export default function ReportsPage() {
         };
     });
 
+    // --- Acquisition Channel Tracking ---
+    const periodAppointments = appointments.filter(a => filterByDate(a.startTime));
+    const channelStats = [
+        { id: 'online', label: 'Online Booking', icon: Globe, color: 'text-primary' },
+        { id: 'manual', label: 'Manual / Phone', icon: Phone, color: 'text-indigo-600' },
+        { id: 'walk-in', label: 'Walk-in Kiosk', icon: Users, color: 'text-teal-600' },
+    ].map(channel => {
+        const matchingApts = periodAppointments.filter(a => (a.source === channel.id || (channel.id === 'walk-in' && a.isWalkIn)));
+        const count = matchingApts.length;
+        const revenue = matchingApts.reduce((acc, a) => {
+            const svc = services.find(s => s.id === a.serviceId);
+            return acc + (a.revenue || svc?.price || 0);
+        }, 0);
+        const percentage = periodAppointments.length > 0 ? (count / periodAppointments.length) * 100 : 0;
+        return { ...channel, count, revenue, percentage };
+    });
+
     const activeBusinessProfile = (businessProfiles || []).find((p: any) => p.isActive);
     const reconciliationCategories = [
         { label: 'Facility & Rent', icon: Building, color: 'text-blue-600', match: ['rent', 'facility', 'lease', 'mortgage', 'housing'] },
@@ -319,7 +339,6 @@ export default function ReportsPage() {
     const totalMaterials = performance.reduce((acc, d) => acc + d.stats.totalMaterialCost, 0);
     const totalGrossRevenue = performance.reduce((acc, d) => acc + d.stats.totalSales, 0);
 
-    const periodAppointments = appointments.filter(a => filterByDate(a.startTime));
     const absorbedLedger = periodAppointments
         .filter(a => a.cancellationFeeWaived === true)
         .map(a => ({
@@ -344,7 +363,8 @@ export default function ReportsPage() {
             utilization: performance.length > 0 ? performance.reduce((acc,d) => acc + d.stats.utilizationRate, 0) / performance.length : 0
         },
         absorbedLedger,
-        reconciliation
+        reconciliation,
+        channelStats
     };
   }, [staff, appointments, services, transactions, activityLogs, inventory, clients, businessProfiles, effectiveFrom, effectiveTo, selectedTenant]);
 
@@ -404,6 +424,43 @@ export default function ReportsPage() {
             <KpiStat label="Labor Load" value={`$${analyticsData.overall.totalLaborLoad.toFixed(0)}`} subLabel="Payroll + Tax Burden" icon={Users} colorClass="text-amber-600" />
             <KpiStat label="Fixed Overhead" value={`$${analyticsData.overall.totalReconciledOpEx.toFixed(0)}`} subLabel="Reconciled OpEx" icon={Landmark} colorClass="text-indigo-600" />
         </div>
+
+        <section className="space-y-6">
+            <div className="flex items-center gap-2 px-1 text-left">
+                <ShieldCheck className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Acquisition Matrix</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {analyticsData.channelStats.map(channel => (
+                    <Card key={channel.id} className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:border-primary/20 transition-all group">
+                        <CardHeader className="p-6 pb-2 border-b bg-muted/5">
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3">
+                                    <div className={cn("p-2.5 rounded-xl bg-background border shadow-inner", channel.color)}>
+                                        <channel.icon className="w-5 h-5" />
+                                    </div>
+                                    <div className="text-left">
+                                        <CardTitle className="text-sm font-black uppercase tracking-tight">{channel.label}</CardTitle>
+                                        <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest opacity-60">Acquisition Channel</p>
+                                    </div>
+                                </div>
+                                <Badge className="bg-primary text-white border-none font-black font-mono text-[10px]">{channel.percentage.toFixed(0)}%</Badge>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-6 pt-4 grid grid-cols-2 gap-4">
+                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border shadow-inner">
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Volume</p>
+                                <p className="text-lg font-black font-mono tracking-tighter text-slate-900">{channel.count} <span className="text-[8px]">Sessions</span></p>
+                            </div>
+                            <div className="space-y-1 text-right p-3 rounded-xl bg-primary/5 border border-primary/10 transition-all">
+                                <p className="text-[8px] font-black uppercase text-primary tracking-widest">Yield</p>
+                                <p className="text-lg font-black font-mono tracking-tighter text-primary">${channel.revenue.toFixed(0)}</p>
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+        </section>
 
         <section className="space-y-6">
             <div className="flex items-center gap-2 px-1 text-left">

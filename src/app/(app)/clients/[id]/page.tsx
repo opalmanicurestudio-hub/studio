@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { 
     ArrowLeft, 
     Edit, 
@@ -59,7 +60,8 @@ import {
     X,
     Info,
     Smartphone,
-    ArrowRight
+    ArrowRight,
+    Globe
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -99,7 +101,6 @@ import {
 import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -240,6 +241,24 @@ export default function ClientDetailPage() {
     return (!mId || !memberships) ? null : memberships.find(m => m.id === mId);
   }, [client, memberships]);
 
+  const primaryBookingSource = useMemo(() => {
+      if (!appointmentsForThisClient || appointmentsForThisClient.length === 0) return 'N/A';
+      const sources = appointmentsForThisClient.map(a => a.source || 'manual');
+      const counts = sources.reduce((acc: any, s) => {
+          acc[s] = (acc[s] || 0) + 1;
+          return acc;
+      }, {});
+      return Object.entries(counts).sort((a: any, b: any) => b[1] - a[1])[0][0];
+  }, [appointmentsForThisClient]);
+
+  const sourceIcon = (source: string) => {
+      switch(source) {
+          case 'online': return <Globe className="w-3 h-3" />;
+          case 'walk-in': return <Users className="w-3 h-3" />;
+          default: return <Phone className="w-3 h-3" />;
+      }
+  };
+
   const handleQuickSettle = async () => {
     if (!client || !firestore || !tenantId) return;
     setIsSettleProcessing(true);
@@ -343,6 +362,15 @@ export default function ClientDetailPage() {
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Session Discovery</p>
                                 <p className="text-xs md:text-sm font-black uppercase tracking-tight text-slate-700">{client.intel?.referralSource || 'Unknown'}</p>
                             </div>
+                            <div className="space-y-1">
+                                <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Strategic Origin</p>
+                                <div className="flex items-center gap-2">
+                                    <Badge variant="secondary" className="h-6 px-2.5 rounded-lg border-2 font-black text-[8px] md:text-[9px] uppercase tracking-widest bg-white shadow-sm flex items-center gap-1.5 w-fit">
+                                        {sourceIcon(primaryBookingSource)}
+                                        {primaryBookingSource}
+                                    </Badge>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </CardContent>
@@ -370,10 +398,10 @@ export default function ClientDetailPage() {
                                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Birth Milestone</p>
                                             <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
                                         </div>
-                                        {client.address && <div className="space-y-1"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:text-sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
+                                        {client.address && <div className="space-y-1"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
                                     </div>
                                     <div className="space-y-6">
-                                        {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:text-sm font-black text-slate-900 uppercase tracking-tight">{client.emergencyContact.name}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{client.emergencyContact.relationship}</p><p className="text-xs md:text-sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
+                                        {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight">{client.emergencyContact.name}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{client.emergencyContact.relationship}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
                                     </div>
                                 </CardContent>
                             </Card>

@@ -30,6 +30,9 @@ import {
   KeyRound,
   ChevronRight,
   Landmark,
+  Globe,
+  Phone,
+  Smartphone
 } from 'lucide-react';
 import {
   ChartContainer,
@@ -119,7 +122,8 @@ const OwnerDashboard = ({
   revenueBreakdown,
   recentActivities,
   onGenerateDebrief,
-  activeTill
+  activeTill,
+  channelBreakdown
 }: any) => {
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -222,29 +226,36 @@ const OwnerDashboard = ({
 
          <Card className="md:col-span-2 border-2 shadow-sm overflow-hidden flex flex-col">
           <CardHeader className="p-4 md:p-6 border-b bg-muted/5">
-            <CardTitle className="text-sm font-black uppercase tracking-widest">Revenue Mix</CardTitle>
-            <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-tight opacity-60">Distribution matrix.</CardDescription>
+            <CardTitle className="text-sm font-black uppercase tracking-widest">Acquisition Velocity</CardTitle>
+            <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-tight opacity-60">Session origin distribution.</CardDescription>
           </CardHeader>
-          <CardContent className="flex-1 flex flex-col items-center justify-center p-4 md:p-6">
-            <ClientOnly>
-              <ChartContainer
-                config={pieChartConfig}
-                className="mx-auto aspect-square h-[180px] md:h-[220px]"
-              >
-                <PieChart>
-                  <ChartTooltip
-                    cursor={false}
-                    content={<ChartTooltipContent hideLabel className="rounded-xl border-2" />}
-                  />
-                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={55} strokeWidth={4}>
-                    {revenueBreakdown.map((entry: any, index: number) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
+          <CardContent className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 space-y-6">
+            <div className="grid grid-cols-3 gap-4 w-full">
+                {channelBreakdown.map((channel: any) => (
+                    <div key={channel.label} className="flex flex-col items-center text-center gap-2">
+                        <div className={cn("p-2 rounded-xl bg-muted/50", channel.color)}>
+                            <channel.icon className="w-4 h-4" />
+                        </div>
+                        <p className="text-[10px] font-black uppercase leading-none">{channel.label}</p>
+                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{channel.count}</p>
+                    </div>
+                ))}
+            </div>
+            <div className="w-full space-y-2">
+                <div className="h-2 w-full flex rounded-full overflow-hidden bg-muted">
+                    {channelBreakdown.map((channel: any) => (
+                        <div 
+                            key={channel.label} 
+                            className={cn("h-full", channel.bg)} 
+                            style={{ width: `${channel.percentage}%` }}
+                        />
                     ))}
-                  </Pie>
-                   <ChartLegend content={<ChartLegendContent nameKey="name" className="font-black uppercase text-[9px] md:text-[10px] tracking-widest" />} />
-                </PieChart>
-              </ChartContainer>
-            </ClientOnly>
+                </div>
+                <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-40 px-1">
+                    <span>Performance Matrix</span>
+                    <span>Verified Audit</span>
+                </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -319,10 +330,9 @@ const OwnerDashboard = ({
                 <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Intelligence Hub</span>
             </div>
             <CardTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter leading-none">AI-Powered CFO Debrief</CardTitle>
-            <CardTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter leading-none">AI-Powered CFO Debrief</CardTitle>
             <CardDescription className="text-xs md:text-sm font-medium text-slate-600 max-w-lg mt-2">Strategic performance summary and growth insights.</CardDescription>
           </CardHeader>
-          <CardContent className="p-6 md:p-8 pt-4">
+          <CardContent className="p-6 md:p-8 pt-4 text-left">
             <Button
               size="lg"
               className="w-full sm:w-auto h-12 md:h-14 rounded-2xl px-10 text-sm md:text-lg font-black uppercase tracking-tight shadow-xl shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95"
@@ -423,15 +433,6 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
         );
       };
 
-    const getInitials = (name?: string | null): string => {
-        if (!name) return '?';
-        const parts = name.split(' ');
-        if (parts.length > 1 && parts[parts.length-1]) {
-            return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-        }
-        return name.substring(0, 2).toUpperCase();
-    };
-
     const nextAppointment = upcomingAppointments?.find((apt: any) => apt.status === 'confirmed');
 
     return (
@@ -447,7 +448,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                     'bg-green-50 text-white border-none': staffMember.active && !staffMember.onBreak,
                     'bg-amber-500 text-white border-none': staffMember.active && staffMember.onBreak,
                  })}>
-                    {staffMember.active ? (staffMember.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
+                    {staffMember.active ? (memberSubStep === 'break_end' ? 'Ending Break' : staffMember.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
                 </Badge>
             )}
           </CardHeader>
@@ -564,36 +565,6 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                 )}
             </CardContent>
         </Card>
-
-        <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
-            <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
-                <DialogHeader className="p-6 pb-0 text-left">
-                    <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter">
-                        <KeyRound className="w-6 h-6 text-primary" />
-                        Security Verify
-                    </DialogTitle>
-                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize status transition with your studio PIN.</DialogDescription>
-                </DialogHeader>
-                <div className="py-10 flex flex-col items-center space-y-6">
-                    <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Your 4-Digit PIN</Label>
-                    <div className="relative w-48">
-                        <Input 
-                            type="password" 
-                            maxLength={4} 
-                            className="text-center text-4xl font-black h-20 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl focus-visible:ring-primary/20" 
-                            value={authPin} 
-                            onChange={(e) => setAuthPin(e.target.value.replace(/\D/g, ''))}
-                            autoFocus
-                            onKeyDown={(e) => e.key === 'Enter' && handleVerifyPin()}
-                        />
-                    </div>
-                </div>
-                <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                    <Button onClick={handleVerifyPin} disabled={authPin.length < 4} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Verify & Confirm</Button>
-                    <Button variant="ghost" onClick={() => setIsPinAuthOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
       </div>
     );
 };
@@ -711,6 +682,20 @@ export default function DashboardPage() {
           service: services.find((s) => s.id === apt.serviceId),
         })).filter(activity => activity.client && activity.service);
   }, [allAppointments, clients, services]);
+
+  const channelBreakdown = useMemo(() => {
+      if (!todayAppointments) return [];
+      const stats = [
+          { label: 'Online', id: 'online', icon: Globe, bg: 'bg-primary', color: 'text-primary' },
+          { label: 'Manual', id: 'manual', icon: Phone, bg: 'bg-indigo-500', color: 'text-indigo-500' },
+          { label: 'Kiosk', id: 'walk-in', icon: Smartphone, bg: 'bg-teal-500', color: 'text-teal-500' },
+      ].map(channel => {
+          const count = todayAppointments.filter(a => a.source === channel.id || (channel.id === 'walk-in' && a.isWalkIn)).length;
+          const percentage = todayAppointments.length > 0 ? (count / todayAppointments.length) * 100 : 0;
+          return { ...channel, count, percentage };
+      });
+      return stats;
+  }, [todayAppointments]);
 
   const staffMember = useMemo(() => (user && staff) ? staff.find(s => s.id === user.uid) : null, [user, staff]);
 
@@ -848,6 +833,7 @@ export default function DashboardPage() {
             recentActivities={recentActivities}
             onGenerateDebrief={handleGenerateDebrief}
             activeTill={activeTill}
+            channelBreakdown={channelBreakdown}
           />
         ) : (
           <StaffDashboardView 
