@@ -53,8 +53,8 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
     if (typeof val === 'string') return parseISO(val);
+    if (typeof val?.toDate === 'function') return val.toDate();
     return new Date(val);
 };
 

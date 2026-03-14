@@ -104,8 +104,10 @@ const RescheduleAppointmentForm = ({
     onConfirm: (data: any) => void;
     isSubmitting: boolean;
 }) => {
+    // CRITICAL: Call hooks at the top level
     const { scheduleProfiles, staff, events: allEvents } = useInventory();
     const { selectedTenant: tenant } = useTenant();
+
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
 
     const [rescheduleDate, setRescheduleDate] = useState(safeDate(appointment.startTime));

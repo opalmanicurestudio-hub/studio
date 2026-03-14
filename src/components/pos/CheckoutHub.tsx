@@ -41,7 +41,8 @@ import {
     Check,
     Lock,
     Sparkles,
-    Info
+    Info,
+    PartyPopper
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -388,11 +389,12 @@ export const CheckoutHub = ({
             <div className="flex-shrink-0 text-left">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-2 mt-2">
-                    <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
+                    <Dialog open={isPayerDialogOpen} onOpenChange={isPayerDialogOpen}>
                         <DialogTrigger asChild>
                             <Button 
                                 variant="outline" 
                                 className="h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4"
+                                onClick={() => setIsPayerDialogOpen(true)}
                             >
                                 {selectedClient ? (
                                     <div className="flex items-center gap-3">
