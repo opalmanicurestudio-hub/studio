@@ -112,7 +112,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
             <Icon className="w-5 h-5" />
         </div>
         <div className="space-y-0.5 text-left">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Refinement</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
     </div>
@@ -470,7 +470,7 @@ export const RescheduleDialog = ({
                         />
                     </div>
                 </ScrollArea>
-                <SheetFooter className={cn("p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl")}>
+                <SheetFooter className={cn("p-6 pt-4 border-t bg-background flex-shrink-0")}>
                     <div className="grid grid-cols-2 gap-3 w-full">
                         <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Cancel</Button>
                         <Button
