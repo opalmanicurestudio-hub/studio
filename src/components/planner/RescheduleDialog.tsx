@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -20,7 +19,26 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { CalendarIcon, ChevronLeft, ChevronRight, Clock, AlertTriangle, ArrowRight, Sparkles, User, CalendarDays } from 'lucide-react';
+import { 
+    CalendarIcon, 
+    ChevronLeft, 
+    ChevronRight, 
+    Clock, 
+    AlertTriangle, 
+    ArrowRight, 
+    Sparkles, 
+    User, 
+    CalendarDays, 
+    DollarSign, 
+    CreditCard, 
+    Landmark, 
+    ShieldAlert,
+    Info,
+    Undo2,
+    Lock,
+    ShieldCheck,
+    Loader
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, differenceInHours } from 'date-fns';
@@ -33,6 +51,9 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
+import { Switch } from '../ui/switch';
+import { Badge } from '../ui/badge';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -46,20 +67,30 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     return d;
 }
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val?.toDate === 'function') return val.toDate();
+    return new Date(val);
+};
+
 const RescheduleAppointmentForm = ({ 
     appointment,
     client, 
     service,
     appointments,
     services,
-    onConfirm
+    onConfirm,
+    isSubmitting
 }: { 
     appointment: Appointment;
     client: Client;
     service: Service;
     appointments: Appointment[];
     services: Service[];
-    onConfirm: (apt: Appointment) => void;
+    onConfirm: (data: any) => void;
+    isSubmitting: boolean;
 }) => {
     const { scheduleProfiles, staff } = useInventory();
     const { selectedTenant: tenant } = useTenant();
@@ -67,8 +98,13 @@ const RescheduleAppointmentForm = ({
 
     const [rescheduleDate, setRescheduleDate] = useState(safeDate(appointment.startTime));
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
+    
+    // Fee State
+    const [applyFee, setApplyFee] = useState(false);
+    const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
 
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
+    const hasCardOnFile = !!client?.cardOnFile?.token;
 
     const isWithinCancellationWindow = useMemo(() => {
         if (!appointment || !tenant?.cancellationWindowHours) return false;
@@ -76,6 +112,12 @@ const RescheduleAppointmentForm = ({
         const hoursUntil = differenceInHours(startTime, new Date());
         return hoursUntil < tenant.cancellationWindowHours;
     }, [appointment, tenant]);
+
+    const recoveryFee = useMemo(() => {
+        if (!tenant?.tmhr || !service) return 0;
+        const duration = service.duration || 60;
+        return Number(((duration / 60) * tenant.tmhr).toFixed(2));
+    }, [tenant?.tmhr, service]);
 
     const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
@@ -128,33 +170,98 @@ const RescheduleAppointmentForm = ({
         const [hours, minutes] = rescheduleTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(rescheduleDate), hours), minutes);
         const endDateTime = addMinutes(startDateTime, service.duration);
-        onConfirm({ ...appointment, startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString() });
+        
+        onConfirm({ 
+            ...appointment, 
+            startTime: startDateTime.toISOString(), 
+            endTime: endDateTime.toISOString(),
+            applyFee,
+            feeAmount: applyFee ? recoveryFee : 0,
+            paymentMethod
+        });
     }
+
+    // Default to add to balance if no card on file
+    useEffect(() => {
+        if (!hasCardOnFile && paymentMethod === 'card_on_file') {
+            setPaymentMethod('add_to_balance');
+        }
+    }, [hasCardOnFile, paymentMethod]);
     
     return (
         <div className="space-y-8">
             <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl overflow-hidden">
                 <CardContent className="p-6 flex items-center gap-6 text-left">
-                    <Avatar className="w-16 h-16 border-4 border-background shadow-xl rounded-2xl">
+                    <Avatar className="w-16 h-16 border-4 border-background shadow-xl rounded-2xl shrink-0">
                         <AvatarImage src={client.avatarUrl} className="object-cover" />
                         <AvatarFallback className="font-black bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                        <p className="font-black text-xl uppercase tracking-tighter text-slate-900 leading-none mb-1">{client.name}</p>
+                        <p className="font-black text-xl uppercase tracking-tighter text-slate-900 leading-none mb-1 truncate">{client.name}</p>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{service.name}</p>
                     </div>
                 </CardContent>
             </Card>
 
-            {isWithinCancellationWindow && (
-                <Alert variant="destructive" className="border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl">
-                    <AlertTriangle className="h-6 w-6 text-destructive" />
-                    <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Policy Restriction</AlertTitle>
-                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
-                        This session is within the <strong>{tenant?.cancellationWindowHours}h window</strong>. Consider applying a late-move fee.
-                    </AlertDescription>
-                </Alert>
-            )}
+            <AnimatePresence>
+                {isWithinCancellationWindow && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                        <div className="space-y-6">
+                            <Alert variant="destructive" className="border-4 border-destructive bg-destructive/5 rounded-[2.5rem] p-6 shadow-2xl">
+                                <AlertTriangle className="h-6 w-6 text-destructive" />
+                                <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Policy Restriction</AlertTitle>
+                                <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
+                                    This session is within the <strong>{tenant?.cancellationWindowHours}h window</strong>. Consider applying a late-move fee.
+                                </AlertDescription>
+                            </Alert>
+
+                            <div className="p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-1 text-left">
+                                        <Label className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                                            <DollarSign className="w-4 h-4 text-primary" />
+                                            Protocol Adjustment Fee
+                                        </Label>
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Overhead recovery for restricted window move</p>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-2">
+                                        <span className={cn("text-2xl font-black font-mono tracking-tighter", applyFee ? "text-primary" : "text-muted-foreground opacity-40")}>
+                                            ${recoveryFee.toFixed(2)}
+                                        </span>
+                                        <Switch checked={applyFee} onCheckedChange={setApplyFee} />
+                                    </div>
+                                </div>
+
+                                <AnimatePresence>
+                                    {applyFee && (
+                                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Distribution Method</Label>
+                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-3">
+                                                <label htmlFor="resched-pay-card" className={cn("cursor-pointer flex-1 h-full", !hasCardOnFile && "opacity-40 grayscale")}>
+                                                    <RadioGroupItem value="card_on_file" id="resched-pay-card" className="peer sr-only" disabled={!hasCardOnFile} />
+                                                    <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                        {hasCardOnFile ? <ShieldCheck className="w-5 h-5 mb-1.5 text-primary" /> : <Lock className="w-5 h-5 mb-1.5 text-slate-400" />}
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Charge Vault</span>
+                                                        {hasCardOnFile && <span className="text-[7px] text-primary/60 font-black uppercase mt-1 tracking-tight">•••• {client?.cardOnFile?.last4}</span>}
+                                                    </div>
+                                                </label>
+                                                <label htmlFor="resched-pay-balance" className="cursor-pointer flex-1 h-full">
+                                                    <RadioGroupItem value="add_to_balance" id="resched-pay-balance" className="peer sr-only" />
+                                                    <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                        <Landmark className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Add to Dossier</span>
+                                                        <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Arrears Balance</span>
+                                                    </div>
+                                                </label>
+                                            </RadioGroup>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <div className="space-y-4">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><CalendarDays className="w-3.5 h-3.5 opacity-40" /> Schedule Refinement</Label>
@@ -167,8 +274,8 @@ const RescheduleAppointmentForm = ({
                     <div className="grid grid-cols-7 gap-2">
                         {weekDays.map(day => (
                             <button key={day.toISOString()} onClick={() => handleDateSelect(day)} type="button" className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, rescheduleDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", isBefore(day, startOfDay(new Date())) && !isToday(day) && "opacity-20 cursor-not-allowed")}>
-                                <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'EEE')}</span>
-                                <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
+                                <span className="text-[8px] sm:text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
+                                <span className="font-black text-sm md:text-xl tracking-tighter">{format(day, 'd')}</span>
                             </button>
                         ))}
                     </div>
@@ -182,32 +289,50 @@ const RescheduleAppointmentForm = ({
                     </div>
                 </div>
             </div>
-            <Button id="submit-reschedule" className="hidden" onClick={handleSubmit}>Submit</Button>
+            
+            <Button id="submit-reschedule-btn" className="hidden" onClick={handleSubmit}>Submit</Button>
         </div>
     );
 };
 
-const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
-    if (typeof val?.toDate === 'function') return val.toDate();
-    return new Date(val);
-};
-
-export const RescheduleDialog = ({ open, onOpenChange, appointment, clients, services, appointments, onConfirm }: { open: boolean, onOpenChange: (open: boolean) => void, appointment: Appointment, clients: Client[], services: Service[], appointments: Appointment[], onConfirm: (apt: Appointment) => void }) => {
+export const RescheduleDialog = ({ 
+    open, 
+    onOpenChange, 
+    appointment, 
+    clients, 
+    services, 
+    appointments, 
+    onConfirm 
+}: { 
+    open: boolean, 
+    onOpenChange: (open: boolean) => void, 
+    appointment: Appointment, 
+    clients: Client[], 
+    services: Service[], 
+    appointments: Appointment[], 
+    onConfirm: (data: any) => Promise<void> 
+}) => {
   const isMobile = useIsMobile();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const client = clients.find(c => c.id === appointment.clientId);
   const service = services.find(s => s.id === appointment.serviceId);
 
   if (!client || !service) return null;
+
+  const handleConfirmedAction = async (data: any) => {
+      setIsSubmitting(true);
+      await onConfirm(data);
+      setIsSubmitting(false);
+      onOpenChange(false);
+  }
 
   const DialogContainer = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[90dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
@@ -218,13 +343,29 @@ export const RescheduleDialog = ({ open, onOpenChange, appointment, clients, ser
         </SheetHeader>
         <ScrollArea className="flex-1">
             <div className={cn("p-8", isMobile && "p-6")}>
-                <RescheduleAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} services={services} onConfirm={onConfirm} />
+                <RescheduleAppointmentForm 
+                    appointment={appointment} 
+                    client={client} 
+                    service={service} 
+                    appointments={appointments} 
+                    services={services} 
+                    onConfirm={handleConfirmedAction}
+                    isSubmitting={isSubmitting}
+                />
             </div>
         </ScrollArea>
         <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="grid grid-cols-2 gap-3 w-full">
                 <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
-                <Button onClick={() => document.getElementById('submit-reschedule')?.click()} className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Confirm Shift <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+                <Button 
+                    onClick={() => document.getElementById('submit-reschedule-btn')?.click()} 
+                    disabled={isSubmitting}
+                    className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group"
+                >
+                    {isSubmitting ? <Loader className="animate-spin h-4 w-4" /> : (
+                        <>Confirm Shift <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></>
+                    )}
+                </Button>
             </div>
         </SheetFooter>
       </ContentComponent>

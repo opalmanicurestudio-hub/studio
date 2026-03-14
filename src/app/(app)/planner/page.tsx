@@ -2,7 +2,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2 } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2, ArrowRight } from 'lucide-react';
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service, type Client, type Package, type Redemption } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
@@ -39,6 +39,7 @@ import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
+import { type Transaction } from '@/lib/financial-data';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -389,6 +390,65 @@ function PlannerPageContent() {
       toast({ title: "Session Updated" });
   };
 
+  const handleRescheduleConfirm = async (data: any) => {
+    if (!firestore || !tenantId) return;
+    const { applyFee, feeAmount, paymentMethod, ...aptData } = data;
+    const batch = writeBatch(firestore);
+    const now = new Date().toISOString();
+
+    // 1. Update Appointment Timing
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', aptData.id);
+    batch.update(appointmentRef, {
+        startTime: aptData.startTime,
+        endTime: aptData.endTime
+    });
+
+    // 2. Handle Protocol Fee if applicable
+    if (applyFee && feeAmount > 0) {
+        if (paymentMethod === 'card_on_file') {
+            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(txnRef, {
+                id: txnRef.id,
+                date: now,
+                description: `Reschedule Protocol Fee: ${aptData.clientName}`,
+                clientOrVendor: aptData.clientName || 'Client',
+                clientId: aptData.clientId,
+                type: 'income',
+                context: 'Business',
+                category: 'Adjustment Fee',
+                amount: feeAmount,
+                paymentMethod: 'Card on File',
+                hasReceipt: false,
+                appointmentId: aptData.id,
+                staffId: aptData.staffId
+            });
+        } else if (paymentMethod === 'add_to_balance') {
+            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, aptData.clientId);
+            batch.update(clientRef, {
+                outstandingBalance: increment(feeAmount),
+                unpaidFees: arrayUnion({
+                    feeId: nanoid(),
+                    appointmentId: aptData.id,
+                    appointmentDate: now,
+                    feeAmount: feeAmount,
+                    reason: "Late Reschedule Protocol Adjustment",
+                    staffId: aptData.staffId
+                })
+            });
+        }
+    }
+
+    try {
+        await batch.commit();
+        toast({ title: "Protocol Synchronized", description: applyFee ? `Session shifted with a $${feeAmount.toFixed(2)} recovery fee.` : "Session shifted successfully." });
+        setIsRescheduleOpen(false);
+        setIsDetailsOpen(false);
+    } catch (e) {
+        console.error("Reschedule failed:", e);
+        toast({ variant: 'destructive', title: "Process Error" });
+    }
+  };
+
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
@@ -620,7 +680,7 @@ function PlannerPageContent() {
             clients={clients || []}
             services={services || []}
             appointments={appointments || []}
-            onConfirm={handleUpdateAppointment}
+            onConfirm={handleRescheduleConfirm}
           />
       )}
 
