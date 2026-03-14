@@ -79,6 +79,23 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -121,7 +138,6 @@ const RescheduleAppointmentForm = ({
     onConfirm: (data: any) => void;
     isSubmitting: boolean;
 }) => {
-    // CRITICAL: Call hooks at top level per Rules of Hooks
     const { scheduleProfiles, staff, events: allEvents } = useInventory();
     const { selectedTenant: tenant } = useTenant();
 
@@ -283,7 +299,7 @@ const RescheduleAppointmentForm = ({
                                                 </label>
                                                 <label htmlFor="resched-pay-new" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="charge_new_card" id="resched-pay-new" className="peer sr-only" />
-                                                    <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:bg-muted/50")}>
+                                                    <div className={cn("flex flex-col items-center justify-center  p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:bg-muted/50")}>
                                                         <CardIcon className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                         <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">New Card</span>
                                                     </div>
@@ -326,7 +342,7 @@ const RescheduleAppointmentForm = ({
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
-                        <CalendarDays className="w-3.5 h-3.5 opacity-40" /> 
+                        <CalendarDays className="w-3.5 h-3.5 opacity-40" />
                         Schedule Refinement
                     </Label>
                     <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
@@ -335,14 +351,14 @@ const RescheduleAppointmentForm = ({
                                 <TooltipTrigger asChild>
                                     <div className="flex items-center gap-2">
                                         <Unlock className={cn("w-3.5 h-3.5 transition-colors", overrideBusinessHours ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                        <Switch 
-                                            id="override-hours-resched" 
-                                            checked={overrideBusinessHours} 
-                                            onCheckedChange={setOverrideBusinessHours} 
+                                        <Switch
+                                            id="override-hours-resched"
+                                            checked={overrideBusinessHours}
+                                            onCheckedChange={setOverrideBusinessHours}
                                         />
                                     </div>
                                 </TooltipTrigger>
-                                <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Business Hours</TooltipContent>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest border-2">Override Business Hours</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
                     </div>
@@ -355,7 +371,18 @@ const RescheduleAppointmentForm = ({
                     </div>
                     <div className="grid grid-cols-7 gap-2">
                         {weekDays.map(day => (
-                            <button key={day.toISOString()} onClick={() => handleDateSelect(day)} type="button" className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, rescheduleDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", isBefore(day, startOfDay(new Date())) && !isToday(day) && !overrideBusinessHours && "opacity-20 cursor-not-allowed")}>
+                            <button
+                                key={day.toISOString()}
+                                onClick={() => handleDateSelect(day)}
+                                type="button"
+                                className={cn(
+                                    "flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square",
+                                    isSameDay(day, rescheduleDate)
+                                        ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110"
+                                        : "bg-background border-transparent hover:border-primary/30",
+                                    isBefore(day, startOfDay(new Date())) && !isToday(day) && !overrideBusinessHours && "opacity-20 cursor-not-allowed"
+                                )}
+                            >
                                 <span className="text-[8px] sm:text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
                                 <span className="font-black text-sm md:text-xl tracking-tighter">{format(day, 'd')}</span>
                             </button>
@@ -363,7 +390,16 @@ const RescheduleAppointmentForm = ({
                     </div>
                     <div className="grid grid-cols-3 gap-3 pt-8 border-t-2 border-dashed border-white/50">
                         {timeSlots.map(slot => (
-                            <Button key={slot} type="button" variant={rescheduleTime === slot ? 'default' : 'outline'} className={cn("h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", rescheduleTime === slot ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background")} onClick={() => setRescheduleTime(slot)}>
+                            <Button
+                                key={slot}
+                                type="button"
+                                variant={rescheduleTime === slot ? 'default' : 'outline'}
+                                className={cn(
+                                    "h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all",
+                                    rescheduleTime === slot ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
+                                )}
+                                onClick={() => setRescheduleTime(slot)}
+                            >
                                 {format(timeStringToDate(slot, new Date()), 'h:mm a')}
                             </Button>
                         ))}
@@ -371,86 +407,86 @@ const RescheduleAppointmentForm = ({
                     </div>
                 </div>
             </div>
-            
+
             <Button id="submit-reschedule-btn" className="hidden" onClick={handleSubmit}>Submit</Button>
         </div>
     );
 };
 
-export const RescheduleDialog = ({ 
-    open, 
-    onOpenChange, 
-    appointment, 
-    clients, 
-    services, 
-    appointments, 
-    onConfirm 
-}: { 
-    open: boolean, 
-    onOpenChange: (open: boolean) => void, 
-    appointment: Appointment, 
-    clients: Client[], 
-    services: Service[], 
-    appointments: Appointment[], 
-    onConfirm: (data: any) => Promise<void> 
+export const RescheduleDialog = ({
+    open,
+    onOpenChange,
+    appointment,
+    clients,
+    services,
+    appointments,
+    onConfirm
+}: {
+    open: boolean,
+    onOpenChange: (open: boolean) => void,
+    appointment: Appointment,
+    clients: Client[],
+    services: Service[],
+    appointments: Appointment[],
+    onConfirm: (data: any) => Promise<void>
 }) => {
-  const isMobile = useIsMobile();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  const client = clients.find(c => c.id === appointment.clientId);
-  const service = services.find(s => s.id === appointment.serviceId);
+    const isMobile = useIsMobile();
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-  if (!client || !service) return null;
+    const client = clients.find(c => c.id === appointment.clientId);
+    const service = services.find(s => s.id === appointment.serviceId);
 
-  const handleConfirmedAction = async (data: any) => {
-      setIsSubmitting(true);
-      await onConfirm(data);
-      setIsSubmitting(false);
-      onOpenChange(false);
-  }
+    if (!client || !service) return null;
 
-  const DialogContainer = isMobile ? Sheet : Dialog;
-  const ContentComponent = isMobile ? SheetContent : DialogContent;
+    const handleConfirmedAction = async (data: any) => {
+        setIsSubmitting(true);
+        await onConfirm(data);
+        setIsSubmitting(false);
+        onOpenChange(false);
+    }
 
-  return (
-    <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[90dvh]")}>
-        <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6 pb-4")}>
-            <div className="flex items-center gap-3 mb-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics Suite</span>
-            </div>
-            <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Reschedule Protocol</SheetTitle>
-            <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Shift session timing in the studio manifest.</SheetDescription>
-        </SheetHeader>
-        <ScrollArea className="flex-1">
-            <div className={cn("p-8 pt-4", isMobile && "p-6")}>
-                <RescheduleAppointmentForm 
-                    appointment={appointment} 
-                    client={client} 
-                    service={service} 
-                    appointments={appointments} 
-                    services={services} 
-                    onConfirm={handleConfirmedAction}
-                    isSubmitting={isSubmitting}
-                />
-            </div>
-        </ScrollArea>
-        <SheetFooter className={cn("p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl")}>
-            <div className="grid grid-cols-2 gap-3 w-full">
-                <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Cancel</Button>
-                <Button 
-                    onClick={() => document.getElementById('submit-reschedule-btn')?.click()} 
-                    disabled={isSubmitting}
-                    className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group"
-                >
-                    {isSubmitting ? <Loader className="animate-spin h-4 w-4" /> : (
-                        <>Confirm Shift <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></>
-                    )}
-                </Button>
-            </div>
-        </SheetFooter>
-      </ContentComponent>
-    </DialogContainer>
-  );
+    const DialogContainer = isMobile ? Sheet : Dialog;
+    const ContentComponent = isMobile ? SheetContent : DialogContent;
+
+    return (
+        <DialogContainer open={open} onOpenChange={onOpenChange}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+                <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6 pb-4")}>
+                    <div className="flex items-center gap-3 mb-2">
+                        <Sparkles className="w-5 h-5 text-primary" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics Suite</span>
+                    </div>
+                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Reschedule Protocol</SheetTitle>
+                    <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Shift session timing in the studio manifest.</SheetDescription>
+                </SheetHeader>
+                <ScrollArea className="flex-1">
+                    <div className={cn("p-8 pt-4", isMobile && "p-6")}>
+                        <RescheduleAppointmentForm
+                            appointment={appointment}
+                            client={client}
+                            service={service}
+                            appointments={appointments}
+                            services={services}
+                            onConfirm={handleConfirmedAction}
+                            isSubmitting={isSubmitting}
+                        />
+                    </div>
+                </ScrollArea>
+                <SheetFooter className={cn("p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl")}>
+                    <div className="grid grid-cols-2 gap-3 w-full">
+                        <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Cancel</Button>
+                        <Button
+                            onClick={() => document.getElementById('submit-reschedule-btn')?.click()}
+                            disabled={isSubmitting}
+                            className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group"
+                        >
+                            {isSubmitting ? <Loader className="animate-spin h-4 w-4" /> : (
+                                <>Confirm Shift <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" /></>
+                            )}
+                        </Button>
+                    </div>
+                </SheetFooter>
+            </ContentComponent>
+        </DialogContainer>
+    );
 };
