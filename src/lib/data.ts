@@ -11,7 +11,7 @@ export type Incident = {
     description: string;
     actionsTaken?: string;
     photoUrls?: string[];
-    appointmentId?: string; // Optional link to an appointment
+    appointmentId?: string; 
 };
 
 export type ClientIntel = {
@@ -21,14 +21,17 @@ export type ClientIntel = {
 };
 
 export type CustomFormula = {
+  id: string;
   name: string;
+  date: string;
   items: {
-    productId: string;
-    productName: string;
-    quantityUsed: number;
+    id: string;
+    name: string;
+    quantity: number;
     unit: string;
-    note?: string;
+    costPerUnit: number;
   }[];
+  notes?: string;
 };
 
 export type DayHours = {
@@ -47,8 +50,8 @@ export type Staff = {
   pricingTierId?: string;
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary' | 'hourly_plus_commission';
-  commissionRate: number; // as a percentage, e.g., 40 for 40%
-  retailCommissionRate?: number; // Commission on retail sales
+  commissionRate: number; 
+  retailCommissionRate?: number; 
   hourlyRate?: number;
   services?: string[];
   bio?: string;
@@ -83,20 +86,14 @@ export type Staff = {
   preferences?: string;
   compliance?: {
     licenseNumber?: string;
-    licenseExpiry?: string; // ISO Date
+    licenseExpiry?: string; 
     documentUrl?: string;
   };
-  documents?: {
-      id: string;
-      name: string;
-      url: string;
-      uploadedAt: string;
-  }[];
   assignedFormIds?: string[];
   active?: boolean;
   showOnPublicPage?: boolean;
   onBreak?: boolean;
-  breakStartTime?: string; // ISO date string
+  breakStartTime?: string; 
   status?: 'idle' | 'busy';
   lastServedTimestamp?: string;
   turnOrder?: number;
@@ -108,7 +105,7 @@ export type ActivityLog = {
     id: string;
     staffId: string;
     type: 'clock_in' | 'clock_out' | 'break_start' | 'break_end';
-    timestamp: string; // ISO date string
+    timestamp: string; 
     durationMinutes?: number;
 };
 
@@ -118,9 +115,9 @@ export type WaivedFee = {
     appointmentDate: string;
     feeAmount: number;
     reason: string;
-    waivedBy: string; // staffId
+    waivedBy: string; 
     waivedByName?: string;
-    waivedAt: string; // ISO timestamp
+    waivedAt: string; 
 };
 
 export type Redemption = {
@@ -131,7 +128,7 @@ export type Redemption = {
     offeringName: string;
     serviceId: string;
     serviceName: string;
-    date: string; // ISO timestamp
+    date: string; 
     staffId?: string;
     isForfeit?: boolean;
 };
@@ -141,7 +138,7 @@ export type CardOnFile = {
     last4: string;
     expiryMonth: number;
     expiryYear: number;
-    token: string; // Simulated token
+    token: string; 
 };
 
 export type Client = {
@@ -227,7 +224,7 @@ export type Location = {
 
 export type MaintenanceRecord = {
   id: string;
-  date: string; // ISO date string
+  date: string; 
   description: string;
   cost: number;
   imageUrl?: string;
@@ -244,16 +241,16 @@ export type Service = {
   name:string;
   type: 'service' | 'addon';
   category: string;
-  duration: number; // in minutes
+  duration: number; 
   padBefore?: number;
   padAfter?: number;
   serviceTiers?: ServiceTier[];
-  price: number; // Default or senior price, for display
+  price: number; 
   cost: number;
   profit: number;
   margin: number;
   imageUrl?: string;
-  products?: (InventoryItem & { quantityUsed: number })[]; // Add quantityUsed
+  products?: (InventoryItem & { quantityUsed: number })[]; 
   description?: string;
   isPrivate?: boolean;
   confirmationMessage?: string;
@@ -275,8 +272,8 @@ export type Batch = {
   id: string;
   stock: number;
   costPerUnit: number;
-  receivedDate: string; // ISO date string
-  expirationDate?: string; // ISO date string
+  receivedDate: string; 
+  expirationDate?: string; 
 };
 
 export type LifespanTestResult = {
@@ -292,27 +289,26 @@ export type InventoryItem = {
   type: 'professional' | 'retail' | 'equipment' | 'overhead';
   category: string;
   status?: 'active' | 'archived';
-  totalStock: number; // Full, unopened containers
+  totalStock: number; 
   supplier: string;
   supplierUrl?: string;
   lifespanYears?: number;
   actualLifespanMonths?: number;
   lastTestResult?: LifespanTestResult;
-  costPerUnit?: number; // Landed cost of one full container
+  costPerUnit?: number; 
   reorderPoint?: number;
   imageUrl?: string;
   primaryLocationId?: string;
   secondaryLocationIds?: string[];
   
-  // For partial usage tracking
-  costingMethod?: 'uses' | 'size'; // How to deduct from a partial container
-  size?: number; // e.g., 1000 for 1000ml
+  costingMethod?: 'uses' | 'size'; 
+  size?: number; 
   unit?: 'ml' | 'oz' | 'g' | 'unit';
-  estimatedUses?: number; // e.g., 100 uses per bottle
-  useUnit?: string; // e.g., 'pumps', 'sprays', 'drops'
+  estimatedUses?: number; 
+  useUnit?: string; 
   
-  partialContainerSize?: number; // Amount left in the open container (e.g., 750ml)
-  partialContainerUses?: number; // Uses left in the open container (e.g., 80 uses)
+  partialContainerSize?: number; 
+  partialContainerUses?: number; 
 
   isExperimentActive?: boolean;
   experimentUses?: number;
@@ -342,13 +338,15 @@ export type AppointmentCheckoutState = {
     actualDuration: number;
     serviceStaffOverrides: Record<string, string>;
     completedServiceIds?: string[];
-    concurrentServiceIds?: string[]; // Added this to track concurrent parts
+    concurrentServiceIds?: string[]; 
     tipAllocations: Record<string, number>;
     tipAmount: number;
     additionalCharge: number;
     absorbedCost: number;
     redeemedRetailDiscount?: boolean;
     reviewNotes?: string;
+    saveAsCustomFormula?: boolean;
+    customFormulaName?: string;
 };
 
 export type Appointment = {
@@ -425,11 +423,11 @@ export type Event = {
 export type Order = {
   id: string;
   supplier: string;
-  orderDate: string; // ISO date string
+  orderDate: string; 
   status: 'Draft' | 'Placed' | 'Shipped' | 'Partially Received' | 'Received' | 'Cancelled';
   trackingNumber?: string;
   trackingUrl?: string;
-  expectedArrivalDate?: string; // ISO date string
+  expectedArrivalDate?: string; 
   items: {
     productId: string;
     productName: string;
@@ -483,9 +481,9 @@ export type Quote = {
 
 export type WalkIn = {
   id: string;
-  groupId: string; // Identifier for the group
-  groupName?: string; // Display name for the group
-  isPrimaryContact?: boolean; // To identify the main contact for notifications
+  groupId: string; 
+  groupName?: string; 
+  isPrimaryContact?: boolean; 
   clientId?: string;
   customerName: string;
   customerPhone?: string;
@@ -494,11 +492,11 @@ export type WalkIn = {
   serviceIds: string[];
   requiredSkills: string[];
   estimatedDuration: number;
-  checkInTime: string; // ISO Date
+  checkInTime: string; 
   queueOrder?: number;
-  notifiedTimestamp?: string; // ISO Date
-  serviceStartTime?: string; // ISO Date
-  serviceEndTime?: string; // ISO Date
+  notifiedTimestamp?: string; 
+  serviceStartTime?: string; 
+  serviceEndTime?: string; 
   status: 'waiting' | 'notified' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
   assignedStaffId?: string;
   notes?: string;
@@ -511,10 +509,10 @@ export type WalkIn = {
 export type StockCorrection = {
   id: string;
   productId: string;
-  date: string; // ISO date string
-  change: number; // e.g., -20 for 20ml used, 1 for 1 new container
+  date: string; 
+  change: number; 
   unit: string;
-  reason: string; // e.g., 'Appointment #123', 'Manual Count', 'Spoilage'
+  reason: string; 
 };
 
 export type MembershipPerk = {
@@ -534,7 +532,7 @@ export type Membership = {
   includedAddOns?: MembershipPerk[];
   includedProducts?: MembershipPerk[];
   retailDiscount?: number;
-  retailDiscountLimit?: number; // 0 for unlimited
+  retailDiscountLimit?: number; 
   forfeitOnLateCancel: boolean;
   forfeitOnNoShow: boolean;
   allowRollover: boolean;
@@ -679,7 +677,7 @@ export type Discount = {
   description?: string;
   type: 'percentage' | 'fixed';
   value: number;
-  usageLimit: number; // 0 for unlimited
+  usageLimit: number; 
   usageCount: number;
   isActive: boolean;
   validFrom?: string;
@@ -705,7 +703,7 @@ export type Campaign = {
   targetClientIds?: string[];
   discountId?: string;
   status: 'draft' | 'sent';
-  sentAt?: string; // ISO date string
+  sentAt?: string; 
   type: 'email' | 'sms';
   recipientCount?: number;
   openRate?: number;
@@ -726,7 +724,7 @@ export type Review = {
   text: string;
   isPublic: boolean;
   isFeatured: boolean;
-  createdAt: string; // ISO date string
+  createdAt: string; 
 };
 
 export type PricingTier = {
@@ -753,7 +751,7 @@ export type Notification = {
   type: string;
   message: string;
   link: string;
-  createdAt: string; // ISO date string
+  createdAt: string; 
   read: boolean;
 };
 

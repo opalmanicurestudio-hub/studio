@@ -1,9 +1,10 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2, ArrowRight } from 'lucide-react';
-import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service, type Client, type Package, type Redemption } from '@/lib/data';
+import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service, type Client, type Package, type Redemption, type CustomFormula } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -487,6 +488,20 @@ function PlannerPageContent() {
 
     const batch = writeBatch(firestore);
     
+    if (checkoutState.saveAsCustomFormula && checkoutState.customFormulaName && apt.clientId) {
+        const clientRef = doc(firestore, 'tenants', tenantId, 'clients', apt.clientId);
+        const newFormula: CustomFormula = {
+            id: nanoid(),
+            name: checkoutState.customFormulaName,
+            date: new Date().toISOString(),
+            items: checkoutState.formula || [],
+            notes: checkoutState.reviewNotes
+        };
+        batch.update(clientRef, {
+            customFormulas: arrayUnion(newFormula)
+        });
+    }
+
     if (allComplete) {
         batch.update(appointmentRef, {
             status: 'ready_for_checkout',

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -21,7 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare, Workflow, Zap, PackageOpen, Square } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare, Workflow, Zap, PackageOpen, Square, BookMarked, Tag, Sparkles } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -39,6 +40,8 @@ import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '../ui/switch';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -94,6 +97,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const [reviewNotes, setReviewNotes] = useState('');
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+  
+  const [saveAsCustomFormula, setSaveAsCustomFormula] = useState(false);
+  const [customFormulaName, setCustomFormulaName] = useState('');
 
   useEffect(() => {
     if (open && service && appointment) {
@@ -156,6 +162,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         
         setActualDuration(durationToSet || 0);
         setReviewNotes(checkoutState?.reviewNotes || '');
+        setSaveAsCustomFormula(false);
+        setCustomFormulaName('');
     }
   }, [service, appointment, open, allServices, inventory, currentUser]);
 
@@ -262,14 +270,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       const formula = client.customFormulas?.find(f => f.name === formulaNameToApply);
       if (!formula) return;
       const newFormula: EditableFormulaItem[] = formula.items.map(item => {
-        const product = inventory.find(p => p.id === item.productId);
+        const product = inventory.find(p => p.id === item.id);
         let baseCpu = product?.costPerUnit || 0;
         if (product) {
             if (product.costingMethod === 'size' && product.size) baseCpu = (product.costPerUnit || 0) / product.size;
             else if (product.costingMethod === 'uses' && product.estimatedUses) baseCpu = (product.costPerUnit || 0) / product.estimatedUses;
         }
         return {
-            id: item.productId, name: item.productName, quantity: item.quantityUsed, unit: item.unit, costPerUnit: baseCpu,
+            id: item.id, name: item.name, quantity: item.quantity, unit: item.unit, costPerUnit: baseCpu,
         }
       });
       setEditableFormula(newFormula);
@@ -291,6 +299,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         tipAmount: appointment.checkoutState?.tipAmount || 0, 
         tipAllocations: appointment.checkoutState?.tipAllocations || {}, 
         additionalCharge: totalAdditionalCharge,
+        saveAsCustomFormula,
+        customFormulaName: saveAsCustomFormula ? customFormulaName : undefined
     };
     onSendToFrontDesk(appointment.id, checkoutState);
   };
@@ -465,6 +475,41 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardContent>
                 </Card>
 
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner transition-all">
+                        <div className="space-y-1 text-left">
+                            <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                                <BookMarked className="w-4 h-4 text-primary" /> Dossier Integration
+                            </Label>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Save as reusable technical formula</p>
+                        </div>
+                        <Switch id="save-formula-toggle" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125" />
+                    </div>
+
+                    <AnimatePresence>
+                        {saveAsCustomFormula && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                                <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
+                                    <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
+                                        <Tag className="w-3 h-3" /> Formula Identifier
+                                    </Label>
+                                    <Input 
+                                        id="custom-formula-name" 
+                                        placeholder="e.g., WINTER GLOSS MIX" 
+                                        value={customFormulaName} 
+                                        onChange={e => setCustomFormulaName(e.target.value.toUpperCase())}
+                                        className="h-12 rounded-xl border-2 font-black uppercase text-sm tracking-tight focus-visible:ring-primary/20"
+                                    />
+                                    <div className="flex items-center gap-3 p-3 bg-muted/20 rounded-xl border-2 border-dashed border-border/50">
+                                        <Sparkles className="w-4 h-4 text-primary shrink-0 opacity-40" />
+                                        <p className="text-[9px] font-bold text-slate-500 leading-tight uppercase">This formula will be pinned to the guest's technical archive for future sessions.</p>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+
                 <Card>
                     <CardHeader className="pb-3 text-left">
                         <CardTitle className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
@@ -502,7 +547,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <Button 
                         onClick={handleCompleteMyPart} 
                         className="h-12 md:h-14 font-black uppercase tracking-tight shadow-xl shadow-primary/20 text-[10px] md:text-xs leading-tight" 
-                        disabled={completedServiceIds.length === 0}
+                        disabled={completedServiceIds.length === 0 || (saveAsCustomFormula && !customFormulaName.trim())}
                     >
                         {buttonLabel}
                     </Button>

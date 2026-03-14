@@ -61,7 +61,12 @@ import {
     Info,
     Smartphone,
     ArrowRight,
-    Globe
+    Globe,
+    FlaskConical,
+    Tag,
+    Clock,
+    Scissors,
+    Briefcase
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -87,7 +92,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, query, where, writeBatch, increment, arrayRemove } from 'firebase/firestore';
-import type { Client, Appointment, Service, Staff, Discount, Membership, Package, Redemption } from '@/lib/data';
+import type { Client, Appointment, Service, Staff, Discount, Membership, Package, Redemption, CustomFormula } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 import { 
@@ -302,6 +307,14 @@ export default function ClientDetailPage() {
     }
   };
 
+  const handleDeleteFormula = (formulaId: string) => {
+      if (!firestore || !tenantId || !client) return;
+      const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+      const nextFormulas = (client.customFormulas || []).filter(f => f.id !== formulaId);
+      updateDocumentNonBlocking(clientRef, { customFormulas: nextFormulas });
+      toast({ title: "Protocol Purged", description: "Formula removed from technical archive." });
+  }
+
   if (isUserLoading || isTenantLoading || clientLoading) {
       return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
   }
@@ -384,6 +397,7 @@ export default function ClientDetailPage() {
                         <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex overflow-x-auto scrollbar-hide gap-1.5 mb-6 md:mb-8">
                             <TabsTrigger value="overview" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
                             <TabsTrigger value="history" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
+                            <TabsTrigger value="archive" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Technical Archive</TabsTrigger>
                             <TabsTrigger value="ledger" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
                         </TabsList>
                         
@@ -419,6 +433,57 @@ export default function ClientDetailPage() {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">Empty history</p></div>}
                                 </div>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="archive" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
+                            <div className="space-y-6">
+                                <div className="flex items-center justify-between px-1">
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3">
+                                        <FlaskConical className="w-5 h-5" />
+                                        Technical Archive
+                                    </h3>
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">Internal technical registry</p>
+                                </div>
+                                
+                                {client.customFormulas && client.customFormulas.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {client.customFormulas.map((formula) => (
+                                            <Card key={formula.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group">
+                                                <CardHeader className="bg-muted/5 border-b p-5 flex flex-row items-center justify-between">
+                                                    <div className="space-y-0.5">
+                                                        <CardTitle className="text-xs font-black uppercase tracking-tight">{formula.name}</CardTitle>
+                                                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Established {format(safeDate(formula.date), 'MMM d, yyyy')}</p>
+                                                    </div>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeleteFormula(formula.id)}>
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </Button>
+                                                </CardHeader>
+                                                <CardContent className="p-5 space-y-4">
+                                                    <div className="space-y-2">
+                                                        {formula.items.map((item, idx) => (
+                                                            <div key={idx} className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight p-2 rounded-xl bg-muted/20 border-2 border-transparent">
+                                                                <span className="text-slate-600 truncate mr-2">{item.name}</span>
+                                                                <span className="font-black text-slate-900 shrink-0">{item.quantity}{item.unit}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    {formula.notes && (
+                                                        <div className="pt-2">
+                                                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1">Audit Notes</p>
+                                                            <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3">"{formula.notes}"</p>
+                                                        </div>
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                        <FlaskConical className="w-16 h-16" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-center px-8 leading-relaxed">No strategic formulas archived. Save a formula during technical review to populate this registry.</p>
+                                    </div>
+                                )}
                             </div>
                         </TabsContent>
 
