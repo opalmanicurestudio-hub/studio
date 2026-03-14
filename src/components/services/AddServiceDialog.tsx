@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -583,7 +582,6 @@ export const AddServiceDialog: React.FC<any> = ({
   const { selectedTenant } = useTenant();
   const { firestore } = useFirebase();
   const tmhr = selectedTenant?.tmhr || 50;
-  const tenantId = selectedTenant?.id;
   
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),

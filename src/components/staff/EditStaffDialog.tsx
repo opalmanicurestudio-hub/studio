@@ -69,7 +69,8 @@ import {
     Smartphone,
     Briefcase,
     Zap,
-    Scale
+    Scale,
+    DollarSign
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -79,7 +80,6 @@ import { Switch } from '../ui/switch';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 
@@ -245,7 +245,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
                         <div className='space-y-1 text-left'>
                             <Label htmlFor="public-toggle-edit" className="text-base font-black uppercase tracking-tight">Public Registry</Label>
-                            <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Show on the public booking directory</p>
+                            <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Show on the guest booking page</p>
                         </div>
                         <Controller name="showOnPublicPage" control={control} render={({ field }) => ( <Switch id="public-toggle-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
                     </div>
@@ -259,7 +259,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                 <div className="space-y-8 text-left">
                     <div className="space-y-2">
                         <Label htmlFor="bio-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Narrative (Public)</Label>
-                        <Textarea id="bio-edit" placeholder="Draft a compelling profile for guests..." {...register('bio')} className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium" />
+                        <Textarea id="bio-edit" placeholder="Draft a compelling profile for guests..." {...register('bio')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 font-medium" />
                     </div>
 
                     <div className="space-y-2">
@@ -537,7 +537,6 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
                                 services={services} 
                                 consentForms={consentForms} 
                                 pricingTiers={pricingTiers} 
-                                staffMember={staffMember}
                                 onSendPasswordReset={handleSendPasswordReset}
                                 onRegeneratePin={handleRegeneratePin}
                             />
@@ -556,3 +555,14 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     </DialogComponent>
   );
 };
+
+export interface EditStaffDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (staffData: Staff) => void;
+  staffMember: Staff | null;
+  services: Service[];
+  consentForms: ConsentForm[];
+  pricingTiers: PricingTier[];
+  existingStaff: Staff[];
+}

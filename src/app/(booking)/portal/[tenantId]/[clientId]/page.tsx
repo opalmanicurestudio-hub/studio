@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -352,7 +351,7 @@ export default function ClientPortalPage() {
                                 <div className="space-y-1"><Label className="text-xs text-muted-foreground">Name</Label><p className="font-medium">{client.name}</p></div>
                                 <div className="space-y-1"><Label className="text-xs text-muted-foreground">Email</Label><p className="font-medium">{client.email}</p></div>
                                 <div className="space-y-1"><Label className="text-xs text-muted-foreground">Phone</Label><p className="font-medium">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p></div>
-                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Member Since</Label><p className="font-medium">{pastAppointments.length > 0 ? format(safeDate(pastAppointments[pastAppointments.length-1].startTime), 'MMMM yyyy') : 'New Guest'}</p></div>
+                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Member Since</Label><p className="font-medium">{pastAppointments.length > 0 ? format(safeDateWrapper(pastAppointments[pastAppointments.length-1].startTime), 'MMMM yyyy') : 'New Guest'}</p></div>
                             </div>
                             <Separator />
                             <div className="space-y-2 text-sm text-muted-foreground text-left">
@@ -373,4 +372,12 @@ function formatPhoneNumber(phoneNumberString: string) {
     return '(' + match[1] + ') ' + match[2] + '-' + match[3];
   }
   return phoneNumberString;
+}
+
+function safeDateWrapper(val: any): Date {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    return new Date(val);
 }
