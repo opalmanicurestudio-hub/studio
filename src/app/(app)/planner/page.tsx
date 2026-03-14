@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -447,6 +446,40 @@ function PlannerPageContent() {
     }
   };
 
+  const handleOverrideConfirm = async (staffId: string, reason: string) => {
+    if (!selectedAppointment || !firestore || !tenantId) return;
+    
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+    const batch = writeBatch(firestore);
+    
+    batch.update(appointmentRef, {
+        status: 'confirmed',
+        checkInStatus: 'pending',
+        overrideReason: reason,
+        overriddenBy: staffId,
+        cancellationReason: deleteField() as any,
+        cancellationFeeApplied: 0,
+    });
+
+    if (selectedAppointment.checkInToken) {
+        batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), {
+            status: 'confirmed',
+            checkInStatus: 'pending',
+            tenantId
+        });
+    }
+
+    try {
+        await batch.commit();
+        setIsOverrideOpen(false);
+        setIsDetailsOpen(false);
+        toast({ title: "Cancellation Overridden", description: "Appointment restored to active state." });
+    } catch (e) {
+        console.error("Override failed", e);
+        toast({ variant: 'destructive', title: "Override Failed" });
+    }
+  };
+
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
@@ -513,40 +546,6 @@ function PlannerPageContent() {
         setIsDetailsOpen(false);
     });
 };
-
-  const handleOverrideConfirm = async (staffId: string, reason: string) => {
-    if (!selectedAppointment || !firestore || !tenantId) return;
-    
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
-    const batch = writeBatch(firestore);
-    
-    batch.update(appointmentRef, {
-        status: 'confirmed',
-        checkInStatus: 'pending',
-        overrideReason: reason,
-        overriddenBy: staffId,
-        cancellationReason: deleteField() as any,
-        cancellationFeeApplied: 0,
-    });
-
-    if (selectedAppointment.checkInToken) {
-        batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), {
-            status: 'confirmed',
-            checkInStatus: 'pending',
-            tenantId
-        });
-    }
-
-    try {
-        await batch.commit();
-        setIsOverrideOpen(false);
-        setIsDetailsOpen(false);
-        toast({ title: "Cancellation Overridden", description: "Appointment restored to active state." });
-    } catch (e) {
-        console.error("Override failed", e);
-        toast({ variant: 'destructive', title: "Override Failed" });
-    }
-  };
 
   const billInstancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
