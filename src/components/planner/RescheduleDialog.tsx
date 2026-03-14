@@ -92,20 +92,6 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     return d;
 }
 
-const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val?.toDate === 'function') return val.toDate();
-    return new Date(val);
-};
-
 const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     <div className="flex items-center gap-4 py-2">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
@@ -135,7 +121,7 @@ const RescheduleAppointmentForm = ({
     onConfirm: (data: any) => void;
     isSubmitting: boolean;
 }) => {
-    // CRITICAL: Call hooks at top level
+    // CRITICAL: Call hooks at top level per Rules of Hooks
     const { scheduleProfiles, staff, events: allEvents } = useInventory();
     const { selectedTenant: tenant } = useTenant();
 
@@ -280,7 +266,7 @@ const RescheduleAppointmentForm = ({
                                     {applyFee && (
                                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Distribution Method</Label>
-                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-3 gap-2">
+                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-3 gap-3">
                                                 <label htmlFor="resched-pay-session" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="add_to_session" id="resched-pay-session" className="peer sr-only" />
                                                     <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'add_to_session' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
@@ -450,7 +436,7 @@ export const RescheduleDialog = ({
                 />
             </div>
         </ScrollArea>
-        <SheetFooter className={cn("p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl", !isMobile && "p-8")}>
+        <SheetFooter className={cn("p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl")}>
             <div className="grid grid-cols-2 gap-3 w-full">
                 <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Cancel</Button>
                 <Button 
