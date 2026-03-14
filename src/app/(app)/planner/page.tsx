@@ -400,16 +400,13 @@ function PlannerPageContent() {
 
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', aptData.id);
     
-    // 1. Core Timing Update
     const updates: any = {
         startTime: aptData.startTime,
         endTime: aptData.endTime
     };
 
-    // 2. Handle Protocol Fee
     if (applyFee && feeAmount > 0) {
         if (paymentMethod === 'add_to_session') {
-            // Direct Session Surcharge Logic
             updates['checkoutState.additionalCharge'] = increment(feeAmount);
         } else {
             const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -622,7 +619,7 @@ function PlannerPageContent() {
                 allStaff={allStaff || []} mobileSelectedColumnId={mobileSelectedColumnId} onMobileColumnChange={onMobileColumnChange}
                 onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus} onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
                 onPrintReceipt={() => {}} onPrintTicket={() => {}} onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
-                onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onUpdateEvent={() => {}}
+                onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onChecklistItemToggleCallback={() => {}} onUpdateEvent={() => {}}
                 dailyTransactions={transactions?.filter(t => isSameDay(safeDate(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
                 onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }} onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
                 onStartService={handleStartService} onFinishService={handleFinishService} onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}

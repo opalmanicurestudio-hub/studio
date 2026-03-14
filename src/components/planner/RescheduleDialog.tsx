@@ -79,18 +79,6 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
-    <div className="flex items-center gap-4 py-2">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
-            <Icon className="w-5 h-5" />
-        </div>
-        <div className="space-y-0.5 text-left">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
-        </div>
-    </div>
-);
-
 const RescheduleAppointmentForm = ({ 
     appointment,
     client, 
@@ -270,7 +258,7 @@ const RescheduleAppointmentForm = ({
                                             </RadioGroup>
 
                                             {paymentMethod === 'charge_new_card' && (
-                                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-5 rounded-2xl border-4 border-primary/10 bg-white space-y-4 shadow-xl">
+                                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-5 rounded-2xl border-4 border-primary/10 bg-white space-y-4 shadow-xl text-left">
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <Lock className="w-3.5 h-3.5 text-primary opacity-40" />
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-primary/60">Encrypted Terminal Flow</span>
