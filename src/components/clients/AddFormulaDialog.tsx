@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -24,203 +24,235 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { PlusCircle, Trash2 } from 'lucide-react';
+import { PlusCircle, Trash2, FlaskConical, Sparkles, Tag, ArrowRight, Activity, Landmark, PackageOpen } from 'lucide-react';
 import { type CustomFormula, type InventoryItem } from '@/lib/data';
 import { useInventory } from '@/context/InventoryContext';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent } from '../ui/card';
+import { cn } from '@/lib/utils';
+import { Separator } from '../ui/separator';
 
 type EditableFormulaItem = {
-    productId: string;
-    productName: string;
-    quantityUsed: number;
+    id: string; // productId
+    name: string;
+    quantity: number;
     unit: string;
-    note?: string;
+    costPerUnit: number;
 };
 
 interface AddFormulaDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (formula: CustomFormula) => void;
+  clientName: string;
 }
+
+const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
+    <div className="flex items-center gap-4 mb-6">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Technical Module</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
 
 const AddFormulaForm = ({
   onSave,
-  onCancel,
+  clientName
 }: {
   onSave: (formula: CustomFormula) => void;
-  onCancel: () => void;
+  clientName: string;
 }) => {
   const { inventory } = useInventory();
   const [formulaName, setFormulaName] = useState('');
   const [items, setItems] = useState<EditableFormulaItem[]>([]);
+  const [notes, setNotes] = useState('');
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
   const { toast } = useToast();
 
   const handleAddProducts = (products: InventoryItem[]) => {
     const newItems: EditableFormulaItem[] = products.map(p => {
-        let unit = 'unit';
-        if (p.costingMethod === 'uses' && p.useUnit) {
-            unit = p.useUnit;
-        } else if (p.costingMethod === 'size' && p.unit) {
-            unit = p.unit;
-        }
+        let unit = p.unit || 'ml';
+        if (p.costingMethod === 'uses' && p.useUnit) unit = p.useUnit;
+        
+        let cpu = p.costPerUnit || 0;
+        if (p.costingMethod === 'size' && p.size) cpu = cpu / p.size;
+        else if (p.costingMethod === 'uses' && p.estimatedUses) cpu = cpu / p.estimatedUses;
+
         return {
-            productId: p.id,
-            productName: p.name,
-            quantityUsed: 1,
+            id: p.id,
+            name: p.name,
+            quantity: 1,
             unit: unit,
+            costPerUnit: cpu
         }
     });
     
     setItems(prev => {
-        const existingIds = new Set(prev.map(item => item.productId));
-        const filteredNewItems = newItems.filter(newItem => !existingIds.has(newItem.productId));
+        const existingIds = new Set(prev.map(item => item.id));
+        const filteredNewItems = newItems.filter(newItem => !existingIds.has(newItem.id));
         return [...prev, ...filteredNewItems];
     });
 
     setIsProductBrowserOpen(false);
   };
 
-  const handleItemChange = (productId: string, field: keyof EditableFormulaItem, value: string | number) => {
+  const handleItemChange = (productId: string, field: keyof EditableFormulaItem, value: number) => {
     setItems(prev =>
       prev.map(item =>
-        item.productId === productId ? { ...item, [field]: value } : item
+        item.id === productId ? { ...item, [field]: value } : item
       )
     );
   };
   
   const handleRemoveItem = (productId: string) => {
-    setItems(prev => prev.filter(item => item.productId !== productId));
+    setItems(prev => prev.filter(item => item.id !== productId));
   };
   
   const handleSaveClick = () => {
     if (!formulaName.trim()) {
-      toast({ variant: 'destructive', title: 'Missing Name', description: 'Please give your formula a name.' });
+      toast({ variant: 'destructive', title: 'Identity Required', description: 'Please provide a name for this formula protocol.' });
       return;
     }
     if (items.length === 0) {
-      toast({ variant: 'destructive', title: 'Empty Formula', description: 'Please add at least one product to the formula.' });
+      toast({ variant: 'destructive', title: 'Manifest Empty', description: 'Please append at least one professional asset.' });
       return;
     }
 
     const newFormula: CustomFormula = {
-      name: formulaName,
+      id: `man-f-${Date.now()}`,
+      name: formulaName.toUpperCase(),
+      date: new Date().toISOString(),
       items: items,
+      notes: notes
     };
     onSave(newFormula);
   };
 
   return (
-    <>
-      <form id="add-formula-form" onSubmit={(e) => { e.preventDefault(); handleSaveClick(); }}>
-        <ScrollArea className="h-[70vh] pr-6">
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="formula-name">Formula Name</Label>
-              <Input
-                id="formula-name"
-                placeholder="e.g., Summer Highlights, Standard Root Color"
-                value={formulaName}
-                onChange={e => setFormulaName(e.target.value)}
-              />
+    <div className="space-y-12">
+        <div className="space-y-8">
+            <SectionHeader icon={Tag} title="Protocol Identity" />
+            <div className="space-y-3 text-left">
+                <Label htmlFor="formula-name-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Formula Label</Label>
+                <Input
+                    id="formula-name-manual"
+                    placeholder="e.g., WINTER GLOSS PRO"
+                    value={formulaName}
+                    onChange={e => setFormulaName(e.target.value)}
+                    className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner"
+                />
+            </div>
+        </div>
+
+        <Separator className="border-dashed" />
+
+        <div className="space-y-8">
+            <div className="flex items-center justify-between px-1">
+                <SectionHeader icon={FlaskConical} title="Composition Matrix" />
+                <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button" className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                    <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
+                </Button>
             </div>
             
-            <Card>
-                <CardContent className="p-4 space-y-3">
-                     <h3 className="font-medium">Products</h3>
-                     {items.length > 0 ? (
-                         <div className="space-y-3">
-                            {items.map(item => (
-                                <div key={item.productId} className="p-3 bg-muted/50 rounded-lg space-y-3">
-                                    <div className="flex justify-between items-start">
-                                        <p className="font-semibold text-sm">{item.productName}</p>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 -mt-1 -mr-1 text-destructive" onClick={() => handleRemoveItem(item.productId)}><Trash2 className="w-4 h-4"/></Button>
+            <div className="space-y-3">
+                {items.length > 0 ? (
+                    <div className="grid gap-2">
+                        {items.map(item => (
+                            <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
+                                <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{item.name}</span>
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
+                                        <Input 
+                                            type="number" 
+                                            value={item.quantity} 
+                                            onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                                            className="w-16 h-9 rounded-lg border-2 text-center font-black font-mono" 
+                                            step="0.1" 
+                                        />
+                                        <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60 text-left">{item.unit}</span>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-1">
-                                            <Label htmlFor={`qty-${item.productId}`} className="text-xs">Quantity</Label>
-                                            <Input id={`qty-${item.productId}`} type="number" value={item.quantityUsed} onChange={e => handleItemChange(item.productId, 'quantityUsed', parseFloat(e.target.value) || 0)} className="h-9"/>
-                                        </div>
-                                         <div className="space-y-1">
-                                            <Label htmlFor={`unit-${item.productId}`} className="text-xs">Unit</Label>
-                                            <Input id={`unit-${item.productId}`} value={item.unit} disabled className="h-9"/>
-                                        </div>
-                                    </div>
-                                     <div className="space-y-1">
-                                        <Label htmlFor={`note-${item.productId}`} className="text-xs">Note (Optional)</Label>
-                                        <Input id={`note-${item.productId}`} value={item.note || ''} onChange={e => handleItemChange(item.productId, 'note', e.target.value)} placeholder="e.g., Apply to roots first" className="h-9"/>
-                                    </div>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveItem(item.id)}><Trash2 className="w-4 h-4" /></Button>
                                 </div>
-                            ))}
-                         </div>
-                     ) : (
-                        <p className="text-sm text-center text-muted-foreground py-4">No products added yet.</p>
-                     )}
-                      <Button type="button" variant="outline" className="w-full" onClick={() => setIsProductBrowserOpen(true)}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> Add Products from Inventory
-                    </Button>
-                </CardContent>
-            </Card>
-           
-          </div>
-        </ScrollArea>
-      </form>
-      <BrowseProductsDialog
-        open={isProductBrowserOpen}
-        onOpenChange={setIsProductBrowserOpen}
-        onSelect={handleAddProducts}
-        allProducts={inventory.filter(p => p.type === 'professional')}
-        initialSelected={[]}
-      />
-    </>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                        <Activity className="w-12 h-12" />
+                        <p className="text-[10px] font-black uppercase tracking-widest">Awaiting Recipe Components</p>
+                    </div>
+                )}
+            </div>
+        </div>
+
+        <Separator className="border-dashed" />
+
+        <div className="space-y-8">
+            <SectionHeader icon={Landmark} title="Procedural Context" />
+            <div className="space-y-3 text-left">
+                <Label htmlFor="formula-notes-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Technical Notes</Label>
+                <Textarea 
+                    id="formula-notes-manual" 
+                    placeholder="Specific application instructions or mixing details..." 
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    className="rounded-[2rem] border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium p-6"
+                />
+            </div>
+        </div>
+
+        <BrowseProductsDialog
+            open={isProductBrowserOpen}
+            onOpenChange={setIsProductBrowserOpen}
+            onSelect={handleAddProducts}
+            allProducts={inventory.filter(p => p.type === 'professional')}
+            initialSelected={[]}
+        />
+        
+        <Button id="submit-manual-formula-btn" className="hidden" onClick={handleSaveClick}>Save</Button>
+    </div>
   );
 };
 
-export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpenChange, onSave }) => {
+export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpenChange, onSave, clientName }) => {
   const isMobile = useIsMobile();
-  const title = "Add New Formula";
-  const description = "Create a reusable custom formula for this client.";
+  const title = "Establish Formula";
+  const description = `Registering a new technical recipe for ${clientName}.`;
 
-  const handleSave = (formula: CustomFormula) => {
-    onSave(formula);
-    onOpenChange(false);
-  };
-  
-  const FormContent = <AddFormulaForm onSave={handleSave} onCancel={() => onOpenChange(false)} />;
-
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh] flex flex-col">
-          <SheetHeader className="text-left">
-            <SheetTitle>{title}</SheetTitle>
-            <SheetDescription>{description}</SheetDescription>
-          </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto">{FormContent}</div>
-          <SheetFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" form="add-formula-form">Save Formula</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    );
-  }
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+        <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-10 pb-6")}>
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+            </div>
+            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
         </DialogHeader>
-        <div className="py-4">{FormContent}</div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" form="add-formula-form">Save Formula</Button>
+        
+        <ScrollArea className="flex-1">
+            <div className={cn("p-8", isMobile && "p-6")}>
+                <AddFormulaForm onSave={onSave} clientName={clientName} />
+            </div>
+        </ScrollArea>
+
+        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-10 pt-4")}>
+            <div className="grid grid-cols-2 gap-3 w-full">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button onClick={() => document.getElementById('submit-manual-formula-btn')?.click()} className="h-14 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Archive Formula <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+            </div>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </ContentComponent>
+    </DialogContainer>
   );
 };

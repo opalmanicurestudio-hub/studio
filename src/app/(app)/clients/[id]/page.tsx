@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -87,6 +88,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { EditClientDialog } from '@/components/clients/EditClientDialog';
+import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
@@ -225,7 +227,7 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { appointments: allAppointments, services, memberships, transactions: allTransactions, redemptions: allRedemptions } = useInventory();
+  const { appointments: allAppointments, services, memberships, packages, transactions: allTransactions, redemptions: allRedemptions } = useInventory();
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -234,6 +236,7 @@ export default function ClientDetailPage() {
   
   const { toast } = useToast();
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
+  const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isQuickSettleOpen, setIsQuickSettleOpen] = useState(false);
   const [isSettleProcessing, setIsSettleProcessing] = useState(false);
 
@@ -307,6 +310,13 @@ export default function ClientDetailPage() {
     }
   };
 
+  const handleSaveFormula = (formula: CustomFormula) => {
+      if (!firestore || !tenantId || !client) return;
+      const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+      updateDocumentNonBlocking(clientRef, { customFormulas: arrayUnion(formula) });
+      toast({ title: "Protocol Archived", description: `"${formula.name}" registered in technical library.` });
+  }
+
   const handleDeleteFormula = (formulaId: string) => {
       if (!firestore || !tenantId || !client) return;
       const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
@@ -352,7 +362,7 @@ export default function ClientDetailPage() {
                     </div>
                     <div className="space-y-4 flex-1 min-w-0">
                         <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4">
-                            <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 truncate leading-none">{client.name}</h2>
+                            <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate leading-none", client.name.length > 15 ? "text-xl md:text-4xl" : "text-2xl md:text-5xl")}>{client.name}</h2>
                             <div className="flex gap-2">
                                 {activeMembership && <Badge className="bg-indigo-500/10 text-indigo-700 border-none font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Master Member</Badge>}
                                 {client.status === 'banned' && <Badge variant="destructive" className="animate-pulse font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Hard Restriction</Badge>}
@@ -394,12 +404,15 @@ export default function ClientDetailPage() {
             <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10">
                 <div className="lg:col-span-2 xl:col-span-3 space-y-8 md:space-y-10">
                     <Tabs defaultValue="overview">
-                        <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex overflow-x-auto scrollbar-hide gap-1.5 mb-6 md:mb-8">
-                            <TabsTrigger value="overview" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
-                            <TabsTrigger value="history" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
-                            <TabsTrigger value="archive" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Technical Archive</TabsTrigger>
-                            <TabsTrigger value="ledger" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
-                        </TabsList>
+                        <ScrollArea className="w-full">
+                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8">
+                                <TabsTrigger value="overview" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
+                                <TabsTrigger value="history" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
+                                <TabsTrigger value="archive" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Technical Archive</TabsTrigger>
+                                <TabsTrigger value="ledger" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
+                            </TabsList>
+                            <ScrollBar orientation="horizontal" className="hidden" />
+                        </ScrollArea>
                         
                         <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500">
                             <Card className="border-2 shadow-sm rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-white text-left">
@@ -438,12 +451,14 @@ export default function ClientDetailPage() {
 
                         <TabsContent value="archive" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                             <div className="space-y-6">
-                                <div className="flex items-center justify-between px-1">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
                                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3">
                                         <FlaskConical className="w-5 h-5" />
                                         Technical Archive
                                     </h3>
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">Internal technical registry</p>
+                                    <Button variant="ghost" size="sm" onClick={() => setIsAddFormulaOpen(true)} className="h-8 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10">
+                                        <PlusCircle className="mr-2 h-3.5 w-3.5" /> Establish Protocol
+                                    </Button>
                                 </div>
                                 
                                 {client.customFormulas && client.customFormulas.length > 0 ? (
@@ -481,7 +496,7 @@ export default function ClientDetailPage() {
                                 ) : (
                                     <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                                         <FlaskConical className="w-16 h-16" />
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-center px-8 leading-relaxed">No strategic formulas archived. Save a formula during technical review to populate this registry.</p>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-center px-8 leading-relaxed">No strategic formulas archived. Save a formula during technical review or manually build a protocol above.</p>
                                     </div>
                                 )}
                             </div>
@@ -610,6 +625,7 @@ export default function ClientDetailPage() {
       </main>
       
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), data); toast({ title: "Profile Updated" }); }} />
+      <AddFormulaDialog open={isAddFormulaOpen} onOpenChange={setIsAddFormulaOpen} clientName={client.name} onSave={handleSaveFormula} />
 
       <Dialog open={isQuickSettleOpen} onOpenChange={setIsQuickSettleOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
@@ -651,7 +667,7 @@ export default function ClientDetailPage() {
                 </Button>
                 <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
             </DialogFooter>
-        </DialogContent>
+        </Dialog>
       </Dialog>
     </div>
   );
