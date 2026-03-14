@@ -50,9 +50,6 @@ import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
-type Step = 'partyType' | 'memberSetup' | 'confirmation';
-type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
-
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;

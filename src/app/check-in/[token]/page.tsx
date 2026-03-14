@@ -157,7 +157,7 @@ const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveRe
 );
 
 const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: number, onSettle?: () => void }) => {
-    const [step, setStep] = useState<'info' | 'payment'>('info');
+    const [step, setStep] = useState<'info' | 'payment' | 'success'>('info');
 
     return (
         <ViewContainer>
