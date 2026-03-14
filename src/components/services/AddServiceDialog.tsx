@@ -150,6 +150,7 @@ const Step1 = ({
                         <div className="flex gap-2">
                             <Input placeholder="NEW CATEGORY..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} className="h-12 rounded-xl border-2 font-black uppercase text-xs" />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
+                            <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-slate-400 font-bold uppercase text-[10px]">Cancel</Button>
                         </div>
                     ) : (
                         <div className="flex gap-3">
@@ -595,7 +596,7 @@ export const AddServiceDialog: React.FC<any> = ({
   useEffect(() => { if (open) { reset({ isAddon: initialType === 'addon', type: initialType === 'addon' ? 'addon' : 'service', capacity: 1, products: [], requiredResourceIds: [], compatibleAddOnIds: [], depositType: 'none', serviceTiers: [], requiredFormIds: [], price: 0 }); setStep(1); } }, [open, initialType, reset]);
 
   const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/consentForms`), [firestore, selectedTenant]));
-  const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]));
+  const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`), [firestore, selectedTenant]));
 
   const breakEvenCost = useMemo(() => {
       const totalDur = (values.duration || 0) + (values.padBefore || 0) + (values.padAfter || 0);

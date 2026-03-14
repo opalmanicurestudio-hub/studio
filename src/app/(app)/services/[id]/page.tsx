@@ -415,7 +415,7 @@ export default function ServiceDetailPage() {
                                 {(service.products || []).length > 0 ? (
                                     <div className="grid gap-3">
                                         {(service.products || []).map(p => {
-                                            const item = (inventory || []).find(i => i.id === p.id);
+                                            const item = inventory.find(i => i.id === p.id);
                                             const unit = item?.costingMethod === 'uses' ? (item.useUnit || 'uses') : (item?.unit || 'ml');
                                             return (
                                                 <div key={p.id} className="flex justify-between items-center p-4 rounded-2xl border-2 bg-muted/10 transition-all hover:bg-white hover:border-primary/10 group shadow-inner">

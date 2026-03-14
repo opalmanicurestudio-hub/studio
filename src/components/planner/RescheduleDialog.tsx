@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -233,7 +234,7 @@ const RescheduleAppointmentForm = ({
     }
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 flex flex-col h-full">
             <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl overflow-hidden">
                 <CardContent className="p-6 flex items-center gap-6 text-left">
                     <Avatar className="w-16 h-16 border-4 border-background shadow-xl rounded-2xl shrink-0">
@@ -337,7 +338,7 @@ const RescheduleAppointmentForm = ({
                 )}
             </AnimatePresence>
 
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1">
                 <div className="flex items-center justify-between">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                         <CalendarDays className="w-3.5 h-3.5 opacity-40" />

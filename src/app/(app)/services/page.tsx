@@ -46,7 +46,7 @@ import {
 } from '@/components/ui/accordion';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from '@/components/ui/label';
-import { type Service, type Appointment, type Transaction, type PricingTier } from '@/lib/data';
+import { type Service, type Appointment, type Transaction, type PricingTier, type Staff } from '@/lib/data';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddServiceDialog } from '@/components/services/AddServiceDialog';
 import { EditServiceDialog } from '@/components/services/EditServiceDialog';
@@ -78,8 +78,9 @@ interface ServiceCardProps {
 
 const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, tmhr, taxBurden, appointments, transactions, isSelected, onSelectItem, pricingTiers }) => {
   const { toast } = useToast();
-  const { staff } = useInventory();
+  const { staff, inventory } = useInventory();
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
+  const totalDuration = (service.duration || 0) + totalPadding;
   
   const performance = useMemo(() => {
     if (!appointments || !transactions) return { totalBookings: 0, totalRevenue: 0 };
@@ -95,41 +96,57 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
         totalRevenue,
     };
   }, [service.id, appointments, transactions]);
+
+  const materialCost = useMemo(() => {
+    return (service.products || []).reduce((acc, p) => {
+        const product = inventory.find(i => i.id === p.id);
+        if (!product) return acc;
+        let cpu = product.costPerUnit || 0;
+        if (product.costingMethod === 'size' && product.size) cpu = cpu / product.size;
+        else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = cpu / product.estimatedUses;
+        return acc + (p.quantityUsed * cpu);
+    }, 0);
+  }, [service.products, inventory]);
+
+  const timeCost = (totalDuration / 60) * tmhr;
   
   const tierAnalysis = useMemo(() => {
-    // We use a representative labor cost calculation here for the preview card
-    const tiersToAnalyze = (service.serviceTiers || []).length > 0 
-        ? service.serviceTiers 
-        : pricingTiers.map(pt => ({ tierId: pt.id, price: service.price, durationMinutes: service.duration }));
+    return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+        const tierPriceConfig = service.serviceTiers?.find(t => t.tierId === tier.id);
+        const price = tierPriceConfig ? tierPriceConfig.price : service.price;
+        const duration = tierPriceConfig ? tierPriceConfig.durationMinutes : service.duration;
 
-    return tiersToAnalyze.map(tier => {
-      const tierInfo = pricingTiers.find(pt => pt.id === tier.tierId);
-      if (!tierInfo) return null;
+        const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
 
-      // Find representative staff for tier or fallback to default
-      const repStaff = staff.find(s => s.pricingTierId === tier.tierId) || staff[0];
-      let laborCost = 0;
-      if (repStaff?.payStructure === 'hourly' && repStaff.hourlyRate) {
-          laborCost = (tier.durationMinutes / 60) * repStaff.hourlyRate;
-      } else {
-          const rate = repStaff?.commissionRate || 40;
-          laborCost = tier.price * (rate / 100);
-      }
+        const staffAnalysis = relevantStaff.map(member => {
+            let laborCost = 0;
+            if (member.payStructure === 'hourly' && member.hourlyRate) {
+                laborCost = (duration / 60) * member.hourlyRate;
+            } else {
+                const rate = member.commissionRate || 40;
+                laborCost = price * (rate / 100);
+            }
 
-      const burdenedLabor = laborCost * (1 + (taxBurden / 100));
-      const profit = tier.price - (service.cost || 0) - burdenedLabor;
-      const margin = tier.price > 0 ? (profit / tier.price) * 100 : 0;
+            const burdenedLabor = laborCost * (1 + (taxBurden / 100));
+            const studioNet = price - materialCost - timeCost - burdenedLabor;
+            const margin = price > 0 ? (studioNet / price) * 100 : 0;
 
-      return {
-        ...tier,
-        name: tierInfo.name,
-        rank: tierInfo.rank,
-        profit,
-        margin,
-      };
-    }).filter((t): t is NonNullable<typeof t> => t !== null).sort((a,b) => a.rank - b.rank);
+            return {
+                id: member.id,
+                name: member.name,
+                avatarUrl: member.avatarUrl,
+                studioNet,
+                margin
+            };
+        });
 
-  }, [service, pricingTiers, staff, taxBurden]);
+        return {
+            ...tier,
+            price,
+            staffAnalysis
+        };
+    });
+  }, [pricingTiers, service, staff, materialCost, timeCost, taxBurden]);
 
   const handleCopyLink = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -167,7 +184,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                 </div>
                 <div className="flex items-center gap-2">
                     <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{service.category}</p>
-                    {service.isPrivate && <Badge variant="secondary" className="h-4 px-1.5 font-black text-[8px] uppercase border-none bg-muted/50">Private</Badge>}
+                    {service.isPrivate && <Badge variant="secondary" className="h-4 px-1.5 font-black text-[7px] uppercase border-none bg-muted/50">Private</Badge>}
                 </div>
                 <div className="flex items-center gap-3 mt-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-primary/60">
@@ -199,23 +216,33 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
                     <Sparkles className="w-3.5 h-3.5 mr-2 opacity-40" /> Studio Net Matrix
                 </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-2 space-y-2">
+                <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
                     {tierAnalysis.map(tier => (
-                        <div key={tier.tierId} className={cn(
-                            "p-3 rounded-xl border-2 flex justify-between items-center transition-all",
-                            tier.profit >= 0 ? "bg-white border-primary/5 shadow-sm" : "bg-red-50 border-red-100"
-                        )}>
-                            <div className="space-y-0.5 text-left">
-                                <p className="font-black uppercase text-[10px] tracking-tight text-slate-900">{tier.name}</p>
-                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Price: ${tier.price.toFixed(2)}</p>
+                        <div key={tier.id} className="space-y-2">
+                            <div className="flex justify-between items-center px-1">
+                                <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{tier.name}</span>
+                                <span className="font-mono text-[9px] font-black">${tier.price.toFixed(2)}</span>
                             </div>
-                            <div className="text-right">
-                                <p className={cn("font-black font-mono text-xs", tier.profit >= 0 ? "text-primary" : "text-destructive")}>
-                                    {tier.profit >= 0 ? '+' : ''}${tier.profit.toFixed(2)}
-                                </p>
-                                <p className={cn("text-[8px] font-black uppercase", tier.profit >= 0 ? "text-green-600" : "text-destructive")}>
-                                    {tier.margin.toFixed(0)}% Net
-                                </p>
+                            <div className="grid gap-1.5">
+                                {tier.staffAnalysis.map(sa => (
+                                    <div key={sa.id} className={cn(
+                                        "p-2 rounded-xl border-2 flex justify-between items-center bg-white transition-all",
+                                        sa.studioNet >= 0 ? "border-primary/5" : "border-red-100"
+                                    )}>
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <Avatar className="h-6 w-6 border shadow-inner">
+                                                <AvatarImage src={sa.avatarUrl} className="object-cover" />
+                                                <AvatarFallback className="text-[7px] font-black">{(sa.name || 'S')[0]}</AvatarFallback>
+                                            </Avatar>
+                                            <span className="font-black uppercase text-[9px] truncate text-slate-700">{sa.name.split(' ')[0]}</span>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className={cn("font-black font-mono text-[10px]", sa.studioNet >= 0 ? "text-primary" : "text-destructive")}>
+                                                ${sa.studioNet.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     ))}
