@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -100,7 +101,7 @@ const editStaffSchema = z.object({
   portfolioUrl: z.string().optional(),
   role: z.enum(['admin', 'staff', 'owner']),
   pricingTierId: z.string().optional(),
-  payStructure: z.enum(['commission', 'hourly', 'salary']),
+  payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission']),
   payoutFrequency: z.enum(['weekly', 'bi-weekly']).optional(),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -326,12 +327,13 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION SPLIT</SelectItem>
                                         <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
+                                        <SelectItem value="hourly_plus_commission" className="font-bold uppercase text-[10px] tracking-widest">HOURLY + COMMISSION</SelectItem>
                                         <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">BASE SALARY</SelectItem>
                                     </SelectContent>
                                 </Select>
                             )}/>
                         </div>
-                        {payStructure === 'commission' && (
+                        {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
                             <div className="space-y-3">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Cycle</Label>
                                 <Controller name="payoutFrequency" control={control} render={({ field }) => (
@@ -347,7 +349,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         )}
                     </div>
 
-                    {payStructure === 'commission' ? (
+                    {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label htmlFor="commissionRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service Ratio (%)</Label>
@@ -358,7 +360,9 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 <div className="relative"><Input id="retailCommission-edit" type="number" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
                             </div>
                         </div>
-                    ) : payStructure === 'hourly' ? (
+                    )}
+                    
+                    {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
                         <div className="space-y-2 animate-in slide-in-from-top-2">
                             <Label htmlFor="hourlyRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
                             <div className="relative">
@@ -366,7 +370,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 <Input id="hourlyRate-edit" type="number" step="0.01" {...register('hourlyRate')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" />
                             </div>
                         </div>
-                    ) : null}
+                    )}
                 </div>
             </div>
 

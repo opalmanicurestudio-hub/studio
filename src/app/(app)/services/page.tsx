@@ -122,6 +122,8 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
             let laborCost = 0;
             if (member.payStructure === 'hourly' && member.hourlyRate) {
                 laborCost = (duration / 60) * member.hourlyRate;
+            } else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) {
+                laborCost = ((duration / 60) * member.hourlyRate) + (price * ((member.commissionRate || 40) / 100));
             } else {
                 const rate = member.commissionRate || 40;
                 laborCost = price * (rate / 100);

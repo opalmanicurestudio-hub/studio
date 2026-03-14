@@ -544,8 +544,8 @@ export default function FinancialFoundationPage() {
 
     const teamLaborAnalysis = useMemo(() => {
         if (!staff) return { avgCommission: 0, avgHourly: 0, totalBurden: 0 };
-        const commissionStaff = staff.filter(s => s.payStructure === 'commission');
-        const hourlyStaff = staff.filter(s => s.payStructure === 'hourly');
+        const commissionStaff = staff.filter(s => s.payStructure === 'commission' || s.payStructure === 'hourly_plus_commission');
+        const hourlyStaff = staff.filter(s => s.payStructure === 'hourly' || s.payStructure === 'hourly_plus_commission');
         
         const avgComm = commissionStaff.length > 0 ? commissionStaff.reduce((acc, s) => acc + (s.commissionRate || 0), 0) / commissionStaff.length : 0;
         const avgHour = hourlyStaff.length > 0 ? hourlyStaff.reduce((acc, s) => acc + (s.hourlyRate || 0), 0) / hourlyStaff.length : 0;

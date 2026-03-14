@@ -46,7 +46,7 @@ export type Staff = {
   role: 'admin' | 'staff' | 'owner';
   pricingTierId?: string;
   avatarUrl: string;
-  payStructure: 'commission' | 'hourly' | 'salary';
+  payStructure: 'commission' | 'hourly' | 'salary' | 'hourly_plus_commission';
   commissionRate: number; // as a percentage, e.g., 40 for 40%
   retailCommissionRate?: number; // Commission on retail sales
   hourlyRate?: number;
@@ -647,6 +647,7 @@ export type Tenant = {
   tmhr?: number;
   bookingPageSettings?: BookingPageSettings;
   lateInconveniencePremium?: number;
+  employerTaxBurdenPct?: number;
 };
 
 export type Resource = {

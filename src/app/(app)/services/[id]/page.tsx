@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -95,6 +96,8 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
                 let laborCost = 0;
                 if (member.payStructure === 'hourly' && member.hourlyRate) {
                     laborCost = (duration / 60) * member.hourlyRate;
+                } else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) {
+                    laborCost = ((duration / 60) * member.hourlyRate) + (price * ((member.commissionRate || 40) / 100));
                 } else {
                     const rate = member.commissionRate || 40;
                     laborCost = price * (rate / 100);
@@ -155,7 +158,9 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
                                             </Avatar>
                                             <div className="min-w-0 text-left">
                                                 <p className="font-black uppercase text-[10px] truncate leading-none mb-1">{sa.name.split(' ')[0]}</p>
-                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{sa.payStructure}</p>
+                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                                                    {sa.payStructure === 'hourly_plus_commission' ? 'Hybrid' : sa.payStructure}
+                                                </p>
                                             </div>
                                         </div>
                                         <div className="text-right">

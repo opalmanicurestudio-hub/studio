@@ -319,6 +319,7 @@ const OwnerDashboard = ({
                 <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Intelligence Hub</span>
             </div>
             <CardTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter leading-none">AI-Powered CFO Debrief</CardTitle>
+            <CardTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter leading-none">AI-Powered CFO Debrief</CardTitle>
             <CardDescription className="text-xs md:text-sm font-medium text-slate-600 max-w-lg mt-2">Strategic performance summary and growth insights.</CardDescription>
           </CardHeader>
           <CardContent className="p-6 md:p-8 pt-4">
@@ -729,11 +730,21 @@ export default function DashboardPage() {
     }, 0);
 
     const completed = staffAppointmentsToday.filter(a => a.status === 'completed').length;
-    let earnings = (staffMember.payStructure === 'commission') ? (serviceRevenue * ((staffMember.commissionRate || 0) / 100)) : 0;
+    let earnings = 0;
+    const comm = (staffMember.commissionRate || 0) / 100;
+    if (staffMember.payStructure === 'commission') {
+        earnings = serviceRevenue * comm;
+    } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
+        // Find total hours for today
+        const logs = activityLogs.filter(l => l.staffId === staffMember.id && safeDate(l.timestamp) >= todayStart && safeDate(l.timestamp) <= todayEnd);
+        const dailyMinutes = logs.reduce((acc, l) => acc + (l.durationMinutes || 0), 0);
+        earnings = ((dailyMinutes / 60) * staffMember.hourlyRate) + (serviceRevenue * comm);
+    }
+    
     const retailSales = transactionsToday.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
     earnings += tips + (retailSales * ((staffMember.retailCommissionRate || 0) / 100));
     return { revenue: serviceRevenue, tips, completed, earnings };
-  }, [allTransactions, allAppointments, staffMember, dateRange]);
+  }, [allTransactions, allAppointments, staffMember, dateRange, activityLogs]);
 
   const upcomingAppointments = useMemo(() => {
     if (!allAppointments || !user || !clients || !services || !dateRange) return [];
@@ -793,7 +804,16 @@ export default function DashboardPage() {
         else if (log.type === 'break_end' && log.durationMinutes) totalBreakMinutes += log.durationMinutes;
     }
     if(clockInTime) totalMinutesWorked += differenceInMinutes(new Date(), clockInTime) - totalBreakMinutes;
-    let wages = (staffMember.payStructure === 'commission') ? (serviceRevenue * ((staffMember.commissionRate || 0) / 100)) : (staffMember.payStructure === 'hourly' && staffMember.hourlyRate ? (totalMinutesWorked / 60) * staffMember.hourlyRate : 0);
+    
+    let wages = 0;
+    if (staffMember.payStructure === 'commission') {
+        wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+    } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+        wages = (totalMinutesWorked / 60) * staffMember.hourlyRate;
+    } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
+        wages = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + (serviceRevenue * ((staffMember.commissionRate || 0) / 100));
+    }
+
     const earnings = wages + tips + (retailSales * ((staffMember.retailCommissionRate || 0) / 100));
     return { ...staffMember, stats: { totalSales: serviceRevenue + retailSales, tips, earnings, totalHours: totalMinutesWorked / 60, utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0 } };
   }, [staffMember, allAppointments, services, allTransactions, activityLogs]);

@@ -196,7 +196,6 @@ export default function ReportsPage() {
         completedAppointments.forEach(apt => {
             const service = services.find(s => s.id === apt.serviceId);
             if (service) {
-                // Actual Material Cost from Formula
                 const formula = apt.checkoutState?.formula || service.products || [];
                 formula.forEach((p: any) => {
                     const item = inventory.find(i => i.id === p.id);
@@ -256,6 +255,8 @@ export default function ReportsPage() {
             wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
         } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
             wages = totalHoursWorked * staffMember.hourlyRate;
+        } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
+            wages = (totalHoursWorked * staffMember.hourlyRate) + (serviceRevenue * ((staffMember.commissionRate || 0) / 100));
         }
         const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
         const laborBase = wages + retailCommission;
