@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -287,28 +288,6 @@ const ClientReportPage = () => {
                                     )
                                 })}
                                 {clientAppointments.length === 0 && <p className="p-4 text-center text-muted-foreground">No appointment history.</p>}
-                            </div>
-                        </div>
-
-                         <div>
-                            <h2 className="text-xl font-semibold mb-4">Saved Formulas</h2>
-                            <div className="space-y-4">
-                                {(client.customFormulas || []).map((formula, index) => (
-                                    <Card key={index}>
-                                        <CardHeader className="pb-2">
-                                            <CardTitle className="text-base flex items-center gap-2"><FlaskConical className="w-4 h-4 text-primary"/>{formula.name}</CardTitle>
-                                        </CardHeader>
-                                        <CardContent className="space-y-2">
-                                            {formula.items.map((item, itemIndex) => (
-                                                <div key={itemIndex} className="text-sm p-2 bg-muted/50 rounded-md">
-                                                    <p>{item.quantityUsed}{item.unit} {item.productName}</p>
-                                                    {item.note && <p className="text-xs text-muted-foreground pl-4">&ndash; {item.note}</p>}
-                                                </div>
-                                            ))}
-                                        </CardContent>
-                                    </Card>
-                                ))}
-                                {(!client.customFormulas || client.customFormulas.length === 0) && <p className="text-center text-muted-foreground">No custom formulas saved.</p>}
                             </div>
                         </div>
 

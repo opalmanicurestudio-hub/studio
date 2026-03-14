@@ -38,7 +38,9 @@ import {
     Percent,
     ShieldCheck,
     PackageOpen,
-    ArrowRight
+    ArrowRight,
+    User,
+    Loader
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment, type Staff, type PricingTier } from '@/lib/data';
@@ -54,6 +56,7 @@ import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: { service: Service; tmhr: number; staff: Staff[], pricingTiers: PricingTier[], taxBurden: number }) => {
     const { inventory } = useInventory();
@@ -82,39 +85,44 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
     }, [service, tmhr, inventory]);
 
     const tierAnalysis = useMemo(() => {
-        const baseTiers = (service.serviceTiers || []).length > 0 
-            ? service.serviceTiers 
-            : pricingTiers.map(pt => ({ tierId: pt.id, price: service.price, durationMinutes: service.duration }));
+        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+            const tierPriceConfig = service.serviceTiers?.find(t => t.tierId === tier.id);
+            const price = tierPriceConfig ? tierPriceConfig.price : service.price;
+            const duration = tierPriceConfig ? tierPriceConfig.durationMinutes : service.duration;
 
-        return baseTiers.map(tier => {
-            const tierInfo = pricingTiers.find(pt => pt.id === tier.tierId);
-            if (!tierInfo) return null;
+            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
 
-            const repStaff = staff.find(s => s.pricingTierId === tier.tierId) || staff[0];
-            let laborCost = 0;
-            
-            if (repStaff?.payStructure === 'hourly' && repStaff.hourlyRate) {
-                laborCost = (tier.durationMinutes / 60) * repStaff.hourlyRate;
-            } else {
-                const rate = repStaff?.commissionRate || 40;
-                laborCost = tier.price * (rate / 100);
-            }
+            const staffAnalysis = relevantStaff.map(member => {
+                let laborCost = 0;
+                if (member.payStructure === 'hourly' && member.hourlyRate) {
+                    laborCost = (duration / 60) * member.hourlyRate;
+                } else {
+                    const rate = member.commissionRate || 40;
+                    laborCost = price * (rate / 100);
+                }
 
-            const burdenedLabor = laborCost * (1 + (taxBurden / 100));
-            const totalOperationalLoad = materialCost + timeCost + burdenedLabor;
-            const studioNet = tier.price - totalOperationalLoad;
-            const studioMargin = tier.price > 0 ? (studioNet / tier.price) * 100 : 0;
+                const burdenedLabor = laborCost * (1 + (taxBurden / 100));
+                const studioNet = price - materialCost - timeCost - burdenedLabor;
+                const margin = price > 0 ? (studioNet / price) * 100 : 0;
+
+                return {
+                    id: member.id,
+                    name: member.name,
+                    avatarUrl: member.avatarUrl,
+                    payStructure: member.payStructure,
+                    studioNet,
+                    margin
+                };
+            });
 
             return {
-                name: tierInfo.name,
-                rank: tierInfo.rank,
-                price: tier.price,
-                laborCost: burdenedLabor,
-                studioNet,
-                studioMargin,
+                ...tier,
+                price,
+                duration,
+                staffAnalysis
             };
-        }).filter((t): t is NonNullable<typeof t> => t !== null).sort((a,b) => a.rank - b.rank);
-    }, [service, materialCost, timeCost, pricingTiers, staff, taxBurden]);
+        });
+    }, [pricingTiers, service, staff, materialCost, timeCost, taxBurden]);
 
     return (
         <Card className="lg:sticky lg:top-24 border-4 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
@@ -124,49 +132,56 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
                     Yield Engine
                 </CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60">
-                    Net Analysis post Labor & Tax Burden
+                    Net Analysis per Pro @ {taxBurden}% Tax Burden
                 </CardDescription>
             </CardHeader>
             <CardContent className="p-6 sm:p-8 space-y-8">
-                <div className="space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tiered Studio Net</p>
-                    <div className="grid gap-3">
-                        {tierAnalysis.map(tier => (
-                            <div key={tier.name} className={cn(
-                                "p-5 rounded-[2rem] border-2 transition-all shadow-sm", 
-                                tier.studioNet >= 0 ? "bg-primary/5 border-primary/10" : "bg-red-50 border-red-200"
-                            )}>
-                                <div className="flex justify-between items-center mb-4">
-                                    <span className="text-xs font-black uppercase tracking-widest">{tier.name}</span>
-                                    {tier.studioNet < 0 && <Badge variant="destructive" className="h-4 text-[8px] font-black uppercase animate-pulse border-none">Deficit Warning</Badge>}
-                                </div>
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center text-[10px] font-bold uppercase text-slate-500">
-                                        <span>Burdened Labor</span>
-                                        <span className="font-mono">-${tier.laborCost.toFixed(2)}</span>
-                                    </div>
-                                    <Separator className="border-dashed" />
-                                    <div className="flex justify-between items-baseline">
-                                        <div className="flex flex-col text-left">
-                                            <span className="text-[8px] font-black uppercase text-primary/60">Studio Net</span>
-                                            <span className={cn("text-2xl font-black font-mono tracking-tighter", tier.studioNet >= 0 ? "text-primary" : "text-destructive")}>
-                                                ${tier.studioNet.toFixed(2)}
-                                            </span>
-                                        </div>
-                                        <Badge className={cn("text-white border-none font-black text-xs font-mono", tier.studioNet >= 0 ? "bg-primary" : "bg-destructive")}>
-                                            {tier.studioMargin.toFixed(0)}%
-                                        </Badge>
-                                    </div>
-                                </div>
+                <div className="space-y-6">
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.id} className="space-y-3">
+                            <div className="flex justify-between items-center px-1">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{tier.name}</span>
+                                <span className="font-black text-slate-900 text-xs">${tier.price.toFixed(2)}</span>
                             </div>
-                        ))}
-                    </div>
+                            <div className="grid gap-2">
+                                {tier.staffAnalysis.length > 0 ? tier.staffAnalysis.map(sa => (
+                                    <div key={sa.id} className={cn(
+                                        "p-3 rounded-2xl border-2 flex items-center justify-between transition-all shadow-sm",
+                                        sa.studioNet >= 0 ? "bg-white border-primary/5 hover:border-primary/20" : "bg-red-50 border-red-200"
+                                    )}>
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <Avatar className="h-8 w-8 border-2 shadow-sm rounded-xl">
+                                                <AvatarImage src={sa.avatarUrl} className="object-cover" />
+                                                <AvatarFallback className="text-[8px] font-black">{(sa.name || 'S')[0]}</AvatarFallback>
+                                            </Avatar>
+                                            <div className="min-w-0 text-left">
+                                                <p className="font-black uppercase text-[10px] truncate leading-none mb-1">{sa.name.split(' ')[0]}</p>
+                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{sa.payStructure}</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className={cn("font-black font-mono text-xs", sa.studioNet >= 0 ? "text-primary" : "text-destructive")}>
+                                                {sa.studioNet >= 0 ? '+' : ''}${sa.studioNet.toFixed(2)}
+                                            </p>
+                                            <p className={cn("text-[8px] font-black uppercase", sa.studioNet >= 0 ? "text-primary/60" : "text-destructive/60")}>
+                                                {sa.margin.toFixed(0)}% Net
+                                            </p>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div className="p-4 rounded-2xl border-2 border-dashed bg-muted/5 text-center">
+                                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">No staff assigned</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
                 </div>
                 
                 <div className="p-5 rounded-2xl border-2 border-dashed bg-muted/10 flex items-start gap-4 text-left">
                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
-                        Deficit Warning triggers when the Total Operational Load exceeds the Tier Price.
+                        Studio Net is actual cash left in the bank after accounting for Materials, TMHR Overhead, and Burdened Labor.
                     </p>
                 </div>
             </CardContent>
@@ -174,7 +189,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
     );
 };
 
-const CostBreakdown = ({ service, tmhr, staff, taxBurden }: { service: Service; tmhr: number; staff: Staff[], taxBurden: number }) => {
+const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) => {
   const { inventory } = useInventory();
   const { timeCost, productCosts, totalHardCost } = useMemo(() => {
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
@@ -203,43 +218,25 @@ const CostBreakdown = ({ service, tmhr, staff, taxBurden }: { service: Service; 
     return { timeCost, productCosts, totalHardCost };
   }, [service, tmhr, inventory]);
 
-  const representativeLabor = useMemo(() => {
-      const avgRate = staff.length > 0 
-        ? staff.reduce((acc, s) => acc + (s.commissionRate || 40), 0) / staff.length
-        : 40;
-      
-      const laborBase = service.price * (avgRate / 100);
-      const taxImpact = laborBase * (taxBurden / 100);
-      
-      return { laborBase, taxImpact, total: laborBase + taxImpact, avgRate };
-  }, [staff, service.price, taxBurden]);
-
   return (
     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
         <CardHeader className="bg-muted/5 border-b p-6 sm:p-8">
-            <CardTitle className="text-sm font-black uppercase tracking-widest text-left">Operational Load Manifest</CardTitle>
-            <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60 text-left">Complete cost profile per session.</CardDescription>
+            <CardTitle className="text-sm font-black uppercase tracking-widest text-left">Base Operational Load</CardTitle>
+            <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60 text-left">Studio-side overhead manifest.</CardDescription>
         </CardHeader>
         <CardContent className="p-6 sm:p-8 space-y-10">
             <div className="space-y-4">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
                     <Scale className="w-3.5 h-3.5" />
-                    Direct Variable Costs
+                    Material Components
                 </h4>
                 <div className="grid gap-3">
                     <div className="flex justify-between items-center bg-muted/20 p-4 rounded-xl border-2">
                         <div className="text-left">
                             <p className="font-black text-xs uppercase">Formula Materials</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase">{service.products?.length || 0} Assets Archived</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase">{service.products?.length || 0} Assets Aggregated</p>
                         </div>
                         <span className="font-black font-mono text-sm">${productCosts.reduce((acc, p) => acc + p.cost, 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center bg-muted/20 p-4 rounded-xl border-2">
-                        <div className="text-left">
-                            <p className="font-black text-xs uppercase">Labor & Tax Burden</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase">@{representativeLabor.avgRate}% Avg Comm + {taxBurden}% Tax</p>
-                        </div>
-                        <span className="font-black font-mono text-sm">${representativeLabor.total.toFixed(2)}</span>
                     </div>
                 </div>
             </div>
@@ -247,7 +244,7 @@ const CostBreakdown = ({ service, tmhr, staff, taxBurden }: { service: Service; 
             <div className="space-y-4">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
                     <Clock className="w-3.5 h-3.5" />
-                    Fixed Foundation Allocation (TMHR)
+                    Fixed Foundation Allocation
                 </h4>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-muted/20 p-5 rounded-[1.5rem] border-2 border-transparent hover:border-primary/10 transition-all gap-4">
                     <div className="space-y-0.5 text-left">
@@ -261,10 +258,10 @@ const CostBreakdown = ({ service, tmhr, staff, taxBurden }: { service: Service; 
          <CardFooter className="bg-primary/5 p-6 sm:p-8 border-t-2 border-primary/10">
             <div className="flex justify-between items-center w-full gap-4">
                 <div className="space-y-0.5 text-left">
-                    <p className="text-[10px] font-black uppercase text-primary tracking-widest">Total Operational Load</p>
-                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Absolute floor for studio profitability</p>
+                    <p className="text-[10px] font-black uppercase text-primary tracking-widest">Studio Overhead Burden</p>
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Does not include provider labor</p>
                 </div>
-                <span className="font-black text-2xl sm:text-3xl font-mono tracking-tighter text-primary">${(totalHardCost + representativeLabor.total).toFixed(2)}</span>
+                <span className="font-black text-2xl sm:text-3xl font-mono tracking-tighter text-primary">${totalHardCost.toFixed(2)}</span>
             </div>
         </CardFooter>
     </Card>
@@ -274,7 +271,7 @@ const CostBreakdown = ({ service, tmhr, staff, taxBurden }: { service: Service; 
 
 export default function ServiceDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const { services, appointments, staff, pricingTiers, inventory } = useInventory();
+    const { services, appointments, staff, pricingTiers, inventory, isLoading: isInventoryLoading } = useInventory();
     const { selectedTenant } = useTenant();
     const service = useMemo(() => services.find(s => s.id === id), [services, id]);
     const tmhr = selectedTenant?.tmhr || 50;
@@ -305,6 +302,7 @@ export default function ServiceDetailPage() {
         });
     };
 
+    if (isInventoryLoading) return <div className="h-screen flex items-center justify-center bg-background"><Loader className="animate-spin text-primary h-10 w-10" /></div>;
     if (!service) return notFound();
 
   return (
@@ -345,19 +343,19 @@ export default function ServiceDetailPage() {
                     </div>
                     
                     <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2">
-                        <div className="space-y-1">
+                        <div className="space-y-1 text-left">
                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Duration</p>
                             <div className="flex items-center gap-2 font-black text-base md:text-xl text-primary tracking-tight">
                                 <Clock className="w-4 h-4 md:w-5 md:h-5" />
                                 {service.duration} MIN
                             </div>
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-1 text-left">
                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Baseline Market Rate</p>
                             <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700">${service.price.toFixed(2)}</p>
                         </div>
                     </div>
-                    <p className="text-xs md:sm font-medium text-slate-600 leading-relaxed max-w-2xl pt-2">{service.description || 'No description provided for this treatment.'}</p>
+                    <p className="text-xs md:sm font-medium text-slate-600 leading-relaxed max-w-2xl pt-2 text-left">{service.description || 'No description provided for this treatment.'}</p>
                 </div>
             </CardContent>
         </Card>
@@ -379,7 +377,7 @@ export default function ServiceDetailPage() {
                     </TabsList>
                     
                     <TabsContent value="architecture" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
-                        <CostBreakdown service={service} tmhr={tmhr} staff={staff} taxBurden={taxBurden} />
+                        <CostBreakdown service={service} tmhr={tmhr} />
                     </TabsContent>
 
                     <TabsContent value="logistics" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
@@ -409,7 +407,7 @@ export default function ServiceDetailPage() {
 
                     <TabsContent value="formula" className="m-0 animate-in fade-in duration-500 text-left">
                         <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
-                            <CardHeader className="bg-muted/5 border-b p-6 sm:p-8 pb-4">
+                            <CardHeader className="bg-muted/5 border-b p-6 sm:p-8 pb-4 text-left">
                                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><PackageOpen className="w-4 h-4 text-primary" /> Technical Mixing Record</CardTitle>
                                 <CardDescription className="text-[10px] font-bold text-destructive uppercase tracking-widest animate-pulse">INTERNAL MOAT: AUTHORIZED STAFF ONLY</CardDescription>
                             </CardHeader>
@@ -417,11 +415,11 @@ export default function ServiceDetailPage() {
                                 {(service.products || []).length > 0 ? (
                                     <div className="grid gap-3">
                                         {(service.products || []).map(p => {
-                                            const item = inventory.find(i => i.id === p.id);
+                                            const item = (inventory || []).find(i => i.id === p.id);
                                             const unit = item?.costingMethod === 'uses' ? (item.useUnit || 'uses') : (item?.unit || 'ml');
                                             return (
                                                 <div key={p.id} className="flex justify-between items-center p-4 rounded-2xl border-2 bg-muted/10 transition-all hover:bg-white hover:border-primary/10 group shadow-inner">
-                                                    <div className='min-w-0'>
+                                                    <div className='min-w-0 text-left'>
                                                         <p className='font-black text-sm uppercase tracking-tight text-slate-900 truncate'>{p.name}</p>
                                                         <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>SKU: {p.id.slice(-6).toUpperCase()}</p>
                                                     </div>
