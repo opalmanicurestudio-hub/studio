@@ -30,21 +30,17 @@ import {
     User, 
     CalendarDays, 
     DollarSign, 
-    CreditCard, 
+    CreditCard as CardIcon, 
     Landmark, 
-    ShieldAlert,
-    Info,
-    Undo2,
-    Lock,
-    ShieldCheck,
-    Loader,
-    CreditCard as CardIcon,
-    Zap,
-    Unlock,
-    Workflow
+    ShieldCheck, 
+    Undo2, 
+    Lock, 
+    Zap, 
+    Unlock, 
+    Workflow 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Client, type Service, type Appointment, type Staff, type Event as StudioEvent } from '@/lib/data';
+import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
 import { 
     format, 
     setHours, 
@@ -74,12 +70,13 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '../ui/scroll-area';
-import { Separator } from '../ui/separator';
+import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
+import { useToast } from '@/hooks/use-toast';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -140,6 +137,7 @@ const RescheduleAppointmentForm = ({
 }) => {
     const { scheduleProfiles, staff, events: allEvents } = useInventory();
     const { selectedTenant: tenant } = useTenant();
+    const { toast } = useToast();
 
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
 
