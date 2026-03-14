@@ -78,6 +78,18 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
+    <div className="flex items-center gap-4 py-2">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
+
 const RescheduleAppointmentForm = ({ 
     appointment,
     client, 
@@ -104,7 +116,7 @@ const RescheduleAppointmentForm = ({
     
     // Fee State
     const [applyFee, setApplyFee] = useState(false);
-    const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance' | 'charge_new_card'>('card_on_file');
+    const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'charge_new_card'>('card_on_file');
 
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
     const hasCardOnFile = !!client?.cardOnFile?.token;
@@ -239,13 +251,13 @@ const RescheduleAppointmentForm = ({
                                     {applyFee && (
                                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Distribution Method</Label>
-                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-3">
                                                 <label htmlFor="resched-pay-card" className={cn("cursor-pointer flex-1 h-full", !hasCardOnFile && "opacity-40 grayscale")}>
                                                     <RadioGroupItem value="card_on_file" id="resched-pay-card" className="peer sr-only" disabled={!hasCardOnFile} />
                                                     <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
                                                         {hasCardOnFile ? <ShieldCheck className="w-5 h-5 mb-1.5 text-primary" /> : <Lock className="w-5 h-5 mb-1.5 text-slate-400" />}
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Vault</span>
-                                                        {hasCardOnFile && <span className="text-[7px] text-primary/60 font-black uppercase mt-1 tracking-tight">•••• {client?.cardOnFile?.last4}</span>}
+                                                        {hasCardOnFile && <span className="text-[8px] text-primary/60 font-black uppercase mt-1 tracking-tight">•••• {client?.cardOnFile?.last4}</span>}
                                                     </div>
                                                 </label>
                                                 <label htmlFor="resched-pay-new" className="cursor-pointer flex-1 h-full">
@@ -254,14 +266,6 @@ const RescheduleAppointmentForm = ({
                                                         <CardIcon className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">New Card</span>
                                                         <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Manual Auth</span>
-                                                    </div>
-                                                </label>
-                                                <label htmlFor="resched-pay-balance" className="cursor-pointer flex-1 h-full">
-                                                    <RadioGroupItem value="add_to_balance" id="resched-pay-balance" className="peer sr-only" />
-                                                    <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
-                                                        <Landmark className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">To Session</span>
-                                                        <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Surcharge</span>
                                                     </div>
                                                 </label>
                                             </RadioGroup>
@@ -273,17 +277,17 @@ const RescheduleAppointmentForm = ({
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-primary/60">Encrypted Terminal Flow</span>
                                                     </div>
                                                     <div className="space-y-3">
-                                                        <div className="space-y-1">
-                                                            <Label className="text-[8px] font-black uppercase text-muted-foreground">Card Protocol</Label>
+                                                        <div className="space-y-1 text-left">
+                                                            <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Card Protocol</Label>
                                                             <Input placeholder="•••• •••• •••• ••••" className="h-10 rounded-xl border-2 font-mono text-xs shadow-inner" />
                                                         </div>
                                                         <div className="grid grid-cols-2 gap-3">
-                                                            <div className="space-y-1">
-                                                                <Label className="text-[8px] font-black uppercase text-muted-foreground">Expiry</Label>
+                                                            <div className="space-y-1 text-left">
+                                                                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Expiry</Label>
                                                                 <Input placeholder="MM / YY" className="h-10 rounded-xl border-2 text-center text-xs" />
                                                             </div>
-                                                            <div className="space-y-1">
-                                                                <Label className="text-[8px] font-black uppercase text-muted-foreground">CVC</Label>
+                                                            <div className="space-y-1 text-left">
+                                                                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">CVC</Label>
                                                                 <Input placeholder="•••" className="h-10 rounded-xl border-2 text-center text-xs" />
                                                             </div>
                                                         </div>

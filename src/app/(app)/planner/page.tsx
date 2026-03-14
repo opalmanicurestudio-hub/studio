@@ -406,31 +406,24 @@ function PlannerPageContent() {
         endTime: aptData.endTime
     };
 
-    // 2. Handle Protocol Fee
+    // 2. Handle Protocol Fee (Immediate Transaction Only as requested)
     if (applyFee && feeAmount > 0) {
-        if (paymentMethod === 'add_to_balance') {
-            // STRATEGIC CHOICE: Add directly to the appointment checkout state for visibility in POS
-            updates['checkoutState.additionalCharge'] = increment(feeAmount);
-            updates['notes'] = (aptData.notes || '') + `\n[PROTOCOL FEE: $${feeAmount} added for late reschedule]`;
-        } else {
-            // Card payment flow creates a direct transaction
-            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(txnRef, {
-                id: txnRef.id,
-                date: now,
-                description: `Reschedule Protocol Fee: ${aptData.clientName}`,
-                clientOrVendor: aptData.clientName || 'Client',
-                clientId: aptData.clientId,
-                type: 'income',
-                context: 'Business',
-                category: 'Adjustment Fee',
-                amount: feeAmount,
-                paymentMethod: paymentMethod === 'card_on_file' ? 'Card on File' : 'Credit Card (Mobile)',
-                hasReceipt: false,
-                appointmentId: aptData.id,
-                staffId: aptData.staffId
-            });
-        }
+        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+        batch.set(txnRef, {
+            id: txnRef.id,
+            date: now,
+            description: `Reschedule Protocol Fee: ${aptData.clientName}`,
+            clientOrVendor: aptData.clientName || 'Client',
+            clientId: aptData.clientId,
+            type: 'income',
+            context: 'Business',
+            category: 'Adjustment Fee',
+            amount: feeAmount,
+            paymentMethod: paymentMethod === 'card_on_file' ? 'Card on File' : 'Credit Card (Mobile)',
+            hasReceipt: false,
+            appointmentId: aptData.id,
+            staffId: aptData.staffId
+        });
     }
 
     batch.update(appointmentRef, updates);
