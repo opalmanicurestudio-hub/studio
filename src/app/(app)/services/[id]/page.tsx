@@ -37,7 +37,8 @@ import {
     Scale,
     Percent,
     ShieldCheck,
-    PackageOpen
+    PackageOpen,
+    ArrowRight
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment, type Staff, type PricingTier } from '@/lib/data';
@@ -274,7 +275,7 @@ const CostBreakdown = ({ service, tmhr, staff, taxBurden }: { service: Service; 
 
 export default function ServiceDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const { services, appointments, staff, pricingTiers } = useInventory();
+    const { services, appointments, staff, pricingTiers, inventory } = useInventory();
     const { selectedTenant } = useTenant();
     const service = useMemo(() => services.find(s => s.id === id), [services, id]);
     const tmhr = selectedTenant?.tmhr || 50;
@@ -418,7 +419,7 @@ export default function ServiceDetailPage() {
                                     <div className="grid gap-3">
                                         {(service.products || []).map(p => {
                                             const item = inventory.find(i => i.id === p.id);
-                                            const unit = item?.costingMethod === 'uses' ? (inventoryItem.useUnit || 'uses') : (inventoryItem?.unit || 'ml');
+                                            const unit = item?.costingMethod === 'uses' ? (item.useUnit || 'uses') : (item?.unit || 'ml');
                                             return (
                                                 <div key={p.id} className="flex justify-between items-center p-4 rounded-2xl border-2 bg-muted/10 transition-all hover:bg-white hover:border-primary/10 group shadow-inner">
                                                     <div className='min-w-0'>

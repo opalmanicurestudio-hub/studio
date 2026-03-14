@@ -152,14 +152,14 @@ const Step1 = ({
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
                         </div>
                     ) : (
-                        <div className="flex gap-2">
+                        <div className="flex gap-3">
                             <Controller name="category" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5"> <SelectValue placeholder="SELECT DEPARTMENT" /> </SelectTrigger>
+                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5 flex-1"> <SelectValue placeholder="SELECT DEPARTMENT" /> </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl"> {categories.map(cat => ( <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem> ))} </SelectContent>
                                 </Select>
                             )}/>
-                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2"> <PlusCircle className="h-5 w-5" /> </Button>
+                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0"><PlusCircle className="h-6 w-6 opacity-40"/></Button>
                         </div>
                     )}
                     {errors.category && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.category.message}</p>}
@@ -582,7 +582,6 @@ export const AddServiceDialog: React.FC<any> = ({
   const { selectedTenant } = useTenant();
   const { firestore } = useFirebase();
   const tmhr = selectedTenant?.tmhr || 50;
-  const tenantId = selectedTenant?.id;
   
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
