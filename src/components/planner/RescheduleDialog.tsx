@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -251,7 +252,7 @@ const RescheduleAppointmentForm = ({
                                                 <label htmlFor="resched-pay-new" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="charge_new_card" id="resched-pay-new" className="peer sr-only" />
                                                     <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
-                                                        <CreditCard className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                        <CardIcon className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">New Card</span>
                                                         <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Manual Auth</span>
                                                     </div>
@@ -260,8 +261,8 @@ const RescheduleAppointmentForm = ({
                                                     <RadioGroupItem value="add_to_balance" id="resched-pay-balance" className="peer sr-only" />
                                                     <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
                                                         <Landmark className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Dossier</span>
-                                                        <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Arrears</span>
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">To Session</span>
+                                                        <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Surcharge</span>
                                                     </div>
                                                 </label>
                                             </RadioGroup>

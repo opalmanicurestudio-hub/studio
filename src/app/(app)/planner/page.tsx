@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -398,16 +399,22 @@ function PlannerPageContent() {
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
 
-    // 1. Update Appointment Timing
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', aptData.id);
-    batch.update(appointmentRef, {
+    
+    // 1. Core Timing Update
+    const updates: any = {
         startTime: aptData.startTime,
         endTime: aptData.endTime
-    });
+    };
 
-    // 2. Handle Protocol Fee if applicable
+    // 2. Handle Protocol Fee
     if (applyFee && feeAmount > 0) {
-        if (paymentMethod === 'card_on_file' || paymentMethod === 'charge_new_card') {
+        if (paymentMethod === 'add_to_balance') {
+            // STRATEGIC CHOICE: Add directly to the appointment checkout state for visibility in POS
+            updates['checkoutState.additionalCharge'] = increment(feeAmount);
+            updates['notes'] = (aptData.notes || '') + `\n[PROTOCOL FEE: $${feeAmount} added for late reschedule]`;
+        } else {
+            // Card payment flow creates a direct transaction
             const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(txnRef, {
                 id: txnRef.id,
@@ -424,25 +431,14 @@ function PlannerPageContent() {
                 appointmentId: aptData.id,
                 staffId: aptData.staffId
             });
-        } else if (paymentMethod === 'add_to_balance') {
-            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, aptData.clientId);
-            batch.update(clientRef, {
-                outstandingBalance: increment(feeAmount),
-                unpaidFees: arrayUnion({
-                    feeId: nanoid(),
-                    appointmentId: aptData.id,
-                    appointmentDate: now,
-                    feeAmount: feeAmount,
-                    reason: "Late Reschedule Protocol Adjustment",
-                    staffId: aptData.staffId
-                })
-            });
         }
     }
 
+    batch.update(appointmentRef, updates);
+
     try {
         await batch.commit();
-        toast({ title: "Protocol Synchronized", description: applyFee ? `Session shifted with a $${feeAmount.toFixed(2)} recovery fee.` : "Session shifted successfully." });
+        toast({ title: "Protocol Synchronized", description: applyFee ? `Session shifted with a $${feeAmount.toFixed(2)} adjustment applied.` : "Session shifted successfully." });
         setIsRescheduleOpen(false);
         setIsDetailsOpen(false);
     } catch (e) {
@@ -522,8 +518,8 @@ function PlannerPageContent() {
     if (!selectedAppointment || !firestore || !tenantId) return;
     
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
-    
     const batch = writeBatch(firestore);
+    
     batch.update(appointmentRef, {
         status: 'confirmed',
         checkInStatus: 'pending',
