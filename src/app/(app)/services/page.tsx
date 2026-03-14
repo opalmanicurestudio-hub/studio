@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -290,7 +289,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
             </div>
             <Button variant="ghost" asChild className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn">
                 <Link href={`/services/${service.id}`} onClick={e => e.stopPropagation()}>
-                    View Analysis <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover:btn:translate-x-1" />
+                    View Analysis <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
                 </Link>
             </Button>
         </CardFooter>
@@ -636,7 +635,7 @@ export default function ServicesPage() {
 
       <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-            <AlertDialogHeader className="p-6 pb-0">
+            <AlertDialogHeader className="p-6 pb-0 text-left">
                 <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Terminate Menu Items</AlertDialogTitle>
                 <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
                     You are about to permanently delete {selectedItems.size} services. This will wipe all associated profitability data and historical formulas. <strong>This action is non-reversible.</strong>
@@ -655,7 +654,7 @@ export default function ServicesPage() {
 const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
     <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
         <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
-            <BookText className='w-12 h-12 text-muted-foreground' />
+            <BookOpen className='w-12 h-12 text-muted-foreground' />
         </div>
         <div className="space-y-2 text-center">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Library is Empty</h3>
@@ -663,9 +662,11 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
                 Populate your menu to unlock automated breakeven analysis and client booking.
             </p>
         </div>
-        <Button size="lg" onClick={onAddNewService} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+        <Button size="lg" onClick={onAddNewService} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 mt-4">
             <PlusCircle className="mr-2 h-5 w-5" />
             Add First Treatment
         </Button>
     </div>
 );
+
+import { BookOpen } from 'lucide-react';

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -66,7 +65,8 @@ import {
     Tag,
     Clock,
     Scissors,
-    Briefcase
+    Briefcase,
+    Trash2
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';

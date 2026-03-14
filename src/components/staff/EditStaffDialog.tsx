@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -70,7 +69,8 @@ import {
     Zap,
     Scale,
     DollarSign,
-    ShieldAlert
+    ShieldAlert,
+    Edit
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -522,7 +522,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
 
   return (
     <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
             <FormProvider {...methods}>
                 <form id="edit-staff-strategic-form" onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col h-full overflow-hidden">
                     <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-10 pb-6")}>

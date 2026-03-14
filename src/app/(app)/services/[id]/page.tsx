@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -331,7 +330,7 @@ export default function ServiceDetailPage() {
                         )}
                     </div>
                 </div>
-                <div className="space-y-4 flex-1 min-w-0">
+                <div className="space-y-4 flex-1 min-w-0 text-left">
                     <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4">
                         <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 truncate leading-none">{service.name}</h2>
                         <div className="flex gap-2">
@@ -340,7 +339,7 @@ export default function ServiceDetailPage() {
                         </div>
                     </div>
                     
-                    <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2 text-left">
+                    <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2">
                         <div className="space-y-1">
                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Duration</p>
                             <div className="flex items-center gap-2 font-black text-base md:text-xl text-primary tracking-tight">
@@ -348,12 +347,12 @@ export default function ServiceDetailPage() {
                                 {service.duration} MIN
                             </div>
                         </div>
-                        <div className="space-y-1 text-left">
+                        <div className="space-y-1">
                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Baseline Market Rate</p>
                             <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700">${service.price.toFixed(2)}</p>
                         </div>
                     </div>
-                    <p className="text-xs md:sm font-medium text-slate-600 leading-relaxed max-w-2xl pt-2 text-left">{service.description || 'No description provided for this treatment.'}</p>
+                    <p className="text-xs md:sm font-medium text-slate-600 leading-relaxed max-w-2xl pt-2">{service.description || 'No description provided for this treatment.'}</p>
                 </div>
             </CardContent>
         </Card>
@@ -379,7 +378,7 @@ export default function ServiceDetailPage() {
 
                     <TabsContent value="logistics" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
                         <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
-                            <CardHeader className="bg-muted/5 border-b p-6 sm:p-8 pb-4 text-left">
+                            <CardHeader className="bg-muted/5 border-b p-6 sm:p-8 pb-4">
                                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><MapPin className="w-4 h-4 text-primary" /> Resource Dependencies</CardTitle>
                             </CardHeader>
                             <CardContent className="p-6 sm:p-8">

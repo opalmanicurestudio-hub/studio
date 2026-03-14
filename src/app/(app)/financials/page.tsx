@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -65,7 +64,8 @@ import {
   Percent,
   Users,
   Scale,
-  Zap
+  Zap,
+  Pencil
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -157,7 +157,7 @@ const BillItemRow = ({
                             <Label htmlFor={`lateByDay-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late After (Days)</Label>
                             <div className="relative">
                                 <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
-                                <Input id={`lateByDay-${bill.id}`} type="number" placeholder="0" value={bill.lateByDay || ''} onChange={(e) => onBillChange(bill.id, 'lateByDay', parseInt(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white text-center" />
+                                <Input id={`lateByDay-${bill.id}`} type="number" placeholder="0" value={bill.lateByDay || ''} onChange={(e) => onBillChange(bill.id, 'lateByDay', parseInt(e.target.value) || 0)} className="h-9 rounded-lg border-2 font-black text-xs bg-white text-center" />
                             </div>
                         </div>
                      </div>
