@@ -229,7 +229,7 @@ const BillEditor = ({
     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
       <CardHeader className="bg-muted/5 border-b p-5 sm:p-8 text-left">
         <CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary" /> Manifest Entry</CardTitle>
-        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Quantify your recurring monthly load.</CardDescription>
+        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Quantify your monthly recurring load.</CardDescription>
       </CardHeader>
       <CardContent className="p-3 sm:p-8">
         <Accordion type="multiple" defaultValue={['category-0']} className="w-full space-y-3 sm:space-y-4">
@@ -411,14 +411,6 @@ export default function FinancialFoundationPage() {
     
     const [profiles, setProfiles] = useState<any>({ lifestyleProfiles: [], businessProfiles: [], scheduleProfiles: [] });
 
-    const [taxBurden, setTaxBurden] = useState(selectedTenant?.employerTaxBurdenPct || 10);
-
-    useEffect(() => {
-        if (selectedTenant?.employerTaxBurdenPct !== undefined) {
-            setTaxBurden(selectedTenant.employerTaxBurdenPct);
-        }
-    }, [selectedTenant?.employerTaxBurdenPct]);
-
     useEffect(() => {
         if (lifestyleProfilesLoading || !firestore || !user || !tenantId) return;
         if (lifestyleProfilesData && lifestyleProfilesData.length === 0) {
@@ -529,9 +521,6 @@ export default function FinancialFoundationPage() {
                         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/${key}/${p.id}`), p);
                     });
                 });
-                if (tenantId) {
-                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { employerTaxBurdenPct: taxBurden });
-                }
             }
             toast({ title: 'Foundation Updated' });
         }
@@ -540,17 +529,6 @@ export default function FinancialFoundationPage() {
 
     const lifestyleTotal = useMemo(() => (activeLifestyleProfile?.categories || []).reduce((acc: number, c: any) => acc + (c.bills || []).reduce((ba: number, b: any) => ba + (b.amount || 0), 0), 0), [activeLifestyleProfile]);
     const businessTotal = useMemo(() => (activeBusinessProfile?.categories || []).reduce((acc: number, c: any) => acc + (c.bills || []).reduce((ba: number, b: any) => ba + (b.amount || 0), 0), 0), [activeBusinessProfile]);
-
-    const teamLaborAnalysis = useMemo(() => {
-        if (!staff) return { avgCommission: 0, avgHourly: 0, totalBurden: 0 };
-        const commissionStaff = staff.filter(s => s.payStructure === 'commission' || s.payStructure === 'hourly_plus_commission');
-        const hourlyStaff = staff.filter(s => s.payStructure === 'hourly' || s.payStructure === 'hourly_plus_commission');
-        
-        const avgComm = commissionStaff.length > 0 ? commissionStaff.reduce((acc, s) => acc + (s.commissionRate || 0), 0) / commissionStaff.length : 0;
-        const avgHour = hourlyStaff.length > 0 ? hourlyStaff.reduce((acc, s) => acc + (s.hourlyRate || 0), 0) / hourlyStaff.length : 0;
-        
-        return { avgCommission: avgComm, avgHourly: avgHour };
-    }, [staff]);
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
@@ -579,14 +557,13 @@ export default function FinancialFoundationPage() {
                     <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5 mb-2">
                         <TabsTrigger value="lifestyle" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">1. Lifestyle Target</TabsTrigger>
                         <TabsTrigger value="business" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">2. Studio Overhead</TabsTrigger>
-                        <TabsTrigger value="labor" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">3. Labor & Tax Burden</TabsTrigger>
                     </TabsList>
                 </div>
                 
                 <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10 items-start">
                     <div className="lg:col-span-1 space-y-6 sm:space-y-8">
                         <FinancialProfileManager 
-                            activeTab={activeTab === 'labor' ? 'business' : activeTab} 
+                            activeTab={activeTab} 
                             profiles={profiles}
                             setProfiles={setProfiles}
                             isEditing={isEditing}
@@ -594,7 +571,7 @@ export default function FinancialFoundationPage() {
                             setRenamingProfileId={setRenamingProfileId}
                             onDeleteProfile={(id: string) => {
                                 if (!tenantId) return;
-                                deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/${activeTab === 'labor' ? 'business' : activeTab}Profiles/${id}`));
+                                deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/${activeTab}Profiles/${id}`));
                             }}
                         />
                         <TmhrBreakdownCard 
@@ -623,86 +600,6 @@ export default function FinancialFoundationPage() {
                                 onAddBillItem={(cat) => handleAddBillItem('business', cat)}
                                 onDeleteBillItem={(cat, bid) => handleDeleteBillItem('business', cat, bid)}
                             />
-                        </TabsContent>
-                        <TabsContent value="labor" className="m-0 animate-in fade-in duration-500 text-left">
-                            <div className="space-y-8">
-                                <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
-                                    <CardHeader className="p-8 pb-4">
-                                        <div className="flex items-center gap-3 mb-2">
-                                            <ShieldCheck className="w-5 h-5 text-primary" />
-                                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Strategic Burden</span>
-                                        </div>
-                                        <CardTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter">Payroll Tax Logic</CardTitle>
-                                        <CardDescription className="text-xs font-medium text-slate-600 leading-relaxed uppercase tracking-tight">Set your estimated employer tax burden multiplier.</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="p-8 pt-0 space-y-8">
-                                        <div className="p-8 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-6">
-                                            <div className="flex flex-col sm:flex-row items-center gap-6">
-                                                <div className="flex-1 w-full space-y-2">
-                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Employer Tax Burden (%)</Label>
-                                                    <div className="relative">
-                                                        <Percent className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                                        <Input 
-                                                            type="number" 
-                                                            value={taxBurden} 
-                                                            onChange={e => setTaxBurden(parseFloat(e.target.value) || 0)} 
-                                                            disabled={!isEditing}
-                                                            className="h-16 pl-12 rounded-2xl border-2 font-black text-3xl font-mono text-primary shadow-inner bg-muted/5 focus-visible:ring-primary/20 text-center"
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 flex-1 w-full text-center space-y-1">
-                                                    <p className="text-[9px] font-black uppercase text-primary/60">Effective Multiplier</p>
-                                                    <p className="text-2xl font-black font-mono text-primary">{(1 + (taxBurden / 100)).toFixed(2)}x</p>
-                                                </div>
-                                            </div>
-                                            <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase text-center opacity-60">
-                                                Includes FICA, SUI, FUTA, and estimated benefit overhead. Applied to all labor payouts in yield analysis.
-                                            </p>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                                        <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <Users className="w-4 h-4 text-primary" />
-                                                <CardTitle className="text-xs font-black uppercase tracking-widest">Team Averages</CardTitle>
-                                            </div>
-                                        </CardHeader>
-                                        <CardContent className="p-6 space-y-4 font-bold uppercase text-[10px]">
-                                            <div className="flex justify-between items-center px-2">
-                                                <span className="text-muted-foreground opacity-60">Commission Base</span>
-                                                <span className="text-slate-900">{teamLaborAnalysis.avgCommission.toFixed(0)}%</span>
-                                            </div>
-                                            <div className="flex justify-between items-center px-2">
-                                                <span className="text-muted-foreground opacity-60">Hourly Base</span>
-                                                <span className="text-slate-900">${teamLaborAnalysis.avgHourly.toFixed(2)}/hr</span>
-                                            </div>
-                                            <Separator className="border-dashed" />
-                                            <div className="flex justify-between items-center p-3 rounded-xl bg-primary/[0.03] text-primary">
-                                                <span className="font-black">Est. Burdened Comm.</span>
-                                                <span className="font-mono">{(teamLaborAnalysis.avgCommission * (1 + (taxBurden / 100))).toFixed(1)}%</span>
-                                            </div>
-                                            <div className="flex justify-between items-center p-3 rounded-xl bg-primary/[0.03] text-primary">
-                                                <span className="font-black">Est. Burdened Hourly</span>
-                                                <span className="font-mono">${(teamLaborAnalysis.avgHourly * (1 + (taxBurden / 100))).toFixed(2)}/hr</span>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-
-                                    <div className="p-8 rounded-[2rem] border-2 border-dashed bg-muted/10 flex flex-col items-center justify-center text-center space-y-4">
-                                        <div className="p-4 bg-white rounded-full shadow-inner"><Calculator className="w-8 h-8 text-primary opacity-40" /></div>
-                                        <div className="space-y-1">
-                                            <p className="text-sm font-black uppercase tracking-tighter text-slate-900">Yield Engine Logic</p>
-                                            <p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase max-w-xs">
-                                                These settings directly inform the <strong>Studio Net Yield</strong> calculations in your service menu and performance reports.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         </TabsContent>
                     </div>
                 </div>

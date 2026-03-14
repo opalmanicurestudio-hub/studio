@@ -98,6 +98,7 @@ import {
 import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
