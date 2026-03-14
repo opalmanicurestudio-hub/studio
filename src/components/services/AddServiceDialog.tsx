@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -316,7 +317,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                         </Button>
                     </div>
                     {selectedResources.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {selectedResources.map((item: any) => (
                                 <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
                                     <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{item.name}</span>

@@ -372,7 +372,7 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
         <div className="absolute top-0 right-0 p-8 opacity-5 transition-opacity group-hover:opacity-10"><Sparkles className="w-32 h-32 text-primary" /></div>
         <CardHeader className="p-5 sm:p-8 pb-4 text-left">
             <CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2"><Target className="w-3 h-3" />Alpha Metric</CardTitle>
-            <CardDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-tight opacity-60">Strategic Studio Foundation</CardDescription>
+            <CardDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-tight opacity-60 text-left">Strategic Studio Foundation</CardDescription>
         </CardHeader>
         <CardContent className="p-5 sm:p-8 pt-0 space-y-6 sm:space-y-8 text-left">
             <div className="text-center space-y-2">

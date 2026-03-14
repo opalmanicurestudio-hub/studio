@@ -40,7 +40,8 @@ import {
     PackageOpen,
     ArrowRight,
     User,
-    Loader
+    Loader,
+    Pipette
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment, type Staff, type PricingTier } from '@/lib/data';
@@ -56,7 +57,7 @@ import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: { service: Service; tmhr: number; staff: Staff[], pricingTiers: PricingTier[], taxBurden: number }) => {
     const { inventory } = useInventory();
@@ -221,7 +222,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             <CardTitle className="text-sm font-black uppercase tracking-widest text-left">Base Operational Load</CardTitle>
             <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60 text-left">Studio-side overhead manifest.</CardDescription>
         </CardHeader>
-        <CardContent className="p-6 sm:p-8 space-y-10">
+        <CardContent className="p-6 sm:p-8 space-y-10 text-left">
             <div className="space-y-4">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
                     <Scale className="w-3.5 h-3.5" />

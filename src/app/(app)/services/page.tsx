@@ -223,7 +223,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                         <div key={tier.id} className="space-y-2">
                             <div className="flex justify-between items-center px-1">
                                 <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{tier.name}</span>
-                                <span className="font-mono text-[9px] font-black">${tier.price.toFixed(2)}</span>
+                                <span className="font-mono text-[9px] font-black text-slate-900">${tier.price.toFixed(2)}</span>
                             </div>
                             <div className="grid gap-1.5">
                                 {tier.staffAnalysis.map(sa => (
@@ -286,7 +286,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
             </div>
             <Button variant="ghost" asChild className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn">
                 <Link href={`/services/${service.id}`} onClick={e => e.stopPropagation()}>
-                    View Analysis <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
+                    View Analysis <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover:btn:translate-x-1" />
                 </Link>
             </Button>
         </CardFooter>

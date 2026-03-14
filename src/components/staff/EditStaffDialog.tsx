@@ -84,6 +84,7 @@ import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
+import { Progress } from '@/components/ui/progress';
 
 const editStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -522,12 +523,12 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
 
   return (
     <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-3xl max-h-[90dvh]")}>
+        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[90dvh]")}>
             <FormProvider {...methods}>
                 <form id="edit-staff-strategic-form" onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col h-full overflow-hidden">
                     <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-10 pb-6")}>
                         <div className="flex items-center gap-3 mb-2">
-                            <Sparkles className="w-5 h-5 text-primary" />
+                            <Edit className="w-5 h-5 text-primary" />
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Refinement</span>
                         </div>
                         <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Modify Provider</DialogTitle>
