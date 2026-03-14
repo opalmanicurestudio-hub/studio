@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -171,7 +172,7 @@ export default function ReportsPage() {
   const effectiveTo = useMemo(() => dateRange?.to ? endOfDay(dateRange.to) : endOfMonth(new Date()), [dateRange]);
 
   const analyticsData = useMemo(() => {
-    if (!staff || !appointments || !services || !transactions || !activityLogs) return { performance: [], overall: {} as any, absorbedLedger: [], taxSummary: {} as any, reconciliation: [] };
+    if (!staff || !appointments || !services || !transactions || !activityLogs || !selectedTenant) return { performance: [], overall: {} as any, absorbedLedger: [], taxSummary: {} as any, reconciliation: [] };
     
     const filterByDate = (date: any) => {
         const d = safeDate(date);
@@ -180,9 +181,8 @@ export default function ReportsPage() {
         return true;
     }
 
-    let totalCOGS = 0;
-    let totalSpoilage = 0;
-    let totalHardwareDepreciation = 0;
+    const taxBurden = selectedTenant.employerTaxBurdenPct || 10;
+    const tmhr = selectedTenant.tmhr || 50;
 
     const performance = staff.map(staffMember => {
         const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
@@ -191,27 +191,38 @@ export default function ReportsPage() {
       
         let totalMinutesVariance = 0;
         let totalInServiceMinutes = 0;
+        let totalMaterialCost = 0;
+
         completedAppointments.forEach(apt => {
             const service = services.find(s => s.id === apt.serviceId);
-            if (apt.actualStartTime && apt.actualEndTime && service) {
-                const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
-                totalMinutesVariance += actualDuration - service.duration;
-                totalInServiceMinutes += actualDuration;
-            } else if (service) {
-                totalInServiceMinutes += service.duration;
+            if (service) {
+                // Actual Material Cost from Formula
+                const formula = apt.checkoutState?.formula || service.products || [];
+                formula.forEach((p: any) => {
+                    const item = inventory.find(i => i.id === p.id);
+                    if (item) {
+                        let cpu = item.costPerUnit || 0;
+                        if (item.costingMethod === 'size' && item.size) cpu = cpu / item.size;
+                        else if (item.costingMethod === 'uses' && item.estimatedUses) cpu = cpu / item.estimatedUses;
+                        totalMaterialCost += (p.quantityUsed || p.quantity || 1) * cpu;
+                    }
+                });
+
+                if (apt.actualStartTime && apt.actualEndTime) {
+                    const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
+                    totalMinutesVariance += actualDuration - service.duration;
+                    totalInServiceMinutes += actualDuration;
+                } else {
+                    totalInServiceMinutes += service.duration;
+                }
             }
         });
       
-        const avgVariance = completedCount > 0 ? totalMinutesVariance / completedCount : 0;
         const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
-        
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || (t.category === 'Tips' ? t.amount : 0)), 0);
         
-        const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
-        const retailAttachmentRate = completedCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedCount) * 100 : 0;
-
         let totalMinutesWorked = 0;
         const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
         const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
@@ -247,47 +258,25 @@ export default function ReportsPage() {
             wages = totalHoursWorked * staffMember.hourlyRate;
         }
         const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
-        const totalPay = wages + tips + retailCommission;
+        const laborBase = wages + retailCommission;
+        const laborBurden = laborBase * (1 + (taxBurden / 100));
         
-        const costOfGoodsSold = completedAppointments.reduce((acc, apt) => {
-            const service = services.find(s => s.id === apt.serviceId);
-            return acc + (service?.cost || 0);
-        }, 0);
-        totalCOGS += costOfGoodsSold;
-
-        const clientsServed = new Set(completedAppointments.map(a => a.clientId));
-        let rebookedCount = 0;
-        if (effectiveTo) {
-            clientsServed.forEach(cId => {
-                const future = appointments.some(a => a.clientId === cId && safeDate(a.startTime) > effectiveTo && a.status !== 'cancelled');
-                if (future) rebookedCount++;
-            });
-        }
-        const rebookingRate = clientsServed.size > 0 ? (rebookedCount / clientsServed.size) * 100 : 0;
-
-        const absorbedRevenue = staffTransactions
-            .filter(t => t.category === 'Discounts')
-            .reduce((acc, t) => acc + t.amount, 0);
+        const timeFloorOverhead = (totalInServiceMinutes / 60) * tmhr;
 
         return {
             ...staffMember,
             stats: {
                 totalServices: completedCount,
-                avgVariance,
                 totalInServiceHours: totalInServiceMinutes / 60,
                 utilizationRate,
                 yieldPerHour,
-                retailAttachmentRate,
                 serviceRevenue,
                 retailSales,
-                wages,
-                retailCommission,
-                totalPay,
+                laborBurden,
                 tips,
-                costOfGoodsSold,
-                rebookingRate,
-                totalHours: totalHoursWorked,
-                absorbedRevenue,
+                totalMaterialCost,
+                timeFloorOverhead,
+                netContribution: serviceRevenue + retailSales - totalMaterialCost - timeFloorOverhead - laborBurden,
                 totalSales: serviceRevenue + retailSales
             }
         };
@@ -325,12 +314,11 @@ export default function ReportsPage() {
     });
 
     const totalReconciledOpEx = reconciliation.reduce((acc, r) => acc + r.reconciledAmount, 0);
+    const totalLaborLoad = performance.reduce((acc, d) => acc + d.stats.laborBurden, 0);
+    const totalMaterials = performance.reduce((acc, d) => acc + d.stats.totalMaterialCost, 0);
+    const totalGrossRevenue = performance.reduce((acc, d) => acc + d.stats.totalSales, 0);
 
     const periodAppointments = appointments.filter(a => filterByDate(a.startTime));
-    const cancelledApts = periodAppointments.filter(a => a.status === 'cancelled');
-    const potentialRevenueLost = cancelledApts.reduce((acc, a) => acc + (services.find(s => s.id === a.serviceId)?.price || 0), 0);
-    const recoveredFees = transactions.filter(t => t.category === 'Cancellation Fee' && filterByDate(t.date)).reduce((acc, t) => acc + t.amount, 0);
-
     const absorbedLedger = periodAppointments
         .filter(a => a.cancellationFeeWaived === true)
         .map(a => ({
@@ -344,44 +332,20 @@ export default function ReportsPage() {
         }))
         .sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
 
-    const totalRevenue = performance.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
-    const avgTicket = periodAppointments.filter(a => a.status === 'completed').length > 0 ? totalRevenue / periodAppointments.filter(a => a.status === 'completed').length : 0;
-
-    const spoilageTransactions = transactions.filter(t => t.category === 'Spoilage' && filterByDate(t.date));
-    totalSpoilage = spoilageTransactions.reduce((acc, t) => acc + t.amount, 0);
-
-    const equipmentItems = inventory.filter(i => i.type === 'equipment');
-    totalHardwareDepreciation = equipmentItems.reduce((acc, item) => {
-        if (!item.lifespanYears) return acc;
-        return acc + (((item.costPerUnit || 0) / item.lifespanYears / 365) * daysInPeriod);
-    }, 0);
-
-    const suppliesInvestment = transactions.filter(t => t.category === 'Supplies' && filterByDate(t.date)).reduce((acc, t) => acc + t.amount, 0);
-
     return { 
         performance, 
         overall: { 
-            totalRevenue, 
-            totalCOGS, 
+            totalRevenue: totalGrossRevenue, 
+            totalCOGS: totalMaterials, 
+            totalLaborLoad,
             totalReconciledOpEx,
-            netIncome: totalRevenue - totalCOGS - totalReconciledOpEx,
-            avgTicket,
-            potentialRevenueLost,
-            recoveredFees,
-            recoveryEfficiency: potentialRevenueLost > 0 ? (recoveredFees / potentialRevenueLost) * 100 : 0,
+            netIncome: totalGrossRevenue - totalMaterials - totalReconciledOpEx - totalLaborLoad,
             utilization: performance.length > 0 ? performance.reduce((acc,d) => acc + d.stats.utilizationRate, 0) / performance.length : 0
         },
         absorbedLedger,
-        taxSummary: {
-            deductibleCOGS: totalCOGS,
-            spoilageLoss: totalSpoilage,
-            hardwareDepreciation: totalHardwareDepreciation,
-            suppliesInvestment,
-            totalTaxImpact: totalCOGS + totalSpoilage + totalHardwareDepreciation + suppliesInvestment
-        },
         reconciliation
     };
-  }, [staff, appointments, services, transactions, activityLogs, inventory, clients, businessProfiles, effectiveFrom, effectiveTo]);
+  }, [staff, appointments, services, transactions, activityLogs, inventory, clients, businessProfiles, effectiveFrom, effectiveTo, selectedTenant]);
 
   if (isLoading) return <div className="h-screen flex flex-col items-center justify-center gap-4"><Loader className="animate-spin text-primary h-10 w-10" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Synthesizing Dossier...</p></div>;
 
@@ -436,7 +400,7 @@ export default function ReportsPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6 w-full">
             <KpiStat label="Gross Yield" value={`$${analyticsData.overall.totalRevenue.toFixed(0)}`} subLabel="Direct period sales" icon={TrendingUp} colorClass="text-primary" />
             <KpiStat label="Overall Util." value={`${analyticsData.overall.utilization.toFixed(1)}%`} subLabel="Team productivity mean" icon={Target} />
-            <KpiStat label="Avg. Ticket" value={`$${analyticsData.overall.avgTicket.toFixed(2)}`} subLabel="Mean spend per visit" icon={Wallet} />
+            <KpiStat label="Labor Load" value={`$${analyticsData.overall.totalLaborLoad.toFixed(0)}`} subLabel="Payroll + Tax Burden" icon={Users} colorClass="text-amber-600" />
             <KpiStat label="Fixed Overhead" value={`$${analyticsData.overall.totalReconciledOpEx.toFixed(0)}`} subLabel="Reconciled OpEx" icon={Landmark} colorClass="text-indigo-600" />
         </div>
 
@@ -459,17 +423,16 @@ export default function ReportsPage() {
                                 <span className="font-black font-mono text-lg text-green-600">${analyticsData.overall.totalRevenue.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between items-center group">
-                                <span className="text-sm font-bold uppercase text-slate-600">Cost of Goods Sold (COGS)</span>
+                                <span className="text-sm font-bold uppercase text-slate-600">Cost of Goods Sold (Materials)</span>
                                 <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalCOGS.toFixed(2)}</span>
-                            </div>
-                            <Separator className="border-dashed" />
-                            <div className="flex justify-between items-center group py-2">
-                                <span className="text-base font-black uppercase text-slate-900">Gross Profit Margin</span>
-                                <span className="font-black font-mono text-xl text-slate-900">${(analyticsData.overall.totalRevenue - analyticsData.overall.totalCOGS).toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between items-center group">
                                 <span className="text-sm font-bold uppercase text-slate-600">Reconciled OpEx (Overhead)</span>
                                 <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalReconciledOpEx.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center group">
+                                <span className="text-sm font-bold uppercase text-slate-600">Total Labor Burden (Payroll + Taxes)</span>
+                                <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalLaborLoad.toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
@@ -479,7 +442,7 @@ export default function ReportsPage() {
                         <div className="space-y-3 relative z-10">
                             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Certified Performance Audit</p>
                             <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-[0.9]">Net Period Yield</h3>
-                            <p className="text-xs font-medium text-slate-400 max-w-sm uppercase tracking-tight">Mathematically definitive take-home post pro-rata fixed overhead and direct formula costs.</p>
+                            <p className="text-xs font-medium text-slate-400 max-w-sm uppercase tracking-tight">Definitive studio cash remaining post burdened labor, overhead, and direct material costs.</p>
                         </div>
                         <div className="flex items-baseline gap-4 relative z-10">
                             <span className={cn("text-6xl md:text-9xl font-black tracking-tighter font-mono", analyticsData.overall.netIncome >= 0 ? "text-primary" : "text-destructive")}>
@@ -494,82 +457,8 @@ export default function ReportsPage() {
 
         <section className="space-y-6">
             <div className="flex items-center gap-2 px-1 text-left">
-                <Landmark className="w-4 h-4 text-indigo-600" />
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Reconciliation Manifest</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {analyticsData.reconciliation.map(cat => (
-                    <Card key={cat.label} className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm group hover:border-indigo-500/30 transition-all">
-                        <CardHeader className="p-6 pb-4 border-b bg-muted/5 flex flex-row items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className={cn("p-2 rounded-xl bg-background border shadow-inner", cat.color)}><cat.icon className="w-4 h-4" /></div>
-                                <CardTitle className="text-xs font-black uppercase tracking-widest">{cat.label}</CardTitle>
-                            </div>
-                            <p className="text-[10px] font-black font-mono text-indigo-600">${cat.reconciledAmount.toFixed(2)}</p>
-                        </CardHeader>
-                        <CardContent className="p-6 space-y-4">
-                            <div className="space-y-2">
-                                {cat.foundationItems.map((b: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between text-[10px] font-bold uppercase text-slate-600 px-2 py-1">
-                                        <span>{b.title}</span>
-                                        <span className="font-mono opacity-60">${((b.amount / 30.44) * (differenceInDays(effectiveTo, effectiveFrom) + 1)).toFixed(2)}</span>
-                                    </div>
-                                ))}
-                                <div className="flex justify-between text-[10px] font-black uppercase bg-primary/5 p-2 rounded-lg mt-2 text-primary">
-                                    <span>Foundation Target (Accrual)</span>
-                                    <span className="font-mono">${cat.targetAmount.toFixed(2)}</span>
-                                </div>
-                            </div>
-                            <Separator className="border-dashed" />
-                            <div className="flex justify-between items-center text-[10px] font-black uppercase">
-                                <span className="text-muted-foreground">Ledger Settlements (Actual)</span>
-                                <span className="font-mono text-slate-900">${cat.settledAmount.toFixed(2)}</span>
-                            </div>
-                            {cat.gap > 0 && (
-                                <div className="p-3 rounded-xl bg-amber-50 border border-amber-100 flex items-center gap-2">
-                                    <Info className="w-3 h-3 text-amber-600" />
-                                    <p className="text-[8px] font-bold text-amber-700 uppercase tracking-tight">Gap detected: ${cat.gap.toFixed(2)} added to OpEx to protect yield precision.</p>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
-        </section>
-
-        <section className="space-y-6">
-            <div className="flex items-center gap-2 px-1 text-left">
-                <ShieldCheck className="w-4 h-4 text-green-600" />
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Tax Strategy Basis</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 text-left">
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
-                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Formula (COGS)</p></CardHeader>
-                    <CardContent className="p-6 pt-0"><p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${analyticsData.taxSummary.deductibleCOGS.toFixed(2)}</p></CardContent>
-                </Card>
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
-                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Purchases (Outlay)</p></CardHeader>
-                    <CardContent className="p-6 pt-0"><p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${analyticsData.taxSummary.suppliesInvestment.toFixed(2)}</p></CardContent>
-                </Card>
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
-                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Depreciation</p></CardHeader>
-                    <CardContent className="p-6 pt-0"><p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${analyticsData.taxSummary.hardwareDepreciation.toFixed(2)}</p></CardContent>
-                </Card>
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
-                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Shrinkage</p></CardHeader>
-                    <CardContent className="p-6 pt-0"><p className="text-2xl font-black font-mono tracking-tighter text-destructive">${analyticsData.taxSummary.spoilageLoss.toFixed(2)}</p></CardContent>
-                </Card>
-                <Card className="border-4 border-green-500/20 bg-green-500/5 rounded-[2rem] overflow-hidden shadow-xl shadow-green-500/5">
-                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-green-700">Audit Total</p></CardHeader>
-                    <CardContent className="p-6 pt-0"><p className="text-3xl font-black font-mono tracking-tighter text-green-600">${analyticsData.taxSummary.totalTaxImpact.toFixed(2)}</p></CardContent>
-                </Card>
-            </div>
-        </section>
-
-        <section className="space-y-6">
-            <div className="flex items-center gap-2 px-1 text-left">
                 <Zap className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Performance Scorecards</h3>
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Technician Contribution Matrix</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {analyticsData.performance.map(data => (
@@ -586,8 +475,10 @@ export default function ReportsPage() {
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-[10px] font-black text-primary tracking-tighter">${(data.stats.yieldPerHour || 0).toFixed(0)}/hr</p>
-                                <p className="text-[7px] font-bold uppercase opacity-40">Yield Density</p>
+                                <p className={cn("text-[10px] font-black tracking-tighter", data.stats.netContribution >= 0 ? "text-primary" : "text-destructive")}>
+                                    ${data.stats.netContribution.toFixed(0)}
+                                </p>
+                                <p className="text-[7px] font-bold uppercase opacity-40">Net Studio Contr.</p>
                             </div>
                         </CardHeader>
                         <CardContent className="p-6 grid grid-cols-2 gap-4">
@@ -600,12 +491,12 @@ export default function ReportsPage() {
                                 <p className="text-lg font-black font-mono tracking-tighter">${(data.stats.totalSales || 0).toFixed(0)}</p>
                             </div>
                             <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Retail Attach</p>
-                                <p className="text-lg font-black font-mono tracking-tighter">{(data.stats.retailAttachmentRate || 0).toFixed(0)}%</p>
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Labor Burden</p>
+                                <p className="text-lg font-black font-mono tracking-tighter text-destructive">-${(data.stats.laborBurden || 0).toFixed(0)}</p>
                             </div>
                             <div className="space-y-1 text-left p-3 rounded-xl bg-primary/5 border-2 border-primary/10 transition-all">
-                                <p className="text-[8px] font-black uppercase text-primary tracking-widest">Protocol Abs.</p>
-                                <p className="text-lg font-black font-mono tracking-tighter text-primary">-${(data.stats.absorbedRevenue || 0).toFixed(0)}</p>
+                                <p className="text-[8px] font-black uppercase text-primary tracking-widest">Yield / Hr</p>
+                                <p className="text-lg font-black font-mono tracking-tighter text-primary">${(data.stats.yieldPerHour || 0).toFixed(0)}</p>
                             </div>
                         </CardContent>
                     </Card>

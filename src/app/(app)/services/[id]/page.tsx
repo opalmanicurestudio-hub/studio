@@ -36,7 +36,8 @@ import {
     Activity,
     Scale,
     Percent,
-    ShieldCheck
+    ShieldCheck,
+    PackageOpen
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment, type Staff, type PricingTier } from '@/lib/data';
@@ -118,7 +119,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
 
     return (
         <Card className="lg:sticky lg:top-24 border-4 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
-            <CardHeader className="p-6 sm:p-8 pb-4 border-b bg-muted/5">
+            <CardHeader className="p-6 sm:p-8 pb-4 border-b bg-muted/5 text-left">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
                     <Sparkles className="w-3 h-3" />
                     Yield Engine
@@ -129,7 +130,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
             </CardHeader>
             <CardContent className="p-6 sm:p-8 space-y-8">
                 <div className="space-y-4">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tiered Studio Net</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tiered Studio Net</p>
                     <div className="grid gap-3">
                         {tierAnalysis.map(tier => (
                             <div key={tier.name} className={cn(
@@ -147,7 +148,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
                                     </div>
                                     <Separator className="border-dashed" />
                                     <div className="flex justify-between items-baseline">
-                                        <div className="flex flex-col">
+                                        <div className="flex flex-col text-left">
                                             <span className="text-[8px] font-black uppercase text-primary/60">Studio Net</span>
                                             <span className={cn("text-2xl font-black font-mono tracking-tighter", tier.studioNet >= 0 ? "text-primary" : "text-destructive")}>
                                                 ${tier.studioNet.toFixed(2)}
@@ -163,9 +164,9 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
                     </div>
                 </div>
                 
-                <div className="p-5 rounded-2xl border-2 border-dashed bg-muted/10 flex items-start gap-4">
+                <div className="p-5 rounded-2xl border-2 border-dashed bg-muted/10 flex items-start gap-4 text-left">
                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
-                    <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
+                    <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
                         Studio Net Yield is calculated as: <br/>
                         <span className="text-slate-900">Price - (Materials + TMHR Overhead + (Labor × {1 + (taxBurden / 100)}x Tax Burden))</span>
                     </p>
@@ -377,6 +378,7 @@ export default function ServiceDetailPage() {
                     <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 overflow-x-auto scrollbar-hide">
                         <TabsTrigger value="architecture" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Architecture</TabsTrigger>
                         <TabsTrigger value="logistics" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logistics</TabsTrigger>
+                        <TabsTrigger value="formula" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Internal Formula</TabsTrigger>
                     </TabsList>
                     
                     <TabsContent value="architecture" className="m-0 space-y-10 animate-in fade-in duration-500">
@@ -402,6 +404,42 @@ export default function ServiceDetailPage() {
                                     <div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
                                         <Briefcase className="w-10 h-10" />
                                         <p className="text-[10px] font-black uppercase tracking-widest">No Resource Dependencies</p>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+
+                    <TabsContent value="formula" className="m-0 animate-in fade-in duration-500 text-left">
+                        <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+                            <CardHeader className="bg-muted/5 border-b p-6 sm:p-8 pb-4">
+                                <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><PackageOpen className="w-4 h-4 text-primary" /> Technical Mixing Record</CardTitle>
+                                <CardDescription className="text-[10px] font-bold text-destructive uppercase tracking-widest animate-pulse">INTERNAL MOAT: AUTHORIZED STAFF ONLY</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-6 sm:p-8 space-y-4">
+                                {(service.products || []).length > 0 ? (
+                                    <div className="grid gap-3">
+                                        {(service.products || []).map(p => {
+                                            const item = inventory.find(i => i.id === p.id);
+                                            const unit = item?.costingMethod === 'uses' ? (item.useUnit || 'uses') : (item?.unit || 'ml');
+                                            return (
+                                                <div key={p.id} className="flex justify-between items-center p-4 rounded-2xl border-2 bg-muted/10 transition-all hover:bg-white hover:border-primary/10 group shadow-inner">
+                                                    <div className='min-w-0'>
+                                                        <p className='font-black text-sm uppercase tracking-tight text-slate-900 truncate'>{p.name}</p>
+                                                        <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>SKU: {p.id.slice(-6).toUpperCase()}</p>
+                                                    </div>
+                                                    <div className='text-right'>
+                                                        <p className='font-black font-mono text-xl text-primary tracking-tighter leading-none'>{p.quantityUsed}<span className='text-[10px] ml-0.5'>{unit}</span></p>
+                                                        <p className='text-[8px] font-black uppercase text-primary/40 mt-1'>Audit Load</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
+                                        <PlusCircle className="w-10 h-10" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest">No Products Logged</p>
                                     </div>
                                 )}
                             </CardContent>

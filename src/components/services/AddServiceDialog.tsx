@@ -39,7 +39,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity } from 'lucide-react';
+import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity, ShieldCheck, Target, Percent } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -51,7 +51,7 @@ import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where } from 'firebase/firestore';
+import { collection, query, where, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
 const serviceSchema = z.object({
@@ -89,11 +89,6 @@ const serviceSchema = z.object({
     if (!hasTiers && (data.price === undefined || data.price < 0)) {
          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A standard price is required when no tiers are used.", path: ["price"] });
     }
-    if (hasTiers) {
-        if (!data.serviceTiers || data.serviceTiers.length === 0) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one pricing tier must be configured.", path: ["serviceTiers"] });
-        }
-    }
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -103,7 +98,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
             <Icon className="w-5 h-5" />
         </div>
-        <div className="space-y-0.5">
+        <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
@@ -143,13 +138,13 @@ const Step1 = ({
                     <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon" checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); setValue('type', checked ? 'addon' : 'service'); }} className="scale-125" /> )}/>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="service-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Label</Label>
                     <Input id="service-name" placeholder="e.g., SIGNATURE BLOWOUT" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                     {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Library Department</Label>
                     {isAddingCategory ? (
                         <div className="flex gap-2">
@@ -186,12 +181,12 @@ const Step1 = ({
                 </div>
                 {errors.duration && <p className="text-[10px] font-black text-destructive uppercase text-center">{errors.duration.message}</p>}
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="description" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Clinical Description</Label>
                     <Textarea id="description" placeholder="Describe the service objectives..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Menu Visual</Label>
                     <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
                 </div>
@@ -268,7 +263,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <Package className="w-3.5 h-3.5 opacity-40" /> Product Consumption
                         </Label>
-                        <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                        <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                             <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
                         </Button>
                     </div>
@@ -279,7 +274,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                                 const unit = inventoryItem?.costingMethod === 'uses' ? (inventoryItem.useUnit || 'uses') : (inventoryItem?.unit || 'ml');
                                 return (
                                     <div key={product.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
-                                        <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{product.name}</span>
+                                        <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{product.name}</span>
                                         <div className="flex items-center gap-3">
                                             <div className="flex items-center gap-2">
                                                 <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
@@ -306,7 +301,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                     ) : (
                         <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                             <Box className="w-12 h-12" />
-                            <p className="text-[10px] font-black uppercase tracking-widest">No Products in Formula</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-left">No Products in Formula</p>
                         </div>
                     )}
                 </div>
@@ -316,12 +311,12 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <Hammer className="w-3.5 h-3.5 opacity-40" /> Logistics (Rooms/Equipment)
                         </Label>
-                        <Button variant="ghost" size="sm" onClick={() => setIsResourceSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                        <Button variant="ghost" size="sm" onClick={() => setIsResourceSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                             <PlusCircle className="w-3 h-3 mr-1.5" /> Select Unit
                         </Button>
                     </div>
                     {selectedResources.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
                             {selectedResources.map((item: any) => (
                                 <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
                                     <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{item.name}</span>
@@ -339,16 +334,16 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
 
                 {!isAddon && (
                     <div className="space-y-4">
-                        <div className='flex items-center justify-between px-1'>
+                        <div className='flex items-center justify-between px-1 text-left'>
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                 <PlusCircle className="w-3.5 h-3.5 opacity-40" /> Enhancement Compatibility
                             </Label>
-                            <Button variant="ghost" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                            <Button variant="ghost" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Define Add-ons
                             </Button>
                         </div>
                         {selectedAddOns.length > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
                                 {selectedAddOns.map((item: any) => (
                                     <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
                                         <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{item.name}</span>
@@ -372,10 +367,54 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
     );
 };
 
+const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
+    const { watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
+    const serviceTiers = watch('serviceTiers') || [];
+    const tierData = serviceTiers.find(t => t.tierId === tier.id);
+    const isEnabled = !!tierData;
+
+    const handleToggle = (checked: boolean) => {
+        let next = [...serviceTiers];
+        if (checked) {
+            if (!next.find(t => t.tierId === tier.id)) {
+                next.push({ tierId: tier.id, price: 0, durationMinutes: watch('duration') || 60 });
+            }
+        } else {
+            next = next.filter(t => t.tierId !== tier.id);
+        }
+        setValue('serviceTiers', next, { shouldDirty: true });
+    };
+
+    const handleFieldChange = (field: 'price' | 'durationMinutes', value: number) => {
+        const next = serviceTiers.map(t => t.tierId === tier.id ? {...t, [field]: value} : t);
+        setValue('serviceTiers', next, { shouldDirty: true });
+    };
+
+    return (
+        <Card className={cn("transition-all border-2 rounded-[1.5rem] overflow-hidden", isEnabled ? "border-primary bg-primary/[0.02]" : "opacity-60 bg-muted/10")}>
+            <CardHeader className="p-4 border-b flex flex-row items-center justify-between bg-muted/5">
+                <CardTitle className="text-xs font-black uppercase tracking-widest">{tier.name}</CardTitle>
+                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
+            </CardHeader>
+            {isEnabled && (
+                <CardContent className="p-4 grid grid-cols-2 gap-3">
+                    <div className="space-y-1 text-left">
+                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Tier Price</Label>
+                        <div className="relative"><DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary"/><Input type="number" step="0.01" value={tierData?.price || ''} onChange={e => handleFieldChange('price', parseFloat(e.target.value) || 0)} className="h-9 pl-6 rounded-lg border-2 font-black font-mono text-xs" /></div>
+                    </div>
+                    <div className="space-y-1 text-left">
+                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Duration</Label>
+                        <div className="relative"><Input type="number" value={tierData?.durationMinutes || ''} onChange={e => handleFieldChange('durationMinutes', parseInt(e.target.value) || 0)} className="h-9 pr-6 rounded-lg border-2 font-black font-mono text-xs text-center" /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-muted-foreground">M</span></div>
+                    </div>
+                </CardContent>
+            )}
+        </Card>
+    );
+};
+
 const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const depositType = watch('depositType');
-    const serviceTiers = watch('serviceTiers') || [];
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -391,7 +430,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                 <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
                     <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm">
                         <div className="flex justify-between items-center">
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-left">
                                 <CardTitle className="text-lg font-black uppercase tracking-tight">Standard Unit Price</CardTitle>
                                 <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Base retail rate for this session.</CardDescription>
                             </div>
@@ -443,7 +482,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                                 <Card className="bg-muted/10 border-2 rounded-[2rem] shadow-inner mt-2">
                                     <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         {depositType === 'deposit' && (
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 text-left">
                                                 <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Calculation</Label>
                                                 <Controller name="depositSubType" control={control} render={({ field }) => (
                                                     <Select onValueChange={field.onChange} value={field.value}>
@@ -453,7 +492,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                                                 )}/>
                                             </div>
                                         )}
-                                        <div className="space-y-2">
+                                        <div className="space-y-2 text-left">
                                             <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Allotment</Label>
                                             <Controller name="depositAmount" control={control} render={({ field }) => (
                                                 <div className="relative">
@@ -473,51 +512,6 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
     );
 };
 
-const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
-    const { watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
-    const serviceTiers = watch('serviceTiers') || [];
-    const tierData = serviceTiers.find(t => t.tierId === tier.id);
-    const isEnabled = !!tierData;
-
-    const handleToggle = (checked: boolean) => {
-        let next = [...serviceTiers];
-        if (checked) {
-            if (!next.find(t => t.tierId === tier.id)) {
-                next.push({ tierId: tier.id, price: 0, durationMinutes: watch('duration') || 60 });
-            }
-        } else {
-            next = next.filter(t => t.tierId !== tier.id);
-        }
-        setValue('serviceTiers', next, { shouldDirty: true });
-    };
-
-    const handleFieldChange = (field: 'price' | 'durationMinutes', value: number) => {
-        const next = serviceTiers.map(t => t.tierId === tier.id ? {...t, [field]: value} : t);
-        setValue('serviceTiers', next, { shouldDirty: true });
-    };
-
-    return (
-        <Card className={cn("transition-all border-2 rounded-[1.5rem] overflow-hidden", isEnabled ? "border-primary bg-primary/[0.02]" : "opacity-60 bg-muted/10")}>
-            <CardHeader className="p-4 border-b flex flex-row items-center justify-between bg-muted/5">
-                <CardTitle className="text-xs font-black uppercase tracking-widest">{tier.name}</CardTitle>
-                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
-            </CardHeader>
-            {isEnabled && (
-                <CardContent className="p-4 grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Tier Price</Label>
-                        <div className="relative"><DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary"/><Input type="number" step="0.01" value={tierData?.price || ''} onChange={e => handleFieldChange('price', parseFloat(e.target.value) || 0)} className="h-9 pl-6 rounded-lg border-2 font-black font-mono text-xs" /></div>
-                    </div>
-                    <div className="space-y-1">
-                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Duration</Label>
-                        <div className="relative"><Input type="number" value={tierData?.durationMinutes || ''} onChange={e => handleFieldChange('durationMinutes', parseInt(e.target.value) || 0)} className="h-9 pr-6 rounded-lg border-2 font-black font-mono text-xs text-center" /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-muted-foreground">M</span></div>
-                    </div>
-                </CardContent>
-            )}
-        </Card>
-    );
-};
-
 const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
@@ -532,16 +526,16 @@ const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     return (
         <div className="space-y-10">
             <SectionHeader icon={ShieldCheck} title="Logistics & Compliance" step={4} />
-            <div className="space-y-8">
+            <div className="space-y-8 text-left">
                 <div className="space-y-2">
                     <Label htmlFor="confirmationMessage" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Confirmation Message</Label>
                     <Textarea id="confirmationMessage" placeholder="Specific post-booking instructions..." {...register('confirmationMessage')} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" />
                 </div>
                 
-                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
+                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
                     <div className='space-y-1'>
-                        <Label htmlFor="private-service" className="text-lg font-black uppercase tracking-tight">Private Listing</Label>
-                        <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Hide from the public booking directory</p>
+                        <Label htmlFor="private-service" className="text-base font-black uppercase tracking-tight">Private Listing</Label>
+                        <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Hide from the public booking directory</p>
                     </div>
                     <Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
                 </div>
@@ -551,7 +545,7 @@ const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <ListChecks className="w-3.5 h-3.5 opacity-40" /> Required Agreements
                         </Label>
-                        <Button variant="ghost" size="sm" onClick={() => setIsConsentFormBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                        <Button variant="ghost" size="sm" onClick={() => setIsConsentFormBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                             <PlusCircle className="w-3 h-3 mr-1.5" /> Browse Library
                         </Button>
                     </div>
@@ -600,7 +594,7 @@ export const AddServiceDialog: React.FC<any> = ({
   useEffect(() => { if (open) { reset({ isAddon: initialType === 'addon', type: initialType === 'addon' ? 'addon' : 'service', capacity: 1, products: [], requiredResourceIds: [], compatibleAddOnIds: [], depositType: 'none', serviceTiers: [], requiredFormIds: [], price: 0 }); setStep(1); } }, [open, initialType, reset]);
 
   const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/consentForms`), [firestore, selectedTenant]));
-  const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`), [firestore, selectedTenant]));
+  const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, selectedTenant]));
 
   const breakEvenCost = useMemo(() => {
       const totalDur = (values.duration || 0) + (values.padBefore || 0) + (values.padAfter || 0);

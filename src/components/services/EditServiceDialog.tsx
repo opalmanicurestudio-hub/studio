@@ -90,11 +90,6 @@ const serviceSchema = z.object({
     if (!hasTiers && (data.price === undefined || data.price < 0)) {
          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A standard price is required when no tiers are used.", path: ["price"] });
     }
-    if (hasTiers) {
-        if (!data.serviceTiers || data.serviceTiers.length === 0) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one pricing tier must be configured.", path: ["serviceTiers"] });
-        }
-    }
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -135,7 +130,7 @@ const Step1 = ({
     return (
         <div className="space-y-10">
             <SectionHeader icon={Activity} title="Identity & Type" />
-            <div className="space-y-6">
+            <div className="space-y-6 text-left">
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/[0.03] border-primary/10 shadow-sm transition-all has-[:checked]:bg-primary/5 has-[:checked]:border-primary/20">
                     <div className='space-y-1'>
                         <Label htmlFor="is-addon-edit" className="text-base font-black uppercase tracking-tight">Add-on Enhancement</Label>
@@ -146,7 +141,7 @@ const Step1 = ({
 
                 <div className="space-y-2">
                     <Label htmlFor="service-name-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Label</Label>
-                    <Input id="service-name-edit" placeholder="e.g., SIGNATURE BLOWOUT" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                    <Input id="service-name-edit" placeholder="e.g., SIGNATURE BLOWOUT" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
                     {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
 
@@ -261,13 +256,13 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
     return (
         <div className="space-y-10">
             <SectionHeader icon={Calculator} title="Formula & Resources" />
-            <div className="space-y-8">
+            <div className="space-y-8 text-left">
                 <div className="space-y-4">
                     <div className='flex items-center justify-between px-1'>
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <Package className="w-3.5 h-3.5 opacity-40" /> Product Consumption
                         </Label>
-                        <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                        <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                             <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
                         </Button>
                     </div>
@@ -315,7 +310,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <Hammer className="w-3.5 h-3.5 opacity-40" /> Logistics (Rooms/Equipment)
                         </Label>
-                        <Button variant="ghost" size="sm" onClick={() => setIsResourceSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                        <Button variant="ghost" size="sm" onClick={() => setIsResourceSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                             <PlusCircle className="w-3 h-3 mr-1.5" /> Select Unit
                         </Button>
                     </div>
@@ -342,7 +337,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                 <PlusCircle className="w-3.5 h-3.5 opacity-40" /> Enhancement Compatibility
                             </Label>
-                            <Button variant="ghost" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                            <Button variant="ghost" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Define Add-ons
                             </Button>
                         </div>
@@ -401,7 +396,7 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
                 <Switch checked={isEnabled} onCheckedChange={handleToggle} />
             </CardHeader>
             {isEnabled && (
-                <CardContent className="p-4 grid grid-cols-2 gap-3">
+                <CardContent className="p-4 grid grid-cols-2 gap-3 text-left">
                     <div className="space-y-1">
                         <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Tier Price</Label>
                         <div className="relative"><DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary"/><Input type="number" step="0.01" value={tierData?.price || ''} onChange={e => handleFieldChange('price', parseFloat(e.target.value) || 0)} className="h-9 pl-6 rounded-lg border-2 font-black font-mono text-xs" /></div>
@@ -434,7 +429,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                 <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
                     <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm">
                         <div className="flex justify-between items-center">
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-left">
                                 <CardTitle className="text-lg font-black uppercase tracking-tight">Standard Unit Price</CardTitle>
                                 <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Base retail rate for this session.</CardDescription>
                             </div>
@@ -484,7 +479,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                         <Card className="bg-muted/10 border-2 rounded-[2rem] shadow-inner mt-2">
                             <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 {depositType === 'deposit' && (
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 text-left">
                                         <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Calculation</Label>
                                         <Controller name="depositSubType" control={control} render={({ field }) => (
                                             <Select onValueChange={field.onChange} value={field.value}>
@@ -494,7 +489,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                                         )}/>
                                     </div>
                                 )}
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Allotment</Label>
                                     <Controller name="depositAmount" control={control} render={({ field }) => (
                                         <div className="relative">
@@ -526,16 +521,16 @@ const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     return (
         <div className="space-y-10">
             <SectionHeader icon={ShieldCheck} title="Compliance & Post-Op" />
-            <div className="space-y-8">
+            <div className="space-y-8 text-left">
                 <div className="space-y-2">
                     <Label htmlFor="confirmationMessage-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Confirmation Message</Label>
                     <Textarea id="confirmationMessage-edit" placeholder="Specific post-booking instructions..." {...register('confirmationMessage')} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" />
                 </div>
                 
-                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
+                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
                     <div className='space-y-1'>
                         <Label htmlFor="private-service-edit" className="text-lg font-black uppercase tracking-tight">Private Listing</Label>
-                        <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Hide from the public booking directory</p>
+                        <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Hide from the public booking directory</p>
                     </div>
                     <Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
                 </div>
@@ -545,7 +540,7 @@ const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <ListChecks className="w-3.5 h-3.5 opacity-40" /> Required Agreements
                         </Label>
-                        <Button variant="ghost" size="sm" onClick={() => setIsConsentFormBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                        <Button variant="ghost" size="sm" onClick={() => setIsConsentFormBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                             <PlusCircle className="w-3 h-3 mr-1.5" /> Browse Library
                         </Button>
                     </div>
@@ -640,7 +635,7 @@ export const EditServiceDialog: React.FC<any> = ({
         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
           <div className="flex items-center gap-3 mb-2">
             <Edit className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Refinement</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Refinement</span>
           </div>
           <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Modify Service Record</DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Refining record ID: {service?.id.slice(-6).toUpperCase()}</DialogDescription>
@@ -674,7 +669,7 @@ export const EditServiceDialog: React.FC<any> = ({
   const DialogContainer = isMobile ? Sheet : Dialog;
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-4xl max-h-[90dvh]")} side="right">
+      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-4xl max-h-[90dvh]")} side="right">
         {formBody}
       </DialogContent>
     </DialogContainer>

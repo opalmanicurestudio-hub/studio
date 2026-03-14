@@ -61,12 +61,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/context/TenantContext';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 interface ServiceCardProps {
     service: Service;
     onEditServiceOpen: (service: Service) => void;
     tmhr: number;
+    taxBurden: number;
     appointments: Appointment[] | null;
     transactions: Transaction[] | null;
     onPriceUpdate: (serviceId: string, newPrice: number) => void;
@@ -75,8 +76,9 @@ interface ServiceCardProps {
     pricingTiers: PricingTier[];
 }
 
-const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, tmhr, appointments, transactions, isSelected, onSelectItem, pricingTiers }) => {
+const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, tmhr, taxBurden, appointments, transactions, isSelected, onSelectItem, pricingTiers }) => {
   const { toast } = useToast();
+  const { staff } = useInventory();
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
   const performance = useMemo(() => {
@@ -95,15 +97,27 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
   }, [service.id, appointments, transactions]);
   
   const tierAnalysis = useMemo(() => {
-    if (!service.serviceTiers || service.serviceTiers.length === 0 || !pricingTiers) {
-      return null;
-    }
+    // We use a representative labor cost calculation here for the preview card
+    const tiersToAnalyze = (service.serviceTiers || []).length > 0 
+        ? service.serviceTiers 
+        : pricingTiers.map(pt => ({ tierId: pt.id, price: service.price, durationMinutes: service.duration }));
 
-    return service.serviceTiers.map(tier => {
+    return tiersToAnalyze.map(tier => {
       const tierInfo = pricingTiers.find(pt => pt.id === tier.tierId);
       if (!tierInfo) return null;
 
-      const profit = tier.price - (service.cost || 0);
+      // Find representative staff for tier or fallback to default
+      const repStaff = staff.find(s => s.pricingTierId === tier.tierId) || staff[0];
+      let laborCost = 0;
+      if (repStaff?.payStructure === 'hourly' && repStaff.hourlyRate) {
+          laborCost = (tier.durationMinutes / 60) * repStaff.hourlyRate;
+      } else {
+          const rate = repStaff?.commissionRate || 40;
+          laborCost = tier.price * (rate / 100);
+      }
+
+      const burdenedLabor = laborCost * (1 + (taxBurden / 100));
+      const profit = tier.price - (service.cost || 0) - burdenedLabor;
       const margin = tier.price > 0 ? (profit / tier.price) * 100 : 0;
 
       return {
@@ -115,7 +129,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
       };
     }).filter((t): t is NonNullable<typeof t> => t !== null).sort((a,b) => a.rank - b.rank);
 
-  }, [service, pricingTiers]);
+  }, [service, pricingTiers, staff, taxBurden]);
 
   const handleCopyLink = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -130,8 +144,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
   return (
     <Card className={cn(
         "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col",
-        isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 bg-white hover:border-primary/20 shadow-sm",
-        (service.profit || 0) < 0 && !tierAnalysis && "border-destructive/30 bg-destructive/[0.01]"
+        isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 bg-white hover:border-primary/20 shadow-sm"
     )}>
       <CardContent className="p-6 md:p-8 space-y-6 flex-1 flex flex-col" onClick={onSelectItem}>
         <div className="flex items-start gap-4 cursor-pointer">
@@ -149,7 +162,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                 </Avatar>
             </Link>
             <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 text-left">
                     <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none">{service.name}</p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -171,67 +184,44 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
         </div>
         
         <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all">
+             <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/10 transition-all text-left">
                 <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Volume</p>
                 <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{performance.totalBookings}</p>
             </div>
-            <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-right">
+            <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/10 transition-all text-right">
                 <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Gross Yield</p>
                 <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${performance.totalRevenue.toFixed(0)}</p>
             </div>
         </div>
 
-        {tierAnalysis ? (
-            <Accordion type="single" collapsible className="w-full">
-                <AccordionItem value="profitability" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/10">
-                    <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
-                        Tiered Yield Matrix
-                    </AccordionTrigger>
-                    <AccordionContent className="px-4 pb-4 pt-2 space-y-2">
-                        {tierAnalysis.map(tier => (
-                            <div key={tier.tierId} className={cn(
-                                "p-3 rounded-xl border-2 flex justify-between items-center transition-all",
-                                tier.profit >= 0 ? "bg-white border-primary/5" : "bg-red-50 border-red-100"
-                            )}>
-                                <div className="space-y-0.5">
-                                    <p className="font-black uppercase text-[10px] tracking-tight text-slate-900">{tier.name}</p>
-                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Price: ${tier.price.toFixed(2)}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className={cn("font-black font-mono text-xs", tier.profit >= 0 ? "text-primary" : "text-destructive")}>
-                                        {tier.profit >= 0 ? '+' : ''}${tier.profit.toFixed(2)}
-                                    </p>
-                                    <p className={cn("text-[8px] font-black uppercase", tier.profit >= 0 ? "text-green-600" : "text-destructive")}>
-                                        {tier.margin.toFixed(0)}% Margin
-                                    </p>
-                                </div>
+        <Accordion type="single" collapsible className="w-full">
+            <AccordionItem value="profitability" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/10">
+                <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
+                    <Sparkles className="w-3.5 h-3.5 mr-2 opacity-40" /> Studio Net Matrix
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 pt-2 space-y-2">
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.tierId} className={cn(
+                            "p-3 rounded-xl border-2 flex justify-between items-center transition-all",
+                            tier.profit >= 0 ? "bg-white border-primary/5 shadow-sm" : "bg-red-50 border-red-100"
+                        )}>
+                            <div className="space-y-0.5 text-left">
+                                <p className="font-black uppercase text-[10px] tracking-tight text-slate-900">{tier.name}</p>
+                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Price: ${tier.price.toFixed(2)}</p>
                             </div>
-                        ))}
-                    </AccordionContent>
-                </AccordionItem>
-            </Accordion>
-        ) : (
-            <div className="grid grid-cols-2 gap-4">
-                <div className={cn(
-                    "p-4 rounded-2xl border-2 transition-all",
-                    (service.profit || 0) >= 0 ? "bg-primary/5 border-primary/10" : "bg-destructive/5 border-destructive/20"
-                )}>
-                    <p className="text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Net Profit</p>
-                    <p className={cn("text-xl font-black font-mono tracking-tighter", (service.profit || 0) >= 0 ? "text-primary" : "text-destructive")}>
-                        ${(service.profit || 0).toFixed(2)}
-                    </p>
-                </div>
-                <div className={cn(
-                    "p-4 rounded-2xl border-2 transition-all text-right",
-                    (service.margin || 0) >= 0 ? "bg-primary/5 border-primary/10" : "bg-destructive/5 border-destructive/20"
-                )}>
-                    <p className="text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Margin</p>
-                    <p className={cn("text-xl font-black font-mono tracking-tighter", (service.margin || 0) >= 0 ? "text-primary" : "text-destructive")}>
-                        {(service.margin || 0).toFixed(0)}%
-                    </p>
-                </div>
-            </div>
-        )}
+                            <div className="text-right">
+                                <p className={cn("font-black font-mono text-xs", tier.profit >= 0 ? "text-primary" : "text-destructive")}>
+                                    {tier.profit >= 0 ? '+' : ''}${tier.profit.toFixed(2)}
+                                </p>
+                                <p className={cn("text-[8px] font-black uppercase", tier.profit >= 0 ? "text-green-600" : "text-destructive")}>
+                                    {tier.margin.toFixed(0)}% Net
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+                </AccordionContent>
+            </AccordionItem>
+        </Accordion>
       </CardContent>
       
        <CardFooter className="p-3 border-t bg-muted/5 flex items-center justify-between gap-4">
@@ -290,6 +280,7 @@ export default function ServicesPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
+  const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   const { services, appointments, resources, isLoading, transactions, pricingTiers } = useInventory();
   
   const handleItemSelect = useCallback((itemId: string) => {
@@ -390,7 +381,7 @@ export default function ServicesPage() {
     if (!firestore || !tenantId) return;
     const serviceRef = doc(firestore, 'tenants', tenantId, 'services', newService.id);
     const sanitizedData = Object.fromEntries(
-        Object.entries(newService).filter(([, value]) => value !== undefined)
+        Object.entries(newService).filter(([key, value]) => value !== undefined)
     );
     setDocumentNonBlocking(serviceRef, sanitizedData, {});
 
@@ -403,7 +394,7 @@ export default function ServicesPage() {
     if (!firestore || !tenantId) return;
     const serviceRef = doc(firestore, 'tenants', tenantId, 'services', updatedService.id);
     const sanitizedData = Object.fromEntries(
-        Object.entries(updatedService).filter(([, value]) => value !== undefined)
+        Object.entries(updatedService).filter(([key, value]) => value !== undefined)
     );
     updateDocumentNonBlocking(serviceRef, sanitizedData);
 
@@ -439,13 +430,13 @@ export default function ServicesPage() {
       <AppHeader title="Service Library" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
         
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
             <div className="space-y-1">
                 <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Menu</h1>
                 <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Treatment catalog & profitability matrix</p>
             </div>
             <div className="flex items-center gap-3 w-full md:w-auto">
-                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
+                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm">
                     <Link href="/services/report"><BarChart className="mr-2 h-4 w-4" /> Reports</Link>
                 </Button>
                 <Button onClick={() => setIsAddServiceDialogOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
@@ -458,7 +449,7 @@ export default function ServicesPage() {
             <div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
                 
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
                         <div className="flex flex-col md:flex-row items-center gap-4">
                             <div className="relative flex-1 w-full">
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
@@ -519,6 +510,7 @@ export default function ServicesPage() {
                                                 service={service} 
                                                 onEditServiceOpen={handleOpenEditService} 
                                                 tmhr={tmhr} 
+                                                taxBurden={taxBurden}
                                                 appointments={appointments}
                                                 transactions={transactions}
                                                 onPriceUpdate={handlePriceUpdate}
@@ -539,6 +531,7 @@ export default function ServicesPage() {
                                             service={service} 
                                             onEditServiceOpen={handleOpenEditService} 
                                             tmhr={tmhr} 
+                                            taxBurden={taxBurden}
                                             appointments={appointments}
                                             transactions={transactions}
                                             onPriceUpdate={handlePriceUpdate}
@@ -565,7 +558,7 @@ export default function ServicesPage() {
                             Efficiency Hub
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-8 pt-0">
+                    <CardContent className="p-8 pt-0 text-left">
                         <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Studio Floor Rate</p>
                         <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
                         <div className="mt-6 p-4 rounded-2xl bg-white/50 border border-primary/10 shadow-sm">
@@ -574,7 +567,7 @@ export default function ServicesPage() {
                                 Every session is evaluated against this hourly breakeven threshold to ensure studio growth.
                             </p>
                         </div>
-                        <Button variant="outline" asChild className="w-full mt-6 h-12 rounded-xl border-2 font-black uppercase tracking-widest text-[9px] bg-white">
+                        <Button variant="outline" asChild className="w-full mt-6 h-12 rounded-xl border-2 font-black uppercase tracking-widest text-[9px] bg-white shadow-sm">
                             <Link href="/financials">Recalculate Foundation</Link>
                         </Button>
                     </CardContent>
@@ -611,8 +604,8 @@ export default function ServicesPage() {
       <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
             <AlertDialogHeader className="p-6 pb-0">
-                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Menu Items</AlertDialogTitle>
-                <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Terminate Menu Items</AlertDialogTitle>
+                <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
                     You are about to permanently delete {selectedItems.size} services. This will wipe all associated profitability data and historical formulas. <strong>This action is non-reversible.</strong>
                 </AlertDialogDescription>
             </AlertDialogHeader>
