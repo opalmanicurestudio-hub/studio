@@ -389,7 +389,7 @@ export const CheckoutHub = ({
             <div className="flex-shrink-0 text-left">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-2 mt-2">
-                    <Dialog open={isPayerDialogOpen} onOpenChange={isPayerDialogOpen}>
+                    <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
                         <DialogTrigger asChild>
                             <Button 
                                 variant="outline" 

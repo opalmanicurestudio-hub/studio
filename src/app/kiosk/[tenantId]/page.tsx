@@ -413,8 +413,8 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, pricingTiers }: {
 const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
     <div className="space-y-6" key="staff-selection-step">
         <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
-            <StaffSelectionCard staff={{ id: 'any', name: 'First Available', avatarUrl: '' }} pricingTiers={pricingTiers} />
-            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} />)}
+            <StaffSelectionCard staff={{ id: 'any', name: 'First Available', avatarUrl: '' }} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === 'any' || !member.preferredStaffId} />
+            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === s.id} />)}
         </RadioGroup>
         {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
             <div className="flex items-center justify-between rounded-3xl border-2 border-white/50 bg-white/40 backdrop-blur-xl p-6 mt-6 shadow-inner">

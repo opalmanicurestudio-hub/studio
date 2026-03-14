@@ -40,12 +40,31 @@ import {
     Loader,
     CreditCard as CardIcon,
     Zap,
-    Unlock
+    Unlock,
+    Workflow
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, differenceInHours, endOfDay } from 'date-fns';
-import { Card, CardContent } from '../ui/card';
+import { type Client, type Service, type Appointment, type Staff, type Event as StudioEvent } from '@/lib/data';
+import { 
+    format, 
+    setHours, 
+    setMinutes, 
+    startOfDay, 
+    areIntervalsOverlapping, 
+    addMinutes, 
+    addDays, 
+    subWeeks, 
+    addWeeks, 
+    eachDayOfInterval, 
+    isSameDay, 
+    isBefore, 
+    isToday, 
+    parseISO, 
+    differenceInHours, 
+    endOfDay,
+    startOfWeek
+} from 'date-fns';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -56,10 +75,10 @@ import { Badge } from '@/components/ui/badge';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
-import { Input } from '../ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Input } from '../ui/input';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -87,6 +106,18 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
+    <div className="flex items-center gap-4 py-2">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Refinement</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
+
 const RescheduleAppointmentForm = ({ 
     appointment,
     client, 
@@ -104,7 +135,6 @@ const RescheduleAppointmentForm = ({
     onConfirm: (data: any) => void;
     isSubmitting: boolean;
 }) => {
-    // CRITICAL: Call hooks at the top level
     const { scheduleProfiles, staff, events: allEvents } = useInventory();
     const { selectedTenant: tenant } = useTenant();
 
@@ -134,7 +164,7 @@ const RescheduleAppointmentForm = ({
         return Number(((duration / 60) * tenant.tmhr).toFixed(2));
     }, [tenant?.tmhr, service]);
 
-    const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
+    const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
     const handlePreviousWeek = () => setRescheduleDate(prev => subWeeks(prev, 1));
