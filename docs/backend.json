@@ -426,10 +426,7 @@
         "name": { "type": "string" },
         "type": { "type": "string", "enum": ["room", "equipment"] },
         "capacity": { "type": "number", "description": "Number of clients this resource can accommodate at once." },
-        "inventoryItemId": { "type": "string", "description": "The ID of the linked inventory item, if this is an equipment resource." },
-        "isOutOfService": { "type": "boolean", "description": "If true, the resource is hidden from scheduling." },
-        "amenities": { "type": "array", "items": { "type": "string" }, "description": "List of specific features for this resource." },
-        "maintenanceNotes": { "type": "string", "description": "Internal notes regarding service status." }
+        "inventoryItemId": { "type": "string", "description": "The ID of the linked inventory item, if this is an equipment resource." }
       },
       "required": ["id", "name", "type"]
     },
@@ -469,16 +466,6 @@
             "nextBillingDate": { "type": "string", "format": "date-time" },
             "perkLastUsed": { "type": "string", "format": "date-time" }
           }
-        },
-        "cardOnFile": {
-            "type": "object",
-            "properties": {
-                "brand": { "type": "string" },
-                "last4": { "type": "string" },
-                "expiryMonth": { "type": "number" },
-                "expiryYear": { "type": "number" },
-                "token": { "type": "string" }
-            }
         },
         "activePackages": {
           "type": "array",
@@ -1073,30 +1060,9 @@
         "rating": { "type": "number" },
         "text": { "type": "string" },
         "isPublic": { "type": "boolean" },
-        "isFeatured": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
-    },
-    "TillSession": {
-      "title": "Till Session",
-      "type": "object",
-      "description": "Represents a cash drawer session (till) from opening float to closing reconciliation.",
-      "properties": {
-        "id": { "type": "string" },
-        "openedAt": { "type": "string", "format": "date-time" },
-        "openedBy": { "type": "string", "description": "Staff ID" },
-        "closedAt": { "type": "string", "format": "date-time" },
-        "closedBy": { "type": "string", "description": "Staff ID" },
-        "status": { "type": "string", "enum": ["open", "closed"] },
-        "openingFloat": { "type": "number" },
-        "expectedCash": { "type": "number", "description": "Opening + Cash Sales + Cash Tips" },
-        "actualCash": { "type": "number", "description": "Physical count at close" },
-        "discrepancy": { "type": "number", "description": "Actual - Expected" },
-        "openingDenominations": { "type": "object" },
-        "closingDenominations": { "type": "object" }
-      },
-      "required": ["id", "openedAt", "openedBy", "status", "openingFloat", "expectedCash"]
     }
   },
   "auth": {
@@ -1250,12 +1216,6 @@
         "$ref": "#/entities/Review"
       },
       "description": "Client reviews for the tenant."
-    },
-    "/tenants/{tenantId}/tillSessions/{sessionId}": {
-      "schema": {
-        "$ref": "#/entities/TillSession"
-      },
-      "description": "Cash drawer sessions."
     }
   }
 }

@@ -95,7 +95,7 @@ type ServiceFormData = z.infer<typeof serviceSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
     <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
         <div className="space-y-0.5 text-left">
@@ -129,7 +129,7 @@ const Step1 = ({
     return (
         <div className="space-y-10">
             <SectionHeader icon={Activity} title="Identity & Type" step={1} />
-            <div className="space-y-6">
+            <div className="space-y-6 text-left">
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/[0.03] border-primary/10 shadow-sm transition-all has-[:checked]:bg-primary/5 has-[:checked]:border-primary/20">
                     <div className='space-y-1'>
                         <Label htmlFor="is-addon" className="text-base font-black uppercase tracking-tight">Add-on Enhancement</Label>
@@ -138,13 +138,13 @@ const Step1 = ({
                     <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon" checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); setValue('type', checked ? 'addon' : 'service'); }} className="scale-125" /> )}/>
                 </div>
 
-                <div className="space-y-2 text-left">
+                <div className="space-y-2">
                     <Label htmlFor="service-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Label</Label>
                     <Input id="service-name" placeholder="e.g., SIGNATURE BLOWOUT" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                     {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
 
-                <div className="space-y-2 text-left">
+                <div className="space-y-2">
                     <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Library Department</Label>
                     {isAddingCategory ? (
                         <div className="flex gap-2">
@@ -397,12 +397,12 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
                 <Switch checked={isEnabled} onCheckedChange={handleToggle} />
             </CardHeader>
             {isEnabled && (
-                <CardContent className="p-4 grid grid-cols-2 gap-3">
-                    <div className="space-y-1 text-left">
+                <CardContent className="p-4 grid grid-cols-2 gap-3 text-left">
+                    <div className="space-y-1">
                         <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Tier Price</Label>
                         <div className="relative"><DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary"/><Input type="number" step="0.01" value={tierData?.price || ''} onChange={e => handleFieldChange('price', parseFloat(e.target.value) || 0)} className="h-9 pl-6 rounded-lg border-2 font-black font-mono text-xs" /></div>
                     </div>
-                    <div className="space-y-1 text-left">
+                    <div className="space-y-1">
                         <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Duration</Label>
                         <div className="relative"><Input type="number" value={tierData?.durationMinutes || ''} onChange={e => handleFieldChange('durationMinutes', parseInt(e.target.value) || 0)} className="h-9 pr-6 rounded-lg border-2 font-black font-mono text-xs text-center" /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-muted-foreground">M</span></div>
                     </div>
@@ -426,7 +426,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
     return (
         <div className="space-y-10">
             <SectionHeader icon={DollarSign} title="Yield & Logic" step={3} />
-            <div className="space-y-8">
+            <div className="space-y-8 text-left">
                 <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
                     <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm">
                         <div className="flex justify-between items-center">
@@ -582,6 +582,7 @@ export const AddServiceDialog: React.FC<any> = ({
   const { selectedTenant } = useTenant();
   const { firestore } = useFirebase();
   const tmhr = selectedTenant?.tmhr || 50;
+  const tenantId = selectedTenant?.id;
   
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
@@ -594,7 +595,7 @@ export const AddServiceDialog: React.FC<any> = ({
   useEffect(() => { if (open) { reset({ isAddon: initialType === 'addon', type: initialType === 'addon' ? 'addon' : 'service', capacity: 1, products: [], requiredResourceIds: [], compatibleAddOnIds: [], depositType: 'none', serviceTiers: [], requiredFormIds: [], price: 0 }); setStep(1); } }, [open, initialType, reset]);
 
   const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/consentForms`), [firestore, selectedTenant]));
-  const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, selectedTenant]));
+  const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`), [firestore, selectedTenant]));
 
   const breakEvenCost = useMemo(() => {
       const totalDur = (values.duration || 0) + (values.padBefore || 0) + (values.padAfter || 0);

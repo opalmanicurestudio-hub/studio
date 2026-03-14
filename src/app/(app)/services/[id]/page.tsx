@@ -89,14 +89,12 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
             const tierInfo = pricingTiers.find(pt => pt.id === tier.tierId);
             if (!tierInfo) return null;
 
-            // Labor Logic: Find a representative staff for this tier to get pay structure
-            const repStaff = staff.find(s => s.pricingTierId === tier.id) || staff[0];
+            const repStaff = staff.find(s => s.pricingTierId === tier.tierId) || staff[0];
             let laborCost = 0;
             
             if (repStaff?.payStructure === 'hourly' && repStaff.hourlyRate) {
                 laborCost = (tier.durationMinutes / 60) * repStaff.hourlyRate;
             } else {
-                // Fallback to a standard 40% commission if no staff found
                 const rate = repStaff?.commissionRate || 40;
                 laborCost = tier.price * (rate / 100);
             }
@@ -206,7 +204,6 @@ const CostBreakdown = ({ service, tmhr, staff, taxBurden }: { service: Service; 
   }, [service, tmhr, inventory]);
 
   const representativeLabor = useMemo(() => {
-      // Logic: Pick the median staff member or default 40%
       const avgRate = staff.length > 0 
         ? staff.reduce((acc, s) => acc + (s.commissionRate || 40), 0) / staff.length
         : 40;
@@ -421,7 +418,7 @@ export default function ServiceDetailPage() {
                                     <div className="grid gap-3">
                                         {(service.products || []).map(p => {
                                             const item = inventory.find(i => i.id === p.id);
-                                            const unit = item?.costingMethod === 'uses' ? (item.useUnit || 'uses') : (item?.unit || 'ml');
+                                            const unit = item?.costingMethod === 'uses' ? (inventoryItem.useUnit || 'uses') : (inventoryItem?.unit || 'ml');
                                             return (
                                                 <div key={p.id} className="flex justify-between items-center p-4 rounded-2xl border-2 bg-muted/10 transition-all hover:bg-white hover:border-primary/10 group shadow-inner">
                                                     <div className='min-w-0'>

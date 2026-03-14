@@ -273,7 +273,7 @@ const BillEditor = ({
       <CardFooter className="bg-primary/5 p-5 sm:p-8 border-t-2 border-primary/10 flex justify-between items-center">
         <div className="text-left">
           <p className="text-[9px] sm:text-[10px] font-black uppercase text-primary tracking-widest opacity-60">Cycle Cumulative</p>
-          <p className="text-2xl sm:text-3xl font-black font-mono tracking-tighter text-primary">${total.toFixed(2)}</p>
+          <p className="text-2xl font-black font-mono tracking-tighter text-primary">${total.toFixed(2)}</p>
         </div>
         <div className="text-right">
           <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Annual Run-Rate</p>
@@ -378,7 +378,7 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
         <CardContent className="p-5 sm:p-8 pt-0 space-y-6 sm:space-y-8 text-left">
             <div className="text-center space-y-2">
                 <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary/60">Minimum Yield / Hour</p>
-                <p className="text-5xl sm:text-8xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
+                <p className="text-4xl sm:text-7xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
             </div>
             <div className="space-y-3 sm:space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                 <div className="flex justify-between items-center text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Personal Draw / Hr</span> <span className="font-mono text-slate-900">${(totalHours > 0 ? lifestyleTotal / totalHours : 0).toFixed(2)}</span></div>
@@ -585,7 +585,7 @@ export default function FinancialFoundationPage() {
                     </TabsList>
                 </div>
                 
-                <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10 items-start">
+                <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10 items-start">
                     <div className="lg:col-span-1 space-y-6 sm:space-y-8">
                         <FinancialProfileManager 
                             activeTab={activeTab === 'labor' ? 'business' : activeTab} 
