@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -32,10 +33,13 @@ import {
     Zap,
     Briefcase,
     Calendar as CalendarIcon,
-    Activity
+    Activity,
+    Scale,
+    Percent,
+    ShieldCheck
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
-import { type Service, type InventoryItem, type Appointment } from '@/lib/data';
+import { type Service, type InventoryItem, type Appointment, type Staff, type PricingTier } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
@@ -49,14 +53,14 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
 
-const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number }) => {
-    const { inventory, pricingTiers } = useInventory();
+const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: { service: Service; tmhr: number; staff: Staff[], pricingTiers: PricingTier[], taxBurden: number }) => {
+    const { inventory } = useInventory();
 
-    const { cost, timeCost, productCost } = useMemo(() => {
+    const { materialCost, timeCost } = useMemo(() => {
         const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
         const timeCost = (totalDuration / 60) * tmhr;
         
-        const productCost = (service.products || []).reduce((acc, p) => {
+        const materialCost = (service.products || []).reduce((acc, p) => {
             const product = inventory.find(i => i.id === p.id);
             if (!product) return acc;
 
@@ -72,104 +76,108 @@ const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number 
             return acc + (costPerUse * p.quantityUsed);
         }, 0);
         
-        return { cost: timeCost + productCost, timeCost, productCost };
+        return { materialCost, timeCost };
     }, [service, tmhr, inventory]);
 
     const tierAnalysis = useMemo(() => {
-        if (!service.serviceTiers || service.serviceTiers.length === 0 || !pricingTiers) {
-            const profit = service.price - cost;
-            const margin = service.price > 0 ? (profit / service.price) * 100 : 0;
-            return [{ name: 'Standard', price: service.price, profit, margin, rank: 0 }];
-        }
+        const baseTiers = (service.serviceTiers || []).length > 0 
+            ? service.serviceTiers 
+            : pricingTiers.map(pt => ({ tierId: pt.id, price: service.price, durationMinutes: service.duration }));
 
-        return service.serviceTiers.map(tier => {
+        return baseTiers.map(tier => {
             const tierInfo = pricingTiers.find(pt => pt.id === tier.tierId);
             if (!tierInfo) return null;
 
-            const profit = tier.price - cost;
-            const margin = tier.price > 0 ? (profit / tier.price) * 100 : 0;
+            // Labor Logic: Find a representative staff for this tier to get pay structure
+            const repStaff = staff.find(s => s.pricingTierId === tier.id) || staff[0];
+            let laborCost = 0;
+            
+            if (repStaff?.payStructure === 'hourly' && repStaff.hourlyRate) {
+                laborCost = (tier.durationMinutes / 60) * repStaff.hourlyRate;
+            } else {
+                // Fallback to a standard 40% commission if no staff found
+                const rate = repStaff?.commissionRate || 40;
+                laborCost = tier.price * (rate / 100);
+            }
+
+            const burdenedLabor = laborCost * (1 + (taxBurden / 100));
+            const totalOperationalLoad = materialCost + timeCost + burdenedLabor;
+            const studioNet = tier.price - totalOperationalLoad;
+            const studioMargin = tier.price > 0 ? (studioNet / tier.price) * 100 : 0;
 
             return {
                 name: tierInfo.name,
                 rank: tierInfo.rank,
                 price: tier.price,
-                profit,
-                margin,
+                laborCost: burdenedLabor,
+                studioNet,
+                studioMargin,
             };
         }).filter((t): t is NonNullable<typeof t> => t !== null).sort((a,b) => a.rank - b.rank);
-    }, [service, cost, pricingTiers]);
+    }, [service, materialCost, timeCost, pricingTiers, staff, taxBurden]);
 
     return (
-        <Card className="lg:sticky lg:top-24 border-4 rounded-[2.5rem] shadow-2xl shadow-primary/5">
-            <CardHeader className="p-6 sm:p-8 pb-4">
+        <Card className="lg:sticky lg:top-24 border-4 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
+            <CardHeader className="p-6 sm:p-8 pb-4 border-b bg-muted/5">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
                     <Sparkles className="w-3 h-3" />
                     Yield Engine
                 </CardTitle>
-                <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">
-                    Target analysis @ <strong>${tmhr.toFixed(2)}/hr</strong> TMHR
+                <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60">
+                    Net Analysis post Labor & Tax Burden
                 </CardDescription>
             </CardHeader>
-            <CardContent className="p-6 sm:p-8 pt-4 space-y-8">
-                <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 space-y-4">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-destructive/60 flex items-center gap-2">
-                        <TrendingUp className="w-3.5 h-3.5" />
-                        Breakeven Threshold
-                    </p>
-                    <div className="flex justify-between items-baseline">
-                        <span className="text-3xl sm:text-4xl font-black text-destructive tracking-tighter font-mono">${cost.toFixed(2)}</span>
-                        <span className="text-[9px] font-black uppercase text-destructive/40">Unit Cost</span>
-                    </div>
-                    <div className="space-y-1.5 text-[10px] pt-4 border-t border-destructive/10 font-bold uppercase tracking-tight">
-                        <div className="flex justify-between"><span>Time ({service.duration}m):</span> <span className="font-mono">${timeCost.toFixed(2)}</span></div>
-                        <div className="flex justify-between"><span>Formula:</span> <span className="font-mono">${productCost.toFixed(2)}</span></div>
-                    </div>
-                </div>
-
+            <CardContent className="p-6 sm:p-8 space-y-8">
                 <div className="space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Profit Distribution</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tiered Studio Net</p>
                     <div className="grid gap-3">
                         {tierAnalysis.map(tier => (
                             <div key={tier.name} className={cn(
-                                "p-4 rounded-2xl border-2 transition-all", 
-                                tier.profit >= 0 ? "bg-primary/5 border-primary/10" : "bg-red-50 border-red-200"
+                                "p-5 rounded-[2rem] border-2 transition-all shadow-sm", 
+                                tier.studioNet >= 0 ? "bg-primary/5 border-primary/10" : "bg-red-50 border-red-200"
                             )}>
-                                <div className="flex justify-between items-center mb-3">
+                                <div className="flex justify-between items-center mb-4">
                                     <span className="text-xs font-black uppercase tracking-widest">{tier.name}</span>
-                                    {tier.profit < 0 && <Badge variant="destructive" className="h-4 text-[8px] font-black uppercase animate-pulse border-none">Hard Loss</Badge>}
+                                    {tier.studioNet < 0 && <Badge variant="destructive" className="h-4 text-[8px] font-black uppercase animate-pulse border-none">Deficit Warning</Badge>}
                                 </div>
-                                <div className="flex justify-between items-baseline">
-                                    <div className="flex flex-col">
-                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Price Point</span>
-                                        <span className="text-sm font-black font-mono tracking-tight">${tier.price.toFixed(2)}</span>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center text-[10px] font-bold uppercase text-slate-500">
+                                        <span>Burdened Labor</span>
+                                        <span className="font-mono">-${tier.laborCost.toFixed(2)}</span>
                                     </div>
-                                    <div className="text-right flex flex-col">
-                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Net Profit</span>
-                                        <span className={cn("font-black text-lg tracking-tighter font-mono", tier.profit >= 0 ? "text-primary" : "text-destructive")}>
-                                            ${tier.profit.toFixed(2)}
-                                        </span>
+                                    <Separator className="border-dashed" />
+                                    <div className="flex justify-between items-baseline">
+                                        <div className="flex flex-col">
+                                            <span className="text-[8px] font-black uppercase text-primary/60">Studio Net</span>
+                                            <span className={cn("text-2xl font-black font-mono tracking-tighter", tier.studioNet >= 0 ? "text-primary" : "text-destructive")}>
+                                                ${tier.studioNet.toFixed(2)}
+                                            </span>
+                                        </div>
+                                        <Badge className={cn("text-white border-none font-black text-xs font-mono", tier.studioNet >= 0 ? "bg-primary" : "bg-destructive")}>
+                                            {tier.studioMargin.toFixed(0)}%
+                                        </Badge>
                                     </div>
                                 </div>
                             </div>
                         ))}
                     </div>
                 </div>
+                
+                <div className="p-5 rounded-2xl border-2 border-dashed bg-muted/10 flex items-start gap-4">
+                    <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
+                    <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
+                        Studio Net Yield is calculated as: <br/>
+                        <span className="text-slate-900">Price - (Materials + TMHR Overhead + (Labor × {1 + (taxBurden / 100)}x Tax Burden))</span>
+                    </p>
+                </div>
             </CardContent>
-            {tierAnalysis.some(t => t.profit < 0) && (
-                <CardFooter className="p-6 bg-red-50 rounded-b-[2.2rem] border-t-2 border-red-100">
-                    <div className="flex gap-3 text-[10px] text-red-800 font-bold uppercase leading-relaxed text-left">
-                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <p>One or more tiers are operating below breakeven. Adjust pricing to avoid studio deficit.</p>
-                    </div>
-                </CardFooter>
-            )}
         </Card>
     );
 };
 
-const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) => {
+const CostBreakdown = ({ service, tmhr, staff, taxBurden }: { service: Service; tmhr: number; staff: Staff[], taxBurden: number }) => {
   const { inventory } = useInventory();
-  const { timeCost, productCosts, totalCost } = useMemo(() => {
+  const { timeCost, productCosts, totalHardCost } = useMemo(() => {
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
 
@@ -187,79 +195,78 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             }
             cost = costPerUse * (p.quantityUsed || 1);
         }
-      return {
-        ...p,
-        cost: cost,
-        location: 'Back Room' 
-      }
+      return { ...p, cost: cost };
     });
 
     const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
-    const totalCost = timeCost + totalProductCost;
+    const totalHardCost = timeCost + totalProductCost;
 
-    return { timeCost, productCosts, totalCost };
+    return { timeCost, productCosts, totalHardCost };
   }, [service, tmhr, inventory]);
 
+  const representativeLabor = useMemo(() => {
+      // Logic: Pick the median staff member or default 40%
+      const avgRate = staff.length > 0 
+        ? staff.reduce((acc, s) => acc + (s.commissionRate || 40), 0) / staff.length
+        : 40;
+      
+      const laborBase = service.price * (avgRate / 100);
+      const taxImpact = laborBase * (taxBurden / 100);
+      
+      return { laborBase, taxImpact, total: laborBase + taxImpact, avgRate };
+  }, [staff, service.price, taxBurden]);
+
   return (
-    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden">
+    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
         <CardHeader className="bg-muted/5 border-b p-6 sm:p-8">
-            <CardTitle className="text-sm font-black uppercase tracking-widest text-left">Breakeven Architecture</CardTitle>
+            <CardTitle className="text-sm font-black uppercase tracking-widest text-left">Operational Load Manifest</CardTitle>
             <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60 text-left">Complete cost profile per session.</CardDescription>
         </CardHeader>
         <CardContent className="p-6 sm:p-8 space-y-10">
             <div className="space-y-4">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
-                    <Clock className="w-3.5 h-3.5" />
-                    Time Allocation Cost
+                    <Scale className="w-3.5 h-3.5" />
+                    Direct Variable Costs
                 </h4>
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-muted/20 p-5 rounded-[1.5rem] border-2 border-transparent hover:border-primary/10 transition-all gap-4">
-                    <div className="space-y-0.5 text-left">
-                        <p className="font-black text-sm uppercase tracking-tight">Reserved Studio Time</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{((service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0))} Min @ ${tmhr.toFixed(2)}/hr</p>
+                <div className="grid gap-3">
+                    <div className="flex justify-between items-center bg-muted/20 p-4 rounded-xl border-2">
+                        <div className="text-left">
+                            <p className="font-black text-xs uppercase">Formula Materials</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase">{service.products?.length || 0} Assets Archived</p>
+                        </div>
+                        <span className="font-black font-mono text-sm">${productCosts.reduce((acc, p) => acc + p.cost, 0).toFixed(2)}</span>
                     </div>
-                    <span className="font-black text-2xl font-mono tracking-tighter text-slate-900">${timeCost.toFixed(2)}</span>
+                    <div className="flex justify-between items-center bg-muted/20 p-4 rounded-xl border-2">
+                        <div className="text-left">
+                            <p className="font-black text-xs uppercase">Labor & Tax Burden</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase">@{representativeLabor.avgRate}% Avg Comm + {taxBurden}% Tax</p>
+                        </div>
+                        <span className="font-black font-mono text-sm">${representativeLabor.total.toFixed(2)}</span>
+                    </div>
                 </div>
             </div>
 
             <div className="space-y-4">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
-                    <ShoppingCart className="w-3.5 h-3.5" />
-                    Formula Expenditures
+                    <Clock className="w-3.5 h-3.5" />
+                    Fixed Foundation Allocation (TMHR)
                 </h4>
-                <div className="grid gap-3">
-                    {productCosts.length > 0 ? productCosts.map(p => (
-                        <div key={p.id} className="flex items-center justify-between bg-muted/20 p-4 rounded-[1.5rem] border-2 border-transparent hover:border-primary/10 transition-all gap-4">
-                            <div className='flex items-center gap-4 min-w-0'>
-                                <div className="w-10 h-10 bg-background rounded-2xl border shadow-inner flex-shrink-0 flex items-center justify-center overflow-hidden">
-                                    {p.imageUrl ? (
-                                        <Image src={p.imageUrl} alt={p.name} width={40} height={40} className='object-cover h-full w-full' />
-                                    ) : (
-                                        <Box className="w-5 h-5 text-muted-foreground/40" />
-                                    )}
-                                </div>
-                                <div className="min-w-0 text-left">
-                                    <p className="font-black text-xs uppercase tracking-tight truncate text-slate-900">{p.name}</p>
-                                    <p className='text-[9px] text-muted-foreground font-black uppercase tracking-widest flex items-center gap-1 opacity-60'><MapPin className="w-2.5 h-2.5"/>{p.location}</p>
-                                </div>
-                            </div>
-                            <span className="font-black text-sm font-mono tracking-tighter text-slate-700 shrink-0">${(p.cost || 0).toFixed(3)}</span>
-                        </div>
-                    )) : (
-                        <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
-                            <PlusCircle className="w-8 h-8" />
-                            <p className="text-[10px] font-black uppercase tracking-widest">No products in formula</p>
-                        </div>
-                    )}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-muted/20 p-5 rounded-[1.5rem] border-2 border-transparent hover:border-primary/10 transition-all gap-4">
+                    <div className="space-y-0.5 text-left">
+                        <p className="font-black text-sm uppercase tracking-tight text-slate-900">Reserved Studio Time</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{((service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0))} Min @ ${tmhr.toFixed(2)}/hr</p>
+                    </div>
+                    <span className="font-black text-2xl font-mono tracking-tighter text-slate-900">${timeCost.toFixed(2)}</span>
                 </div>
             </div>
         </CardContent>
          <CardFooter className="bg-primary/5 p-6 sm:p-8 border-t-2 border-primary/10">
             <div className="flex justify-between items-center w-full gap-4">
                 <div className="space-y-0.5 text-left">
-                    <p className="text-[10px] font-black uppercase text-primary tracking-widest">Combined Breakeven</p>
-                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Minimum threshold for profit</p>
+                    <p className="text-[10px] font-black uppercase text-primary tracking-widest">Total Operational Load</p>
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Absolute floor for studio profitability</p>
                 </div>
-                <span className="font-black text-2xl sm:text-3xl font-mono tracking-tighter text-primary">${totalCost.toFixed(2)}</span>
+                <span className="font-black text-2xl sm:text-3xl font-mono tracking-tighter text-primary">${(totalHardCost + representativeLabor.total).toFixed(2)}</span>
             </div>
         </CardFooter>
     </Card>
@@ -269,19 +276,12 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 
 export default function ServiceDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const { services, appointments } = useInventory();
+    const { services, appointments, staff, pricingTiers } = useInventory();
     const { selectedTenant } = useTenant();
     const service = useMemo(() => services.find(s => s.id === id), [services, id]);
-    const [tmhr, setTmhr] = useState(0);
+    const tmhr = selectedTenant?.tmhr || 50;
+    const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
     const { toast } = useToast();
-
-    useEffect(() => {
-        if (selectedTenant && typeof selectedTenant.tmhr === 'number') {
-            setTmhr(selectedTenant.tmhr);
-        } else {
-            setTmhr(50); 
-        }
-    }, [selectedTenant]);
 
     const servicePerformance = useMemo(() => {
         if (!service) return null;
@@ -297,8 +297,7 @@ export default function ServiceDetailPage() {
         };
     }, [service, appointments]);
     
-    
-     const handleCopyLink = () => {
+    const handleCopyLink = () => {
         if (!service || !selectedTenant) return;
         const bookingLink = `${window.location.origin}/book/${selectedTenant.id}/${service.id}`;
         navigator.clipboard.writeText(bookingLink);
@@ -308,10 +307,7 @@ export default function ServiceDetailPage() {
         });
     };
 
-
-    if (!service) {
-        return notFound();
-    }
+    if (!service) return notFound();
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
@@ -335,12 +331,7 @@ export default function ServiceDetailPage() {
                 <div className="relative shrink-0">
                     <div className="w-32 h-32 md:w-48 md:h-48 rounded-[2rem] md:rounded-[3rem] overflow-hidden border-4 border-white shadow-2xl bg-muted/20 relative flex items-center justify-center">
                         {service.imageUrl ? (
-                            <Image 
-                                src={service.imageUrl} 
-                                alt={service.name} 
-                                fill
-                                className='object-cover transition-transform duration-700' 
-                            />
+                            <Image src={service.imageUrl} alt={service.name} fill className='object-cover transition-transform duration-700' />
                         ) : (
                             <Sparkles className="w-16 h-16 md:w-24 md:h-24 text-muted-foreground/30" />
                         )}
@@ -364,7 +355,7 @@ export default function ServiceDetailPage() {
                             </div>
                         </div>
                         <div className="space-y-1">
-                            <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Base Pricing</p>
+                            <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Baseline Market Rate</p>
                             <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700">${service.price.toFixed(2)}</p>
                         </div>
                     </div>
@@ -375,24 +366,11 @@ export default function ServiceDetailPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10">
             <div className="lg:col-span-2 xl:col-span-3 space-y-10 min-w-0 order-2 lg:order-1">
-                
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
-                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><CalendarIcon className="w-3 h-3"/>Bookings</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">{servicePerformance?.totalBookings}</p></CardContent>
-                    </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
-                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><TrendingUp className="w-3 h-3"/>Total Yield</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">${servicePerformance?.totalRevenue.toFixed(0)}</p></CardContent>
-                    </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
-                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Users className="w-3 h-3"/>Guests</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">{servicePerformance?.uniqueClients}</p></CardContent>
-                    </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
-                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Target className="w-3 h-3"/>Avg. Value</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">${servicePerformance?.avgRevenuePerBooking.toFixed(0)}</p></CardContent>
-                    </Card>
+                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white"><CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><CalendarIcon className="w-3 h-3"/>Bookings</CardTitle></CardHeader><CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">{servicePerformance?.totalBookings}</p></CardContent></Card>
+                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white"><CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><TrendingUp className="w-3 h-3"/>Total Yield</CardTitle></CardHeader><CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">${servicePerformance?.totalRevenue.toFixed(0)}</p></CardContent></Card>
+                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white"><CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Users className="w-3 h-3"/>Guests</CardTitle></CardHeader><CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">{servicePerformance?.uniqueClients}</p></CardContent></Card>
+                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white"><CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Target className="w-3 h-3"/>Avg. Value</CardTitle></CardHeader><CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">${servicePerformance?.avgRevenuePerBooking.toFixed(0)}</p></CardContent></Card>
                 </div>
 
                 <Tabs defaultValue="architecture" className="w-full">
@@ -402,7 +380,7 @@ export default function ServiceDetailPage() {
                     </TabsList>
                     
                     <TabsContent value="architecture" className="m-0 space-y-10 animate-in fade-in duration-500">
-                        <CostBreakdown service={service} tmhr={tmhr} />
+                        <CostBreakdown service={service} tmhr={tmhr} staff={staff} taxBurden={taxBurden} />
                     </TabsContent>
 
                     <TabsContent value="logistics" className="m-0 space-y-10 animate-in fade-in duration-500">
@@ -433,7 +411,7 @@ export default function ServiceDetailPage() {
             </div>
 
             <div className="lg:col-span-1 min-w-0 order-1 lg:order-2">
-                <ProfitAnalysisCard service={service} tmhr={tmhr} />
+                <ProfitAnalysisCard service={service} tmhr={tmhr} staff={staff} pricingTiers={pricingTiers} taxBurden={taxBurden} />
             </div>
         </div>
       </main>

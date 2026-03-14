@@ -98,6 +98,11 @@
             "default": true,
             "description": "If true, requires a second staff member to verify the till count at close."
         },
+        "employerTaxBurdenPct": {
+            "type": "number",
+            "default": 10,
+            "description": "Estimated percentage cost of employer-side payroll taxes and benefits."
+        },
         "cancellationPolicy": {
             "type": "string",
             "description": "Text of the cancellation policy."
