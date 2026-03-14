@@ -135,6 +135,7 @@ const RescheduleAppointmentForm = ({
     onConfirm: (data: any) => void;
     isSubmitting: boolean;
 }) => {
+    // CRITICAL: Call hooks at top level
     const { scheduleProfiles, staff, events: allEvents } = useInventory();
     const { selectedTenant: tenant } = useTenant();
 
@@ -296,7 +297,7 @@ const RescheduleAppointmentForm = ({
                                                 </label>
                                                 <label htmlFor="resched-pay-new" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="charge_new_card" id="resched-pay-new" className="peer sr-only" />
-                                                    <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                    <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:bg-muted/50")}>
                                                         <CardIcon className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                         <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">New Card</span>
                                                     </div>
@@ -427,8 +428,8 @@ export const RescheduleDialog = ({
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
-        <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+        <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6 pb-4")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics Suite</span>
@@ -437,7 +438,7 @@ export const RescheduleDialog = ({
             <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Shift session timing in the studio manifest.</SheetDescription>
         </SheetHeader>
         <ScrollArea className="flex-1">
-            <div className={cn("p-8", isMobile && "p-6")}>
+            <div className={cn("p-8 pt-4", isMobile && "p-6")}>
                 <RescheduleAppointmentForm 
                     appointment={appointment} 
                     client={client} 
@@ -449,7 +450,7 @@ export const RescheduleDialog = ({
                 />
             </div>
         </ScrollArea>
-        <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
+        <SheetFooter className={cn("p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl", !isMobile && "p-8")}>
             <div className="grid grid-cols-2 gap-3 w-full">
                 <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Cancel</Button>
                 <Button 
