@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -58,7 +57,8 @@ import {
     Zap,
     X,
     Info,
-    Smartphone
+    Smartphone,
+    ArrowRight
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -97,6 +97,7 @@ import {
 } from '@/components/ui/dialog';
 import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '@/components/ui/textarea';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();

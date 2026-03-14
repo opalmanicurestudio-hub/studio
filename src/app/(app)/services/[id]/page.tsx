@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -57,7 +56,7 @@ import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: { service: Service; tmhr: number; staff: Staff[], pricingTiers: PricingTier[], taxBurden: number }) => {
     const { inventory } = useInventory();
@@ -231,7 +230,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                 <div className="grid gap-3">
                     <div className="flex justify-between items-center bg-muted/20 p-4 rounded-xl border-2">
                         <div className="text-left">
-                            <p className="font-black text-xs uppercase">Formula Materials</p>
+                            <p className="font-black text-xs uppercase">Foundation Materials</p>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase">{service.products?.length || 0} Assets Aggregated</p>
                         </div>
                         <span className="font-black font-mono text-sm">${productCosts.reduce((acc, p) => acc + p.cost, 0).toFixed(2)}</span>

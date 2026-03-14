@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -669,7 +668,7 @@ export const AddServiceDialog: React.FC<any> = ({
   const DialogContainer = isMobile ? Sheet : Dialog;
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-4xl max-h-[90dvh]")} side="right">
+      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-4xl max-h-[90dvh]")} side="right">
         {formBody}
       </DialogContent>
     </DialogContainer>

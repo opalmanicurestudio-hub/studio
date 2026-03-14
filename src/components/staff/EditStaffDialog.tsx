@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -38,7 +37,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ScrollArea } from '../ui/scroll-area';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
     User, 
     Wallet, 
@@ -48,7 +47,6 @@ import {
     List, 
     PlusCircle, 
     Trash2, 
-    BookText, 
     Instagram, 
     Link as LinkIcon, 
     Facebook, 
@@ -58,12 +56,11 @@ import {
     Clock, 
     KeyRound, 
     RefreshCw, 
-    EyeOff,
-    Sparkles,
-    ArrowRight,
-    Check,
-    ShieldCheck,
-    Fingerprint,
+    Sparkles, 
+    ArrowRight, 
+    Check, 
+    ShieldCheck, 
+    Fingerprint, 
     Award,
     Heart,
     Percent,
@@ -77,11 +74,11 @@ import {
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { SelectServicesDialog } from './SelectServicesDialog';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Switch } from '../ui/switch';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Switch } from '@/components/ui/switch';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
-import { Separator } from '../ui/separator';
-import { Badge } from '../ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
