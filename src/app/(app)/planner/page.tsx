@@ -406,24 +406,29 @@ function PlannerPageContent() {
         endTime: aptData.endTime
     };
 
-    // 2. Handle Protocol Fee (Immediate Transaction Only as requested)
+    // 2. Handle Protocol Fee
     if (applyFee && feeAmount > 0) {
-        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-        batch.set(txnRef, {
-            id: txnRef.id,
-            date: now,
-            description: `Reschedule Protocol Fee: ${aptData.clientName}`,
-            clientOrVendor: aptData.clientName || 'Client',
-            clientId: aptData.clientId,
-            type: 'income',
-            context: 'Business',
-            category: 'Adjustment Fee',
-            amount: feeAmount,
-            paymentMethod: paymentMethod === 'card_on_file' ? 'Card on File' : 'Credit Card (Mobile)',
-            hasReceipt: false,
-            appointmentId: aptData.id,
-            staffId: aptData.staffId
-        });
+        if (paymentMethod === 'add_to_session') {
+            // Direct Session Surcharge Logic
+            updates['checkoutState.additionalCharge'] = increment(feeAmount);
+        } else {
+            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(txnRef, {
+                id: txnRef.id,
+                date: now,
+                description: `Reschedule Protocol Fee: ${aptData.clientName}`,
+                clientOrVendor: aptData.clientName || 'Client',
+                clientId: aptData.clientId,
+                type: 'income',
+                context: 'Business',
+                category: 'Adjustment Fee',
+                amount: feeAmount,
+                paymentMethod: paymentMethod === 'card_on_file' ? 'Card on File' : 'Credit Card (Mobile)',
+                hasReceipt: false,
+                appointmentId: aptData.id,
+                staffId: aptData.staffId
+            });
+        }
     }
 
     batch.update(appointmentRef, updates);
@@ -638,7 +643,7 @@ function PlannerPageContent() {
         onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
         onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
         onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
-        onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)}
+        onPrintTicket={() => {}} onOverride={handleOverrideConfirm}
         onWaiveFee={(id, aut, res) => {
             if (!firestore || !tenantId) return;
             const batch = writeBatch(firestore);

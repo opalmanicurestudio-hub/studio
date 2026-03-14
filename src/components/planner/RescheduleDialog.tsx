@@ -38,7 +38,8 @@ import {
     Lock,
     ShieldCheck,
     Loader,
-    CreditCard as CardIcon
+    CreditCard as CardIcon,
+    Zap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
@@ -116,7 +117,7 @@ const RescheduleAppointmentForm = ({
     
     // Fee State
     const [applyFee, setApplyFee] = useState(false);
-    const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'charge_new_card'>('card_on_file');
+    const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'charge_new_card' | 'add_to_session'>('add_to_session');
 
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
     const hasCardOnFile = !!client?.cardOnFile?.token;
@@ -196,13 +197,6 @@ const RescheduleAppointmentForm = ({
         });
     }
 
-    // Default payment method handling
-    useEffect(() => {
-        if (!hasCardOnFile && paymentMethod === 'card_on_file') {
-            setPaymentMethod('charge_new_card');
-        }
-    }, [hasCardOnFile, paymentMethod]);
-    
     return (
         <div className="space-y-8">
             <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl overflow-hidden">
@@ -251,21 +245,26 @@ const RescheduleAppointmentForm = ({
                                     {applyFee && (
                                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Distribution Method</Label>
-                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-3">
+                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-3 gap-2">
+                                                <label htmlFor="resched-pay-session" className="cursor-pointer flex-1 h-full">
+                                                    <RadioGroupItem value="add_to_session" id="resched-pay-session" className="peer sr-only" />
+                                                    <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'add_to_session' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                        <Zap className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'add_to_session' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">To Session</span>
+                                                    </div>
+                                                </label>
                                                 <label htmlFor="resched-pay-card" className={cn("cursor-pointer flex-1 h-full", !hasCardOnFile && "opacity-40 grayscale")}>
                                                     <RadioGroupItem value="card_on_file" id="resched-pay-card" className="peer sr-only" disabled={!hasCardOnFile} />
-                                                    <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                    <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
                                                         {hasCardOnFile ? <ShieldCheck className="w-5 h-5 mb-1.5 text-primary" /> : <Lock className="w-5 h-5 mb-1.5 text-slate-400" />}
-                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Vault</span>
-                                                        {hasCardOnFile && <span className="text-[8px] text-primary/60 font-black uppercase mt-1 tracking-tight">•••• {client?.cardOnFile?.last4}</span>}
+                                                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">Vault</span>
                                                     </div>
                                                 </label>
                                                 <label htmlFor="resched-pay-new" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="charge_new_card" id="resched-pay-new" className="peer sr-only" />
-                                                    <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                    <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
                                                         <CardIcon className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">New Card</span>
-                                                        <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Manual Auth</span>
+                                                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">New Card</span>
                                                     </div>
                                                 </label>
                                             </RadioGroup>
