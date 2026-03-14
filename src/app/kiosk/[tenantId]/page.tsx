@@ -612,6 +612,9 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
     </motion.div>
 );
 
+export type Step = 'partyType' | 'memberSetup' | 'confirmation';
+export type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
+
 export default function WalkInPage() {
   const { firestore } = useFirebase();
   const { toast } = useToast();

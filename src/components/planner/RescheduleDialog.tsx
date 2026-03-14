@@ -39,7 +39,8 @@ import {
     ShieldCheck,
     Loader,
     CreditCard as CardIcon,
-    Zap
+    Zap,
+    Unlock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
@@ -57,6 +58,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { Input } from '../ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -73,7 +75,13 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
     if (typeof val?.toDate === 'function') return val.toDate();
     return new Date(val);
 };
@@ -95,7 +103,7 @@ const RescheduleAppointmentForm = ({
     onConfirm: (data: any) => void;
     isSubmitting: boolean;
 }) => {
-    const { scheduleProfiles, staff } = useInventory();
+    const { scheduleProfiles, staff, events: allEvents } = useInventory();
     const { selectedTenant: tenant } = useTenant();
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
 
@@ -105,6 +113,7 @@ const RescheduleAppointmentForm = ({
     // Fee State
     const [applyFee, setApplyFee] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'charge_new_card' | 'add_to_session'>('add_to_session');
+    const [overrideBusinessHours, setOverrideBusinessHours] = useState(false);
 
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
     const hasCardOnFile = !!client?.cardOnFile?.token;
@@ -139,10 +148,10 @@ const RescheduleAppointmentForm = ({
         if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
         else workingHours = publicScheduleProfile?.week?.[dayName];
         
-        if (!workingHours || !workingHours.enabled) return [];
+        if (!overrideBusinessHours && (!workingHours || !workingHours.enabled)) return [];
 
-        const openTime = timeStringToDate(workingHours.start, rescheduleDate);
-        const closeTime = timeStringToDate(workingHours.end, rescheduleDate);
+        const openTime = overrideBusinessHours ? startOfDay(rescheduleDate) : timeStringToDate(workingHours?.start || '09:00 AM', rescheduleDate);
+        const closeTime = overrideBusinessHours ? endOfDay(rescheduleDate) : timeStringToDate(workingHours?.end || '05:00 PM', rescheduleDate);
         
         const busyIntervals: { start: Date, end: Date }[] = [];
         appointments.filter(apt => apt.id !== appointment.id && isSameDay(safeDate(apt.startTime), rescheduleDate) && apt.staffId === appointment.staffId).forEach(apt => {
@@ -150,7 +159,7 @@ const RescheduleAppointmentForm = ({
             busyIntervals.push({ start: addMinutes(safeDate(apt.startTime), -(svc?.padBefore || 0)), end: addMinutes(safeDate(apt.endTime), (svc?.padAfter || 0)) });
         });
 
-        (useInventory().events || []).filter(evt => {
+        (allEvents || []).filter(evt => {
             if (!isSameDay(safeDate(evt.startTime), rescheduleDate) || evt.type !== 'blocked') return false;
             return !evt.staffIds || evt.staffIds.includes('all') || (appointment.staffId && evt.staffIds.includes(appointment.staffId));
         }).forEach(evt => { busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) }); });
@@ -171,7 +180,7 @@ const RescheduleAppointmentForm = ({
             options.sort();
         }
         return options;
-    }, [rescheduleDate, service, appointments, appointment, services, publicScheduleProfile, assignedStaff, staff]);
+    }, [rescheduleDate, service, appointments, appointment, services, publicScheduleProfile, assignedStaff, staff, allEvents, overrideBusinessHours]);
 
     const handleSubmit = () => {
         if (!rescheduleTime) return;
@@ -295,7 +304,29 @@ const RescheduleAppointmentForm = ({
             </AnimatePresence>
 
             <div className="space-y-4">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><CalendarDays className="w-3.5 h-3.5 opacity-40" /> Schedule Refinement</Label>
+                <div className="flex items-center justify-between">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                        <CalendarDays className="w-3.5 h-3.5 opacity-40" /> 
+                        Schedule Refinement
+                    </Label>
+                    <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center gap-2">
+                                        <Unlock className={cn("w-3.5 h-3.5 transition-colors", overrideBusinessHours ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                        <Switch 
+                                            id="override-hours-resched" 
+                                            checked={overrideBusinessHours} 
+                                            onCheckedChange={setOverrideBusinessHours} 
+                                        />
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Business Hours</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
+                </div>
                 <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner">
                     <div className="flex justify-between items-center px-2">
                         <Button variant="outline" size="icon" onClick={handlePreviousWeek} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
@@ -304,7 +335,7 @@ const RescheduleAppointmentForm = ({
                     </div>
                     <div className="grid grid-cols-7 gap-2">
                         {weekDays.map(day => (
-                            <button key={day.toISOString()} onClick={() => handleDateSelect(day)} type="button" className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, rescheduleDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", isBefore(day, startOfDay(new Date())) && !isToday(day) && "opacity-20 cursor-not-allowed")}>
+                            <button key={day.toISOString()} onClick={() => handleDateSelect(day)} type="button" className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, rescheduleDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", isBefore(day, startOfDay(new Date())) && !isToday(day) && !overrideBusinessHours && "opacity-20 cursor-not-allowed")}>
                                 <span className="text-[8px] sm:text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
                                 <span className="font-black text-sm md:text-xl tracking-tighter">{format(day, 'd')}</span>
                             </button>
@@ -387,7 +418,7 @@ export const RescheduleDialog = ({
         </ScrollArea>
         <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="grid grid-cols-2 gap-3 w-full">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Cancel</Button>
                 <Button 
                     onClick={() => document.getElementById('submit-reschedule-btn')?.click()} 
                     disabled={isSubmitting}
