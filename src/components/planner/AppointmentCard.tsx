@@ -18,7 +18,8 @@ import {
   Square,
   Sparkles,
   Repeat,
-  AlertTriangle
+  AlertTriangle,
+  Undo2
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -186,7 +187,7 @@ export function AppointmentCard({
                 <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
                     {appointment.status === 'servicing' && <DropdownMenuItem onClick={() => onFinishService(appointment)} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
                     {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onClick={() => onCompleteClick(appointment)} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
-                    <DropdownMenuItem onClick={() => onReschedule(appointment)} className="font-bold text-[10px] uppercase tracking-widest"><Calendar className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
+                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onReschedule(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
                     <DropdownMenuItem onClick={handleCopyCheckInLink} className="font-bold text-[10px] uppercase tracking-widest"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => onDelete(appointment.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>

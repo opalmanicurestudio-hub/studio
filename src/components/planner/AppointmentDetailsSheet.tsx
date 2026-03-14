@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -28,6 +27,7 @@ import {
   Loader,
   Users,
   AlertTriangle,
+  Undo2
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -462,7 +462,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <Card className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
                   <CardContent className={isMobile ? "p-4 space-y-4" : "p-5 space-y-4"}>
                     <div className="flex justify-between items-start gap-4">
-                      <div className="space-y-1 min-w-0">
+                      <div className="space-y-1 min-w-0 text-left">
                         <p className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 leading-tight truncate">
                           {service.name}
                         </p>
@@ -483,7 +483,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     </div>
                     {(appointment.addOnIds || []).length > 0 && (
                       <div className="space-y-3 pt-3 border-t border-dashed">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40">
+                        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40 text-left">
                           Add-ons
                         </p>
                         {(appointment.addOnIds || []).map((id) => {
@@ -517,7 +517,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
               {isOwnerOrAdmin && financialData && (
                 <div className="space-y-4">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">
                     Yield Analysis
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
@@ -542,17 +542,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               )}
 
               <div className="space-y-4">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">
                   Health & Intel
                 </h3>
                 <div className="space-y-3">
                   {client.medicalNotes && (
                     <Alert variant="destructive" className="border-2 rounded-xl bg-red-500/5">
                       <ShieldAlert className="h-4 w-4" />
-                      <AlertTitle className="text-[9px] font-black uppercase">
+                      <AlertTitle className="text-[9px] font-black uppercase text-left">
                         Medical Alert
                       </AlertTitle>
-                      <AlertDescription className="text-[10px] font-bold opacity-80 uppercase">
+                      <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left">
                         {client.medicalNotes}
                       </AlertDescription>
                     </Alert>
@@ -563,10 +563,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       className="border-2 rounded-xl bg-amber-500/5 text-amber-700 border-amber-200"
                     >
                       <AlertTriangle className="h-4 w-4" />
-                      <AlertTitle className="text-[9px] font-black uppercase">
+                      <AlertTitle className="text-[9px] font-black uppercase text-left">
                         Allergy Warning
                       </AlertTitle>
-                      <AlertDescription className="text-[10px] font-bold opacity-80 uppercase">
+                      <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left">
                         {client.allergyNotes}
                       </AlertDescription>
                     </Alert>
@@ -598,20 +598,20 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 className="h-12 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
                 onClick={() => {
                   onOpenChange(false);
+                  setTimeout(() => onReschedule(appointment), 150);
+                }}
+              >
+                <Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule
+              </Button>
+              <Button
+                variant="outline"
+                className="h-12 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
+                onClick={() => {
+                  onOpenChange(false);
                   setTimeout(() => onEdit(appointment), 150);
                 }}
               >
-                Edit Record
-              </Button>
-              <Button
-                variant="ghost"
-                className="h-12 rounded-xl font-black uppercase text-[9px] tracking-widest text-destructive hover:bg-destructive/5"
-                onClick={() => {
-                  onOpenChange(false);
-                  onDelete(appointment.id);
-                }}
-              >
-                Purge Record
+                <Edit className="mr-2 h-3.5 w-3.5" /> Edit Record
               </Button>
             </div>
           </SheetFooter>
