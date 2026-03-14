@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -70,7 +70,8 @@ import {
     Briefcase,
     Zap,
     Scale,
-    DollarSign
+    DollarSign,
+    ShieldAlert
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -124,15 +125,10 @@ const editStaffSchema = z.object({
 
 type EditStaffFormData = z.infer<typeof editStaffSchema>;
 
-const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step?: number | string }) => (
-    <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
-            <Icon className="w-5 h-5" />
-        </div>
-        <div className="space-y-0.5 text-left">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step || 'Refine'}</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
-        </div>
+const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
+    <div className="flex items-center gap-3 px-1 mb-6 text-left">
+        <Icon className="w-4 h-4 text-muted-foreground opacity-40" />
+        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">{title}</h4>
     </div>
 );
 
@@ -150,8 +146,8 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
 
     return (
         <div className="space-y-12">
-            <div className="space-y-10">
-                <SectionHeader icon={Fingerprint} title="Identity & Security" step={1} />
+            <div className="space-y-8">
+                <SectionHeader icon={Fingerprint} title="Identity & Security" />
                 <div className="space-y-8">
                     <div className="flex flex-col sm:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
                         <Controller
@@ -169,13 +165,13 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 </div>
                             )}
                         />
-                        <div className="flex-1 space-y-4 w-full">
-                            <div className="space-y-1.5 text-left">
-                                <Label htmlFor="name-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Full Name</Label>
-                                <Input id="name-edit" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base" />
+                        <div className="flex-1 space-y-4 w-full text-left">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="name-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Legal Name</Label>
+                                <Input id="name-edit" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base shadow-inner bg-white" />
                                 {errors.name && <p className="text-[9px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                             </div>
-                            <div className="space-y-1.5 text-left">
+                            <div className="space-y-1.5">
                                 <Label htmlFor="email-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Professional Email</Label>
                                 <Input id="email-edit" type="email" {...register('email')} className="h-12 rounded-xl border-2 font-bold text-sm bg-muted/20" disabled />
                             </div>
@@ -186,7 +182,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <KeyRound className="w-5 h-5 text-primary" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Security Protocol</span>
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Security Signature</span>
                             </div>
                             <Button variant="ghost" size="sm" type="button" onClick={onRegeneratePin} className="h-7 text-[9px] font-black uppercase tracking-widest text-primary hover:bg-primary/10">
                                 <RefreshCw className="w-3 h-3 mr-1.5" /> Reset PIN
@@ -203,7 +199,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         </div>
                     </div>
 
-                    <div className="p-6 rounded-[2rem] border-2 bg-muted/5 space-y-4">
+                    <div className="p-6 rounded-[2rem] border-2 bg-muted/5 space-y-4 text-left">
                         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                             <ShieldCheck className="w-3.5 h-3.5 opacity-40" /> Authentication Control
                         </p>
@@ -215,12 +211,12 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <div className="space-y-3 text-left">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
+                        <div className="space-y-3">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Role</Label>
                             <Controller name="role" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         <SelectItem value="staff" className="font-bold uppercase text-[10px] tracking-widest">STAFF PROVIDER</SelectItem>
                                         <SelectItem value="admin" className="font-bold uppercase text-[10px] tracking-widest">ADMIN MANAGER</SelectItem>
@@ -229,11 +225,11 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 </Select>
                             )}/>
                         </div>
-                        <div className="space-y-3 text-left">
+                        <div className="space-y-3">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expertise Tier</Label>
                             <Controller name="pricingTierId" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         {pricingTiers.map(tier => (<SelectItem key={tier.id} value={tier.id} className="font-bold uppercase text-[10px] tracking-widest">{tier.name.toUpperCase()}</SelectItem>))}
                                     </SelectContent>
@@ -255,7 +251,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <Separator className="border-dashed" />
 
             <div className="space-y-10">
-                <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
+                <SectionHeader icon={Sparkles} title="Profile & Mastery" />
                 <div className="space-y-8 text-left">
                     <div className="space-y-2">
                         <Label htmlFor="bio-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Narrative (Public)</Label>
@@ -264,7 +260,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
 
                     <div className="space-y-2">
                         <Label htmlFor="specialties-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Signature Specialties</Label>
-                        <Input id="specialties-edit" placeholder="e.g., BALAYAGE, PRECISION CUTS" {...register('specialties')} className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner" />
+                        <Input id="specialties-edit" placeholder="e.g., BALAYAGE, PRECISION CUTS" {...register('specialties')} className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner bg-white" />
                     </div>
 
                     <div className="space-y-4">
@@ -282,7 +278,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             ].map(social => (
                                 <div key={social.id} className="relative group">
                                     <social.icon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40 group-focus-within:text-primary transition-colors" />
-                                    <Input placeholder={`${social.label} URL...`} {...register(social.id as any)} className="h-11 pl-10 rounded-xl border-2 font-medium text-[10px] shadow-sm" />
+                                    <Input placeholder={`${social.label} URL...`} {...register(social.id as any)} className="h-11 pl-10 rounded-xl border-2 font-medium text-[10px] shadow-sm bg-white" />
                                 </div>
                             ))}
                         </div>
@@ -319,7 +315,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <Separator className="border-dashed" />
 
             <div className="space-y-10">
-                <SectionHeader icon={Wallet} title="Compensation Engine" step={3} />
+                <SectionHeader icon={Wallet} title="Compensation Engine" />
                 <div className="space-y-8 text-left">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-3">
@@ -342,8 +338,8 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                     <Select onValueChange={field.onChange} value={field.value}>
                                         <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                                         <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            <SelectItem value="weekly" className="font-bold">WEEKLY</SelectItem>
-                                            <SelectItem value="bi-weekly" className="font-bold">BI-WEEKLY</SelectItem>
+                                            <SelectItem value="weekly" className="font-bold uppercase text-[10px] tracking-widest">WEEKLY</SelectItem>
+                                            <SelectItem value="bi-weekly" className="font-bold uppercase text-[10px] tracking-widest">BI-WEEKLY</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 )}/>
@@ -355,11 +351,11 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label htmlFor="commissionRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service Ratio (%)</Label>
-                                <div className="relative"><Input id="commissionRate-edit" type="number" {...register('commissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
+                                <div className="relative"><Input id="commissionRate-edit" type="number" {...register('commissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="retailCommission-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail Ratio (%)</Label>
-                                <div className="relative"><Input id="retailCommission-edit" type="number" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
+                                <div className="relative"><Input id="retailCommission-edit" type="number" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
                             </div>
                         </div>
                     ) : payStructure === 'hourly' ? (
@@ -377,37 +373,40 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <Separator className="border-dashed" />
 
             <div className="space-y-10">
-                <SectionHeader icon={Shield} title="Governance & Compliance" step={4} />
+                <SectionHeader icon={Shield} title="Governance & Compliance" />
                 <div className="space-y-10 text-left">
                     <div className="space-y-4">
-                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Heart className="w-3 h-3" /> Emergency Contact</h4>
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Contact Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Contact Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
                             <div className="space-y-1.5">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
                                 <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[9px] tracking-widest bg-muted/5"><SelectValue placeholder="SELECT..." /></SelectTrigger>
+                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[9px] tracking-widest bg-muted/5 shadow-inner"><SelectValue placeholder="SELECT..." /></SelectTrigger>
                                         <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             {['Spouse', 'Partner', 'Parent', 'Guardian', 'Sibling', 'Child', 'Friend', 'Other'].map(r => ( <SelectItem key={r} value={r} className="font-bold uppercase text-[9px] tracking-widest">{r.toUpperCase()}</SelectItem> ))}
                                         </SelectContent>
                                     </Select>
                                 )}/>
                             </div>
-                            <div className="sm:col-span-2"><PhoneInput name="emergencyContact.phone" label="Emergency Contact Mobile" className="h-11 rounded-xl" /></div>
+                            <div className="sm:col-span-2 text-left space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Emergency Contact Mobile</Label>
+                                <PhoneInput name="emergencyContact.phone" label="" className="h-11 rounded-xl kiosk-phone-input" />
+                            </div>
                         </div>
                     </div>
 
                     <div className="space-y-4 pt-4 border-t border-dashed">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldCheck className="w-3 h-3" /> Licensing Ledger</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-white shadow-inner" /></div>
                             <div className="space-y-1.5">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Registry Expiry</Label>
                                 <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => (
                                     <Popover>
                                         <PopoverTrigger asChild>
-                                            <Button variant="outline" className="w-full h-11 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5"><CalendarIcon className="mr-2 h-4 w-4 opacity-40" /> {field.value ? format(field.value, 'MMM d, yyyy') : 'No date set'}</Button>
+                                            <Button variant="outline" className="w-full h-11 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5 shadow-inner"><CalendarIcon className="mr-2 h-4 w-4 opacity-40" /> {field.value ? format(field.value, 'MMM d, yyyy') : 'No date set'}</Button>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
                                     </Popover>
@@ -543,10 +542,10 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
                         </div>
                     </ScrollArea>
 
-                    <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-6 pt-4" : "p-10 pt-6")}>
-                        <div className="flex w-full gap-4">
+                    <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-10 pt-4")}>
+                        <div className="flex w-full gap-4 items-center">
                             <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
-                            <Button type="submit" className="flex-[2.5] h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit Changes <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+                            <Button type="submit" className="flex-[2.5] h-16 rounded-[2rem] font-black uppercase tracking-widest text-sm shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit Changes <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1"/></Button>
                         </div>
                     </DialogFooter>
                 </form>
