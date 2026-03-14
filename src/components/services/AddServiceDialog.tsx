@@ -39,7 +39,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity, ShieldCheck, Target, Percent } from 'lucide-react';
+import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity, ShieldCheck, Target, Percent, Box, MapPin } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -582,6 +582,7 @@ export const AddServiceDialog: React.FC<any> = ({
   const { selectedTenant } = useTenant();
   const { firestore } = useFirebase();
   const tmhr = selectedTenant?.tmhr || 50;
+  const tenantId = selectedTenant?.id;
   
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
@@ -594,7 +595,7 @@ export const AddServiceDialog: React.FC<any> = ({
   useEffect(() => { if (open) { reset({ isAddon: initialType === 'addon', type: initialType === 'addon' ? 'addon' : 'service', capacity: 1, products: [], requiredResourceIds: [], compatibleAddOnIds: [], depositType: 'none', serviceTiers: [], requiredFormIds: [], price: 0 }); setStep(1); } }, [open, initialType, reset]);
 
   const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/consentForms`), [firestore, selectedTenant]));
-  const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`), [firestore, selectedTenant]));
+  const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]));
 
   const breakEvenCost = useMemo(() => {
       const totalDur = (values.duration || 0) + (values.padBefore || 0) + (values.padAfter || 0);
@@ -668,7 +669,7 @@ export const AddServiceDialog: React.FC<any> = ({
   const DialogContainer = isMobile ? Sheet : Dialog;
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-4xl max-h-[90dvh]")} side="right">
+      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-4xl max-h-[90dvh]")} side="right">
         {formBody}
       </DialogContent>
     </DialogContainer>

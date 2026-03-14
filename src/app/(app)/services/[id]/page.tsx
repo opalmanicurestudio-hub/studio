@@ -166,8 +166,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
                 <div className="p-5 rounded-2xl border-2 border-dashed bg-muted/10 flex items-start gap-4 text-left">
                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
-                        Studio Net Yield is calculated as: <br/>
-                        <span className="text-slate-900">Price - (Materials + TMHR Overhead + (Labor × {1 + (taxBurden / 100)}x Tax Burden))</span>
+                        Deficit Warning triggers when the Total Operational Load exceeds the Tier Price.
                     </p>
                 </div>
             </CardContent>
@@ -379,11 +378,11 @@ export default function ServiceDetailPage() {
                         <TabsTrigger value="formula" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Internal Formula</TabsTrigger>
                     </TabsList>
                     
-                    <TabsContent value="architecture" className="m-0 space-y-10 animate-in fade-in duration-500">
+                    <TabsContent value="architecture" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
                         <CostBreakdown service={service} tmhr={tmhr} staff={staff} taxBurden={taxBurden} />
                     </TabsContent>
 
-                    <TabsContent value="logistics" className="m-0 space-y-10 animate-in fade-in duration-500">
+                    <TabsContent value="logistics" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
                         <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
                             <CardHeader className="bg-muted/5 border-b p-6 sm:p-8 pb-4 text-left">
                                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><MapPin className="w-4 h-4 text-primary" /> Resource Dependencies</CardTitle>
