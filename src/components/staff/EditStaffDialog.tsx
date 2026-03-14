@@ -380,7 +380,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     <div className="space-y-4">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Contact Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
                             <div className="space-y-1.5">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
                                 <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (
@@ -431,7 +431,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 {assignedForms.map(form => (
                                     <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                                         <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive group-hover:opacity-100 transition-opacity" onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                        <Button variant="ghost" size="icon" className="h-7 h-7 text-destructive group-hover:opacity-100 transition-opacity" onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
                                     </div>
                                 ))}
                             </div>

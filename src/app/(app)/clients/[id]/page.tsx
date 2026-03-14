@@ -24,7 +24,6 @@ import {
     ShieldAlert, 
     BadgeInfo, 
     Ban, 
-    User as UserIcon, 
     PlusCircle, 
     FlaskConical, 
     TrendingUp, 
@@ -41,7 +40,8 @@ import {
     Loader,
     ShieldCheck,
     Info,
-    RefreshCw
+    RefreshCw,
+    Calendar as CalendarIcon
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
