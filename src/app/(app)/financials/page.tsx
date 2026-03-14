@@ -71,14 +71,14 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { useToast } from '@/hooks/use-toast';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
-import { type Tenant } from '@/lib/data';
+import { type Tenant, type PricingTier } from '@/lib/data';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useInventory } from '@/context/InventoryContext';
 
