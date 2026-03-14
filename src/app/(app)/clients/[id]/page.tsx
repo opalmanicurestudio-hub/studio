@@ -1,12 +1,11 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
   CardFooter,
@@ -15,99 +14,54 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { 
-    ArrowLeft, 
     Edit, 
     Mail, 
     Phone, 
-    DollarSign, 
-    Calendar, 
-    FileText, 
-    PlusCircle, 
-    ShieldPlus, 
-    AlertTriangle, 
-    Ear, 
-    Upload, 
-    Eye, 
+    Clock, 
+    Award, 
+    Repeat, 
+    CheckCircle2, 
     ShieldAlert, 
     BadgeInfo, 
     Ban, 
-    MessageSquare, 
-    Home, 
     User as UserIcon, 
-    Gift, 
-    Save, 
-    Award, 
-    Repeat, 
-    CheckCircle, 
-    Star, 
-    Percent, 
-    Loader, 
-    MoreHorizontal, 
-    XCircle, 
-    RefreshCw, 
-    FileSignature, 
-    Printer, 
-    KeyRound, 
-    ShieldCheck, 
-    Send, 
-    CheckCircle2,
-    TrendingUp,
-    Activity,
-    TicketIcon,
-    CreditCard,
-    Lock,
-    Zap,
-    X,
-    Info,
-    Smartphone,
+    PlusCircle, 
+    FlaskConical, 
+    TrendingUp, 
+    CreditCard, 
+    Lock, 
+    Zap, 
+    Trash2,
+    ArrowLeft,
     ArrowRight,
     Globe,
-    FlaskConical,
-    Tag,
-    Clock,
-    Scissors,
-    Briefcase,
-    Trash2
+    ShieldPlus,
+    AlertTriangle,
+    Ear,
+    Loader,
+    ShieldCheck,
+    Info,
+    RefreshCw
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO, addMonths, subMonths, isAfter } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { EditClientDialog } from '@/components/clients/EditClientDialog';
 import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
-import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, arrayUnion, query, where, writeBatch, increment, arrayRemove } from 'firebase/firestore';
-import type { Client, Appointment, Service, Staff, Discount, Membership, Package, Redemption, CustomFormula } from '@/lib/data';
+import { collection, doc, arrayUnion, writeBatch, increment } from 'firebase/firestore';
+import type { Client, Appointment, Service, CustomFormula } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
-import { Progress } from '@/components/ui/progress';
-import { 
-    Dialog, 
-    DialogContent, 
-    DialogHeader, 
-    DialogTitle, 
-    DialogDescription, 
-    DialogFooter 
-} from '@/components/ui/dialog';
-import { type Transaction } from '@/lib/financial-data';
-import { Textarea } from '@/components/ui/textarea';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -136,7 +90,7 @@ const getInitials = (name: string) => {
 };
 
 const ClientIntelBanner = ({ client }: { client: Client }) => {
-    const hasIntel = client.intel?.hasIncidents || client.medicalNotes || client.allergyNotes || client.sensoryNeeds || (Array.isArray(client.intel?.incidents) && client.intel.incidents.some(i => i.type === 'No-Show')) || client.status === 'banned';
+    const hasIntel = client.intel?.hasIncidents || client.medicalNotes || client.allergyNotes || client.sensoryNeeds || client.status === 'banned';
     if (!hasIntel) return null;
 
     return (
@@ -227,7 +181,7 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { appointments: allAppointments, services, memberships, packages, transactions: allTransactions, redemptions: allRedemptions } = useInventory();
+  const { appointments: allAppointments, services, memberships, transactions: allTransactions, redemptions: allRedemptions } = useInventory();
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -241,7 +195,6 @@ export default function ClientDetailPage() {
   const [isSettleProcessing, setIsSettleProcessing] = useState(false);
 
   const appointmentsForThisClient = useMemo(() => (allAppointments || []).filter(apt => apt.clientId === clientId).map(apt => ({ ...apt, service: services.find(s => s.id === apt.serviceId) })), [clientId, allAppointments, services]);
-  const clientTransactions = useMemo(() => (allTransactions || []).filter(t => t.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allTransactions]);
   const clientRedemptions = useMemo(() => (allRedemptions || []).filter(r => r.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allRedemptions]);
 
   const activeMembership = useMemo(() => {
@@ -250,7 +203,7 @@ export default function ClientDetailPage() {
   }, [client, memberships]);
 
   const primaryBookingSource = useMemo(() => {
-      if (!appointmentsForThisClient || appointmentsForThisClient.length === 0) return 'N/A';
+      if (!appointmentsForThisClient || appointmentsForThisClient.length === 0) return 'Manual';
       const sources = appointmentsForThisClient.map(a => a.source || 'manual');
       const counts = sources.reduce((acc: any, s) => {
           acc[s] = (acc[s] || 0) + 1;
@@ -438,7 +391,7 @@ export default function ClientDetailPage() {
                             <div className="space-y-4">
                                 <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 text-left">Scheduled Events</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Calendar className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
+                                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
                                 </div>
                             </div>
                             <div className="space-y-4 pt-6 border-t border-dashed">

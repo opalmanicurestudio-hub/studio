@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -268,7 +269,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 
 export default function ServiceDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const { services, appointments, staff, pricingTiers, inventory, isLoading: isInventoryLoading } = useInventory();
+    const { services, appointments, staff, pricingTiers, isLoading: isInventoryLoading } = useInventory();
     const { selectedTenant } = useTenant();
     const service = useMemo(() => services.find(s => s.id === id), [services, id]);
     const tmhr = selectedTenant?.tmhr || 50;
@@ -278,7 +279,7 @@ export default function ServiceDetailPage() {
     const servicePerformance = useMemo(() => {
         if (!service) return null;
         const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
-        const totalRevenue = bookings.reduce((acc, apt) => acc + (apt.revenue || 0), 0);
+        const totalRevenue = bookings.reduce((acc, apt) => acc + (apt.revenue || service.price), 0);
         const uniqueClients = new Set(bookings.map(apt => apt.clientId)).size;
 
         return {

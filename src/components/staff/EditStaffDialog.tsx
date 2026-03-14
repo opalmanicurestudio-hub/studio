@@ -41,9 +41,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
     User, 
-    Wallet, 
     CalendarIcon, 
-    Shield, 
     FileText, 
     List, 
     PlusCircle, 
@@ -54,23 +52,17 @@ import {
     Twitter, 
     Film, 
     Youtube, 
-    Clock, 
     KeyRound, 
     RefreshCw, 
     Sparkles, 
     ArrowRight, 
-    Check, 
     ShieldCheck, 
     Fingerprint, 
-    Award,
     Heart,
     Percent,
     Smartphone,
-    Briefcase,
     Zap,
-    Scale,
     DollarSign,
-    ShieldAlert,
     Edit
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
@@ -127,10 +119,15 @@ const editStaffSchema = z.object({
 
 type EditStaffFormData = z.infer<typeof editStaffSchema>;
 
-const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
-    <div className="flex items-center gap-3 px-1 mb-6 text-left">
-        <Icon className="w-4 h-4 text-muted-foreground opacity-40" />
-        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">{title}</h4>
+const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
+    <div className="flex items-center gap-4 mb-6">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
     </div>
 );
 
@@ -149,7 +146,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
     return (
         <div className="space-y-12">
             <div className="space-y-8">
-                <SectionHeader icon={Fingerprint} title="Identity & Security" />
+                <SectionHeader icon={Fingerprint} title="Identity & Security" step={1} />
                 <div className="space-y-8">
                     <div className="flex flex-col sm:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
                         <Controller
@@ -159,7 +156,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 <div className="relative group shrink-0">
                                     <Avatar className="w-24 h-24 border-4 border-background shadow-2xl rounded-3xl overflow-hidden transition-all group-hover:scale-105">
                                         <AvatarImage src={field.value || undefined} alt="Staff Avatar" className="object-cover" />
-                                        <AvatarFallback className="bg-primary/10 text-primary font-black uppercase"><User className="h-8 w-8 opacity-40" /></AvatarFallback>
+                                        <AvatarFallback className="bg-primary/10 text-primary font-black uppercase text-xl">{(watch('name') || 'S').charAt(0)}</AvatarFallback>
                                     </Avatar>
                                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-3xl cursor-pointer">
                                         <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
@@ -253,7 +250,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <Separator className="border-dashed" />
 
             <div className="space-y-10">
-                <SectionHeader icon={Sparkles} title="Profile & Mastery" />
+                <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
                 <div className="space-y-8 text-left">
                     <div className="space-y-2">
                         <Label htmlFor="bio-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Narrative (Public)</Label>
@@ -317,7 +314,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <Separator className="border-dashed" />
 
             <div className="space-y-10">
-                <SectionHeader icon={Wallet} title="Compensation Engine" />
+                <SectionHeader icon={Wallet} title="Compensation Engine" step={3} />
                 <div className="space-y-8 text-left">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-3">
@@ -378,7 +375,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <Separator className="border-dashed" />
 
             <div className="space-y-10">
-                <SectionHeader icon={Shield} title="Governance & Compliance" />
+                <SectionHeader icon={Landmark} title="Governance & Compliance" step={4} />
                 <div className="space-y-10 text-left">
                     <div className="space-y-4">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
@@ -453,7 +450,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
     );
 };
 
-export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
+export const EditStaffDialog: React.FC<any> = ({
   open, onOpenChange, onSave, staffMember, services, consentForms, pricingTiers, existingStaff,
 }) => {
   const isMobile = useIsMobile();
@@ -498,7 +495,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     let isUnique = false;
     while (!isUnique) {
         pin = Math.floor(1000 + Math.random() * 9000).toString();
-        isUnique = !existingStaff.some(s => s.id !== staffMember?.id && s.pin === pin);
+        isUnique = !existingStaff.some((s: Staff) => s.id !== staffMember?.id && s.pin === pin);
     }
     methods.setValue('pin', pin, { shouldDirty: true });
     uiToast({ title: "PIN Synchronized", description: "The provider's security signature has been updated." });
@@ -559,14 +556,3 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     </DialogComponent>
   );
 };
-
-export interface EditStaffDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (staffData: Staff) => void;
-  staffMember: Staff | null;
-  services: Service[];
-  consentForms: ConsentForm[];
-  pricingTiers: PricingTier[];
-  existingStaff: Staff[];
-}
