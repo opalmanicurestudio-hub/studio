@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -141,7 +142,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
                 <div className="space-y-6">
                     {tierAnalysis.map(tier => (
                         <div key={tier.id} className="space-y-3">
-                            <div className="flex justify-between items-center px-1">
+                            <div className="flex justify-between items-center px-1 text-left">
                                 <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{tier.name}</span>
                                 <span className="font-black text-slate-900 text-xs">${tier.price.toFixed(2)}</span>
                             </div>
@@ -339,8 +340,8 @@ export default function ServiceDetailPage() {
                         </div>
                     </div>
                     
-                    <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2">
-                        <div className="space-y-1 text-left">
+                    <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2 text-left">
+                        <div className="space-y-1">
                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Duration</p>
                             <div className="flex items-center gap-2 font-black text-base md:text-xl text-primary tracking-tight">
                                 <Clock className="w-4 h-4 md:w-5 md:h-5" />

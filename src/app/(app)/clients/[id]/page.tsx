@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -229,9 +230,6 @@ export default function ClientDetailPage() {
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [isQuickSettleOpen, setIsQuickSettleOpen] = useState(false);
   const [isSettleProcessing, setIsSettleProcessing] = useState(false);
-  const [isNotifyOpen, setIsNotifyOpen] = useState(false);
-  const [notificationMsg, setNotificationMsg] = useState('');
-  const [notifyMethod, setNotifyMethod] = useState<'sms' | 'email'>('sms');
 
   const appointmentsForThisClient = useMemo(() => (allAppointments || []).filter(apt => apt.clientId === clientId).map(apt => ({ ...apt, service: services.find(s => s.id === apt.serviceId) })), [clientId, allAppointments, services]);
   const clientTransactions = useMemo(() => (allTransactions || []).filter(t => t.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allTransactions]);
@@ -284,13 +282,6 @@ export default function ClientDetailPage() {
         setIsSettleProcessing(false);
     }
   };
-
-  const handleSendNotification = () => {
-      if (!notificationMsg.trim()) return;
-      toast({ title: "Dispatch Complete", description: `Message successfully queued for ${notifyMethod.toUpperCase()} delivery.` });
-      setIsNotifyOpen(false);
-      setNotificationMsg('');
-  }
 
   if (isUserLoading || isTenantLoading || clientLoading) {
       return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
@@ -354,10 +345,6 @@ export default function ClientDetailPage() {
                             </div>
                         </div>
                     </div>
-                    <div className="flex flex-col gap-2 shrink-0 w-full sm:w-auto">
-                        <Button variant="outline" asChild className="h-12 rounded-2xl border-2 font-black uppercase text-[9px] md:text-[10px] tracking-widest shadow-sm bg-white/50"><Link href={`/clients/${client.id}/report`}><FileText className="mr-2 h-4 w-4"/>Strategy Report</Link></Button>
-                        <Button variant="outline" onClick={() => setIsNotifyOpen(true)} className="h-12 rounded-2xl border-2 font-black uppercase text-[9px] md:text-[10px] tracking-widest shadow-sm bg-white/50"><MessageSquare className="mr-2 h-4 w-4"/>Notify Guest</Button>
-                    </div>
                 </CardContent>
             </Card>
 
@@ -375,7 +362,7 @@ export default function ClientDetailPage() {
                         <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500">
                             <Card className="border-2 shadow-sm rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-white text-left">
                                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8 pb-4">
-                                    <CardTitle className="text-[10px] md:text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><BadgeInfo className="w-4 h-4 text-primary" /> Dossier Details</CardTitle>
+                                    <CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><BadgeInfo className="w-4 h-4 text-primary" /> Dossier Details</CardTitle>
                                 </CardHeader>
                                 <CardContent className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10">
                                     <div className="space-y-6">
@@ -409,7 +396,7 @@ export default function ClientDetailPage() {
 
                         <TabsContent value="ledger" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                             <div className="space-y-4">
-                                <h3 className="text-10px font-black uppercase tracking-widest text-destructive ml-1">Unpaid Protocol Fees</h3>
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1">Unpaid Protocol Fees</h3>
                                 {client.unpaidFees && client.unpaidFees.length > 0 ? (
                                     <div className="grid gap-3">
                                         {client.unpaidFees.map((fee) => (
@@ -428,7 +415,7 @@ export default function ClientDetailPage() {
                             <Separator className="border-dashed" />
 
                             <div className="space-y-4">
-                                <h3 className="text-10px font-black uppercase tracking-widest text-primary ml-1">Certified Redemptions & Waivers</h3>
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Certified Redemptions & Waivers</h3>
                                 <div className="grid gap-3">
                                     {clientRedemptions.map(r => (
                                         <div key={r.id} className={cn("flex items-center justify-between p-4 rounded-2xl border-2 bg-white", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
@@ -570,59 +557,6 @@ export default function ClientDetailPage() {
                     {isSettleProcessing ? <Loader className="animate-spin" /> : 'Authorize Charge'}
                 </Button>
                 <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
-            </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isNotifyOpen} onOpenChange={setIsNotifyOpen}>
-        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden">
-            <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-                <div className="flex items-center gap-3 mb-2">
-                    <Smartphone className="w-5 h-5 text-primary" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Outreach Protocol</span>
-                </div>
-                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Notify Guest</DialogTitle>
-                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Dispatch a manual update to {client.name}.</DialogDescription>
-            </DialogHeader>
-            <div className="p-8 space-y-8">
-                <RadioGroup value={notifyMethod} onValueChange={(v: any) => setNotifyMethod(v)} className="grid grid-cols-2 gap-3">
-                    <label htmlFor="method-sms" className="cursor-pointer">
-                        <div className={cn(
-                            "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all",
-                            notifyMethod === 'sms' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white"
-                        )}>
-                            <MessageSquare className="w-5 h-5 mb-2 opacity-40" />
-                            <span className="text-[10px] font-black uppercase tracking-widest">SMS Alert</span>
-                            <RadioGroupItem value="sms" id="method-sms" className="sr-only" />
-                        </div>
-                    </label>
-                    <label htmlFor="method-email" className="cursor-pointer">
-                        <div className={cn(
-                            "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all",
-                            notifyMethod === 'email' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white"
-                        )}>
-                            <Mail className="w-5 h-5 mb-2 opacity-40" />
-                            <span className="text-[10px] font-black uppercase tracking-widest">Email Signal</span>
-                            <RadioGroupItem value="email" id="method-email" className="sr-only" />
-                        </div>
-                    </label>
-                </RadioGroup>
-                <div className="space-y-3 text-left">
-                    <Label htmlFor="notify-msg" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Message Payload</Label>
-                    <Textarea 
-                        id="notify-msg" 
-                        value={notificationMsg} 
-                        onChange={e => setNotificationMsg(e.target.value)} 
-                        placeholder="Draft your update here..." 
-                        className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium"
-                    />
-                </div>
-            </div>
-            <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
-                <Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group" onClick={handleSendNotification} disabled={!notificationMsg.trim()}>
-                    Authorize Dispatch <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
-                </Button>
-                <Button variant="ghost" onClick={() => setIsNotifyOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Abort</Button>
             </DialogFooter>
         </DialogContent>
       </Dialog>

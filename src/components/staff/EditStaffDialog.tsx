@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -82,6 +83,7 @@ import { Badge } from '@/components/ui/badge';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const editStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -321,7 +323,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Logic</Label>
                             <Controller name="payStructure" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION SPLIT</SelectItem>
                                         <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
@@ -336,7 +338,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Cycle</Label>
                                 <Controller name="payoutFrequency" control={control} render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                        <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                                         <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             <SelectItem value="weekly" className="font-bold uppercase text-[10px] tracking-widest">WEEKLY</SelectItem>
                                             <SelectItem value="bi-weekly" className="font-bold uppercase text-[10px] tracking-widest">BI-WEEKLY</SelectItem>
@@ -422,7 +424,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                 <FileText className="w-3.5 h-3.5 opacity-40" /> Compliance Forms
                             </Label>
-                            <Button variant="ghost" size="sm" onClick={() => setIsConsentFormDialogOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                            <Button variant="ghost" size="sm" type="button" onClick={() => setIsConsentFormDialogOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Assign Forms
                             </Button>
                         </div>
@@ -520,7 +522,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
 
   return (
     <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[90dvh]")}>
+        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
             <FormProvider {...methods}>
                 <form id="edit-staff-strategic-form" onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col h-full overflow-hidden">
                     <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-10 pb-6")}>

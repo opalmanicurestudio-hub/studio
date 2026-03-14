@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -354,7 +355,7 @@ const FinancialProfileManager = ({
   );
 };
 
-const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestore, selectedTenant }: any) => {
+const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestore, selectedTenant, taxBurden, setTaxBurden, isEditing }: any) => {
     const { toast } = useToast();
     const totalCosts = lifestyleTotal + businessTotal;
     const tmhr = totalHours > 0 ? totalCosts / totalHours : 0;
@@ -362,8 +363,8 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
     const handleSetDefaultRate = () => {
         if (!selectedTenant || !firestore) return;
         const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
-        updateDocumentNonBlocking(tenantRef, { tmhr });
-        toast({ title: 'Foundation Synchronized', description: `TMHR of $${tmhr.toFixed(2)}/hr set as studio standard.` });
+        updateDocumentNonBlocking(tenantRef, { tmhr, employerTaxBurdenPct: taxBurden });
+        toast({ title: 'Foundation Synchronized', description: `TMHR of $${tmhr.toFixed(2)}/hr and ${taxBurden}% Tax Burden set.` });
     };
 
     return (
@@ -378,6 +379,27 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
                 <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary/60">Minimum Yield / Hour</p>
                 <p className="text-4xl sm:text-7xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
             </div>
+            
+            <div className="p-5 rounded-[1.5rem] border-2 border-primary/10 bg-white/50 space-y-4 shadow-inner">
+                <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                        <Label htmlFor="tax-burden" className="text-[10px] font-black uppercase tracking-widest text-primary leading-none">Labor Tax Burden</Label>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">FICA, SUI, Benefits Multiplier</p>
+                    </div>
+                    <div className="relative w-20">
+                        <Input 
+                            id="tax-burden" 
+                            type="number" 
+                            value={taxBurden || ''} 
+                            onChange={e => setTaxBurden(parseFloat(e.target.value) || 0)} 
+                            disabled={!isEditing}
+                            className="h-10 pr-6 rounded-xl border-2 font-black text-xs text-right bg-white shadow-sm"
+                        />
+                        <Percent className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
+                    </div>
+                </div>
+            </div>
+
             <div className="space-y-3 sm:space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                 <div className="flex justify-between items-center text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Personal Draw / Hr</span> <span className="font-mono text-slate-900">${(totalHours > 0 ? lifestyleTotal / totalHours : 0).toFixed(2)}</span></div>
                 <div className="flex justify-between items-center text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>OpEx Load / Hr</span> <span className="font-mono text-slate-900">${(totalHours > 0 ? businessTotal / totalHours : 0).toFixed(2)}</span></div>
@@ -399,6 +421,7 @@ export default function FinancialFoundationPage() {
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTab] = useState('lifestyle');
     const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
+    const [taxBurden, setTaxBurden] = useState(10);
     const { toast } = useToast();
 
     const lifestyleProfilesQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/lifestyleProfiles`) : null, [firestore, tenantId]);
@@ -410,6 +433,12 @@ export default function FinancialFoundationPage() {
     const { data: scheduleProfilesData, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
     
     const [profiles, setProfiles] = useState<any>({ lifestyleProfiles: [], businessProfiles: [], scheduleProfiles: [] });
+
+    useEffect(() => {
+        if (selectedTenant) {
+            setTaxBurden(selectedTenant.employerTaxBurdenPct || 10);
+        }
+    }, [selectedTenant]);
 
     useEffect(() => {
         if (lifestyleProfilesLoading || !firestore || !user || !tenantId) return;
@@ -521,6 +550,9 @@ export default function FinancialFoundationPage() {
                         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/${key}/${p.id}`), p);
                     });
                 });
+                if (tenantId) {
+                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { employerTaxBurdenPct: taxBurden });
+                }
             }
             toast({ title: 'Foundation Updated' });
         }
@@ -546,7 +578,7 @@ export default function FinancialFoundationPage() {
                         <Button onClick={handleEditToggle} className="flex-[2] sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase text-[9px] sm:text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
                     </>
                 ) : (
-                    <Button onClick={handleEditToggle} className="w-full sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20"><Edit className="mr-2 h-4 w-4" />Modify Profiles</Button>
+                    <Button onClick={handleEditToggle} className="w-full sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20"><Pencil className="mr-2 h-4 w-4" />Modify Profiles</Button>
                 )}
             </div>
         </div>
@@ -580,6 +612,9 @@ export default function FinancialFoundationPage() {
                             totalHours={totalBillableHours}
                             firestore={firestore}
                             selectedTenant={selectedTenant}
+                            taxBurden={taxBurden}
+                            setTaxBurden={setTaxBurden}
+                            isEditing={isEditing}
                         />
                     </div>
                     <div className="lg:col-span-2 xl:col-span-3">

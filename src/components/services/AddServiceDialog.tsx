@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -146,7 +147,7 @@ const Step1 = ({
                 <div className="space-y-2">
                     <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Library Department</Label>
                     {isAddingCategory ? (
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 text-left">
                             <Input placeholder="NEW CATEGORY..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} className="h-12 rounded-xl border-2 font-black uppercase text-xs" />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
                             <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-slate-400 font-bold uppercase text-[10px]">Cancel</Button>
@@ -257,7 +258,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
     return (
         <div className="space-y-10">
             <SectionHeader icon={Calculator} title="Formula & Resources" step={2} />
-            <div className="space-y-8">
+            <div className="space-y-8 text-left">
                 <div className="space-y-4">
                     <div className='flex items-center justify-between px-1'>
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
@@ -440,7 +441,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                             </div>
                         </div>
                     </CardHeader>
-                    <CardContent className="p-8">
+                    <CardContent className="p-8 text-left">
                         <div className="relative">
                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-8 w-8 text-primary opacity-40" />
                             <Input id="standard-price" type="number" step="0.01" placeholder="0.00" {...register('price')} className="h-20 pl-14 rounded-3xl border-2 font-black text-4xl tracking-tighter text-primary shadow-inner bg-white focus-visible:ring-primary/20" />

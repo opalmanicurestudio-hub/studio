@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -220,12 +221,12 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                 <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
                     {tierAnalysis.map(tier => (
                         <div key={tier.id} className="space-y-2">
-                            <div className="flex justify-between items-center px-1">
+                            <div className="flex justify-between items-center px-1 text-left">
                                 <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{tier.name}</span>
                                 <span className="font-mono text-[9px] font-black text-slate-900">${tier.price.toFixed(2)}</span>
                             </div>
                             <div className="grid gap-1.5">
-                                {tier.staffAnalysis.map(sa => (
+                                {tier.staffAnalysis.length > 0 ? tier.staffAnalysis.map(sa => (
                                     <div key={sa.id} className={cn(
                                         "p-2 rounded-xl border-2 flex justify-between items-center bg-white transition-all",
                                         sa.studioNet >= 0 ? "border-primary/5" : "border-red-100"
@@ -243,7 +244,11 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                                             </span>
                                         </div>
                                     </div>
-                                ))}
+                                )) : (
+                                    <div className="p-2 rounded-xl border-2 border-dashed bg-muted/5 text-center">
+                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">No staff assigned</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -591,7 +596,7 @@ export default function ServicesPage() {
                         <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
                         <div className="mt-6 p-4 rounded-2xl bg-white/50 border border-primary/10 shadow-sm">
                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-2">Base Metric</p>
-                            <p className="text-xs font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                            <p className="text-xs font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left">
                                 Every session is evaluated against this hourly breakeven threshold to ensure studio growth.
                             </p>
                         </div>
@@ -639,7 +644,7 @@ export default function ServicesPage() {
             </AlertDialogHeader>
             <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                 <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Services</Button>
-                <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
+                <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
     </AlertDialog>
@@ -650,9 +655,9 @@ export default function ServicesPage() {
 const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
     <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
         <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
-            <Book className='w-12 h-12 text-muted-foreground' />
+            <BookText className='w-12 h-12 text-muted-foreground' />
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2 text-center">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Library is Empty</h3>
             <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
                 Populate your menu to unlock automated breakeven analysis and client booking.
@@ -663,8 +668,4 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
             Add First Treatment
         </Button>
     </div>
-);
-
-const Book = ({ className }: { className?: string }) => (
-    <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
 );
