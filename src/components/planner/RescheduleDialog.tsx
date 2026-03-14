@@ -282,7 +282,7 @@ const RescheduleAppointmentForm = ({
                                     {applyFee && (
                                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Distribution Method</Label>
-                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-3 gap-3">
+                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-3 gap-3">
                                                 <label htmlFor="resched-pay-session" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="add_to_session" id="resched-pay-session" className="peer sr-only" />
                                                     <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'add_to_session' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>

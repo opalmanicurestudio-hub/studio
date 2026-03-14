@@ -51,7 +51,6 @@ const safeDate = (val: any): Date => {
             return new Date(val);
         }
     }
-    if (typeof val?.toDate === 'function') return val.toDate();
     if (typeof val === 'object' && 'seconds' in val) {
         return new Date(val.seconds * 1000);
     }
@@ -66,7 +65,7 @@ function PlannerPageContent() {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   
   const { user: currentUser } = useUser();
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
   const { firestore } = useFirebase();
   const tenantId = selectedTenant?.id;
   const router = useRouter();
