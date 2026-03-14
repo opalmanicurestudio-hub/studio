@@ -50,12 +50,11 @@ import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
-import { Switch } from '../ui/switch';
-import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -150,6 +149,11 @@ const RescheduleAppointmentForm = ({
             const svc = services.find(s => s.id === apt.serviceId);
             busyIntervals.push({ start: addMinutes(safeDate(apt.startTime), -(svc?.padBefore || 0)), end: addMinutes(safeDate(apt.endTime), (svc?.padAfter || 0)) });
         });
+
+        (useInventory().events || []).filter(evt => {
+            if (!isSameDay(safeDate(evt.startTime), rescheduleDate) || evt.type !== 'blocked') return false;
+            return !evt.staffIds || evt.staffIds.includes('all') || (appointment.staffId && evt.staffIds.includes(appointment.staffId));
+        }).forEach(evt => { busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) }); });
 
         const options: string[] = [];
         let currentTime = openTime;

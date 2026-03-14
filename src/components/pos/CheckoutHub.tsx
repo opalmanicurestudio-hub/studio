@@ -502,7 +502,7 @@ export const CheckoutHub = ({
                     <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
                         <Cake className="h-5 w-5 text-pink-500" />
                         <AlertTitle className="text-[10px] font-black uppercase text-pink-600 tracking-widest">Birthday Protocol Active</AlertTitle>
-                        <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">
+                        <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1 text-left">
                             It's {selectedClient.name.split(' ')[0]}'s special day. Consider a complimentary enhancement or birthday gift.
                         </AlertDescription>
                     </Alert>

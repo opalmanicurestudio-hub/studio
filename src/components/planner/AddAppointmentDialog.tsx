@@ -366,7 +366,6 @@ const AddAppointmentForm = ({
                 if (isToday(startDateTime) && (!s.active || s.onBreak) && !data.overrideBusinessHours) return false;
                 
                 const dayName = format(startDateTime, 'eeee').toLowerCase();
-                const dDate = safeDate(data.date);
                 const sched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
                 
                 if (!data.overrideBusinessHours) {
@@ -693,8 +692,7 @@ const AddAppointmentForm = ({
 
 export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client, appointmentToRebook, memberships }) => {
   const isMobile = useIsMobile();
-  const formKey = useMemo(() => appointmentToRebook ? `rebook-${appointmentToRebook.id}` : `new-${client?.id || 'fresh'}`, [appointmentToRebook, client]);
-
+  
   const dialogTitle = "New Session";
   const dialogDescription = "Manually reserve a studio session for your guest.";
   
