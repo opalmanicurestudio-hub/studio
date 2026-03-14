@@ -39,7 +39,7 @@ import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
-import { type Transaction } from '@/lib/financial-data';
+import { type Transaction, type BillDefinition } from '@/lib/financial-data';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -138,7 +138,9 @@ function PlannerPageContent() {
     const map = new Map<string, (Appointment | Event | BillInstance)[]>();
     (columns || []).forEach(c => map.set(c.id, []));
     
-    appointments?.filter(a => isSameDay(safeDate(a.startTime), currentDate)).forEach(a => {
+    const targetDateStart = startOfDay(currentDate);
+
+    appointments?.filter(a => isSameDay(safeDate(a.startTime), targetDateStart)).forEach(a => {
         if (activeView === 'staff') { 
             const involvedIds = new Set<string>();
             if (a.staffId) involvedIds.add(a.staffId);
@@ -155,13 +157,13 @@ function PlannerPageContent() {
     });
 
     if (map.has('business')) {
-        billInstances?.filter(i => isSameDay(safeDate(i.dueDate), currentDate)).forEach(i => {
+        billInstances?.filter(i => isSameDay(safeDate(i.dueDate), targetDateStart)).forEach(i => {
             const def = billDefinitions.find(d => d.id === i.billDefinitionId);
             map.get('business')!.push({ ...i, definition: def, itemType: 'bill' } as any);
         });
     }
 
-    events?.filter(e => isSameDay(safeDate(e.startTime), currentDate)).forEach(e => {
+    events?.filter(e => isSameDay(safeDate(e.startTime), targetDateStart)).forEach(e => {
         const targetStaffIds = e.staffIds || [];
         const isGlobal = targetStaffIds.length === 0 || targetStaffIds.includes('all');
         
@@ -405,7 +407,7 @@ function PlannerPageContent() {
 
     // 2. Handle Protocol Fee if applicable
     if (applyFee && feeAmount > 0) {
-        if (paymentMethod === 'card_on_file') {
+        if (paymentMethod === 'card_on_file' || paymentMethod === 'charge_new_card') {
             const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(txnRef, {
                 id: txnRef.id,
@@ -417,7 +419,7 @@ function PlannerPageContent() {
                 context: 'Business',
                 category: 'Adjustment Fee',
                 amount: feeAmount,
-                paymentMethod: 'Card on File',
+                paymentMethod: paymentMethod === 'card_on_file' ? 'Card on File' : 'Credit Card (Mobile)',
                 hasReceipt: false,
                 appointmentId: aptData.id,
                 staffId: aptData.staffId
@@ -477,9 +479,7 @@ function PlannerPageContent() {
                 if (id && typeof id === 'string') involvedIds.add(id);
             });
         }
-        involvedIds.forEach(sid => {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
-        });
+        involvedIds.forEach(sid => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }); });
     } else {
         batch.update(appointmentRef, { checkoutState });
         
@@ -541,11 +541,15 @@ function PlannerPageContent() {
         });
     }
 
-    batch.commit().then(() => {
+    try {
+        await batch.commit();
         setIsOverrideOpen(false);
         setIsDetailsOpen(false);
         toast({ title: "Cancellation Overridden", description: "Appointment restored to active state." });
-    });
+    } catch (e) {
+        console.error("Override failed", e);
+        toast({ variant: 'destructive', title: "Override Failed" });
+    }
   };
 
   const billInstancesWithDefinitions = useMemo(() => {
@@ -556,7 +560,7 @@ function PlannerPageContent() {
   }, [billInstances, billDefinitions]);
 
   const handleLogPaymentConfirm = (paymentData: any) => {
-    // Logic for logging payment (from Bills page)
+    // Logic for logging payment handled by individual page components usually
   };
 
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -565,9 +569,9 @@ function PlannerPageContent() {
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader />
       <div className="p-3 sm:p-4 md:py-3 md:px-8 border-b bg-white/50 backdrop-blur-xl">
-            <div className="max-w-7xl mx-auto space-y-4 sm:space-y-4">
+            <div className="max-w-7xl mx-auto space-y-4 sm:space-y-4 text-left">
                 <div className="flex items-center justify-between gap-4">
-                    <div className="space-y-0.5 text-left">
+                    <div className="space-y-0.5">
                         <h1 className="text-xl sm:text-2xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
                         <p className="hidden sm:block text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
                     </div>

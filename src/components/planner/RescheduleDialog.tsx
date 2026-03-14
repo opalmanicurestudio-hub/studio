@@ -37,11 +37,12 @@ import {
     Undo2,
     Lock,
     ShieldCheck,
-    Loader
+    Loader,
+    CreditCard as CardIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, differenceInHours } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, differenceInHours, endOfDay } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useInventory } from '@/context/InventoryContext';
@@ -54,6 +55,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
 import { Badge } from '../ui/badge';
+import { Input } from '../ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
@@ -102,7 +104,7 @@ const RescheduleAppointmentForm = ({
     
     // Fee State
     const [applyFee, setApplyFee] = useState(false);
-    const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
+    const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance' | 'charge_new_card'>('card_on_file');
 
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
     const hasCardOnFile = !!client?.cardOnFile?.token;
@@ -182,10 +184,10 @@ const RescheduleAppointmentForm = ({
         });
     }
 
-    // Default to add to balance if no card on file
+    // Default payment method handling
     useEffect(() => {
         if (!hasCardOnFile && paymentMethod === 'card_on_file') {
-            setPaymentMethod('add_to_balance');
+            setPaymentMethod('charge_new_card');
         }
     }, [hasCardOnFile, paymentMethod]);
     
@@ -237,24 +239,57 @@ const RescheduleAppointmentForm = ({
                                     {applyFee && (
                                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Distribution Method</Label>
-                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-3">
+                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                 <label htmlFor="resched-pay-card" className={cn("cursor-pointer flex-1 h-full", !hasCardOnFile && "opacity-40 grayscale")}>
                                                     <RadioGroupItem value="card_on_file" id="resched-pay-card" className="peer sr-only" disabled={!hasCardOnFile} />
                                                     <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
                                                         {hasCardOnFile ? <ShieldCheck className="w-5 h-5 mb-1.5 text-primary" /> : <Lock className="w-5 h-5 mb-1.5 text-slate-400" />}
-                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Charge Vault</span>
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Vault</span>
                                                         {hasCardOnFile && <span className="text-[7px] text-primary/60 font-black uppercase mt-1 tracking-tight">•••• {client?.cardOnFile?.last4}</span>}
+                                                    </div>
+                                                </label>
+                                                <label htmlFor="resched-pay-new" className="cursor-pointer flex-1 h-full">
+                                                    <RadioGroupItem value="charge_new_card" id="resched-pay-new" className="peer sr-only" />
+                                                    <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                        <CreditCard className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">New Card</span>
+                                                        <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Manual Auth</span>
                                                     </div>
                                                 </label>
                                                 <label htmlFor="resched-pay-balance" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="add_to_balance" id="resched-pay-balance" className="peer sr-only" />
                                                     <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
                                                         <Landmark className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Add to Dossier</span>
-                                                        <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Arrears Balance</span>
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-900 leading-none">Dossier</span>
+                                                        <span className="text-[7px] text-muted-foreground font-bold uppercase mt-1 opacity-60">Arrears</span>
                                                     </div>
                                                 </label>
                                             </RadioGroup>
+
+                                            {paymentMethod === 'charge_new_card' && (
+                                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-5 rounded-2xl border-4 border-primary/10 bg-white space-y-4 shadow-xl">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <Lock className="w-3.5 h-3.5 text-primary opacity-40" />
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-primary/60">Encrypted Terminal Flow</span>
+                                                    </div>
+                                                    <div className="space-y-3">
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[8px] font-black uppercase text-muted-foreground">Card Protocol</Label>
+                                                            <Input placeholder="•••• •••• •••• ••••" className="h-10 rounded-xl border-2 font-mono text-xs shadow-inner" />
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[8px] font-black uppercase text-muted-foreground">Expiry</Label>
+                                                                <Input placeholder="MM / YY" className="h-10 rounded-xl border-2 text-center text-xs" />
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[8px] font-black uppercase text-muted-foreground">CVC</Label>
+                                                                <Input placeholder="•••" className="h-10 rounded-xl border-2 text-center text-xs" />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </motion.div>
+                                            )}
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
