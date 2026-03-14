@@ -40,7 +40,8 @@ import {
     Star,
     Check,
     Lock,
-    Sparkles
+    Sparkles,
+    Info
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -69,13 +70,14 @@ import {
 import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
     if (typeof val === 'string') return parseISO(val);
     if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    if (typeof val?.toDate === 'function') return val.toDate();
     return new Date(val);
 };
 
@@ -207,6 +209,13 @@ export const CheckoutHub = ({
 
     const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
     
+    const isBirthdayToday = useMemo(() => {
+        if (!selectedClient?.birthday) return false;
+        const birth = safeDate(selectedClient.birthday);
+        const today = new Date();
+        return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
+    }, [selectedClient]);
+
     const isMember = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
     const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
     const hasCardOnFile = !!selectedClient?.cardOnFile?.token;
@@ -400,6 +409,16 @@ export const CheckoutHub = ({
                                         </div>
                                         <div className="flex items-center gap-2 min-w-0">
                                             <span className="truncate text-xs md:text-sm">{selectedClient.name}</span>
+                                            {isBirthdayToday && (
+                                                <TooltipProvider>
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Guest Birthday Today</TooltipContent>
+                                                    </Tooltip>
+                                                </TooltipProvider>
+                                            )}
                                             {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
                                             {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
                                         </div>
@@ -478,6 +497,18 @@ export const CheckoutHub = ({
                 </div>
             </div>
 
+            {selectedClient && isBirthdayToday && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
+                    <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
+                        <Cake className="h-5 w-5 text-pink-500" />
+                        <AlertTitle className="text-[10px] font-black uppercase text-pink-600 tracking-widest">Birthday Protocol Active</AlertTitle>
+                        <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">
+                            It's {selectedClient.name.split(' ')[0]}'s special day. Consider a complimentary enhancement or birthday gift.
+                        </AlertDescription>
+                    </Alert>
+                </motion.div>
+            )}
+
             {selectedClient && availableEntitlements.length > 0 && (
                 <div className="space-y-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1">
@@ -549,7 +580,7 @@ export const CheckoutHub = ({
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
-                                                    {isRedeemed && <Badge className="bg-primary text-white border-none text-[8px] h-4 px-1.5 font-black uppercase tracking-widest">Entitlement</Badge>}
+                                                    {isRedeemed && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Entitlement</Badge>}
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{mainStaffMember?.name?.split(' ')[0] || 'Tech'} &middot; {data.service.duration}m</p>
