@@ -238,7 +238,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
                         <div className='space-y-1 text-left'>
                             <Label htmlFor="public-toggle-edit" className="text-base font-black uppercase tracking-tight">Public Registry</Label>
-                            <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Show on the guest booking page</p>
+                            <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Show on the guest booking page</p>
                         </div>
                         <Controller name="showOnPublicPage" control={control} render={({ field }) => ( <Switch id="public-toggle-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
                     </div>
@@ -306,114 +306,6 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             </div>
                         )}
                     </div>
-                </div>
-            </div>
-
-            <Separator className="border-dashed" />
-
-            <div className="space-y-10">
-                <SectionHeader icon={Wallet} title="Compensation Engine" step={3} />
-                <div className="space-y-8 text-left">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-3">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Logic</Label>
-                            <Controller name="payStructure" control={control} render={({ field }) => (
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
-                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION SPLIT</SelectItem>
-                                        <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
-                                        <SelectItem value="hourly_plus_commission" className="font-bold uppercase text-[10px] tracking-widest">HOURLY + COMMISSION</SelectItem>
-                                        <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">BASE SALARY</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            )}/>
-                        </div>
-                        {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
-                            <div className="space-y-3">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Cycle</Label>
-                                <Controller name="payoutFrequency" control={control} render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
-                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            <SelectItem value="weekly" className="font-bold uppercase text-[10px] tracking-widest">WEEKLY</SelectItem>
-                                            <SelectItem value="bi-weekly" className="font-bold uppercase text-[10px] tracking-widest">BI-WEEKLY</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                )}/>
-                            </div>
-                        )}
-                    </div>
-
-                    {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="commissionRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service Ratio (%)</Label>
-                                <div className="relative"><Input id="commissionRate-edit" type="number" {...register('commissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="retailCommission-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail Ratio (%)</Label>
-                                <div className="relative"><Input id="retailCommission-edit" type="number" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
-                        <div className="space-y-2 animate-in slide-in-from-top-2">
-                            <Label htmlFor="hourlyRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                <Input id="hourlyRate-edit" type="number" step="0.01" {...register('hourlyRate')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" />
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            <Separator className="border-dashed" />
-
-            <div className="space-y-10">
-                <SectionHeader icon={Landmark} title="Governance & Compliance" step={4} />
-                <div className="space-y-10 text-left">
-                    <div className="space-y-4">
-                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
-                            <div className="space-y-1.5">
-                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
-                                <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[9px] tracking-widest bg-muted/5 shadow-inner"><SelectValue placeholder="SELECT..." /></SelectTrigger>
-                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            {['Spouse', 'Partner', 'Parent', 'Guardian', 'Sibling', 'Child', 'Friend', 'Other'].map(r => ( <SelectItem key={r} value={r} className="font-bold uppercase text-[9px] tracking-widest">{r.toUpperCase()}</SelectItem> ))}
-                                        </SelectContent>
-                                    </Select>
-                                )}/>
-                            </div>
-                            <div className="sm:col-span-2 text-left space-y-1.5">
-                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Emergency Contact Mobile</Label>
-                                <PhoneInput name="emergencyContact.phone" label="" className="h-11 rounded-xl kiosk-phone-input" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="space-y-4 pt-4 border-t border-dashed">
-                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldCheck className="w-3 h-3" /> Licensing Ledger</h4>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-white shadow-inner" /></div>
-                            <div className="space-y-1.5">
-                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Registry Expiry</Label>
-                                <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => (
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <Button variant="outline" className="w-full h-11 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5 shadow-inner"><CalendarIcon className="mr-2 h-4 w-4 opacity-40" /> {field.value ? format(field.value, 'MMM d, yyyy') : 'No date set'}</Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
-                                    </Popover>
-                                )}/>
-                            </div>
-                        </div>
-                    </div>
 
                     <div className="space-y-4 pt-4 border-t border-dashed">
                         <div className="flex items-center justify-between px-1">
@@ -442,6 +334,116 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     </div>
                 </div>
             </div>
+
+            <Separator className="border-dashed" />
+
+            <div className="space-y-10">
+                <SectionHeader icon={Zap} title="Compensation Engine" step={3} />
+                <div className="space-y-8 text-left">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Logic</Label>
+                            <Controller name="payStructure" control={control} render={({ field }) => (
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                        <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION SPLIT</SelectItem>
+                                        <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
+                                        <SelectItem value="hourly_plus_commission" className="font-bold uppercase text-[10px] tracking-widest">HOURLY + COMMISSION</SelectItem>
+                                        <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">BASE SALARY</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            )}/>
+                        </div>
+                        {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
+                            <div className="space-y-3">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Cycle</Label>
+                                <Controller name="payoutFrequency" control={control} render={({ field }) => (
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            <SelectItem value="weekly" className="font-bold uppercase text-[10px] tracking-widest">WEEKLY</SelectItem>
+                                            <SelectItem value="bi-weekly" className="font-bold uppercase text-[10px] tracking-widest">BI-WEEKLY</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                )}/>
+                            </div>
+                        )}
+                    </div>
+
+                    {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="commissionRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service Ratio (%)</Label>
+                                <div className="relative"><Input id="commissionRate-edit" type="number" {...register('commissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="retailCommission-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail Ratio (%)</Label>
+                                <div className="relative"><Input id="retailCommission-edit" type="number" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
+                            </div>
+                        </div>
+                    )} 
+                    
+                    {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
+                        <div className="space-y-2 animate-in slide-in-from-top-2">
+                            <Label htmlFor="hourlyRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
+                            <div className="relative">
+                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                <Input id="hourlyRate-edit" type="number" step="0.01" {...register('hourlyRate')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <Separator className="border-dashed" />
+
+            <div className="space-y-10">
+                <SectionHeader icon={Landmark} title="Governance & Compliance" step={4} />
+                <div className="space-y-10 text-left">
+                    <div className="space-y-4">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60 text-left"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
+                            <div className="space-y-1.5 text-left">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
+                                <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[9px] tracking-widest bg-muted/5 shadow-inner"><SelectValue placeholder="SELECT..." /></SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            {['Spouse', 'Partner', 'Parent', 'Guardian', 'Sibling', 'Child', 'Friend', 'Other'].map(r => ( <SelectItem key={r} value={r} className="font-bold uppercase text-[9px] tracking-widest">{r.toUpperCase()}</SelectItem> ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}/>
+                            </div>
+                            <div className="sm:col-span-2 text-left space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Emergency Contact Mobile</Label>
+                                <PhoneInput name="emergencyContact.phone" label="" className="h-11 rounded-xl kiosk-phone-input" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-dashed text-left">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldCheck className="w-3 h-3" /> Licensing Ledger</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-white shadow-inner" /></div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Registry Expiry</Label>
+                                <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => (
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button variant="outline" className="w-full h-11 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5 shadow-inner"><CalendarIcon className="mr-2 h-4 w-4 opacity-40" /> {field.value ? format(field.value, 'MMM d, yyyy') : 'No date set'}</Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
+                                    </Popover>
+                                )}/>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <SelectServicesDialog open={isServicesDialogOpen} onOpenChange={setIsServicesDialogOpen} allServices={services} initialSelected={selectedServices} onSelect={(newSelection) => setValue('services', newSelection.map(s => s.id), { shouldDirty: true })} />
+            <BrowseConsentFormsDialog open={isConsentFormDialogOpen} onOpenChange={setIsConsentFormDialogOpen} onSelect={(forms) => setValue('assignedFormIds', forms.map(f => f.id), { shouldDirty: true })} allForms={consentForms} initialSelected={assignedForms} />
         </div>
     );
 };
@@ -542,7 +544,7 @@ export const EditStaffDialog: React.FC<any> = ({
 
                     <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-10 pt-4")}>
                         <div className="flex w-full gap-4 items-center">
-                            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-14 font-black uppercase tracking-tighter text-[11px] text-slate-500">Cancel</Button>
+                            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-14 font-black uppercase tracking-tighter text-[11px] text-slate-500">Cancel</Button>
                             <Button type="submit" className="flex-[2.5] h-16 rounded-[2rem] font-black uppercase tracking-widest text-sm shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit Changes <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1"/></Button>
                         </div>
                     </DialogFooter>

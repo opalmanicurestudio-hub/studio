@@ -139,7 +139,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
                 </CardDescription>
             </CardHeader>
             <CardContent className="p-6 sm:p-8 space-y-8">
-                <div className="space-y-6">
+                <div className="space-y-6 text-left">
                     {tierAnalysis.map(tier => (
                         <div key={tier.id} className="space-y-3">
                             <div className="flex justify-between items-center px-1 text-left">

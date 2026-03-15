@@ -291,9 +291,9 @@ export default function ClientDetailPage() {
   const hasCardOnFile = !!client.cardOnFile?.token;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
       <AppHeader title="Guest Dossier" />
-      <main className="flex-1 p-4 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0">
+      <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 text-left">
                 <div className="space-y-1">
                     <h1 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Record Detail</h1>
@@ -314,19 +314,19 @@ export default function ClientDetailPage() {
                         </Avatar>
                         {activeMembership && <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-indigo-600 text-white p-1.5 md:p-2 rounded-2xl shadow-xl border-4 border-white"><Award className="w-4 h-4 md:w-6 md:h-6" /></div>}
                     </div>
-                    <div className="space-y-4 flex-1 min-w-0">
+                    <div className="space-y-4 flex-1 min-w-0 w-full">
                         <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4">
-                            <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate leading-none", client.name.length > 15 ? "text-xl md:text-4xl" : "text-2xl md:text-5xl")}>{client.name}</h2>
-                            <div className="flex gap-2">
+                            <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate leading-none w-full sm:w-auto", client.name.length > 15 ? "text-xl md:text-4xl" : "text-2xl md:text-5xl")}>{client.name}</h2>
+                            <div className="flex gap-2 shrink-0">
                                 {activeMembership && <Badge className="bg-indigo-500/10 text-indigo-700 border-none font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Master Member</Badge>}
                                 {client.status === 'banned' && <Badge variant="destructive" className="animate-pulse font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Hard Restriction</Badge>}
                             </div>
                         </div>
-                        <div className="flex flex-wrap justify-center sm:justify-start gap-x-8 gap-y-4 pt-2">
+                        <div className="flex flex-wrap justify-center sm:justify-start gap-x-6 sm:gap-x-10 gap-y-4 pt-2 w-full">
                             {isOwnerOrAdmin ? (
-                                <div className="space-y-1">
+                                <div className="space-y-1 min-w-0 max-w-full">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
-                                    <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate max-w-[200px]">{client.email}</a>
+                                    <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{client.email}</a>
                                     <p className="text-xs md:text-sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
                                 </div>
                             ) : (
@@ -336,7 +336,7 @@ export default function ClientDetailPage() {
                                 </div>
                             )}
                             <div className="space-y-1">
-                                <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Session Discovery</p>
+                                <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Discovery Source</p>
                                 <p className="text-xs md:text-sm font-black uppercase tracking-tight text-slate-700">{client.intel?.referralSource || 'Unknown'}</p>
                             </div>
                             <div className="space-y-1">
@@ -356,14 +356,14 @@ export default function ClientDetailPage() {
             <ClientIntelBanner client={client} />
             
             <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10">
-                <div className="lg:col-span-2 xl:col-span-3 space-y-8 md:space-y-10">
+                <div className="lg:col-span-2 xl:col-span-3 space-y-8 md:space-y-10 min-w-0">
                     <Tabs defaultValue="overview">
-                        <ScrollArea className="w-full">
-                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8">
-                                <TabsTrigger value="overview" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
-                                <TabsTrigger value="history" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
-                                <TabsTrigger value="archive" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Technical Archive</TabsTrigger>
-                                <TabsTrigger value="ledger" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
+                        <ScrollArea className="w-full overflow-hidden">
+                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max">
+                                <TabsTrigger value="overview" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
+                                <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
+                                <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Technical Archive</TabsTrigger>
+                                <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
                             </TabsList>
                             <ScrollBar orientation="horizontal" className="hidden" />
                         </ScrollArea>
@@ -582,7 +582,7 @@ export default function ClientDetailPage() {
       <AddFormulaDialog open={isAddFormulaOpen} onOpenChange={setIsAddFormulaOpen} clientName={client.name} onSave={handleSaveFormula} />
 
       <Dialog open={isQuickSettleOpen} onOpenChange={setIsQuickSettleOpen}>
-        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
+        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden">
             <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
                 <div className="flex items-center gap-3 mb-2">
                     <ShieldCheck className="w-5 h-5 text-primary" />
