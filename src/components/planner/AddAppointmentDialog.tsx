@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -586,7 +587,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 </div>
                             </div>
                             <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
-                                <div className="flex justify-between items-center px-2">
+                                <div className="flex items-center justify-between">
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
                                     <span className="font-black uppercase tracking-widest text-sm">{format(watchDate, 'MMMM yyyy')}</span>
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>

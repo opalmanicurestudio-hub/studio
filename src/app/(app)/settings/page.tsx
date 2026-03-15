@@ -61,9 +61,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
-import { type Tenant, type BookingPageSettings, type BookingFAQItem, type BookingGalleryItem, type Review, type Service } from '@/lib/data';
+import { type Tenant, type BookingPageSettings, type BookingFAQItem, type BookingGalleryItem, type Review, type Service, type PricingTier, type Staff } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -73,7 +79,7 @@ import { cn } from '@/lib/utils';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isSameMonth } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -168,7 +174,7 @@ function SettingsContent() {
   const { toast } = useToast();
   const { firestore } = useFirebase();
   const { tenants, selectedTenant, isLoading: isTenantContextLoading } = useTenant();
-  const { services, inventory, staff } = useInventory();
+  const { services, inventory, staff, pricingTiers } = useInventory();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
 
@@ -306,16 +312,18 @@ function SettingsContent() {
   };
 
   const recoveryMatrixPreview = useMemo(() => {
-      if (!services || !selectedTenant) return [];
+      if (!services || !selectedTenant || !pricingTiers || !staff) return [];
       const tmhr = selectedTenant.tmhr || 50;
       const taxBurden = selectedTenant.employerTaxBurdenPct || 10;
 
       return services.slice(0, 5).map(s => {
           const houseFloor = (s.duration / 60) * tmhr + (s.cost || 0);
-          const seniorTier = s.serviceTiers?.find(t => pricingTiers.find(pt => pt.id === t.tierId)?.name.toLowerCase().includes('senior'));
+          
+          // Use median pro or first pro for preview logic
+          const seniorPro = staff.find(sm => pricingTiers.find(pt => pt.id === sm.pricingTierId)?.name.toLowerCase().includes('senior')) || staff[0];
+          const seniorTier = s.serviceTiers?.find(t => t.tierId === seniorPro?.pricingTierId);
           const price = seniorTier ? seniorTier.price : s.price;
           
-          const seniorPro = staff.find(sm => pricingTiers.find(pt => pt.id === sm.pricingTierId)?.name.toLowerCase().includes('senior'));
           let labor = 0;
           if (seniorPro?.payStructure === 'commission') labor = price * (seniorPro.commissionRate / 100);
           else if (seniorPro?.payStructure === 'hourly' && seniorPro.hourlyRate) labor = (s.duration / 60) * seniorPro.hourlyRate;
@@ -328,7 +336,7 @@ function SettingsContent() {
               totalTarget
           };
       });
-  }, [services, selectedTenant, staff]);
+  }, [services, selectedTenant, staff, pricingTiers]);
 
   const handleBookingBuilderEdit = () => {
     setBackupTenantData(tenantData);

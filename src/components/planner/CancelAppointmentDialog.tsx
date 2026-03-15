@@ -19,7 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { type Appointment, type Tenant, type Service, type Membership, type Package, type Staff } from '@/lib/data';
 import { 
   CreditCard, 
@@ -42,7 +42,7 @@ import {
   Check
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { differenceInHours } from 'date-fns';
+import { differenceInHours, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
 
@@ -233,7 +233,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         {recoveryMatrix.map(m => (
                             <Card key={m.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm">
                                 <CardHeader className="p-4 border-b bg-muted/5 flex flex-row items-center justify-between">
-                                    <p className="text-xs font-black uppercase tracking-tight truncate flex-1">{m.name}</p>
+                                    <p className="text-xs font-black uppercase tracking-tight truncate flex-1 text-left">{m.name}</p>
                                     <Badge variant="outline" className="h-5 text-[8px] font-black bg-white">{m.window}h Window</Badge>
                                 </CardHeader>
                                 <CardContent className="p-4 space-y-3">
@@ -279,43 +279,45 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
                     <AnimatePresence>
                         {chargeFee && finalFeeAmount > 0 && (
-                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                                <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5">
-                                    <div className="space-y-0.5 text-left">
-                                        <p className="text-[10px] font-black uppercase text-slate-900">Fixed Rate Override</p>
-                                        <p className="text-[8px] font-bold uppercase opacity-60">Bypass matrix suggestion</p>
-                                    </div>
-                                    <Switch checked={useOverrideFee} onCheckedChange={setUseOverrideFee} />
-                                </div>
-
-                                {useOverrideFee && (
-                                    <div className="space-y-3 text-left">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Override Value ($)</Label>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                            <Input type="number" step="0.01" value={overrideFeeValue || ''} onChange={e => setOverrideFeeValue(parseFloat(e.target.value) || 0)} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-white" />
+                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}>
+                                <div className="space-y-6">
+                                    <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5">
+                                        <div className="space-y-0.5 text-left">
+                                            <p className="text-[10px] font-black uppercase text-slate-900">Fixed Rate Override</p>
+                                            <p className="text-[8px] font-bold uppercase opacity-60">Bypass matrix suggestion</p>
                                         </div>
+                                        <Switch checked={useOverrideFee} onCheckedChange={setUseOverrideFee} />
                                     </div>
-                                )}
 
-                                <div className="space-y-4 pt-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Protocol</Label>
-                                    <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-3">
-                                        <label htmlFor="pay-vault" className={cn("cursor-pointer h-full", !hasCardOnFile && "opacity-40 grayscale")}>
-                                            <RadioGroupItem value="card_on_file" id="pay-vault" className="peer sr-only" disabled={!hasCardOnFile} />
-                                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'card_on_file' ? "border-primary" : "border-border bg-white")}>
-                                                {hasCardOnFile ? <ShieldCheck className="w-6 h-6 mb-2 text-primary" /> : <Lock className="w-6 h-6 mb-2 text-slate-400" />}
-                                                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Vault Card</span>
+                                    {useOverrideFee && (
+                                        <div className="space-y-3 text-left">
+                                            <Label htmlFor="override-value-manual" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Override Value ($)</Label>
+                                            <div className="relative">
+                                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                                <Input id="override-value-manual" type="number" step="0.01" value={overrideFeeValue || ''} onChange={e => setOverrideFeeValue(parseFloat(e.target.value) || 0)} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-white" />
                                             </div>
-                                        </label>
-                                        <label htmlFor="pay-balance" className="cursor-pointer h-full">
-                                            <RadioGroupItem value="add_to_balance" id="pay-balance" className="peer sr-only" />
-                                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'add_to_balance' ? "border-primary" : "border-border bg-white")}>
-                                                <Landmark className={cn("w-6 h-6 mb-2 transition-colors", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Client Arrears</span>
-                                            </div>
-                                        </label>
-                                    </RadioGroup>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-4 pt-2 text-left">
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Protocol</Label>
+                                        <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-3">
+                                            <label htmlFor="pay-vault-cancel" className={cn("cursor-pointer h-full", !hasCardOnFile && "opacity-40 grayscale")}>
+                                                <RadioGroupItem value="card_on_file" id="pay-vault-cancel" className="peer sr-only" disabled={!hasCardOnFile} />
+                                                <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'card_on_file' ? "border-primary" : "border-border bg-white")}>
+                                                    {hasCardOnFile ? <ShieldCheck className="w-6 h-6 mb-2 text-primary" /> : <Lock className="w-6 h-6 mb-2 text-slate-400" />}
+                                                    <span className="text-[10px] font-black uppercase tracking-widest leading-none">Vault Card</span>
+                                                </div>
+                                            </label>
+                                            <label htmlFor="pay-balance-cancel" className="cursor-pointer h-full">
+                                                <RadioGroupItem value="add_to_balance" id="pay-balance-cancel" className="peer sr-only" />
+                                                <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'add_to_balance' ? "border-primary" : "border-border bg-white")}>
+                                                    <Landmark className={cn("w-6 h-6 mb-2 transition-colors", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                    <span className="text-[10px] font-black uppercase tracking-widest leading-none">Client Arrears</span>
+                                                </div>
+                                            </label>
+                                        </RadioGroup>
+                                    </div>
                                 </div>
                             </motion.div>
                         )}

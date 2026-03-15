@@ -19,7 +19,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type ConsentForm, type InventoryItem, type PricingTier, type Resource, type Staff } from '@/lib/data';
@@ -39,7 +39,30 @@ import { useToast } from '@/hooks/use-toast';
 import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity, Edit, MapPin, Pipette, CheckCircle, FileText, ShieldCheck, Target, Percent, Users, Zap, Shield } from 'lucide-react';
+import { 
+    Check, 
+    PlusCircle, 
+    AlertTriangle, 
+    DollarSign, 
+    Package, 
+    Trash2, 
+    ShoppingCart, 
+    Calculator, 
+    Sparkles,
+    Truck,
+    Clock,
+    Pipette,
+    CheckCircle,
+    Calendar as CalendarIcon,
+    ArrowRight,
+    Edit,
+    Scale,
+    ShieldCheck,
+    ListChecks,
+    Target,
+    Activity,
+    FileText
+} from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -56,8 +79,12 @@ import { collection, query, where, doc } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { motion, AnimatePresence } from 'framer-motion';
+import { format, parseISO } from 'date-fns';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Calendar } from '../ui/calendar';
 
-const serviceSchema = z.object({
+const editServiceSchema = z.object({
   id: z.string(),
   name: z.string().min(1, 'Service name is required'),
   type: z.enum(['service', 'addon']),
@@ -97,7 +124,7 @@ const serviceSchema = z.object({
     }
 });
 
-type ServiceFormData = z.infer<typeof serviceSchema>;
+type ServiceFormData = z.infer<typeof editServiceSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
     <div className="flex items-center gap-4 mb-6">
@@ -371,7 +398,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                     ) : (
                         <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                             <Box className="w-12 h-12" />
-                            <p className="text-[10px] font-black uppercase tracking-widest">No Products in Formula</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-left">No Products in Formula</p>
                         </div>
                     )}
                 </div>
@@ -487,7 +514,6 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
     const { staff } = useInventory();
     const { selectedTenant } = useTenant();
     const tmhr = selectedTenant?.tmhr || 50;
-    const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
     const currentValues = watch();
     const depositType = watch('depositType');
 
@@ -695,7 +721,7 @@ export const EditServiceDialog: React.FC<any> = ({
   const tmhr = selectedTenant?.tmhr || 50;
   
   const methods = useForm<ServiceFormData>({
-    resolver: zodResolver(serviceSchema),
+    resolver: zodResolver(editServiceSchema),
   });
 
   const { watch, trigger, handleSubmit, reset } = methods;
