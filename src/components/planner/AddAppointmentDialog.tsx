@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -55,7 +56,8 @@ import {
   Repeat,
   Info,
   Unlock,
-  UserPlus
+  UserPlus,
+  Loader
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier, type Membership, type ConsentForm } from '@/lib/data';
@@ -110,7 +112,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const isMobile = useIsMobile();
   const { firestore, user } = useFirebase();
   const { selectedTenant, role } = useTenant();
-  const { services, staff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB, consentForms } = useInventory();
+  const { services, staff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
 
@@ -232,7 +234,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         const now = new Date();
         if (isToday(watchDate)) {
             const minSinceStart = (now.getHours() * 60) + now.getMinutes();
-            const busStartMin = (currentTime.getHours() * 60) + currentTime.getMinutes();
+            const busStartMin = (dayStartWithBusinessHours.getHours() * 60) + dayStartWithBusinessHours.getMinutes();
             const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
             if (skip > 0) currentTime = addMinutes(dayStartWithBusinessHours, skip * bookingInterval);
         }
@@ -699,7 +701,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 <Card className="p-6 rounded-[2rem] border-2 border-dashed bg-muted/10 space-y-4 text-left shadow-inner">
                                     <div className="flex items-center justify-between">
                                         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Session Intel</p>
-                                        {requiredForms.length > 0 && <Badge variant="outline" className="text-[7px] font-black uppercase h-4 px-1.5 bg-amber-50 text-amber-700 border-amber-200">Intake Pending</Badge>}
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <CalendarIcon className="w-5 h-5 text-primary opacity-40" />
