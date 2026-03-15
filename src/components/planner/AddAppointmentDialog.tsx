@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -62,10 +63,15 @@ import {
   Check,
   ArrowRight,
   Loader,
-  Unlock
+  Unlock,
+  CheckCircle2,
+  ShieldCheck,
+  CreditCard,
+  Banknote,
+  Info
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, Staff, Event, InventoryItem, PricingTier, getServicePrice } from '@/lib/data';
+import { Client, Service, Appointment, Staff, Event, InventoryItem, PricingTier, getServicePrice, Membership } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, addMonths, parseISO, endOfDay } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
@@ -76,12 +82,13 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, query, where } from 'firebase/firestore';
+import { collection, query, where, doc, writeBatch } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { PhoneInput } from '../ui/phone-input';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -110,647 +117,521 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     return d;
 }
 
-const AddAppointmentForm = ({ 
-    onConfirm,
-    client: initialClient,
-    appointmentToRebook,
-    memberships,
-}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
-    const { firestore, user } = useFirebase();
-    const { selectedTenant, role } = useTenant();
-    const tenantId = selectedTenant?.id;
-    
-    const { data: clients } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]));
-    const { data: services } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]));
-    const { data: allStaff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]));
-    const { data: pricingTiers } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/pricingTiers`) : null, [firestore, tenantId]));
+type Step = 'details' | 'assignment' | 'timing' | 'deposit' | 'success';
 
-    const { scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB } = useInventory();
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client: initialClient, appointmentToRebook, memberships }) => {
+  const isMobile = useIsMobile();
+  const { firestore, user } = useFirebase();
+  const { selectedTenant, role } = useTenant();
+  const { services, staff: allStaff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB } = useInventory();
+  const { toast } = useToast();
+  const tenantId = selectedTenant?.id;
+  const tmhr = selectedTenant?.tmhr || 50;
 
-    const staff = useMemo(() => {
-        if (role === 'staff' && user) {
-            return allStaff?.filter(s => s.id === user.uid) || [];
-        }
-        return allStaff || [];
-    }, [allStaff, role, user]);
-    
-    const appointments = useMemo(() => {
-        if (!appointmentsFromDB) return [];
-        return appointmentsFromDB.map(apt => ({
-          ...apt,
-          startTime: safeDate(apt.startTime),
-          endTime: safeDate(apt.endTime),
-        }));
-      }, [appointmentsFromDB]);
-    
-      const events = useMemo(() => {
-        if (!eventsFromDB) return [];
-        return eventsFromDB.map(evt => ({
-            ...evt,
-            startTime: safeDate(evt.startTime),
-            endTime: safeDate(evt.endTime),
-        }));
-      }, [eventsFromDB]);
+  const [step, setStep] = useState<Step>('details');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [assignedStaffId, setAssignedStaffId] = useState<string | null>(null);
 
-    const methods = useForm({
-        defaultValues: {
-            clientId: '',
-            serviceId: '',
-            staffId: 'any',
+  const methods = useForm({
+    defaultValues: {
+        clientId: '',
+        serviceId: '',
+        staffId: 'any',
+        selectedTierId: 'any',
+        date: new Date(),
+        startTime: '',
+        addOnIds: [] as string[],
+        overrideBusinessHours: false,
+        paymentMethod: 'card_on_file',
+    }
+  });
+
+  const { register, handleSubmit, control, watch, reset, setValue, trigger } = methods;
+
+  useEffect(() => {
+    if (open) {
+        setStep('details');
+        setIsSubmitting(false);
+        setAssignedStaffId(null);
+        const staffDefault = (role === 'staff' && user) ? user.uid : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
+        reset({
+            clientId: initialClient?.id || appointmentToRebook?.clientId || '',
+            serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
+            staffId: staffDefault,
             selectedTierId: 'any',
-            date: new Date(),
-            startTime: '',
-            addOnIds: [] as string[],
-            isRecurring: false,
+            date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : new Date(),
+            startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : '',
+            addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
             overrideBusinessHours: false,
-            recurrence: {
-                frequency: 'weekly',
-                endDate: addMonths(new Date(), 3),
-            }
-        }
-    });
-
-    const { register, handleSubmit, control, watch, reset, setValue } = methods;
-
-    useEffect(() => {
-        if (staff && !staffLoading) {
-            const staffDefault = (role === 'staff' && user)
-                ? user.uid
-                : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
-
-            reset({
-                clientId: initialClient?.id || appointmentToRebook?.clientId || '',
-                serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
-                staffId: staffDefault,
-                selectedTierId: 'any',
-                date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : new Date(),
-                startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : '',
-                addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
-                isRecurring: false,
-                overrideBusinessHours: false,
-                recurrence: {
-                    frequency: 'weekly',
-                    endDate: addMonths(new Date(), 3),
-                }
-            });
-        }
-    }, [staff, staffLoading, appointmentToRebook, initialClient, reset, role, user]);
-
-    const [isOverlapping, setIsOverlapping] = useState(false);
-    const [clashingItem, setClashingItem] = useState<any | null>(null);
-    const [showConfirmation, setShowConfirmation] = useState(false);
-
-    const clientId = watch('clientId');
-    const serviceId = watch('serviceId');
-    const staffId = watch('staffId');
-    const selectedTierId = watch('selectedTierId');
-    const date = watch('date');
-    const startTime = watch('startTime');
-    const addOnIds = watch('addOnIds');
-    const overrideBusinessHours = watch('overrideBusinessHours');
-    
-    const selectedService = useMemo(() => services?.find(s => s.id === serviceId), [services, serviceId]);
-    const selectedClient = useMemo(() => clients?.find(c => c.id === clientId) || initialClient, [clients, clientId, initialClient]);
-    const selectedAddOns = useMemo(() => (services || []).filter(s => (addOnIds || []).includes(s.id)), [services, addOnIds]);
-    
-    const activeMembership = useMemo(() => {
-        if (!selectedClient || (!selectedClient.activeMembershipId && !selectedClient.subscription?.membershipId) || !memberships) return null;
-        return memberships.find(m => m.id === (selectedClient.activeMembershipId || selectedClient.subscription?.membershipId));
-    }, [selectedClient, memberships]);
-
-    const qualifiedStaff = useMemo(() => {
-        if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return staff;
-        return staff.filter(s => selectedService.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
-    }, [selectedService, staff]);
-
-    const availableTiersForService = useMemo(() => {
-        if (!selectedService?.serviceTiers || selectedService.serviceTiers.length === 0 || !pricingTiers) return [];
-        const tiersWithStaff = new Set(qualifiedStaff.map(s => s.pricingTierId).filter(Boolean));
-        return selectedService.serviceTiers
-            .filter(st => tiersWithStaff.has(st.tierId))
-            .map(st => ({
-                ...st,
-                name: pricingTiers.find(pt => pt.id === st.tierId)?.name || 'Tier'
-            }));
-    }, [selectedService, qualifiedStaff, pricingTiers]);
-
-    const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
-    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
-
-    const timeSlots = useMemo(() => {
-        if (!selectedService || !date || !publicScheduleProfile || !staff || !services) return [];
-        const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
-        const dayName = format(date, 'eeee').toLowerCase();
-        
-        let staffToAudit = staffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === staffId);
-        if (staffId === 'any' && selectedTierId !== 'any') {
-            staffToAudit = staffToAudit.filter(s => s.pricingTierId === selectedTierId);
-        }
-
-        const options: Set<string> = new Set();
-        
-        staffToAudit.forEach(staffMember => {
-            let workingHours;
-            const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
-            if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
-            else if (staffDaySchedule && !staffDaySchedule.enabled && !overrideBusinessHours) return;
-            else workingHours = publicScheduleProfile?.week?.[dayName];
-            
-            const dayStartWithBusinessHours = overrideBusinessHours ? startOfDay(date) : timeStringToDate(workingHours?.start || '09:00 AM', date);
-            const dayEndWithBusinessHours = overrideBusinessHours ? endOfDay(date) : timeStringToDate(workingHours?.end || '05:00 PM', date);
-            
-            if (!overrideBusinessHours && (!workingHours || !workingHours.enabled)) return;
-
-            const busyIntervals: { start: Date, end: Date }[] = [];
-
-            appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id).forEach(apt => {
-                const aptService = services.find(s => s.id === apt.serviceId);
-                const padBefore = aptService?.padBefore || 0;
-                const padAfter = aptService?.padAfter || 0;
-                busyIntervals.push({ start: addMinutes(apt.startTime, -padBefore), end: addMinutes(apt.endTime, padAfter) });
-            });
-
-            events.filter(evt => isSameDay(evt.startTime, date) && evt.type === 'blocked' && (!evt.staffIds || evt.staffIds.includes('all') || evt.staffIds.includes(staffMember.id))).forEach(evt => {
-                busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) });
-            });
-
-            let currentTime = dayStartWithBusinessHours;
-            const now = new Date();
-            if (isToday(date)) {
-                const minSinceStart = (now.getHours() * 60) + now.getMinutes();
-                const busStartMin = (currentTime.getHours() * 60) + currentTime.getMinutes();
-                const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
-                if (skip > 0) currentTime = addMinutes(dayStartWithBusinessHours, skip * bookingInterval);
-            }
-            
-            while (currentTime < dayEndWithBusinessHours) {
-                const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
-                if (potentialEnd > dayEndWithBusinessHours) break;
-                const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
-                
-                const isStaffActiveForSameDay = !isToday(date) || (staffMember.active && !staffMember.onBreak);
-
-                // Internal planner always shows slots regardless of staff active state if override is on
-                if (!isOverlapping && (overrideBusinessHours || isStaffActiveForSameDay)) {
-                    options.add(format(currentTime, 'HH:mm'));
-                }
-                currentTime = addMinutes(currentTime, bookingInterval);
-            }
-        });
-        return Array.from(options).sort();
-    }, [date, staffId, selectedTierId, qualifiedStaff, selectedService, staff, appointments, events, publicScheduleProfile, services, overrideBusinessHours]);
-
-    useEffect(() => {
-        if (!selectedService || !date || !startTime || !services || !appointments) {
-            setIsOverlapping(false);
-            setClashingItem(null);
-            return;
-        }
-        const [hours, minutes] = startTime.split(':').map(Number);
-        const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
-        const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
-        const endDateTime = addMinutes(startDateTime, totalDuration);
-        const newInterval = { start: startDateTime, end: endDateTime };
-
-        if (staffId === 'any') {
-            setIsOverlapping(false);
-            setClashingItem(null);
-            return;
-        }
-
-        const clashApt = appointments.find(apt => {
-            if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
-            if (staffId && apt.staffId !== staffId) return false;
-            return areIntervalsOverlapping(newInterval, { start: apt.startTime, end: apt.endTime }, { inclusive: false });
-        });
-
-        if (clashApt) {
-            setIsOverlapping(true);
-            const svc = services.find(s => s.id === clashApt.serviceId);
-            setClashingItem({ type: 'appointment', details: `'${svc?.name || 'Service'}' for ${clashApt.clientName || 'Client'}`, time: `${format(clashApt.startTime, 'h:mm a')} - ${format(clashApt.endTime, 'h:mm a')}` });
-            return;
-        }
-
-        const clashEvt = events.find(evt => {
-            if (evt.type !== 'blocked') return false;
-            if (evt.staffIds && !evt.staffIds.includes('all') && !evt.staffIds.includes(staffId)) return false;
-            return areIntervalsOverlapping(newInterval, { start: safeDate(evt.startTime), end: safeDate(evt.endTime) }, { inclusive: false });
-        });
-
-        if (clashEvt) {
-            setIsOverlapping(true);
-            setClashingItem({ type: 'event', details: `'${clashEvt.title}' event`, time: `${format(clashEvt.startTime, 'h:mm a')} - ${format(clashEvt.endTime, 'h:mm a')}` });
-            return;
-        }
-        setIsOverlapping(false);
-        setClashingItem(null);
-    }, [date, startTime, selectedService, appointments, services, appointmentToRebook, staffId, events]);
-
-    const confirmAndSubmit = (data: any) => {
-        if (!data.clientId || !data.serviceId || !data.date || !data.startTime || !services) return;
-        const [hours, minutes] = data.startTime.split(':').map(Number);
-        const startDateTime = setMinutes(setHours(startOfDay(data.date), hours), minutes);
-        const service = services.find(s => s.id === data.serviceId);
-        if (!service) return;
-        
-        const endDateTime = addMinutes(startDateTime, service.duration);
-        const allServicesInApt = [service, ...selectedAddOns].filter((s): s is Service => !!s);
-        const allRequiredResourceIds = [...new Set(allServicesInApt.flatMap(s => s.requiredResourceIds || []))];
-
-        let finalStaffId = data.staffId;
-        
-        if (finalStaffId === 'any') {
-            let candidates = qualifiedStaff.filter(s => {
-                if (data.selectedTierId !== 'any' && s.pricingTierId !== data.selectedTierId) return false;
-                if (isToday(startDateTime) && (!s.active || s.onBreak) && !data.overrideBusinessHours) return false;
-                
-                const dayName = format(startDateTime, 'eeee').toLowerCase();
-                const sched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
-                
-                if (!data.overrideBusinessHours) {
-                    if (!sched?.enabled) return false;
-                    const openT = timeStringToDate(sched.start, startDateTime);
-                    const closeT = timeStringToDate(sched.end, startDateTime);
-                    if (startDateTime < openT || endDateTime > closeT) return false;
-                }
-
-                const isAptOverlapping = appointments.some(apt => 
-                    apt.staffId === s.id && 
-                    apt.status !== 'cancelled' && 
-                    areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: apt.startTime, end: apt.endTime }, { inclusive: false })
-                );
-                if (isAptOverlapping) return false;
-
-                const isEventOverlapping = events.some(evt => 
-                    evt.type === 'blocked' && 
-                    (!evt.staffIds || evt.staffIds.includes('all') || evt.staffIds.includes(s.id)) && 
-                    areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: evt.startTime, end: evt.endTime }, { inclusive: false })
-                );
-                if (isEventOverlapping) return false;
-
-                return true;
-            });
-
-            if (candidates.length > 0) {
-                candidates.sort((a, b) => {
-                    const timeA = a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
-                    const timeB = b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0;
-                    return timeA - timeB;
-                });
-                finalStaffId = candidates[0].id;
-            } else {
-                toast({ variant: 'destructive', title: 'Operational Conflict', description: 'No qualified professionals are available for this specific window and tier.' });
-                return;
-            }
-        }
-
-        onConfirm({
-            clientId: data.clientId,
-            serviceId: data.serviceId,
-            staffId: finalStaffId,
-            startTime: startDateTime,
-            endTime: endDateTime,
-            status: 'confirmed',
-            addOnIds: data.addOnIds || [],
-            recurrence: data.isRecurring ? data.recurrence : undefined,
-            requiredResourceIds: allRequiredResourceIds,
+            paymentMethod: 'card_on_file',
         });
     }
+  }, [open, initialClient, appointmentToRebook, reset, role, user]);
+
+  const watchClientId = watch('clientId');
+  const watchServiceId = watch('serviceId');
+  const watchStaffId = watch('staffId');
+  const watchDate = watch('date');
+  const watchStartTime = watch('startTime');
+  const watchTierId = watch('selectedTierId');
+  const watchOverride = watch('overrideBusinessHours');
+
+  const selectedClient = useMemo(() => clients?.find(c => c.id === watchClientId), [clients, watchClientId]);
+  const selectedService = useMemo(() => services?.find(s => s.id === watchServiceId), [services, watchServiceId]);
+  const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+
+  const qualifiedStaff = useMemo(() => {
+    if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return allStaff;
+    return (allStaff || []).filter(s => selectedService.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
+  }, [selectedService, allStaff]);
+
+  const availableTiersForService = useMemo(() => {
+    if (!selectedService?.serviceTiers || selectedService.serviceTiers.length === 0 || !pricingTiers) return [];
+    const tiersWithStaff = new Set(qualifiedStaff.map(s => s.pricingTierId).filter(Boolean));
+    return selectedService.serviceTiers
+        .filter(st => tiersWithStaff.has(st.tierId))
+        .map(st => ({
+            ...st,
+            name: pricingTiers.find(pt => pt.id === st.tierId)?.name || 'Tier'
+        }));
+  }, [selectedService, qualifiedStaff, pricingTiers]);
+
+  const weekStart = useMemo(() => startOfWeek(watchDate, { weekStartsOn: 0 }), [watchDate]);
+  const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
+
+  const timeSlots = useMemo(() => {
+    if (!selectedService || !watchDate || !publicScheduleProfile || !allStaff || !services || !appointmentsFromDB) return [];
+    const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
+    const dayName = format(watchDate, 'eeee').toLowerCase();
     
-    const handleSaveAttempt = (data: any) => {
-        if (isOverlapping) setShowConfirmation(true);
-        else confirmAndSubmit(data);
+    let staffToAudit = watchStaffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === watchStaffId);
+    if (watchStaffId === 'any' && watchTierId !== 'any') {
+        staffToAudit = staffToAudit.filter(s => s.pricingTierId === watchTierId);
+    }
+
+    const options: Set<string> = new Set();
+    staffToAudit.forEach(staffMember => {
+        let workingHours;
+        const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
+        if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
+        else if (staffDaySchedule && !staffDaySchedule.enabled && !watchOverride) return;
+        else workingHours = publicScheduleProfile?.week?.[dayName];
+        
+        const dayStartWithBusinessHours = watchOverride ? startOfDay(watchDate) : timeStringToDate(workingHours?.start || '09:00 AM', watchDate);
+        const dayEndWithBusinessHours = watchOverride ? endOfDay(watchDate) : timeStringToDate(workingHours?.end || '05:00 PM', watchDate);
+        
+        if (!watchOverride && (!workingHours || !workingHours.enabled)) return;
+
+        const busyIntervals: { start: Date, end: Date }[] = [];
+        appointmentsFromDB.filter(apt => isSameDay(safeDate(apt.startTime), watchDate) && apt.staffId === staffMember.id).forEach(apt => {
+            const aptService = services.find(s => s.id === apt.serviceId);
+            busyIntervals.push({ start: addMinutes(safeDate(apt.startTime), -(aptService?.padBefore || 0)), end: addMinutes(safeDate(apt.endTime), (aptService?.padAfter || 0)) });
+        });
+
+        (eventsFromDB || []).filter(evt => isSameDay(safeDate(evt.startTime), watchDate) && evt.type === 'blocked' && (!evt.staffIds || evt.staffIds.includes('all') || evt.staffIds.includes(staffMember.id))).forEach(evt => {
+            busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) });
+        });
+
+        let currentTime = dayStartWithBusinessHours;
+        const now = new Date();
+        if (isToday(watchDate)) {
+            const minSinceStart = (now.getHours() * 60) + now.getMinutes();
+            const busStartMin = (currentTime.getHours() * 60) + currentTime.getMinutes();
+            const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
+            if (skip > 0) currentTime = addMinutes(dayStartWithBusinessHours, skip * bookingInterval);
+        }
+        
+        while (currentTime < dayEndWithBusinessHours) {
+            const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
+            if (potentialEnd > dayEndWithBusinessHours) break;
+            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+            if (!isOverlapping && (watchOverride || (!isToday(watchDate) || (staffMember.active && !staffMember.onBreak)))) {
+                options.add(format(currentTime, 'HH:mm'));
+            }
+            currentTime = addMinutes(currentTime, bookingInterval);
+        }
+    });
+    return Array.from(options).sort();
+  }, [watchDate, watchStaffId, watchTierId, qualifiedStaff, selectedService, allStaff, appointmentsFromDB, eventsFromDB, publicScheduleProfile, services, watchOverride]);
+
+  const depositDetails = useMemo(() => {
+    if (!selectedService || selectedService.depositType === 'none') return null;
+    const price = selectedService.price;
+    let amount = 0;
+    if (selectedService.depositType === 'full') amount = price;
+    else if (selectedService.depositType === 'breakeven') amount = selectedService.cost;
+    else {
+        if (selectedService.depositSubType === 'percentage') amount = price * ((selectedService.depositAmount || 0) / 100);
+        else amount = selectedService.depositAmount || 0;
+    }
+    return { amount: Math.ceil(amount), type: selectedService.depositType };
+  }, [selectedService]);
+
+  const handleNext = async () => {
+    if (step === 'details') {
+        const valid = await trigger(['clientId', 'serviceId']);
+        if (valid) setStep('assignment');
+    } else if (step === 'assignment') {
+        setStep('timing');
+    } else if (step === 'timing') {
+        if (!watchStartTime) return toast({ variant: 'destructive', title: "Select Time", description: "A valid session window must be selected." });
+        if (depositDetails) setStep('deposit');
+        else finalizeBooking();
+    } else if (step === 'deposit') {
+        finalizeBooking();
+    }
+  };
+
+  const finalizeBooking = async () => {
+    setIsSubmitting(true);
+    const data = methods.getValues();
+    const [hours, minutes] = data.startTime.split(':').map(Number);
+    const startDateTime = setMinutes(setHours(startOfDay(data.date), hours), minutes);
+    const endDateTime = addMinutes(startDateTime, selectedService!.duration);
+
+    let finalStaffId = data.staffId;
+    if (finalStaffId === 'any') {
+        const candidates = qualifiedStaff.filter(s => {
+            const dayName = format(startDateTime, 'eeee').toLowerCase();
+            const sched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
+            if (!data.overrideBusinessHours) {
+                if (!sched?.enabled) return false;
+                const openT = timeStringToDate(sched.start, startDateTime);
+                const closeT = timeStringToDate(sched.end, startDateTime);
+                if (startDateTime < openT || endDateTime > closeT) return false;
+            }
+            return !appointmentsFromDB?.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: safeDate(apt.startTime), end: safeDate(apt.endTime) }, { inclusive: false }));
+        });
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+            finalStaffId = candidates[0].id;
+        } else {
+            setIsSubmitting(false);
+            return toast({ variant: 'destructive', title: 'Operational Conflict', description: 'No pros available for this specific window.' });
+        }
+    }
+
+    setAssignedStaffId(finalStaffId);
+    
+    // Batch write for security and consistency
+    const batch = writeBatch(firestore!);
+    const aptId = nanoid();
+    const token = nanoid(16);
+    const aptRef = doc(firestore!, `tenants/${tenantId}/appointments`, aptId);
+    const checkInRef = doc(firestore!, 'appointmentCheckIns', token);
+
+    const payload = {
+        id: aptId,
+        tenantId,
+        clientId: data.clientId,
+        clientName: selectedClient?.name,
+        serviceId: data.serviceId,
+        staffId: finalStaffId,
+        startTime: startDateTime.toISOString(),
+        endTime: endDateTime.toISOString(),
+        status: 'confirmed',
+        source: 'manual',
+        checkInToken: token,
+        checkInStatus: 'pending'
     };
-    
-    return (
-        <FormProvider {...methods}>
-            <form id="add-appointment-form" onSubmit={handleSubmit(handleSaveAttempt)}>
-                <div className={cn("space-y-6 md:space-y-10 py-4")}>
-                    <div className="space-y-4 md:space-y-6">
-                        <h3 className="text-base md:text-xl font-black uppercase tracking-tight flex items-center gap-3">
-                            <Users className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-                            Engagement
-                        </h3>
-                        <div className="space-y-3 text-left">
-                            <div className="flex items-center justify-between px-1">
-                                <Label htmlFor="client" className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Client Dossier</Label>
-                                {activeMembership && (
-                                    <Badge className="bg-indigo-600 text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
-                                        <Award className="mr-1 h-3 w-3" /> {activeMembership.name}
-                                    </Badge>
-                                )}
-                            </div>
-                            <div className="flex gap-2">
-                                <Controller
-                                    name="clientId"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <Select onValueChange={field.onChange} value={field.value}>
-                                            <SelectTrigger id="client" className="h-12 md:h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
-                                                {selectedClient ? (
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="relative shrink-0">
-                                                            <Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl">
-                                                                <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
-                                                                <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
-                                                            </Avatar>
-                                                            {(selectedClient.activeMembershipId || selectedClient.subscription?.membershipId) && (
-                                                                <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
-                                                                    <Award className="w-2 h-2" />
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <span className="uppercase tracking-tight text-[11px] md:text-sm truncate">{selectedClient.name}</span>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <SelectValue placeholder="SEARCH ROSTER..." />
-                                                )}
-                                            </SelectTrigger>
-                                            <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                                {(clients || []).map(c => {
-                                                    const isMem = !!(c.activeMembershipId || c.subscription?.membershipId);
-                                                    return (
-                                                        <SelectItem key={c.id} value={c.id} className="rounded-xl">
-                                                            <div className="flex items-center w-full gap-3 py-1">
-                                                                <div className="relative shrink-0">
-                                                                    <Avatar className="h-8 w-8 border shadow-sm rounded-xl">
-                                                                        <AvatarImage src={c.avatarUrl} className="object-cover" />
-                                                                        <AvatarFallback className="font-black text-xs">{(c.name || 'C')?.charAt(0)}</AvatarFallback>
-                                                                    </Avatar>
-                                                                    {isMem && (
-                                                                        <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
-                                                                            <Award className="w-2 h-2" />
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                <span className="flex-1 font-bold uppercase tracking-tight">{c.name}</span>
-                                                                {isMem && (
-                                                                    <Badge className="bg-indigo-600 text-white border-none h-4 px-1.5 text-[7px] font-black uppercase tracking-widest shrink-0">Member</Badge>
-                                                                )}
-                                                            </div>
-                                                        </SelectItem>
-                                                    )
-                                                })}
-                                            </SelectContent>
-                                        </Select>
-                                    )}
-                                />
-                                <Button variant="outline" size="icon" type="button" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shrink-0"><PlusCircle className="h-5 w-5 md:h-6 md:w-6" /></Button>
-                            </div>
-                        </div>
-                        
-                        <div className="space-y-3 text-left">
-                            <Label htmlFor="service" className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Catalog</Label>
-                            <Controller
-                                name="serviceId"
-                                control={control}
-                                render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger id="service" className="h-12 md:h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
-                                            <SelectValue placeholder="SELECT SERVICE..." />
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            {(services || []).filter(s => s.type === 'service').map(s => {
-                                                const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
-                                                return (
-                                                    <SelectItem key={s.id} value={s.id} className="rounded-xl">
-                                                        <div className="flex items-center w-full gap-3 py-1">
-                                                            <span className="flex-1 font-bold uppercase tracking-tight">{s.name}</span>
-                                                            {isMembershipPerk && (
-                                                                <Badge className="bg-primary text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
-                                                                    <Star className="mr-1 h-2.5 w-2.5 fill-current" /> Perk
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                    </SelectItem>
-                                                )
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                )}
-                            />
-                        </div>
-                    </div>
 
-                    <div className="space-y-6 pt-6 border-t border-dashed text-left">
-                        <div className="space-y-1">
-                            <h3 className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
-                                <Users className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-                                Provider Assignment
-                            </h3>
-                            <p className="text-[8px] md:text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 ml-8 md:ml-9">Select a specific pro or use smart rotation logic.</p>
-                        </div>
-                        
-                        <Controller
-                            name="staffId"
-                            control={control}
-                            render={({ field }) => (
-                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4" disabled={role==='staff'}>
-                                    <StaffSelectionCard 
-                                        staff={{ id: 'any', name: 'Smart Rotation', avatarUrl: '' }} 
-                                        pricingTiers={pricingTiers || []} 
-                                        isSelected={field.value === 'any'}
-                                    />
-                                    {(staff || []).map(s => (
-                                        <StaffSelectionCard 
-                                            key={s.id} 
-                                            staff={s} 
-                                            pricingTiers={pricingTiers || []} 
-                                            isSelected={field.value === s.id}
-                                        />
-                                    ))}
-                                </RadioGroup>
-                            )}
-                        />
+    batch.set(aptRef, payload);
+    batch.set(checkInRef, payload);
 
-                        <AnimatePresence>
-                            {staffId === 'any' && availableTiersForService.length > 0 && (
-                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4 pt-6 border-t-2 border-dashed">
-                                    <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                        <Sparkles className="w-3 h-3" /> Tier Routing Preference
-                                    </Label>
+    if (depositDetails && data.paymentMethod !== 'none') {
+        const txnRef = doc(collection(firestore!, `tenants/${tenantId}/transactions`));
+        batch.set(txnRef, {
+            id: txnRef.id,
+            date: new Date().toISOString(),
+            description: `Retainer: ${selectedService?.name}`,
+            clientOrVendor: selectedClient?.name,
+            clientId: data.clientId,
+            type: 'income',
+            context: 'Business',
+            category: 'Retainers',
+            amount: depositDetails.amount,
+            paymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Manual Entry',
+            appointmentId: aptId,
+            staffId: finalStaffId
+        });
+    }
+
+    try {
+        await batch.commit();
+        setStep('success');
+    } catch (e) {
+        toast({ variant: 'destructive', title: 'Registry Error' });
+    } finally {
+        setIsSubmitting(false);
+    }
+  };
+
+  const currentAssignedPro = useMemo(() => allStaff?.find(s => s.id === assignedStaffId), [allStaff, assignedStaffId]);
+
+  const SelectionHeader = ({ icon: Icon, title, stepNum }: { icon: any, title: string, stepNum: number }) => (
+    <div className="flex items-center gap-4 mb-8 text-left">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {stepNum}</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+  );
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+        <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
+            </div>
+            <SheetTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Session</SheetTitle>
+            {step !== 'success' && <div className="pt-6"><Progress value={(['details', 'assignment', 'timing', 'deposit'].indexOf(step) + 1) / (depositDetails ? 4 : 3) * 100} className="h-1 rounded-full bg-muted" /></div>}
+        </SheetHeader>
+
+        <ScrollArea className="flex-1">
+            <div className="p-8">
+                <AnimatePresence mode="wait">
+                    {step === 'details' && (
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="details" className="space-y-10">
+                            <SelectionHeader icon={User} title="Guest & Protocol" stepNum={1} />
+                            <div className="space-y-6 text-left">
+                                <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Identification</Label>
                                     <Controller
-                                        name="selectedTierId"
+                                        name="clientId"
                                         control={control}
                                         render={({ field }) => (
-                                            <RadioGroup value={field.value} onValueChange={field.onChange} className="grid grid-cols-1 gap-2">
-                                                <label htmlFor="tier-any-plan" className="flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 shadow-sm">
-                                                    <div className="flex items-center gap-3">
-                                                        <RadioGroupItem value="any" id="tier-any-plan" />
-                                                        <span className="text-[10px] md:text-[11px] font-black uppercase tracking-tight">First Available (Any Tier)</span>
-                                                    </div>
-                                                </label>
-                                                {availableTiersForService.map(tier => (
-                                                    <label key={tier.tierId} htmlFor={`tier-p-${tier.tierId}`} className="flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 shadow-sm">
-                                                        <div className="flex items-center gap-3">
-                                                            <RadioGroupItem value={tier.tierId} id={`tier-p-${tier.tierId}`} />
-                                                            <span className="text-[10px] md:text-[11px] font-black uppercase tracking-tight">{tier.name}</span>
-                                                        </div>
-                                                        <span className="font-black text-primary text-[10px] md:text-xs font-mono">${tier.price.toFixed(2)}</span>
-                                                    </label>
-                                                ))}
-                                            </RadioGroup>
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <SelectTrigger className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-black uppercase text-xs tracking-tight">
+                                                    <SelectValue placeholder="SEARCH ROSTER..." />
+                                                </SelectTrigger>
+                                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                                    {(clients || []).map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
+                                                </SelectContent>
+                                            </Select>
                                         )}
                                     />
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-
-                    <div className="space-y-6 pt-6 border-t border-dashed">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
-                                <CalendarCheck className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-                                Timing
-                            </h3>
-                            <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <div className="flex items-center gap-2">
-                                                <Unlock className={cn("w-3.5 h-3.5 transition-colors", overrideBusinessHours ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                <Switch 
-                                                    id="override-hours" 
-                                                    checked={overrideBusinessHours} 
-                                                    onCheckedChange={(val) => setValue('overrideBusinessHours', val)} 
-                                                />
-                                            </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Business Hours</TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            </div>
-                        </div>
-                        <div className="space-y-3 text-left">
-                            <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
-                            <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-6 md:space-y-8 shadow-inner">
-                                <div className="flex justify-between items-center px-2">
-                                    <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-4 h-4 md:w-5 md:h-5" /></Button>
-                                    <span className="font-black uppercase tracking-widest text-xs md:text-sm">{format(date, 'MMMM yyyy')}</span>
-                                    <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-4 h-4 md:w-5 md:h-5" /></Button>
                                 </div>
-                                <div className="grid grid-cols-7 gap-1.5 md:gap-3">
+                                <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Service Matrix</Label>
+                                    <Controller
+                                        name="serviceId"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <SelectTrigger className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-black uppercase text-xs tracking-tight">
+                                                    <SelectValue placeholder="SELECT TREATMENT..." />
+                                                </SelectTrigger>
+                                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                                    {(services || []).filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                    />
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {step === 'assignment' && (
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="assignment" className="space-y-10">
+                            <SelectionHeader icon={Users} title="Provider Routing" stepNum={2} />
+                            <Controller
+                                name="staffId"
+                                control={control}
+                                render={({ field }) => (
+                                    <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
+                                        <StaffSelectionCard 
+                                            staff={{ id: 'any', name: 'Smart Rotation', avatarUrl: '' }} 
+                                            pricingTiers={pricingTiers || []} 
+                                            isSelected={field.value === 'any'}
+                                        />
+                                        {(staff || []).map(s => (
+                                            <StaffSelectionCard 
+                                                key={s.id} 
+                                                staff={s} 
+                                                pricingTiers={pricingTiers || []} 
+                                                isSelected={field.value === s.id}
+                                            />
+                                        ))}
+                                    </RadioGroup>
+                                )}
+                            />
+                        </motion.div>
+                    )}
+
+                    {step === 'timing' && (
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
+                            <div className="flex items-center justify-between">
+                                <SelectionHeader icon={Clock} title="Schedule Window" stepNum={3} />
+                                <div className="flex items-center gap-2 p-2 bg-muted/20 rounded-xl">
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <div className="flex items-center gap-2">
+                                                    <Unlock className={cn("w-3.5 h-3.5 transition-colors", watchOverride ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                    <Switch checked={watchOverride} onCheckedChange={(val) => setValue('overrideBusinessHours', val)} />
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Lock</TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                </div>
+                            </div>
+                            <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
+                                <div className="flex justify-between items-center px-2">
+                                    <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
+                                    <span className="font-black uppercase tracking-widest text-xs md:text-sm">{format(watchDate, 'MMMM yyyy')}</span>
+                                    <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
+                                </div>
+                                <div className="grid grid-cols-7 gap-2">
                                     {weekDays.map(day => (
-                                        <button 
-                                            key={day.toISOString()} 
-                                            onClick={() => setValue('date', day)} 
-                                            disabled={!overrideBusinessHours && isBefore(day, startOfDay(new Date())) && !isToday(day)} 
-                                            className={cn(
-                                                "flex flex-col items-center justify-center p-2 md:p-3 rounded-xl md:rounded-2xl border-2 transition-all aspect-square", 
-                                                isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
-                                                (!overrideBusinessHours && isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
-                                            )} 
-                                            type="button"
-                                        >
-                                            <span className="text-[8px] md:text-[10px] uppercase font-black opacity-60 mb-0.5 md:mb-1">{format(day, 'EEE')}</span>
-                                            <span className="font-black text-sm md:text-xl tracking-tighter">{format(day, 'd')}</span>
+                                        <button key={day.toISOString()} onClick={() => setValue('date', day)} className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, watchDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30")}>
+                                            <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
+                                            <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
                                         </button>
                                     ))}
                                 </div>
-                                <div className="grid grid-cols-3 gap-2 md:gap-3 pt-6 md:pt-8 border-t-2 border-dashed border-white/50">
+                                <div className="grid grid-cols-3 gap-3 pt-8 border-t-2 border-dashed border-white/50">
                                     {timeSlots.map(time => (
-                                        <Button 
-                                            key={time} 
-                                            variant={startTime === time ? 'default' : 'outline'} 
-                                            onClick={() => setValue('startTime', time)} 
-                                            type="button"
-                                            className={cn(
-                                                "h-10 md:h-14 font-black uppercase text-[10px] md:text-xs tracking-widest rounded-xl md:rounded-2xl border-2 transition-all", 
-                                                startTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
-                                            )}
-                                        >
+                                        <Button key={time} variant={watchStartTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} className={cn("h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", watchStartTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background")}>
                                             {format(timeStringToDate(time, new Date()), 'h:mm a')}
                                         </Button>
                                     ))}
-                                    {timeSlots.length === 0 && (<div className="col-span-full text-center text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 py-10 md:py-12 border-2 border-dashed rounded-[2rem]">No Availability</div>)}
+                                    {timeSlots.length === 0 && <div className="col-span-full py-12 text-[10px] font-black uppercase text-muted-foreground/40 border-2 border-dashed rounded-3xl">No Availability</div>}
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-                <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
-                    <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-                        <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
-                            <AlertDialogTitle className="font-black uppercase tracking-tighter text-xl md:text-2xl">Confirm Logic Violation</AlertDialogTitle>
-                            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
-                                This manual override results in a schedule conflict. Force this record into the agenda?
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                            <Button onClick={handleSubmit(confirmAndSubmit)} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
-                            <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-            </form>
-        </FormProvider>
-    )
-}
+                        </motion.div>
+                    )}
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client, appointmentToRebook, memberships }) => {
-  const isMobile = useIsMobile();
-  
-  const dialogTitle = "New Session";
-  const dialogDescription = "Manually reserve a studio session for your guest.";
-  
-  const FormContent = <AddAppointmentForm 
-    onConfirm={onConfirm} 
-    client={client} 
-    appointmentToRebook={appointmentToRebook}
-    memberships={memberships}
-    />;
+                    {step === 'deposit' && depositDetails && (
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="deposit" className="space-y-10">
+                            <SelectionHeader icon={CreditCard} title="Secure Retainer" stepNum={4} />
+                            <div className="p-10 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
+                                <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
+                                <p className="text-7xl font-black text-primary tracking-tighter font-mono">${depositDetails.amount.toFixed(2)}</p>
+                                <div className="pt-4 border-t border-primary/10">
+                                    <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3">{depositDetails.type.toUpperCase()} RECOVERY</Badge>
+                                </div>
+                            </div>
+                            <div className="space-y-4 text-left">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Mode</Label>
+                                <Controller
+                                    name="paymentMethod"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <RadioGroup value={field.value} onValueChange={field.onChange} className="grid grid-cols-1 gap-3">
+                                            <label htmlFor="pay-vault" className={cn("flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50", !hasCardOnFile && "opacity-40 grayscale grayscale-[0.5]")}>
+                                                <div className="flex items-center gap-4">
+                                                    <RadioGroupItem value="card_on_file" id="pay-vault" disabled={!hasCardOnFile}/>
+                                                    <div className="space-y-0.5">
+                                                        <span className="text-sm font-black uppercase tracking-tight text-slate-900">Vaulted Card</span>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{hasCardOnFile ? `${selectedClient?.cardOnFile?.brand} •••• ${selectedClient?.cardOnFile?.last4}` : 'No secure card archived'}</p>
+                                                    </div>
+                                                </div>
+                                                <ShieldCheck className={cn("w-5 h-5", hasCardOnFile ? "text-primary" : "text-slate-300")} />
+                                            </label>
+                                            <label htmlFor="pay-terminal" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 border-border">
+                                                <div className="flex items-center gap-4">
+                                                    <RadioGroupItem value="terminal" id="pay-terminal" />
+                                                    <div className="space-y-0.5">
+                                                        <span className="text-sm font-black uppercase tracking-tight text-slate-900">Terminal Entry</span>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Authorize new card via terminal</p>
+                                                    </div>
+                                                </div>
+                                                <Zap className="w-5 h-5 text-primary" />
+                                            </label>
+                                            <label htmlFor="pay-pending" className="flex items-center justify-between p-5 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:bg-muted/50">
+                                                <div className="flex items-center gap-4">
+                                                    <RadioGroupItem value="none" id="pay-pending" />
+                                                    <div className="space-y-0.5">
+                                                        <span className="text-sm font-black uppercase tracking-tight text-slate-900">Arrears Allocation</span>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Add to dossier for future settlement</p>
+                                                    </div>
+                                                </div>
+                                                <Landmark className="w-5 h-5 text-muted-foreground opacity-40" />
+                                            </label>
+                                        </RadioGroup>
+                                    )}
+                                />
+                            </div>
+                        </motion.div>
+                    )}
 
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[92dvh] flex flex-col p-0 border-none rounded-t-[2.5rem] bg-background shadow-2xl">
-          <SheetHeader className="p-6 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
-            <div className="flex items-center gap-2 mb-1.5">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">Planning Studio</span>
-            </div>
-            <SheetTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</SheetTitle>
-            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</SheetDescription>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto">
-              <div className="px-6">{FormContent}</div>
-          </div>
-          <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
-            <div className="flex w-full gap-3">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400 flex-1">Cancel</Button>
-                <Button type="submit" form="add-appointment-form" className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shadow-primary/20">Complete Booking</Button>
-            </div>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    );
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
-         <DialogHeader className="p-10 pb-6 border-b bg-muted/5 text-left flex-shrink-0">
-            <div className="flex items-center gap-3 mb-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Planning Studio</span>
-            </div>
-            <DialogTitle className="text-4xl font-black uppercase tracking-tighter text-slate-900">{dialogTitle}</DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{dialogDescription}</DialogDescription>
-        </DialogHeader>
-        <ScrollArea className="flex-1">
-            <div className="px-10">
-                {FormContent}
+                    {step === 'success' && (
+                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} key="success" className="text-center py-12 space-y-12">
+                            <div className="w-32 h-32 bg-green-500/10 rounded-[3rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
+                                <CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" />
+                            </div>
+                            <div className="space-y-3">
+                                <h2 className="text-4xl font-black uppercase tracking-tighter text-slate-900">Registry Entry Finalized</h2>
+                                <p className="text-muted-foreground font-medium max-w-xs mx-auto leading-relaxed">The session has been successfully pinned to the studio manifest.</p>
+                            </div>
+                            
+                            <div className="grid gap-6 max-w-sm mx-auto">
+                                <Card className="p-6 rounded-[2.5rem] border-2 bg-white shadow-2xl flex flex-col items-center gap-4 text-left">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-primary">Assigned Professional</p>
+                                    <div className="flex items-center gap-4 w-full">
+                                        <Avatar className="w-16 h-16 border-4 border-background shadow-xl rounded-2xl">
+                                            <AvatarImage src={currentAssignedPro?.avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="bg-primary/10 text-primary font-black uppercase">{(currentAssignedPro?.name || 'S')[0]}</AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="font-black text-xl uppercase tracking-tight leading-none mb-1 truncate">{currentAssignedPro?.name}</p>
+                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{currentAssignedPro?.role}</p>
+                                        </div>
+                                    </div>
+                                </Card>
+                                <Card className="p-6 rounded-[2rem] border-2 border-dashed bg-muted/10 space-y-4 text-left shadow-inner">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center">Session Intel</p>
+                                    <div className="flex items-center gap-4">
+                                        <CalendarIcon className="w-5 h-5 text-primary opacity-40" />
+                                        <div className="space-y-0.5">
+                                            <p className="font-black uppercase text-xs">{format(watchDate, 'EEEE, MMM d')}</p>
+                                            <p className="text-sm font-black text-primary tracking-tighter font-mono">{format(timeStringToDate(watchStartTime, new Date()), 'h:mm a')}</p>
+                                        </div>
+                                    </div>
+                                    <div className="pt-4 border-t border-white/50 flex items-center gap-4">
+                                        <Sparkles className="w-5 h-5 text-primary opacity-40" />
+                                        <p className="font-black uppercase text-xs truncate">{selectedService?.name}</p>
+                                    </div>
+                                </Card>
+                            </div>
+                            
+                            <Button className="w-full h-16 text-lg font-black uppercase tracking-widest rounded-3xl shadow-3xl shadow-primary/20 transition-all active:scale-95" onClick={() => onOpenChange(false)}>Return to Agenda</Button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         </ScrollArea>
-        <DialogFooter className="p-10 pt-6 border-t bg-background flex-shrink-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
-          <Button type="submit" form="add-appointment-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group">Book Appointment <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+        <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
+            {step !== 'success' && (
+                <div className="flex w-full gap-4">
+                    {step !== 'details' && (
+                        <Button variant="ghost" onClick={() => setStep(prev => prev === 'assignment' ? 'details' : prev === 'timing' ? 'assignment' : 'timing')} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Back</Button>
+                    )}
+                    <Button 
+                        onClick={handleNext} 
+                        disabled={isSubmitting || !watchClientId || !watchServiceId}
+                        className={cn("h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 group transition-all", step === 'details' ? "w-full" : "flex-[2.5]")}
+                    >
+                        {isSubmitting ? <Loader className="animate-spin h-5 w-5" /> : (
+                            <>
+                                {step === 'details' ? 'Provider Routing' : step === 'assignment' ? 'Select Window' : step === 'timing' && depositDetails ? 'Deposit Settlement' : 'Finalize Booking'}
+                                <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                            </>
+                        )}
+                    </Button>
+                </div>
+            )}
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 };
 
