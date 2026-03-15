@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -55,23 +55,33 @@ import {
   CalendarCheck, 
   Clock, 
   Users, 
-  Zap, 
-  Repeat, 
-  Star, 
   Sparkles, 
-  Wallet, 
-  Check,
-  ArrowRight,
-  Loader,
+  Activity, 
+  ArrowRight, 
+  Check, 
+  Tag, 
+  List,
+  ShoppingCart,
+  MapPin,
+  FlaskConical,
+  CalendarCheck as CalendarCheckIcon,
+  Edit,
+  Mail,
+  Phone,
   Unlock,
-  CheckCircle2,
+  UserPlus,
+  Search,
+  FileSignature,
   ShieldCheck,
   CreditCard,
-  Banknote,
-  Info
+  Zap,
+  Landmark,
+  Wallet,
+  CheckCircle2,
+  Repeat
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, Staff, Event, InventoryItem, PricingTier, getServicePrice, Membership } from '@/lib/data';
+import { type Client, type Service, type Appointment, type Staff, type Event, type InventoryItem, type PricingTier, type Membership, type ConsentForm } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, addMonths, parseISO, endOfDay } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
@@ -82,13 +92,14 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, doc, writeBatch, increment, arrayUnion, getDocs } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
+import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -117,22 +128,13 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     return d;
 }
 
-type Step = 'details' | 'assignment' | 'timing' | 'deposit' | 'success';
-
-export interface AddAppointmentDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (appointmentData: any) => void;
-  client?: Client | null;
-  appointmentToRebook?: Appointment | null;
-  memberships: Membership[];
-}
+type Step = 'details' | 'assignment' | 'timing' | 'consents' | 'deposit' | 'success';
 
 export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client: initialClient, appointmentToRebook, memberships }) => {
   const isMobile = useIsMobile();
   const { firestore, user } = useFirebase();
   const { selectedTenant, role } = useTenant();
-  const { services, staff: allStaff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB } = useInventory();
+  const { services, staff: allStaff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB, consentForms } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
   const tmhr = selectedTenant?.tmhr || 50;
@@ -140,10 +142,15 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   const [step, setStep] = useState<Step>('details');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [assignedStaffId, setAssignedStaffId] = useState<string | null>(null);
+  const [clientSearch, setClientSearch] = useState('');
+  const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
 
   const methods = useForm({
     defaultValues: {
         clientId: '',
+        newClientName: '',
+        newClientEmail: '',
+        newClientPhone: '',
         serviceId: '',
         staffId: 'any',
         selectedTierId: 'any',
@@ -162,9 +169,14 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
         setStep('details');
         setIsSubmitting(false);
         setAssignedStaffId(null);
+        setClientSearch('');
+        setFormAnswers({});
         const staffDefault = (role === 'staff' && user) ? user.uid : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
         reset({
             clientId: initialClient?.id || appointmentToRebook?.clientId || '',
+            newClientName: '',
+            newClientEmail: '',
+            newClientPhone: '',
             serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
             staffId: staffDefault,
             selectedTierId: 'any',
@@ -188,6 +200,11 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   const selectedClient = useMemo(() => clients?.find(c => c.id === watchClientId), [clients, watchClientId]);
   const selectedService = useMemo(() => services?.find(s => s.id === watchServiceId), [services, watchServiceId]);
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+
+  const requiredForms = useMemo(() => {
+    if (!selectedService || !consentForms) return [];
+    return consentForms.filter(f => selectedService.requiredFormIds?.includes(f.id));
+  }, [selectedService, consentForms]);
 
   const qualifiedStaff = useMemo(() => {
     if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return allStaff;
@@ -232,7 +249,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
         if (!watchOverride && (!workingHours || !workingHours.enabled)) return;
 
         const busyIntervals: { start: Date, end: Date }[] = [];
-        appointmentsFromDB.filter(apt => isSameDay(safeDate(apt.startTime), watchDate) && apt.staffId === staffMember.id).forEach(apt => {
+        appointmentsFromDB.filter(apt => isSameDay(safeDate(apt.startTime), watchDate) && apt.staffId === staffMember.id && apt.status !== 'cancelled').forEach(apt => {
             const aptService = services.find(s => s.id === apt.serviceId);
             busyIntervals.push({ start: addMinutes(safeDate(apt.startTime), -(aptService?.padBefore || 0)), end: addMinutes(safeDate(apt.endTime), (aptService?.padAfter || 0)) });
         });
@@ -278,12 +295,18 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
 
   const handleNext = async () => {
     if (step === 'details') {
-        const valid = await trigger(['clientId', 'serviceId']);
+        const isNew = watchClientId === 'new';
+        const fieldsToValidate: any[] = isNew ? ['newClientName', 'newClientEmail', 'serviceId'] : ['clientId', 'serviceId'];
+        const valid = await trigger(fieldsToValidate);
         if (valid) setStep('assignment');
     } else if (step === 'assignment') {
         setStep('timing');
     } else if (step === 'timing') {
         if (!watchStartTime) return toast({ variant: 'destructive', title: "Select Time", description: "A valid session window must be selected." });
+        if (requiredForms.length > 0) setStep('consents');
+        else if (depositDetails) setStep('deposit');
+        else finalizeBooking();
+    } else if (step === 'consents') {
         if (depositDetails) setStep('deposit');
         else finalizeBooking();
     } else if (step === 'deposit') {
@@ -297,6 +320,27 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     const [hours, minutes] = data.startTime.split(':').map(Number);
     const startDateTime = setMinutes(setHours(startOfDay(data.date), hours), minutes);
     const endDateTime = addMinutes(startDateTime, selectedService!.duration);
+
+    const batch = writeBatch(firestore!);
+    const now = new Date().toISOString();
+    
+    let finalClientId = data.clientId;
+    let finalClientName = selectedClient?.name || data.newClientName;
+
+    if (finalClientId === 'new') {
+        const newClientRef = doc(collection(firestore!, `tenants/${tenantId}/clients`));
+        finalClientId = newClientRef.id;
+        batch.set(newClientRef, {
+            id: finalClientId,
+            name: data.newClientName,
+            email: data.newClientEmail,
+            phone: data.newClientPhone,
+            avatarUrl: `https://picsum.photos/seed/${finalClientId}/100`,
+            lifetimeValue: 0,
+            lastAppointment: now,
+            status: 'active'
+        });
+    }
 
     let finalStaffId = data.staffId;
     if (finalStaffId === 'any') {
@@ -322,8 +366,6 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
 
     setAssignedStaffId(finalStaffId);
     
-    // Batch write for security and consistency
-    const batch = writeBatch(firestore!);
     const aptId = nanoid();
     const token = nanoid(16);
     const aptRef = doc(firestore!, `tenants/${tenantId}/appointments`, aptId);
@@ -332,8 +374,8 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     const payload = {
         id: aptId,
         tenantId,
-        clientId: data.clientId,
-        clientName: selectedClient?.name,
+        clientId: finalClientId,
+        clientName: finalClientName,
         serviceId: data.serviceId,
         staffId: finalStaffId,
         startTime: startDateTime.toISOString(),
@@ -347,14 +389,27 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     batch.set(aptRef, payload);
     batch.set(checkInRef, payload);
 
+    Object.entries(formAnswers).forEach(([formId, answers]) => {
+        const consentRef = doc(collection(firestore!, `tenants/${tenantId}/clients/${finalClientId}/signedConsents`));
+        const form = consentForms.find(f => f.id === formId);
+        batch.set(consentRef, {
+            id: consentRef.id,
+            formId,
+            formTitle: form?.title || 'Form',
+            clientId: finalClientId,
+            signedAt: now,
+            formData: answers
+        });
+    });
+
     if (depositDetails && data.paymentMethod !== 'none') {
         const txnRef = doc(collection(firestore!, `tenants/${tenantId}/transactions`));
         batch.set(txnRef, {
             id: txnRef.id,
-            date: new Date().toISOString(),
+            date: now,
             description: `Retainer: ${selectedService?.name}`,
-            clientOrVendor: selectedClient?.name,
-            clientId: data.clientId,
+            clientOrVendor: finalClientName,
+            clientId: finalClientId,
             type: 'income',
             context: 'Business',
             category: 'Retainers',
@@ -389,18 +444,25 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     </div>
   );
 
+  const filteredClients = useMemo(() => {
+      if (!clients) return [];
+      if (!clientSearch.trim()) return clients.slice(0, 10);
+      const s = clientSearch.toLowerCase();
+      return clients.filter(c => c.name.toLowerCase().includes(s) || c.email.toLowerCase().includes(s) || c.phone.includes(s));
+  }, [clients, clientSearch]);
+
   const hasCardOnFile = !!selectedClient?.cardOnFile?.token;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
-        <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+        <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
             </div>
             <SheetTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Session</SheetTitle>
-            {step !== 'success' && <div className="pt-6"><Progress value={(['details', 'assignment', 'timing', 'deposit'].indexOf(step) + 1) / (depositDetails ? 4 : 3) * 100} className="h-1 rounded-full bg-muted" /></div>}
+            {step !== 'success' && <div className="pt-6"><Progress value={(steps.indexOf(step) + 1) / (steps.length - 1) * 100} className="h-1 rounded-full bg-muted" /></div>}
         </SheetHeader>
 
         <ScrollArea className="flex-1">
@@ -409,26 +471,96 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
                     {step === 'details' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="details" className="space-y-10">
                             <SelectionHeader icon={User} title="Guest & Protocol" stepNum={1} />
-                            <div className="space-y-6 text-left">
+                            <div className="space-y-8 text-left">
                                 <div className="space-y-3">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Identification</Label>
                                     <Controller
                                         name="clientId"
                                         control={control}
                                         render={({ field }) => (
-                                            <Select onValueChange={field.onChange} value={field.value}>
-                                                <SelectTrigger className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-black uppercase text-xs tracking-tight">
-                                                    <SelectValue placeholder="SEARCH ROSTER..." />
-                                                </SelectTrigger>
-                                                <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                                    {(clients || []).map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
+                                            <div className="space-y-4">
+                                                <div className="relative">
+                                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                                                    <Input 
+                                                        placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
+                                                        value={clientSearch}
+                                                        onChange={e => setClientSearch(e.target.value)}
+                                                        className="h-14 pl-12 rounded-2xl border-2 font-black uppercase text-xs shadow-inner"
+                                                    />
+                                                </div>
+                                                <div className="grid grid-cols-1 gap-2">
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => { field.onChange('new'); setClientSearch(''); }}
+                                                        className={cn(
+                                                            "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left",
+                                                            field.value === 'new' ? "border-primary bg-primary/5 shadow-md" : "border-dashed hover:border-primary/20"
+                                                        )}
+                                                    >
+                                                        <div className="p-3 bg-muted rounded-xl"><UserPlus className="w-5 h-5 text-muted-foreground" /></div>
+                                                        <span className="font-black uppercase text-xs tracking-tight">Register New Profile</span>
+                                                    </button>
+                                                    {filteredClients.map(c => {
+                                                        const isSel = field.value === c.id;
+                                                        const isMember = !!(c.activeMembershipId || c.subscription);
+                                                        const hasPkg = (c.activePackages?.length || 0) > 0;
+                                                        const hasDebt = (c.outstandingBalance || 0) > 0;
+                                                        return (
+                                                            <button 
+                                                                key={c.id}
+                                                                type="button"
+                                                                onClick={() => { field.onChange(c.id); setClientSearch(''); }}
+                                                                className={cn(
+                                                                    "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left",
+                                                                    isSel ? "border-primary bg-primary/5 shadow-md" : "border-transparent bg-muted/10 hover:bg-muted/20"
+                                                                )}
+                                                            >
+                                                                <div className="relative shrink-0">
+                                                                    <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
+                                                                        <AvatarImage src={c.avatarUrl} className="object-cover" />
+                                                                        <AvatarFallback className="font-black text-xs">{(c.name || 'G')[0]}</AvatarFallback>
+                                                                    </Avatar>
+                                                                    {isMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <p className="font-black uppercase text-xs truncate leading-none">{c.name}</p>
+                                                                        {hasPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
+                                                                        {hasDebt && <Badge variant="destructive" className="border-none text-[7px] h-3.5 px-1 font-black uppercase animate-pulse">ARREARS</Badge>}
+                                                                    </div>
+                                                                    <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 truncate">{c.email || c.phone || 'No contact'}</p>
+                                                                </div>
+                                                                {isSel && <Check className="w-5 h-5 text-primary" />}
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
                                         )}
                                     />
                                 </div>
+
+                                {watchClientId === 'new' && (
+                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-6 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[9px] font-black uppercase text-primary ml-1">Full Legal Name</Label>
+                                            <Input {...register('newClientName')} placeholder="ALEXANDER SMITH" className="h-12 rounded-xl border-2 font-black uppercase text-sm bg-white" />
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <Label className="text-[9px] font-black uppercase text-primary ml-1">Email</Label>
+                                                <Input type="email" {...register('newClientEmail')} placeholder="alex@example.com" className="h-12 rounded-xl border-2 font-bold text-xs bg-white" />
+                                            </div>
+                                            <div className="space-y-1.5 kiosk-phone-input text-left">
+                                                <Label className="text-[9px] font-black uppercase text-primary ml-1">Mobile</Label>
+                                                <PhoneInput name="newClientPhone" label="" className="h-12" />
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                )}
+
                                 <div className="space-y-3">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Service Matrix</Label>
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Service Protocol</Label>
                                     <Controller
                                         name="serviceId"
                                         control={control}
@@ -519,9 +651,35 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
                         </motion.div>
                     )}
 
+                    {step === 'consents' && (
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="consents" className="space-y-10">
+                            <SelectionHeader icon={FileSignature} title="Digital Intake" stepNum={4} />
+                            <div className="space-y-12">
+                                {requiredForms.map(form => (
+                                    <div key={form.id} className="space-y-8 p-8 md:p-12 rounded-[3rem] border-2 border-white/50 bg-white/60 backdrop-blur-2xl shadow-2xl">
+                                        <div className="flex items-center gap-4 text-2xl font-black uppercase tracking-tighter pb-4 border-b border-dashed"><ListChecks className="w-8 h-8 text-primary" />{form.title}</div>
+                                        <div className="space-y-10 text-left">
+                                            {form.fields?.map(field => (
+                                                <FormFieldRenderer 
+                                                    key={field.id} 
+                                                    field={field} 
+                                                    value={formAnswers[form.id]?.[field.id]}
+                                                    onChange={(val) => setFormAnswers(prev => ({
+                                                        ...prev,
+                                                        [form.id]: { ...(prev[form.id] || {}), [field.id]: val }
+                                                    }))}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
+
                     {step === 'deposit' && depositDetails && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="deposit" className="space-y-10">
-                            <SelectionHeader icon={CreditCard} title="Secure Retainer" stepNum={4} />
+                            <SelectionHeader icon={CreditCard} title="Secure Retainer" stepNum={5} />
                             <div className="p-10 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                                 <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
                                 <p className="text-7xl font-black text-primary tracking-tighter font-mono">${depositDetails.amount.toFixed(2)}</p>
@@ -624,16 +782,21 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
             {step !== 'success' && (
                 <div className="flex w-full gap-4">
                     {step !== 'details' && (
-                        <Button variant="ghost" onClick={() => setStep(prev => prev === 'assignment' ? 'details' : prev === 'timing' ? 'assignment' : 'timing')} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Back</Button>
+                        <Button variant="ghost" onClick={() => handlePrevStep()} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Back</Button>
                     )}
                     <Button 
                         onClick={handleNext} 
-                        disabled={isSubmitting || !watchClientId || !watchServiceId}
+                        disabled={isSubmitting || (!watchClientId && step === 'details') || !watchServiceId}
                         className={cn("h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 group transition-all", step === 'details' ? "w-full" : "flex-[2.5]")}
                     >
                         {isSubmitting ? <Loader className="animate-spin h-5 w-5" /> : (
                             <>
-                                {step === 'details' ? 'Provider Routing' : step === 'assignment' ? 'Select Window' : step === 'timing' && depositDetails ? 'Deposit Settlement' : 'Finalize Booking'}
+                                {step === 'details' ? 'Provider Routing' : 
+                                 step === 'assignment' ? 'Select Window' : 
+                                 step === 'timing' && requiredForms.length > 0 ? 'Digital Intake' :
+                                 step === 'timing' && depositDetails ? 'Deposit Settlement' : 
+                                 step === 'consents' && depositDetails ? 'Deposit Settlement' :
+                                 'Finalize Booking'}
                                 <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                             </>
                         )}
@@ -645,3 +808,12 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     </Sheet>
   );
 };
+
+interface AddAppointmentDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (appointmentData: any) => void;
+  client?: Client | null;
+  appointmentToRebook?: Appointment | null;
+  memberships: Membership[];
+}
