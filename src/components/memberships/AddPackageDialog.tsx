@@ -32,7 +32,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
 import { type Package, type Service, type InventoryItem, type PricingTier, type Staff } from '@/lib/data';
-import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale } from 'lucide-react';
+import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale, Zap } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
@@ -390,7 +390,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
   return (
     <>
         <DialogContainer open={open} onOpenChange={onOpenChange}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />

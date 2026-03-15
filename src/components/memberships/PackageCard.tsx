@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -100,7 +99,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
             netProfit,
             margin,
             labor: burdenedLabor,
-            timeValue
+            timeValue,
+            materialCost
         };
     });
   }, [primaryService, pack, staff, tmhr, taxBurden, materialCost]);
@@ -115,7 +115,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
 
   return (
     <Card className={cn(
-        "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col border-teal-500/20 bg-white hover:border-teal-500/50 hover:shadow-2xl hover:shadow-teal-500/10",
+        "transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col border-teal-500/20 bg-white hover:border-teal-500/50 hover:shadow-2xl hover:shadow-teal-500/10",
         !pack.isPrivate && "shadow-sm"
     )}>
       <CardHeader className="bg-teal-500/5 border-b p-6 sm:p-8">
@@ -166,7 +166,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <AccordionContent className="px-4 pb-4 pt-2 text-left">
                     <div className="space-y-3">
                         <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-3 rounded-xl border shadow-sm">
-                            <span className="flex items-center gap-2"><FileCheck2 className="w-3.5 h-3.5 text-teal-500"/> {primaryService?.name || 'N/A'}</span>
+                            <span className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-teal-500"/> {primaryService?.name || 'N/A'}</span>
                             <span className="font-black text-slate-900">{pack.sessions} SESSIONS</span>
                         </div>
                         {pack.retailDiscount && pack.retailDiscount > 0 && (
@@ -226,7 +226,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                                 </Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-[8px] uppercase font-bold text-muted-foreground opacity-60">
-                                <span>Materials: ${materialCost.toFixed(2)}</span>
+                                <span>Materials: ${sa.materialCost.toFixed(2)}</span>
                                 <span className="text-right">Time (TMHR): ${sa.timeValue.toFixed(2)}</span>
                                 <span className="col-span-2 border-t pt-1 mt-1">Burdened Labor: ${sa.labor.toFixed(2)}</span>
                             </div>

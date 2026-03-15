@@ -113,7 +113,8 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
             netProfit,
             margin,
             labor: burdenedLabor,
-            timeValue
+            timeValue,
+            materialCost
         };
     });
   }, [staff, timeLiabilityHours, tmhr, materialCost, taxBurden, membership, services]);
@@ -252,7 +253,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                                 </Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-[8px] uppercase font-bold text-muted-foreground opacity-60">
-                                <span>Materials: ${materialCost.toFixed(2)}</span>
+                                <span>Materials: ${sa.materialCost.toFixed(2)}</span>
                                 <span className="text-right">Time (TMHR): ${sa.timeValue.toFixed(2)}</span>
                                 <span className="col-span-2 border-t pt-1 mt-1">Burdened Labor: ${sa.labor.toFixed(2)}</span>
                             </div>

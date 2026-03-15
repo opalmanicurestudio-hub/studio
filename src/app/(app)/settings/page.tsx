@@ -321,7 +321,7 @@ function SettingsContent() {
           if (seniorPro?.payStructure === 'commission') labor = price * (seniorPro.commissionRate / 100);
           else if (seniorPro?.payStructure === 'hourly' && seniorPro.hourlyRate) labor = (s.duration / 60) * seniorPro.hourlyRate;
           
-          const totalTarget = houseFloor + (labor * (1 + (taxBurden / 100)));
+          const burdenedLabor = labor * (1 + (taxBurden / 100));
 
           return {
               name: s.name,

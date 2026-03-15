@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
 import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale, Zap } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -127,7 +127,10 @@ const ProfitabilityAnalysis = ({
             const timeValue = timeLiabilityHours * tmhr;
             
             let labor = 0;
-            const projectedRevenueValue = [...perks.services, ...perks.addOns].reduce((sum, perk) => {
+            const projectedRevenueValue = [
+                ...perks.services, 
+                ...perks.addOns
+            ].reduce((sum, perk) => {
                 const svc = services.find(sv => sv.id === perk.id);
                 const priceAtTier = svc?.serviceTiers?.find(t => t.tierId === member.pricingTierId)?.price || svc?.price || 0;
                 return sum + (priceAtTier * perk.quantity);
@@ -155,7 +158,8 @@ const ProfitabilityAnalysis = ({
                 netProfit,
                 margin,
                 labor: burdenedLabor,
-                timeValue
+                timeValue,
+                materialCost
             };
         });
     }, [staff, timeLiabilityHours, tmhr, materialCost, taxBurden, perks.services, perks.addOns, services, price]);
@@ -168,7 +172,7 @@ const ProfitabilityAnalysis = ({
                     Individual Payout Matrix
                 </CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60 text-left">
-                    Net Analysis per technician @ {taxBurden}% Tax Burden
+                    Net Analysis per professional @ {taxBurden}% Tax Burden
                 </CardDescription>
             </CardHeader>
             <CardContent className="p-8 pt-6 space-y-6">
@@ -193,7 +197,7 @@ const ProfitabilityAnalysis = ({
                             <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left">
                                 <div className="space-y-0.5">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Material Load</p>
-                                    <p className="font-mono text-xs font-black text-slate-900">${materialCost.toFixed(2)}</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${sa.materialCost.toFixed(2)}</p>
                                 </div>
                                 <div className="space-y-0.5 text-right">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Time (TMHR)</p>
@@ -215,7 +219,7 @@ const ProfitabilityAnalysis = ({
                     ))}
                 </div>
                 <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
-                    < alienation className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
+                    <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
                         Yield reflects individual technician pay structures and your current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.
                     </p>
@@ -351,7 +355,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                     </div>
                 </div>
                  <div className="space-y-2">
-                    <Label htmlFor="mem-interval" className="text-[10px) font-black uppercase tracking-widest text-muted-foreground ml-1">Billing Cycle</Label>
+                    <Label htmlFor="mem-interval" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Billing Cycle</Label>
                     <Select value={interval} onValueChange={(v: any) => setInterval(v)}>
                         <SelectTrigger id="mem-interval" className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                         <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -570,7 +574,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   return (
     <>
         <DialogContainer open={open} onOpenChange={onOpenChange}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />

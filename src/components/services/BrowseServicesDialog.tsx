@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Service } from '@/lib/data';
-import { Search, Sparkles, Scissors } from 'lucide-react';
+import { Search, Sparkles, Scissors, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 
@@ -66,8 +66,12 @@ export const BrowseServicesDialog: React.FC<BrowseServicesDialogProps> = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 shadow-3xl overflow-hidden">
         <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
+          <div className="flex items-center gap-3 mb-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Library Audit</span>
+          </div>
           <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Browse Services</DialogTitle>
-          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Select services to include as membership perks.</DialogDescription>
+          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select services to include as membership perks.</DialogDescription>
         </DialogHeader>
         <div className="p-8 space-y-6">
             <div className="relative">
@@ -93,7 +97,7 @@ export const BrowseServicesDialog: React.FC<BrowseServicesDialogProps> = ({
                             onClick={() => handleToggle(service.id)}
                         >
                             <Checkbox
-                                id={`service-${service.id}`}
+                                id={`service-browse-${service.id}`}
                                 checked={isSelected}
                                 onCheckedChange={() => handleToggle(service.id)}
                                 className="h-6 w-6 rounded-full border-2"
@@ -107,12 +111,13 @@ export const BrowseServicesDialog: React.FC<BrowseServicesDialogProps> = ({
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                                <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate text-left">
                                     {service.name}
                                 </p>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                                    {service.duration}m &middot; ${service.price.toFixed(2)}
-                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="text-[10px] font-black text-primary uppercase tracking-widest">${service.price.toFixed(2)}</span>
+                                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{service.duration}m</span>
+                                </div>
                             </div>
                         </div>
                     );
@@ -128,7 +133,9 @@ export const BrowseServicesDialog: React.FC<BrowseServicesDialogProps> = ({
         </div>
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
           <div className="flex flex-col gap-3 w-full">
-            <Button onClick={handleSave} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Add Selected</Button>
+            <Button onClick={handleSave} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
+                Add Selected ({selectedIds.size}) <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
+            </Button>
             <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
           </div>
         </DialogFooter>
