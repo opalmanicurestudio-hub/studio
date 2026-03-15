@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -97,7 +98,7 @@ const TransactionCard = ({ transaction, service, timeVariance }: { transaction: 
     <Card className="bg-background border-2 shadow-sm rounded-xl overflow-hidden text-left">
         <CardContent className="p-3">
             <div className="flex justify-between items-start gap-2">
-                <div className="flex-1 space-y-1 min-w-0">
+                <div className="flex-1 space-y-1 min-w-0 text-left">
                     <p className="font-bold text-xs uppercase tracking-tight truncate">{transaction.description}</p>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
                 </div>
@@ -254,6 +255,8 @@ export const StaffDetailsSheet = ({
     } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
         const hoursWorked = totalMinutesWorked / 60;
         earnings = hoursWorked * staffMember.hourlyRate;
+    } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
+        earnings = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + (serviceRevenue * ((staffMember.commissionRate || 40) / 100));
     }
     
     const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
@@ -323,7 +326,7 @@ export const StaffDetailsSheet = ({
           <div className={cn("p-5 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50", isMobile && "mb-6")}>
               <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row items-center gap-3">
-                      <div className="flex-1 w-full">
+                      <div className="flex-1 w-full text-left">
                           <Label className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze Period</Label>
                           <Select value={periodPreset} onValueChange={setPeriodPreset}>
                               <SelectTrigger className="h-12 rounded-2xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
@@ -380,10 +383,10 @@ export const StaffDetailsSheet = ({
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
-              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Gross Sales</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">${(currentStats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
-              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tips Earned</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-green-600 font-mono">${(currentStats.tips || 0).toFixed(2)}</p></CardContent></Card>
-              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total Hours</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">{(currentStats.totalHours || 0).toFixed(1)}h</p></CardContent></Card>
-              <Card className="bg-primary/5 border-primary/20 border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">Est. Payout</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-primary font-mono">${(currentStats.earnings || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Gross Sales</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">${(currentStats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tips Earned</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-green-600 font-mono">${(currentStats.tips || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total Hours</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">{(currentStats.totalHours || 0).toFixed(1)}h</p></CardContent></Card>
+              <Card className="bg-primary/5 border-primary/20 border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">Est. Payout</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-primary font-mono">${(currentStats.earnings || 0).toFixed(2)}</p></CardContent></Card>
           </div>
 
            <Tabs defaultValue="activity" className="w-full">
@@ -394,7 +397,7 @@ export const StaffDetailsSheet = ({
                       <TabsTrigger value="effectiveness" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Metrics</TabsTrigger>
                       <TabsTrigger value="profile" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Dossier</TabsTrigger>
                   </TabsList>
-                  <ScrollBar orientation="horizontal" />
+                  <ScrollBar orientation="horizontal" className="hidden" />
               </ScrollArea>
               
               <TabsContent value="activity" className="mt-0 space-y-4">
@@ -432,7 +435,7 @@ export const StaffDetailsSheet = ({
 
               <TabsContent value="effectiveness" className="mt-0">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                    <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Efficiency Matrix</CardTitle></CardHeader>
+                    <CardHeader className="bg-muted/10 border-b p-6 text-left"><CardTitle className="text-sm font-black uppercase tracking-widest">Efficiency Matrix</CardTitle></CardHeader>
                     <CardContent className="p-6">
                         <div className="grid grid-cols-2 gap-4">
                             {performanceKpis.map(kpi => (
@@ -467,8 +470,8 @@ export const StaffDetailsSheet = ({
                         <div className="space-y-4">
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Licensing Archive</p>
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">License ID</p><p className="uppercase tracking-tight font-black">{staffMember.compliance?.licenseNumber || '—'}</p></div>
-                                <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">Expiration</p><p className="uppercase tracking-tight font-black">{staffMember.compliance?.licenseExpiry ? format(safeDateWrapper(staffMember.compliance.licenseExpiry), 'MMM d, yyyy') : '—'}</p></div>
+                                <div className="space-y-1 text-left"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">License ID</p><p className="uppercase tracking-tight font-black">{staffMember.compliance?.licenseNumber || '—'}</p></div>
+                                <div className="space-y-1 text-left"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">Expiration</p><p className="uppercase tracking-tight font-black">{staffMember.compliance?.licenseExpiry ? format(safeDateWrapper(staffMember.compliance.licenseExpiry), 'MMM d, yyyy') : '—'}</p></div>
                             </div>
                         </div>
                     </CardContent>
@@ -500,7 +503,7 @@ export const StaffDetailsSheet = ({
                         <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
                         <AvatarFallback className="font-black text-lg bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
                     </Avatar>
-                    <div>
+                    <div className='text-left'>
                         <SheetTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none mb-1", isMobile ? "text-lg" : "text-3xl")}>{staffMember.name}</SheetTitle>
                         <SheetDescription className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest opacity-60">Performance Intelligence</SheetDescription>
                     </div>

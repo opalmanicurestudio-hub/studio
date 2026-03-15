@@ -41,7 +41,8 @@ import {
     ShieldCheck,
     Info,
     RefreshCw,
-    Calendar as CalendarIcon
+    Calendar as CalendarIcon,
+    Users
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -620,7 +621,7 @@ export default function ClientDetailPage() {
                 </Button>
                 <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
             </DialogFooter>
-        </Dialog>
+        </DialogContent>
       </Dialog>
     </div>
   );

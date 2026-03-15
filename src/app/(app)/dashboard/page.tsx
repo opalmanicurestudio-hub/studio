@@ -32,7 +32,8 @@ import {
   Landmark,
   Globe,
   Phone,
-  Smartphone
+  Smartphone,
+  Square
 } from 'lucide-react';
 import {
   ChartContainer,
@@ -94,22 +95,6 @@ const barChartConfig = {
     color: 'hsl(var(--primary))',
   },
 } satisfies ChartConfig;
-
-const pieChartConfig = {
-  services: {
-    label: 'Services',
-    color: 'hsl(var(--primary))',
-  },
-  retail: {
-    label: 'Retail',
-    color: 'hsl(var(--accent))',
-  },
-  tips: {
-    label: 'Tips',
-    color: 'hsl(var(--muted-foreground))',
-  },
-} satisfies ChartConfig;
-
 
 const OwnerDashboard = ({ 
   todaysRevenue, 
@@ -448,7 +433,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                     'bg-green-50 text-white border-none': staffMember.active && !staffMember.onBreak,
                     'bg-amber-500 text-white border-none': staffMember.active && staffMember.onBreak,
                  })}>
-                    {staffMember.active ? (memberSubStep === 'break_end' ? 'Ending Break' : staffMember.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
+                    {staffMember.active ? (staffMember.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
                 </Badge>
             )}
           </CardHeader>
@@ -719,8 +704,11 @@ export default function DashboardPage() {
     const comm = (staffMember.commissionRate || 0) / 100;
     if (staffMember.payStructure === 'commission') {
         earnings = serviceRevenue * comm;
+    } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+        const logs = activityLogs.filter(l => l.staffId === staffMember.id && safeDate(l.timestamp) >= todayStart && safeDate(l.timestamp) <= todayEnd);
+        const dailyMinutes = logs.reduce((acc, l) => acc + (l.durationMinutes || 0), 0);
+        earnings = (dailyMinutes / 60) * staffMember.hourlyRate;
     } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
-        // Find total hours for today
         const logs = activityLogs.filter(l => l.staffId === staffMember.id && safeDate(l.timestamp) >= todayStart && safeDate(l.timestamp) <= todayEnd);
         const dailyMinutes = logs.reduce((acc, l) => acc + (l.durationMinutes || 0), 0);
         earnings = ((dailyMinutes / 60) * staffMember.hourlyRate) + (serviceRevenue * comm);
@@ -784,9 +772,16 @@ export default function DashboardPage() {
     let totalBreakMinutes = 0;
     for (const log of sortedLogs) {
         const logTime = safeDate(log.timestamp);
-        if (log.type === 'clock_in') { if (clockInTime) totalMinutesWorked += differenceInMinutes(logTime, clockInTime) - totalBreakMinutes; clockInTime = logTime; totalBreakMinutes = 0; }
-        else if (log.type === 'clock_out' && clockInTime) { totalMinutesWorked += differenceInMinutes(logTime, clockInTime) - totalBreakMinutes; clockInTime = null; }
-        else if (log.type === 'break_end' && log.durationMinutes) totalBreakMinutes += log.durationMinutes;
+        if (log.type === 'clock_in') {
+            if (clockInTime) totalMinutesWorked += differenceInMinutes(logTime, clockInTime) - totalBreakMinutes;
+            clockInTime = logTime;
+            totalBreakMinutes = 0;
+        } else if (log.type === 'clock_out' && clockInTime) {
+            totalMinutesWorked += differenceInMinutes(logTime, clockInTime) - totalBreakMinutes;
+            clockInTime = null;
+        } else if (log.type === 'break_end' && log.durationMinutes) {
+            totalBreakMinutes += log.durationMinutes;
+        }
     }
     if(clockInTime) totalMinutesWorked += differenceInMinutes(new Date(), clockInTime) - totalBreakMinutes;
     
@@ -796,7 +791,7 @@ export default function DashboardPage() {
     } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
         wages = (totalMinutesWorked / 60) * staffMember.hourlyRate;
     } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
-        wages = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + (serviceRevenue * ((staffMember.commissionRate || 0) / 100));
+        wages = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + (serviceRevenue * ((staffMember.commissionRate || 40) / 100));
     }
 
     const earnings = wages + tips + (retailSales * ((staffMember.retailCommissionRate || 0) / 100));

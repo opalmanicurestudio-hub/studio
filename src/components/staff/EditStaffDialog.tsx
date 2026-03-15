@@ -75,8 +75,6 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { Progress } from '@/components/ui/progress';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const editStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -444,8 +442,6 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     </div>
                 </div>
             </div>
-            <SelectServicesDialog open={isServicesDialogOpen} onOpenChange={setIsServicesDialogOpen} allServices={services} initialSelected={selectedServices} onSelect={(newSelection) => setValue('services', newSelection.map(s => s.id), { shouldDirty: true })} />
-            <BrowseConsentFormsDialog open={isConsentFormDialogOpen} onOpenChange={setIsConsentFormDialogOpen} onSelect={(forms) => setValue('assignedFormIds', forms.map(f => f.id), { shouldDirty: true })} allForms={consentForms} initialSelected={assignedForms} />
         </div>
     );
 };
@@ -520,7 +516,7 @@ export const EditStaffDialog: React.FC<any> = ({
 
   return (
     <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
             <FormProvider {...methods}>
                 <form id="edit-staff-strategic-form" onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col h-full overflow-hidden">
                     <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-10 pb-6")}>

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -63,7 +64,8 @@ import {
     ShieldCheck, 
     Fingerprint, 
     Award,
-    Heart
+    Heart,
+    Percent
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -93,7 +95,7 @@ const addStaffSchema = z.object({
   portfolioUrl: z.string().optional(),
   role: z.enum(['admin', 'staff']),
   pricingTierId: z.string().optional(),
-  payStructure: z.enum(['commission', 'hourly', 'salary']),
+  payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission']),
   payoutFrequency: z.enum(['weekly', 'bi-weekly']).optional(),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -123,7 +125,7 @@ const addStaffSchema = z.object({
         });
     }
 }).superRefine((data, ctx) => {
-    if (data.payStructure === 'commission') {
+    if (data.payStructure === 'commission' || data.payStructure === 'hourly_plus_commission') {
         if (data.commissionRate === undefined || data.commissionRate === null) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
@@ -134,12 +136,12 @@ const addStaffSchema = z.object({
         if (!data.payoutFrequency) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: "Payout frequency is required for commission.",
+                message: "Payout frequency is required.",
                 path: ["payoutFrequency"],
             });
         }
     }
-    if (data.payStructure === 'hourly' && (data.hourlyRate === undefined || data.hourlyRate === null)) {
+    if ((data.payStructure === 'hourly' || data.payStructure === 'hourly_plus_commission') && (data.hourlyRate === undefined || data.hourlyRate === null)) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Hourly rate is required.",
@@ -152,10 +154,10 @@ export type AddStaffFormData = z.infer<typeof addStaffSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
     <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
-        <div className="space-y-0.5">
+        <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
@@ -169,17 +171,17 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
         <div className="space-y-10">
             <SectionHeader icon={Fingerprint} title="Identity & Access" step={1} />
             <div className="space-y-6">
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Full Name</Label>
-                    <Input id="name" placeholder="e.g., Brenda Barnes" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
-                    {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
+                    <Input id="name" placeholder="e.g., Brenda Barnes" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
+                    {errors.name && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Email</Label>
                     <Input id="email" type="email" placeholder="brenda@example.com" {...register('email')} className="h-14 rounded-2xl border-2 font-bold" />
                     {errors.email && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.email.message}</p>}
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
                     <div className="space-y-2">
                         <Label htmlFor="password" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Login Password</Label>
                         <Input id="password" type="password" {...register('password')} className="h-14 rounded-2xl border-2 font-bold" />
@@ -211,7 +213,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
                     <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Role</Label>
                         <Controller name="role" control={control} render={({ field }) => (
@@ -238,7 +240,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
                 </div>
 
                 <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
-                    <div className='space-y-1'>
+                    <div className='space-y-1 text-left'>
                         <Label htmlFor="showOnPublicPage" className="text-base font-black uppercase tracking-tight">Public Directory</Label>
                         <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Show on the guest booking page</p>
                     </div>
@@ -283,18 +285,18 @@ const Step2 = ({ services, consentForms }: { services: Service[], consentForms: 
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Provider Portrait</p>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="bio" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Bio</Label>
                     <Textarea id="bio" placeholder="Draft a compelling profile for guests..." {...register('bio')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="specialties" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Signature Specialties</Label>
                     <Input id="specialties" placeholder="e.g., BALAYAGE, VIVIDS, PRECISION CUTS" {...register('specialties')} className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner" />
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 ml-1">Delimited by commas</p>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 ml-1 text-left">Delimited by commas</p>
                 </div>
 
-                <div className="space-y-4 pt-4 border-t border-dashed">
+                <div className="space-y-4 pt-4 border-t border-dashed text-left">
                     <div className="flex items-center justify-between px-1">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <List className="w-3.5 h-3.5 opacity-40" /> Treatment Catalog
@@ -308,7 +310,7 @@ const Step2 = ({ services, consentForms }: { services: Service[], consentForms: 
                             {selectedServices.map(service => (
                                 <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                                     <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{service.name}</span>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                    <Button variant="ghost" size="icon" className="h-7 h-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
                                 </div>
                             ))}
                         </div>
@@ -320,7 +322,7 @@ const Step2 = ({ services, consentForms }: { services: Service[], consentForms: 
                     )}
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-4 text-left">
                     <div className="flex items-center justify-between px-1">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <FileText className="w-3.5 h-3.5 opacity-40" /> Associated Documents
@@ -334,7 +336,7 @@ const Step2 = ({ services, consentForms }: { services: Service[], consentForms: 
                             {assignedForms.map(form => (
                                 <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                                     <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive group-hover:opacity-100 transition-opacity" onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                    <Button variant="ghost" size="icon" className="h-7 h-7 text-destructive group-hover:opacity-100 transition-opacity" onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
                                 </div>
                             ))}
                         </div>
@@ -360,7 +362,7 @@ const Step3 = () => {
         <div className="space-y-10">
             <SectionHeader icon={Wallet} title="Compensation & Logistics" step={3} />
             <div className="space-y-8">
-                <div className="space-y-6">
+                <div className="space-y-6 text-left">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Pay Structure</Label>
@@ -370,13 +372,14 @@ const Step3 = () => {
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION</SelectItem>
                                         <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
+                                        <SelectItem value="hourly_plus_commission" className="font-bold uppercase text-[10px] tracking-widest">HOURLY + COMMISSION</SelectItem>
                                         <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">SALARY</SelectItem>
                                     </SelectContent>
                                 </Select>
                             )}/>
                         </div>
-                        {payStructure === 'commission' && (
-                            <div className="space-y-2">
+                        {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
+                            <div className="space-y-2 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Cadence</Label>
                                 <Controller name="payoutFrequency" control={control} render={({ field }) => (
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -391,7 +394,7 @@ const Step3 = () => {
                         )}
                     </div>
 
-                    {payStructure === 'commission' ? (
+                    {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label htmlFor="commissionRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service %</Label>
@@ -402,22 +405,24 @@ const Step3 = () => {
                                 <div className="relative"><Input id="retailCommissionRate" type="number" placeholder="10" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
                             </div>
                         </div>
-                    ) : payStructure === 'hourly' ? (
+                    )} 
+                    
+                    {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
                         <div className="space-y-2 animate-in slide-in-from-top-2">
                             <Label htmlFor="hourlyRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
                             <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /><Input id="hourlyRate" type="number" placeholder="25.00" {...register('hourlyRate')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" /></div>
                         </div>
-                    ) : null}
+                    )}
                 </div>
 
                 <Separator className="border-dashed" />
 
                 <div className="space-y-6">
                     <div className="space-y-4">
-                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60 text-left"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label><Input placeholder="EMERGENCY CONTACT" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase" /></div>
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label><Input placeholder="EMERGENCY CONTACT" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase" /></div>
+                            <div className="space-y-1.5 text-left">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
                                 <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
@@ -428,11 +433,11 @@ const Step3 = () => {
                                     </Select>
                                 )}/>
                             </div>
-                            <div className="sm:col-span-2"><PhoneInput name="emergencyContact.phone" label="Emergency Contact Mobile" className="h-11 rounded-xl" /></div>
+                            <div className="sm:col-span-2 text-left"><PhoneInput name="emergencyContact.phone" label="Emergency Contact Mobile" className="h-11 rounded-xl" /></div>
                         </div>
                     </div>
 
-                    <div className="space-y-4 pt-4 border-t border-dashed">
+                    <div className="space-y-4 pt-4 border-t border-dashed text-left">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldCheck className="w-3 h-3" /> Licensing Record</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs" /></div>
