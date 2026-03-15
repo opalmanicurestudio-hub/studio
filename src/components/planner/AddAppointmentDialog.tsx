@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -73,7 +72,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, writeBatch, increment, arrayUnion, query, where, getDocs } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, query, where, getDocs, deleteField } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
@@ -141,7 +140,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     }
   });
 
-  const { register, control, watch, reset, setValue, trigger } = methods;
+  const { register, control, watch, reset, setValue, trigger, handleSubmit } = methods;
 
   useEffect(() => {
     if (open) {
@@ -274,6 +273,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     return flow;
   }, [depositDetails]);
 
+  const currentStepIndex = steps.indexOf(step);
+
   const handleNext = async () => {
     if (step === 'details') {
         const isNew = watchClientId === 'new';
@@ -288,6 +289,12 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         else finalizeBooking();
     } else if (step === 'deposit') {
         finalizeBooking();
+    }
+  };
+
+  const handlePrevStep = () => {
+    if (currentStepIndex > 0) {
+      setStep(steps[currentStepIndex - 1]);
     }
   };
 
@@ -432,14 +439,14 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
             </div>
             <SheetTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Session</SheetTitle>
-            {step !== 'success' && <div className="pt-6"><Progress value={(steps.indexOf(step) + 1) / (steps.length - 1) * 100} className="h-1 rounded-full bg-muted" /></div>}
+            {step !== 'success' && <div className="pt-6"><Progress value={(currentStepIndex + 1) / (steps.length - 1) * 100} className="h-1 rounded-full bg-muted" /></div>}
         </SheetHeader>
 
         <ScrollArea className="flex-1">
@@ -602,7 +609,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                     </TooltipProvider>
                                 </div>
                             </div>
-                            <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-6 shadow-inner text-center">
+                            <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
                                 <div className="flex justify-between items-center px-2">
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
                                     <span className="font-black uppercase tracking-widest text-sm">{format(watchDate, 'MMMM yyyy')}</span>
@@ -750,8 +757,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                         </Button>
                     )}
                     <Button 
-                        onClick={handleNextStep} 
-                        disabled={(currentStep === 'details' && (!watchClientId || !watchServiceId))}
+                        onClick={handleNext} 
+                        disabled={(step === 'details' && (!watchClientId || !watchServiceId))}
                         className={cn(
                             "h-12 md:h-20 font-black uppercase tracking-widest text-[10px] md:text-2xl rounded-[2rem] shadow-2xl shadow-primary/30 group transition-all",
                             currentStepIndex === 0 ? "w-full" : "flex-[2.5]"
@@ -761,9 +768,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                             <Loader className="animate-spin h-8 w-8" />
                         ) : (
                             <>
-                                {currentStep === 'details' ? 'Provider Routing' : 
-                                 currentStep === 'assignment' ? 'Select Window' : 
-                                 currentStep === 'timing' && depositDetails ? 'Deposit Settlement' : 
+                                {step === 'details' ? 'Provider Routing' : 
+                                 step === 'assignment' ? 'Select Window' : 
+                                 step === 'timing' && depositDetails ? 'Deposit Settlement' : 
                                  'Finalize Booking'}
                                 <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
                             </>
