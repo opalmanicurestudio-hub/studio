@@ -24,7 +24,7 @@ interface PackageCardProps {
 }
 
 export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, clients, onEdit, onViewUsers, onDelete }) => {
-  const { staff, pricingTiers } = useInventory();
+  const { staff, pricingTiers, inventory } = useInventory();
   const { selectedTenant } = useTenant();
   const tmhr = selectedTenant?.tmhr || 50;
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
@@ -33,15 +33,34 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
     return clients.filter(c => c.activePackages?.some(p => p.packageId === pack.id)).length;
   }, [clients, pack.id]);
   
-  const totalRevenue = activePackages * pack.price;
   const primaryService = useMemo(() => services.find(s => s.id === pack.serviceId), [pack.serviceId, services]);
 
   const { materialCost, timeLiabilityHours } = useMemo(() => {
     if (!primaryService) return { materialCost: 0, timeLiabilityHours: 0 };
-    const materials = (primaryService.cost || 0) * pack.sessions;
+    
+    const calculateServiceMaterialCost = (s: Service) => {
+        if (!s.products) return 0;
+        return s.products.reduce((acc, p) => {
+            const invItem = inventory.find(i => i.id === p.id);
+            if (!invItem) return acc;
+            
+            let costPerBaseUnit = 0;
+            if (invItem.costingMethod === 'size' && invItem.size) {
+                costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.size;
+            } else if (invItem.costingMethod === 'uses' && invItem.estimatedUses) {
+                costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.estimatedUses;
+            } else {
+                costPerBaseUnit = invItem.costPerUnit || 0;
+            }
+            
+            return acc + (costPerBaseUnit * p.quantityUsed);
+        }, 0);
+    };
+
+    const materials = calculateServiceMaterialCost(primaryService) * pack.sessions;
     const time = (primaryService.duration * pack.sessions) / 60;
     return { materialCost: materials, timeLiabilityHours: time };
-  }, [pack, primaryService]);
+  }, [pack, primaryService, inventory]);
 
   const tierAnalysis = useMemo(() => {
     if (!primaryService) return [];

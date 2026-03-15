@@ -82,10 +82,30 @@ const ProfitabilityAnalysis = ({
 
     const { baseHouseFloor } = useMemo(() => {
         if (!service) return { baseHouseFloor: 0 };
-        const materialCost = (service.cost || 0) * sessions;
+        
+        const calculateServiceMaterialCost = (s: Service) => {
+            if (!s.products) return 0;
+            return s.products.reduce((acc, p) => {
+                const invItem = inventory.find(i => i.id === p.id);
+                if (!invItem) return acc;
+                
+                let costPerBaseUnit = 0;
+                if (invItem.costingMethod === 'size' && invItem.size) {
+                    costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.size;
+                } else if (invItem.costingMethod === 'uses' && invItem.estimatedUses) {
+                    costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.estimatedUses;
+                } else {
+                    costPerBaseUnit = invItem.costPerUnit || 0;
+                }
+                
+                return acc + (costPerBaseUnit * p.quantityUsed);
+            }, 0);
+        };
+
+        const materialCost = calculateServiceMaterialCost(service) * sessions;
         const timeCost = ((service.duration * sessions) / 60) * tmhr;
         return { baseHouseFloor: materialCost + timeCost };
-    }, [service, sessions, tmhr]);
+    }, [service, sessions, tmhr, inventory]);
 
     const tierAnalysis = useMemo(() => {
         if (!service) return [];
@@ -361,7 +381,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
   return (
     <>
         <DialogContainer open={open} onOpenChange={onOpenChange}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
@@ -371,7 +391,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                     <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="flex-1">
-                    <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
+                    <div className={cn("p-8", isMobile ? "p-6" : "p-8")}>
                         {FormContent}
                     </div>
                 </ScrollArea>

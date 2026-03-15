@@ -82,14 +82,33 @@ const ProfitabilityAnalysis = ({
     const { services, inventory } = useInventory();
     
     const { materialCost, timeLiabilityHours } = useMemo(() => {
+        const calculateServiceMaterialCost = (svcId: string, perkQty: number) => {
+            const s = services.find(svc => svc.id === svcId);
+            if (!s || !s.products) return 0;
+            
+            return s.products.reduce((acc, p) => {
+                const invItem = inventory.find(i => i.id === p.id);
+                if (!invItem) return acc;
+                
+                let costPerBaseUnit = 0;
+                if (invItem.costingMethod === 'size' && invItem.size) {
+                    costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.size;
+                } else if (invItem.costingMethod === 'uses' && invItem.estimatedUses) {
+                    costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.estimatedUses;
+                } else {
+                    costPerBaseUnit = invItem.costPerUnit || 0;
+                }
+                
+                return acc + (costPerBaseUnit * p.quantityUsed * perkQty);
+            }, 0);
+        };
+
         // Material Costs
         const servicesCost = perks.services.reduce((acc, perk) => {
-            const s = services.find(svc => svc.id === perk.id);
-            return acc + (s?.cost || 0) * (perk.quantity || 1);
+            return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
         }, 0);
         const addOnsCost = perks.addOns.reduce((acc, perk) => {
-            const s = services.find(svc => svc.id === perk.id);
-            return acc + (s?.cost || 0) * (perk.quantity || 1);
+            return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
         }, 0);
         const productsCost = perks.products.reduce((acc, perk) => {
             const p = inventory.find(inv => inv.id === perk.id);

@@ -33,14 +33,35 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
   }, [clients, membership.id]);
 
   const { materialCost, timeLiabilityHours } = useMemo(() => {
+    const calculateServiceMaterialCost = (svcId: string, perkQty: number) => {
+        const s = services.find(svc => svc.id === svcId);
+        if (!s || !s.products) return 0;
+        
+        return s.products.reduce((acc, p) => {
+            const invItem = inventory.find(i => i.id === p.id);
+            if (!invItem) return acc;
+            
+            let costPerBaseUnit = 0;
+            if (invItem.costingMethod === 'size' && invItem.size) {
+                costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.size;
+            } else if (invItem.costingMethod === 'uses' && invItem.estimatedUses) {
+                costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.estimatedUses;
+            } else {
+                costPerBaseUnit = invItem.costPerUnit || 0;
+            }
+            
+            return acc + (costPerBaseUnit * p.quantityUsed * perkQty);
+        }, 0);
+    };
+
     const servicesMaterialCost = (membership.includedServices || []).reduce((acc, perk) => {
-        const s = services.find(svc => svc.id === perk.id);
-        return acc + (s?.cost || 0) * perk.quantity;
+        return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
     }, 0);
+
     const addOnsMaterialCost = (membership.includedAddOns || []).reduce((acc, perk) => {
-        const s = services.find(svc => svc.id === perk.id);
-        return acc + (s?.cost || 0) * perk.quantity;
+        return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
     }, 0);
+
     const productsCost = (membership.includedProducts || []).reduce((acc, perk) => {
         const p = inventory.find(inv => inv.id === perk.id);
         return acc + (p?.costPerUnit || 0) * perk.quantity;
