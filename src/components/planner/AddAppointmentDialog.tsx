@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   CalendarIcon, 
   PlusCircle, 
@@ -585,7 +586,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
                             <div className="flex items-center justify-between">
                                 <SelectionHeader icon={Clock} title="Schedule Window" stepNum={3} />
-                                <div className="flex items-center gap-2 p-2 bg-muted/20 rounded-xl">
+                                <div className="flex items-center gap-2 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
                                     <TooltipProvider>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
