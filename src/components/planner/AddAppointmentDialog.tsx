@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -41,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Progress } from '@/components/ui/progress';
 import { 
   CalendarIcon, 
   PlusCircle, 
@@ -82,7 +82,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, query, where, doc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
@@ -118,6 +118,15 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 }
 
 type Step = 'details' | 'assignment' | 'timing' | 'deposit' | 'success';
+
+export interface AddAppointmentDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (appointmentData: any) => void;
+  client?: Client | null;
+  appointmentToRebook?: Appointment | null;
+  memberships: Membership[];
+}
 
 export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client: initialClient, appointmentToRebook, memberships }) => {
   const isMobile = useIsMobile();
@@ -195,7 +204,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
             name: pricingTiers.find(pt => pt.id === st.tierId)?.name || 'Tier'
         }));
   }, [selectedService, qualifiedStaff, pricingTiers]);
-
+  
   const weekStart = useMemo(() => startOfWeek(watchDate, { weekStartsOn: 0 }), [watchDate]);
   const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
@@ -380,6 +389,8 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     </div>
   );
 
+  const hasCardOnFile = !!selectedClient?.cardOnFile?.token;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
@@ -485,7 +496,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
                             <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
                                 <div className="flex justify-between items-center px-2">
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
-                                    <span className="font-black uppercase tracking-widest text-xs md:text-sm">{format(watchDate, 'MMMM yyyy')}</span>
+                                    <span className="font-black uppercase tracking-widest text-sm">{format(watchDate, 'MMMM yyyy')}</span>
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
                                 </div>
                                 <div className="grid grid-cols-7 gap-2">
@@ -582,7 +593,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
                                         </Avatar>
                                         <div className="min-w-0 flex-1">
                                             <p className="font-black text-xl uppercase tracking-tight leading-none mb-1 truncate">{currentAssignedPro?.name}</p>
-                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{currentAssignedPro?.role}</p>
+                                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{currentAssignedPro?.role}</p>
                                         </div>
                                     </div>
                                 </Card>
@@ -634,12 +645,3 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     </Sheet>
   );
 };
-
-export interface AddAppointmentDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (appointmentData: any) => void;
-  client?: Client | null;
-  appointmentToRebook?: Appointment | null;
-  memberships: Membership[];
-}
