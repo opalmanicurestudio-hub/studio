@@ -40,7 +40,8 @@ import {
     Gift,
     FileSignature,
     ListChecks,
-    ArrowDown
+    ArrowDown,
+    Lock
 } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
@@ -92,7 +93,7 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
 );
 
 const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: { requiredForms: ConsentForm[], onComplete: () => void, formAnswers: Record<string, any>, setFormAnswers: any }) => {
-    const [currentFormIndex, setCurrentMemberIndex] = useState(0);
+    const [currentFormIndex, setCurrentFormIndex] = useState(0);
     const form = requiredForms[currentFormIndex];
     
     const isLast = currentFormIndex === requiredForms.length - 1;
@@ -109,7 +110,7 @@ const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: 
         }
 
         if (isLast) onComplete();
-        else setCurrentMemberIndex(currentFormIndex + 1);
+        else setCurrentFormIndex(currentFormIndex + 1);
     };
 
     return (
@@ -140,6 +141,42 @@ const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: 
                 <Button onClick={handleNext} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
                     {isLast ? 'Finalize & Authenticate' : 'Next Agreement'}
                     <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
+                </Button>
+            </CardFooter>
+        </ViewContainer>
+    );
+};
+
+const DepositPaymentView = ({ amount, onComplete }: { amount: number, onComplete: () => void }) => {
+    const [isPaying, setIsPaying] = useState(false);
+
+    const handlePay = async () => {
+        setIsPaying(true);
+        await new Promise(r => setTimeout(r, 1500));
+        onComplete();
+        setIsPaying(false);
+    };
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Secure Retainer" subtitle="Secure your scheduled window" icon={CreditCard} />
+            <CardContent className="p-10 text-center space-y-10">
+                <div className="p-10 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
+                    <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
+                    <p className="text-7xl font-black text-primary tracking-tighter font-mono">${amount.toFixed(2)}</p>
+                    <div className="pt-4 border-t border-primary/10">
+                        <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3">PROTECTED PAYMENT</Badge>
+                    </div>
+                </div>
+                <div className="space-y-6 text-left">
+                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
+                    <div className="grid grid-cols-2 gap-6"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
+                </div>
+                <div className="flex items-center justify-center gap-3 opacity-40"><Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted SSL Secure Tunnel</span></div>
+            </CardContent>
+            <CardFooter className="p-8 pt-0">
+                <Button onClick={handlePay} disabled={isPaying} className="w-full h-20 rounded-[2.5rem] text-2xl font-black uppercase shadow-3xl shadow-primary/30 group">
+                    {isPaying ? <Loader className="animate-spin h-8 w-8" /> : <>Authorize Payment <ArrowRight className="ml-3 w-8 h-8 transition-transform group-hover:translate-x-2"/></>}
                 </Button>
             </CardFooter>
         </ViewContainer>
@@ -499,6 +536,45 @@ export default function CheckInPage() {
         router.push(`/book/${tenantId}`);
     };
 
+    const handleRemoteDepositPaid = async () => {
+        if (!appointment || !firestore || !tenantId || !client) return;
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+        const amount = Number(appointment.cancellationFeeApplied || 0);
+
+        batch.update(doc(firestore, 'appointmentCheckIns', token), { status: 'confirmed' });
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { status: 'confirmed' });
+
+        batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+            date: now,
+            description: `Remote Retainer: ${service?.name}`,
+            clientOrVendor: client.name,
+            clientId: client.id,
+            type: 'income',
+            context: 'Business',
+            category: 'Retainers',
+            amount: amount,
+            paymentMethod: 'Card (Remote)',
+            hasReceipt: false,
+            appointmentId: appointment.id,
+            staffId: appointment.staffId
+        });
+
+        if (appointment.staffId) {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/notifications`)), { 
+                userId: appointment.staffId, 
+                type: 'revenue', 
+                message: `${client.name} has authorized the remote retainer for their session.`, 
+                link: '/planner', 
+                createdAt: now, 
+                read: false 
+            });
+        }
+
+        await batch.commit();
+        toast({ title: "Retainer Secured" });
+    };
+
     const handleSubmitReview = async (rating: number, text: string) => {
         if (!appointment || !tenantId || !firestore) return;
         const reviewId = nanoid();
@@ -510,6 +586,9 @@ export default function CheckInPage() {
     
     if (reviewSubmitted) return <ReviewSubmittedView onDone={() => { setReviewSubmitted(false); setIsReviewFlow(false); }} />;
     if (isReviewFlow) return <ReviewFormView serviceName={service.name} staffName={assignedStaff?.name || 'your professional'} onSubmit={handleSubmitReview} onCancel={() => setIsReviewFlow(false)} />;
+    
+    if (appointment?.status === 'deposit_pending') return <DepositPaymentView amount={appointment.cancellationFeeApplied || 0} onComplete={handleRemoteDepositPaid} />;
+    
     if (isIntakeFlow) return <IntakeView requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} onComplete={handleCompleteIntake} />;
     
     if (showBirthdayCelebration) return <BirthdayCelebrationView clientName={client?.name || 'Guest'} onDone={() => setShowBirthdayCelebration(false)} />;

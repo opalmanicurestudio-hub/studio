@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -57,14 +56,14 @@ import {
   Info,
   Unlock,
   UserPlus,
-  Loader
+  Loader,
+  Smartphone,
+  Mail
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Client, type Service, type Appointment, type Staff, type PricingTier, type Membership, type ConsentForm } from '@/lib/data';
+import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, endOfDay } from 'date-fns';
-import { Card, CardContent, CardHeader } from '../ui/card';
 import { nanoid } from 'nanoid';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
@@ -179,7 +178,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
   const qualifiedStaff = useMemo(() => {
-    if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return staff;
+    if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return staff || [];
     return (staff || []).filter(s => selectedService.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
   }, [selectedService, staff]);
 
@@ -347,6 +346,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     const aptRef = doc(firestore!, `tenants/${tenantId}/appointments`, aptId);
     const checkInRef = doc(firestore!, 'appointmentCheckIns', token);
 
+    const isRemotePayment = depositDetails && data.paymentMethod === 'none';
+
     const payload = {
         id: aptId,
         tenantId,
@@ -356,10 +357,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         staffId: finalStaffId,
         startTime: startDateTime.toISOString(),
         endTime: endDateTime.toISOString(),
-        status: 'confirmed',
+        status: isRemotePayment ? 'deposit_pending' : 'confirmed',
         source: 'manual',
         checkInToken: token,
-        checkInStatus: 'pending'
+        checkInStatus: 'pending',
+        cancellationFeeApplied: depositDetails?.amount || 0,
     };
 
     batch.set(aptRef, payload);
@@ -386,6 +388,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     try {
         await batch.commit();
         setStep('success');
+        if (isRemotePayment) {
+            toast({ title: "Settlement Queued", description: "Payment link ready for guest dispatch." });
+        }
     } catch (e) {
         toast({ variant: 'destructive', title: 'Registry Error' });
     } finally {
@@ -428,7 +433,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
             </div>
             <SheetTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Session</SheetTitle>
             {step !== 'success' && <div className="pt-6"><Progress value={(steps.indexOf(step) + 1) / (steps.length - 1) * 100} className="h-1 rounded-full bg-muted" /></div>}
@@ -661,11 +666,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="none" id="pay-pending" />
                                                     <div className="space-y-0.5">
-                                                        <span className="text-sm font-black uppercase tracking-tight text-slate-900">Arrears Allocation</span>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Add to dossier for future settlement</p>
+                                                        <span className="text-sm font-black uppercase tracking-tight text-slate-900">Remote Settlement Required</span>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Guest pays via secure link before session</p>
                                                     </div>
                                                 </div>
-                                                <Landmark className="w-5 h-5 text-muted-foreground opacity-40" />
+                                                <Smartphone className="w-5 h-5 text-muted-foreground opacity-40" />
                                             </label>
                                         </RadioGroup>
                                     )}
@@ -720,7 +725,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         </Button>
                                         <div className="p-3 bg-white/50 rounded-xl border-2 border-dashed border-primary/10 flex items-start gap-2">
                                             <Info className="w-3.5 h-3.5 text-primary opacity-40 mt-0.5" />
-                                            <p className="text-[8px] font-bold text-slate-500 leading-tight uppercase">Provide this link to the guest to complete their signed agreements remotely.</p>
+                                            <p className="text-[8px] font-bold text-slate-500 leading-tight uppercase">The link has been queued for dispatch via email/SMS. Use this manual copy for priority communication.</p>
                                         </div>
                                     </div>
                                 </Card>
