@@ -37,7 +37,8 @@ import {
     Lock, 
     Zap, 
     Unlock, 
-    Workflow 
+    Workflow,
+    Loader
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
@@ -66,8 +67,8 @@ import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
+import { Switch } from '../ui/switch';
+import { Badge } from '../ui/badge';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -155,8 +156,9 @@ const RescheduleAppointmentForm = ({
         if (!appointment || !tenant?.cancellationWindowHours) return false;
         const startTime = safeDate(appointment.startTime);
         const hoursUntil = differenceInHours(startTime, new Date());
-        return hoursUntil < tenant.cancellationWindowHours;
-    }, [appointment, tenant]);
+        const requiredWindow = service.cancellationWindowHours || tenant.cancellationWindowHours || 24;
+        return hoursUntil < requiredWindow;
+    }, [appointment, tenant, service]);
 
     const recoveryFee = useMemo(() => {
         if (!tenant?.tmhr || !service) return 0;
@@ -185,7 +187,7 @@ const RescheduleAppointmentForm = ({
         const taxBurden = tenant.employerTaxBurdenPct || 10;
         const burdenedLabor = labor * (1 + (taxBurden / 100));
 
-        return Number((houseFloor + materialCost + burdenedLabor).toFixed(2));
+        return service.customCancellationFee || Number((houseFloor + materialCost + burdenedLabor).toFixed(2));
     }, [tenant, service, appointment.staffId, staff, inventory]);
 
     const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
@@ -278,7 +280,7 @@ const RescheduleAppointmentForm = ({
                                 <AlertTriangle className="h-6 w-6 text-destructive" />
                                 <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Policy Restriction</AlertTitle>
                                 <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
-                                    This session is within the <strong>{tenant?.cancellationWindowHours}h window</strong>. Consider applying a late-move fee.
+                                    This move is late. Suggest applying the <strong>Overhead Recovery Protocol</strong>.
                                 </AlertDescription>
                             </Alert>
 
@@ -289,7 +291,7 @@ const RescheduleAppointmentForm = ({
                                             <DollarSign className="w-4 h-4 text-primary" />
                                             Protocol Adjustment Fee
                                         </Label>
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Overhead recovery for restricted window move</p>
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Overhead & Labor Recovery</p>
                                     </div>
                                     <div className="flex flex-col items-end gap-2">
                                         <span className={cn("text-2xl font-black font-mono tracking-tighter", applyFee ? "text-primary" : "text-muted-foreground opacity-40")}>
@@ -302,7 +304,7 @@ const RescheduleAppointmentForm = ({
                                 <AnimatePresence>
                                     {applyFee && (
                                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Distribution Method</Label>
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Settlement Method</Label>
                                             <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-3 gap-3">
                                                 <label htmlFor="resched-pay-session" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="add_to_session" id="resched-pay-session" className="peer sr-only" />
@@ -326,31 +328,6 @@ const RescheduleAppointmentForm = ({
                                                     </div>
                                                 </label>
                                             </RadioGroup>
-
-                                            {paymentMethod === 'charge_new_card' && (
-                                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-5 rounded-2xl border-4 border-primary/10 bg-white space-y-4 shadow-xl text-left">
-                                                    <div className="flex items-center gap-2 mb-2">
-                                                        <Lock className="w-3.5 h-3.5 text-primary opacity-40" />
-                                                        <span className="text-[9px] font-black uppercase tracking-widest text-primary/60">Encrypted Terminal Flow</span>
-                                                    </div>
-                                                    <div className="space-y-3">
-                                                        <div className="space-y-1 text-left">
-                                                            <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Card Protocol</Label>
-                                                            <Input placeholder="•••• •••• •••• ••••" className="h-10 rounded-xl border-2 font-mono text-xs shadow-inner" />
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-3">
-                                                            <div className="space-y-1 text-left">
-                                                                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Expiry</Label>
-                                                                <Input placeholder="MM / YY" className="h-10 rounded-xl border-2 text-center text-xs" />
-                                                            </div>
-                                                            <div className="space-y-1 text-left">
-                                                                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">CVC</Label>
-                                                                <Input placeholder="•••" className="h-10 rounded-xl border-2 text-center text-xs" />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </motion.div>
-                                            )}
                                         </motion.div>
                                     )}
                                 </AnimatePresence>

@@ -215,11 +215,11 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 <div className="space-y-4">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Mode</Label>
                   <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label htmlFor="r-client" className={cn("flex items-center space-x-3 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50", reason === 'client_request' ? "border-primary bg-primary/5" : "border-border")}>
+                    <label htmlFor="r-client" className={cn("flex items-center space-x-3 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50", reason === 'client_request' ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-white")}>
                         <RadioGroupItem value="client_request" id="r-client" />
                         <span className="font-black uppercase tracking-tight text-xs">Client Request</span>
                     </label>
-                    <label htmlFor="r-noshow" className={cn("flex items-center space-x-3 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50", reason === 'no-show' ? "border-destructive bg-destructive/5" : "border-border")}>
+                    <label htmlFor="r-noshow" className={cn("flex items-center space-x-3 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50", reason === 'no-show' ? "border-destructive bg-destructive/5 shadow-sm" : "border-border bg-white")}>
                         <RadioGroupItem value="no-show" id="r-noshow" />
                         <span className="font-black uppercase tracking-tight text-xs">No-Show (100% Fee)</span>
                     </label>
@@ -227,7 +227,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 </div>
 
                 <div className="space-y-6">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Itemized Recovery Manifest</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Itemized Recovery Manifest</p>
                     <div className="space-y-3">
                         {recoveryMatrix.map(m => (
                             <Card key={m.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm">
@@ -303,14 +303,14 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                                         <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-3">
                                             <label htmlFor="pay-vault-cancel" className={cn("cursor-pointer h-full", !hasCardOnFile && "opacity-40 grayscale")}>
                                                 <RadioGroupItem value="card_on_file" id="pay-vault-cancel" className="peer sr-only" disabled={!hasCardOnFile} />
-                                                <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'card_on_file' ? "border-primary" : "border-border bg-white")}>
+                                                <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white shadow-sm")}>
                                                     {hasCardOnFile ? <ShieldCheck className="w-6 h-6 mb-2 text-primary" /> : <Lock className="w-6 h-6 mb-2 text-slate-400" />}
                                                     <span className="text-[10px] font-black uppercase tracking-widest leading-none">Vault Card</span>
                                                 </div>
                                             </label>
                                             <label htmlFor="pay-balance-cancel" className="cursor-pointer h-full">
                                                 <RadioGroupItem value="add_to_balance" id="pay-balance-cancel" className="peer sr-only" />
-                                                <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'add_to_balance' ? "border-primary" : "border-border bg-white")}>
+                                                <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white shadow-sm")}>
                                                     <Landmark className={cn("w-6 h-6 mb-2 transition-colors", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                     <span className="text-[10px] font-black uppercase tracking-widest leading-none">Client Arrears</span>
                                                 </div>

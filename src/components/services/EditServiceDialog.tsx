@@ -131,7 +131,7 @@ const editServiceSchema = z.object({
 type ServiceFormData = z.infer<typeof editServiceSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
-    <div className="flex items-center gap-4 mb-6">
+    <div className="flex items-center gap-4 mb-6 text-left">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
@@ -185,7 +185,7 @@ const RecoveryTargetMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, st
 
     return (
         <Card className="border-2 rounded-[2rem] bg-muted/10 overflow-hidden shadow-inner">
-            <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
+            <CardHeader className="p-6 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
             <CardContent className="p-6 pt-0 space-y-4">
                 <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">The matrix suggests a fee that covers studio time value, materials, and intended staff earnings.</p>
                 <div className="grid gap-2">
@@ -284,7 +284,7 @@ const Step1 = ({
 
                 <div className="space-y-2 text-left">
                     <Label htmlFor="description-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Clinical Description</Label>
-                    <Textarea id="description-edit" placeholder="Describe the service objectives..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
+                    <Textarea id="description-edit" placeholder="Describe the service objectives..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 font-medium" />
                 </div>
 
                 <div className="space-y-2 text-left">
@@ -494,7 +494,7 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
     return (
         <Card className={cn("transition-all border-2 rounded-[1.5rem] overflow-hidden", isEnabled ? "border-primary bg-primary/[0.02]" : "opacity-60 bg-muted/10")}>
             <CardHeader className="p-4 border-b flex flex-row items-center justify-between bg-muted/5">
-                <CardTitle className="text-xs font-black uppercase tracking-widest">{tier.name}</CardTitle>
+                <CardTitle className="text-xs font-black uppercase tracking-widest text-left">{tier.name}</CardTitle>
                 <Switch checked={isEnabled} onCheckedChange={handleToggle} />
             </CardHeader>
             {isEnabled && (
@@ -777,6 +777,11 @@ export const EditServiceDialog: React.FC<any> = ({
       if (await trigger(step === 1 ? ['name', 'category', 'duration'] : step === 3 ? (pricingTiersData?.length ? ['serviceTiers'] : ['price']) : [])) setStep(step + 1);
   };
 
+  const handleBack = (e: any) => {
+      e.preventDefault();
+      setStep(step - 1);
+  }
+
   const formBody = (
      <FormProvider {...methods}>
       <form id={`edit-service-wizard-form-${service?.id}`} onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
@@ -799,7 +804,7 @@ export const EditServiceDialog: React.FC<any> = ({
         </ScrollArea>
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
           <div className='flex w-full gap-4'>
-            {step > 1 && <Button variant="ghost" onClick={() => setStep(step - 1)} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">Back</Button>}
+            {step > 1 && <Button variant="ghost" onClick={handleBack} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">Back</Button>}
             <div className={cn("flex gap-3", step === 1 ? "w-full" : "flex-[2.5]")}>
               <Button variant="outline" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2">Cancel</Button>
               {step < totalSteps ? (

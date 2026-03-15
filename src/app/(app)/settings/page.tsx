@@ -53,6 +53,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
 import {
   Select,
   SelectContent,
@@ -81,7 +82,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format, parseISO, isSameMonth } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Separator } from '@/components/ui/separator';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -1006,9 +1006,9 @@ function SettingsContent() {
                         </div>
                     </CardHeader>
                     <CardContent className="p-6 sm:p-8">
-                        <div className="space-y-3 max-w-sm">
+                        <div className="space-y-3 max-w-sm text-left">
                             <Label htmlFor="skip-timer" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Waitlist Skip Timer (Minutes)</Label>
-                            <Input id="skip-timer" type="number" value={tenantData.queueSkipTimeMinutes || ''} onChange={(e) => setTenantData(prev => ({...prev, queueSkipTimeMinutes: Number(e.target.value)}))} placeholder="e.g., 5" disabled={!isQueueEditing} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
+                            <Input id="skip-timer" type="number" value={tenantData.queueSkipTimeMinutes || ''} onChange={(e) => setTenantData(prev => ({...prev, queueSkipTimeMinutes: Number(e.target.value)}))} placeholder="e.g., 5" disabled={!isQueueEditing} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
                             <p className='text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1'>Grace period before a guest is auto-skipped in the terminal.</p>
                         </div>
                     </CardContent>
@@ -1037,7 +1037,7 @@ function SettingsContent() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div className="space-y-3"><Label htmlFor="twilio-sid" className="text-[10px] font-black uppercase tracking-widest ml-1">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} className="h-12 rounded-xl border-2 font-mono font-bold" /></div>
                             <div className="space-y-3"><Label htmlFor="twilio-token" className="text-[10px] font-black uppercase tracking-widest ml-1">Secure Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••" disabled={!isSmsEditing} className="h-12 rounded-xl border-2" /></div>
-                            <div className="space-y-3 md:col-span-2"><Label htmlFor="twilio-phone" className="text-[10px] font-black uppercase tracking-widest ml-1">Verified Sender Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing} className="h-14 rounded-2xl border-2 font-black text-xl tracking-widest shadow-inner bg-muted/5" /></div>
+                            <div className="space-y-3 md:col-span-2"><Label htmlFor="twilio-phone" className="text-[10px] font-black uppercase tracking-widest ml-1">Verified Sender Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing} className="h-14 rounded-2xl border-2 font-black text-xl tracking-widest shadow-inner bg-muted/5 text-center" /></div>
                         </div>
                     </CardContent>
                 </Card>

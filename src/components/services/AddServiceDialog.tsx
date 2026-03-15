@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -99,7 +98,7 @@ const serviceSchema = z.object({
 type ServiceFormData = z.infer<typeof serviceSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
-    <div className="flex items-center gap-4 mb-6">
+    <div className="flex items-center gap-4 mb-6 text-left">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
@@ -153,7 +152,7 @@ const RecoveryTargetMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, st
 
     return (
         <Card className="border-2 rounded-[2rem] bg-muted/10 overflow-hidden shadow-inner">
-            <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
+            <CardHeader className="p-6 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
             <CardContent className="p-6 pt-0 space-y-4">
                 <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">The matrix suggests a fee that covers studio time value, materials, and intended staff earnings.</p>
                 <div className="grid gap-2">
@@ -464,7 +463,7 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
     return (
         <Card className={cn("transition-all border-2 rounded-[1.5rem] overflow-hidden", isEnabled ? "border-primary bg-primary/[0.02]" : "opacity-60 bg-muted/10")}>
             <CardHeader className="p-4 border-b flex flex-row items-center justify-between bg-muted/5">
-                <CardTitle className="text-xs font-black uppercase tracking-widest">{tier.name}</CardTitle>
+                <CardTitle className="text-xs font-black uppercase tracking-widest text-left">{tier.name}</CardTitle>
                 <Switch checked={isEnabled} onCheckedChange={handleToggle} />
             </CardHeader>
             {isEnabled && (
