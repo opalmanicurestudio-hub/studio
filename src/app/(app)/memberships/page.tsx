@@ -1,14 +1,15 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Award, Repeat, Sparkles, Activity, Loader } from 'lucide-react';
+import { PlusCircle, Award, Repeat, Sparkles, Activity, Loader, ShieldCheck, Zap, AlertTriangle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MembershipCard } from '@/components/memberships/MembershipCard';
 import { PackageCard } from '@/components/memberships/PackageCard';
+import { MembershipCapacityAudit } from '@/components/memberships/MembershipCapacityAudit';
 import { type Membership, type Package, type Client } from '@/lib/data';
 import { AddMembershipDialog } from '@/components/memberships/AddMembershipDialog';
 import { AddPackageDialog } from '@/components/memberships/AddPackageDialog';
@@ -28,7 +29,7 @@ const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: ()
         <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
             <Icon className='w-12 h-12 text-muted-foreground' />
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2 text-center">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Archive Idle</h3>
             <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
                 {type === 'membership' 
@@ -44,9 +45,9 @@ const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: ()
   )
 };
 
-const MembershipsPage = () => {
+export default function MembershipsPage() {
   const [activeTab, setActiveTab] = useState('memberships');
-  const { services, memberships: allMemberships, packages: allPackages, clients, isLoading } = useInventory();
+  const { services, memberships: allMemberships, packages: allPackages, clients, isLoading, staff, scheduleProfiles } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const { toast } = useToast();
@@ -144,6 +145,17 @@ const MembershipsPage = () => {
           </Button>
         </div>
 
+        {activeTab === 'memberships' && (
+            <MembershipCapacityAudit 
+                memberships={allMemberships || []}
+                clients={clients || []}
+                staff={staff || []}
+                services={services || []}
+                scheduleProfiles={scheduleProfiles || []}
+                isLoading={isLoading}
+            />
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-fit mx-auto sm:mx-0">
             <TabsTrigger value="memberships" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Tiers (MRR)</TabsTrigger>
@@ -223,6 +235,4 @@ const MembershipsPage = () => {
       )}
     </div>
   );
-};
-
-export default MembershipsPage;
+}

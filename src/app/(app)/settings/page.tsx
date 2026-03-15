@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
@@ -48,7 +49,8 @@ import {
   Loader,
   DollarSign,
   ShieldCheck,
-  Target
+  Target,
+  Smartphone
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -61,12 +63,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
@@ -548,7 +544,7 @@ function SettingsContent() {
                 </ScrollArea>
              </div>
 
-            <TabsContent value="profile" className="mt-6">
+            <TabsContent value="profile" className="mt-6 text-left">
                 <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
                     <CardHeader className="bg-muted/5 border-b p-6 sm:p-8">
                         <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight"><Building className="w-5 h-5 text-primary"/>Business Profile</CardTitle>
@@ -587,7 +583,7 @@ function SettingsContent() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="hours" className="mt-6">
+            <TabsContent value="hours" className="mt-6 text-left">
                  <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
                         <div>
@@ -626,7 +622,7 @@ function SettingsContent() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="policies" className="mt-6 space-y-10">
+            <TabsContent value="policies" className="mt-6 space-y-10 text-left">
                 <Card className="border-2 shadow-sm rounded-3xl overflow-hidden text-left">
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
                         <div>
@@ -729,7 +725,7 @@ function SettingsContent() {
                                 </div>
                                 <div className="p-5 rounded-2xl border-2 border-dashed bg-primary/[0.02] flex items-start gap-4">
                                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
-                                    <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
+                                    <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
                                         Suggested targets calculate <strong>House Floor</strong> (Time @ TMHR + Materials) plus <strong>Provider Labor</strong> (Intended Commission/Wages). This ensures your studio stays profitable even during late notice moves.
                                     </p>
                                 </div>
@@ -825,7 +821,7 @@ function SettingsContent() {
                         <Separator className="border-dashed" />
 
                         <div className="space-y-8">
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-left">
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><ListChecks className="w-4 h-4"/> Visibility & Nomenclature</h3>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 ml-6">Toggle modules and customize terminology.</p>
                             </div>
@@ -838,7 +834,7 @@ function SettingsContent() {
                                     { key: 'Memberships', label: 'Access Clubs', icon: <Award className="w-4 h-4"/>, titleKey: 'membershipsSectionTitle', showKey: 'showMemberships' },
                                     { key: 'Packages', label: 'Secure Bundles', icon: <Repeat className="w-4 h-4"/>, titleKey: 'packagesSectionTitle', showKey: 'showPackages' }
                                 ].map(section => (
-                                    <div key={section.key} className="space-y-4 p-6 rounded-[2rem] border-2 bg-muted/10 shadow-inner group transition-all hover:bg-muted/20">
+                                    <div key={section.key} className="space-y-4 p-6 rounded-[2rem] border-2 bg-muted/10 shadow-inner group transition-all hover:bg-muted/20 text-left">
                                         <div className="flex items-center justify-between mb-2">
                                             <div className="flex items-center gap-3 font-black uppercase tracking-tight text-xs text-slate-900">{section.icon}{section.label}</div>
                                             <Switch 
@@ -1035,9 +1031,9 @@ function SettingsContent() {
                     </CardHeader>
                     <CardContent className="p-6 sm:p-8 space-y-8">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="space-y-3"><Label htmlFor="twilio-sid" className="text-[10px] font-black uppercase tracking-widest ml-1">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} className="h-12 rounded-xl border-2 font-mono font-bold" /></div>
-                            <div className="space-y-3"><Label htmlFor="twilio-token" className="text-[10px] font-black uppercase tracking-widest ml-1">Secure Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••" disabled={!isSmsEditing} className="h-12 rounded-xl border-2" /></div>
-                            <div className="space-y-3 md:col-span-2"><Label htmlFor="twilio-phone" className="text-[10px] font-black uppercase tracking-widest ml-1">Verified Sender Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing} className="h-14 rounded-2xl border-2 font-black text-xl tracking-widest shadow-inner bg-muted/5 text-center" /></div>
+                            <div className="space-y-3 text-left"><Label htmlFor="twilio-sid" className="text-[10px] font-black uppercase tracking-widest ml-1">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} className="h-12 rounded-xl border-2 font-mono font-bold" /></div>
+                            <div className="space-y-3 text-left"><Label htmlFor="twilio-token" className="text-[10px] font-black uppercase tracking-widest ml-1">Secure Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••" disabled={!isSmsEditing} className="h-12 rounded-xl border-2" /></div>
+                            <div className="space-y-3 md:col-span-2 text-left"><Label htmlFor="twilio-phone" className="text-[10px] font-black uppercase tracking-widest ml-1">Verified Sender Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing} className="h-14 rounded-2xl border-2 font-black text-xl tracking-widest shadow-inner bg-muted/5 text-center" /></div>
                         </div>
                     </CardContent>
                 </Card>

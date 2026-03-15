@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -5,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, MoreHorizontal, ListChecks } from 'lucide-react';
+import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, MoreHorizontal, ListChecks, Clock } from 'lucide-react';
 import { type Membership, type Client } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -30,7 +31,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
 
   const mrr = activeMembers * membership.price;
 
-  const { costOfPerks, netProfit, profitMargin } = useMemo(() => {
+  const { costOfPerks, netProfit, profitMargin, monthlyTimeLiability } = useMemo(() => {
     const servicesCost = (membership.includedServices || []).reduce((acc, perk) => {
         const s = services.find(svc => svc.id === perk.id);
         return acc + (s?.cost || 0) * perk.quantity;
@@ -45,10 +46,25 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
     }, 0);
     const totalCost = servicesCost + addOnsCost + productsCost;
 
+    // Time Liability per member
+    const serviceTime = (membership.includedServices || []).reduce((acc, perk) => {
+        const s = services.find(svc => svc.id === perk.id);
+        return acc + (s?.duration || 0) * perk.quantity;
+    }, 0);
+    const addOnTime = (membership.includedAddOns || []).reduce((acc, perk) => {
+        const s = services.find(svc => svc.id === perk.id);
+        return acc + (s?.duration || 0) * perk.quantity;
+    }, 0);
+
     const profit = membership.price - totalCost;
     const margin = membership.price > 0 ? (profit / membership.price) * 100 : 0;
     
-    return { costOfPerks: totalCost, netProfit: profit, profitMargin: margin };
+    return { 
+        costOfPerks: totalCost, 
+        netProfit: profit, 
+        profitMargin: margin, 
+        monthlyTimeLiability: (serviceTime + addOnTime) / 60 
+    };
   }, [membership, services, inventory]);
 
   return (
@@ -91,8 +107,8 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                 <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{activeMembers}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">Guests</span></p>
             </div>
             <div className="p-4 rounded-2xl bg-indigo-500/[0.03] border-2 border-transparent group-hover:border-indigo-500/10 transition-all text-right">
-                <p className="text-[9px] font-black uppercase text-indigo-600/60 tracking-widest mb-1 opacity-60">Est. MRR</p>
-                <p className="text-xl font-black font-mono tracking-tighter text-indigo-600">${mrr.toFixed(0)}</p>
+                <p className="text-[9px] font-black uppercase text-indigo-600/60 tracking-widest mb-1 opacity-60">Capacity Use</p>
+                <p className="text-xl font-black font-mono tracking-tighter text-indigo-600">{(monthlyTimeLiability * activeMembers).toFixed(1)}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">h/mo</span></p>
             </div>
         </div>
 
@@ -119,12 +135,27 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                 </AccordionContent>
             </AccordionItem>
             
+            <AccordionItem value="capacity" className="border-2 rounded-2xl overflow-hidden bg-muted/5 border-border/50 mt-2">
+                <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+                    <Clock className="w-3.5 h-3.5 mr-2 opacity-40"/> Capacity Load
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 pt-2">
+                    <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm text-left">
+                        <div className="flex justify-between items-center text-[10px] font-bold uppercase">
+                            <span className="text-muted-foreground opacity-60">Time commitment</span>
+                            <span className="text-slate-900 font-mono">{monthlyTimeLiability.toFixed(1)}h / member</span>
+                        </div>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">This tier consumes {monthlyTimeLiability.toFixed(1)} hours of studio billable capacity per member per billing cycle.</p>
+                    </div>
+                </AccordionContent>
+            </AccordionItem>
+
             <AccordionItem value="profit" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/5 mt-2">
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
                     <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Yield Analysis
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2">
-                    <div className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm">
+                    <div className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
                             <span className="text-muted-foreground opacity-60">Unit Price</span>
                             <span className="text-slate-900 font-mono">${membership.price.toFixed(2)}</span>
@@ -147,7 +178,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
       </CardContent>
       
       <div className="p-3 border-t bg-muted/5 mt-auto">
-        <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary group/btn" onClick={() => onViewUsers(membership)}>
+        <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn" onClick={() => onViewUsers(membership)}>
             Examine Active Portfolio <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
         </Button>
       </div>
