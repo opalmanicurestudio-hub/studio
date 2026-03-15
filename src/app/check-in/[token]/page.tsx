@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -178,7 +177,7 @@ const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, o
                         <span className="text-primary italic font-serif lowercase tracking-normal">{clientName.split(' ')[0]}!</span>
                     </h2>
                     <p className="text-sm md:text-base font-medium text-slate-500 leading-relaxed max-w-xs mx-auto">
-                        We're thrilled to have you in the studio on your special day. Today is all about you!
+                        We're thrilled to celebrate with you today. Expect a little something extra during your visit!
                     </p>
                 </div>
 

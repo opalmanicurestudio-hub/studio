@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -19,17 +18,6 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -45,32 +33,17 @@ import { Progress } from '@/components/ui/progress';
 import { 
   CalendarIcon, 
   PlusCircle, 
-  Trash2, 
-  AlertTriangle, 
   ChevronLeft, 
   ChevronRight, 
-  Briefcase, 
   User, 
   Lock, 
   Award, 
-  CalendarCheck, 
   Clock, 
   Users, 
   Sparkles, 
-  Activity, 
   ArrowRight, 
   Check, 
   Tag, 
-  List,
-  ShoppingCart,
-  MapPin,
-  FlaskConical,
-  CalendarCheck as CalendarCheckIcon,
-  Edit,
-  Mail,
-  Phone,
-  Unlock,
-  UserPlus,
   Search,
   FileSignature,
   ShieldCheck,
@@ -80,28 +53,28 @@ import {
   Wallet,
   CheckCircle2,
   Repeat,
-  Info
+  Info,
+  Unlock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Client, type Service, type Appointment, type Staff, type Event, type InventoryItem, type PricingTier, type Membership, type ConsentForm } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, addMonths, parseISO, endOfDay } from 'date-fns';
-import { Card, CardContent } from '../ui/card';
+import { type Client, type Service, type Appointment, type Staff, type PricingTier, type Membership, type ConsentForm } from '@/lib/data';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, endOfDay } from 'date-fns';
+import { Card, CardContent, CardHeader } from '../ui/card';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
+import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, query, where, doc, writeBatch, increment, arrayUnion, getDocs } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
-import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -130,22 +103,20 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     return d;
 }
 
-type Step = 'details' | 'assignment' | 'timing' | 'consents' | 'deposit' | 'success';
+type Step = 'details' | 'assignment' | 'timing' | 'deposit' | 'success';
 
-export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConfirm, client: initialClient, appointmentToRebook, memberships }) => {
+export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client: initialClient, appointmentToRebook }) => {
   const isMobile = useIsMobile();
   const { firestore, user } = useFirebase();
   const { selectedTenant, role } = useTenant();
-  const { services, staff: allStaff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB, consentForms } = useInventory();
+  const { services, staff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB, consentForms } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
-  const tmhr = selectedTenant?.tmhr || 50;
 
   const [step, setStep] = useState<Step>('details');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [assignedStaffId, setAssignedStaffId] = useState<string | null>(null);
   const [clientSearch, setClientSearch] = useState('');
-  const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
   const [checkInToken, setCheckInToken] = useState('');
 
   const methods = useForm({
@@ -165,7 +136,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
     }
   });
 
-  const { register, handleSubmit, control, watch, reset, setValue, trigger } = methods;
+  const { register, control, watch, reset, setValue, trigger } = methods;
 
   useEffect(() => {
     if (open) {
@@ -173,7 +144,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
         setIsSubmitting(false);
         setAssignedStaffId(null);
         setClientSearch('');
-        setFormAnswers({});
         setCheckInToken('');
         const staffDefault = (role === 'staff' && user) ? user.uid : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
         reset({
@@ -211,9 +181,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
   }, [selectedService, consentForms]);
 
   const qualifiedStaff = useMemo(() => {
-    if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return allStaff;
-    return (allStaff || []).filter(s => selectedService.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
-  }, [selectedService, allStaff]);
+    if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return staff;
+    return (staff || []).filter(s => selectedService.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
+  }, [selectedService, staff]);
 
   const availableTiersForService = useMemo(() => {
     if (!selectedService?.serviceTiers || selectedService.serviceTiers.length === 0 || !pricingTiers) return [];
@@ -230,7 +200,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
   const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
   const timeSlots = useMemo(() => {
-    if (!selectedService || !watchDate || !publicScheduleProfile || !allStaff || !services || !appointmentsFromDB) return [];
+    if (!selectedService || !watchDate || !publicScheduleProfile || !staff || !services || !appointmentsFromDB) return [];
     const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
     const dayName = format(watchDate, 'eeee').toLowerCase();
     
@@ -282,7 +252,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
         }
     });
     return Array.from(options).sort();
-  }, [watchDate, watchStaffId, watchTierId, qualifiedStaff, selectedService, allStaff, appointmentsFromDB, eventsFromDB, publicScheduleProfile, services, watchOverride]);
+  }, [watchDate, watchStaffId, watchTierId, qualifiedStaff, selectedService, staff, appointmentsFromDB, eventsFromDB, publicScheduleProfile, services, watchOverride]);
 
   const depositDetails = useMemo(() => {
     if (!selectedService || selectedService.depositType === 'none') return null;
@@ -299,11 +269,10 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
 
   const steps = useMemo(() => {
     const flow: Step[] = ['details', 'assignment', 'timing'];
-    if (requiredForms.length > 0) flow.push('consents');
     if (depositDetails) flow.push('deposit');
     flow.push('success');
     return flow;
-  }, [requiredForms.length, depositDetails]);
+  }, [depositDetails]);
 
   const handleNext = async () => {
     if (step === 'details') {
@@ -315,10 +284,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
         setStep('timing');
     } else if (step === 'timing') {
         if (!watchStartTime) return toast({ variant: 'destructive', title: "Select Time", description: "A valid session window must be selected." });
-        if (requiredForms.length > 0) setStep('consents');
-        else if (depositDetails) setStep('deposit');
-        else finalizeBooking();
-    } else if (step === 'consents') {
         if (depositDetails) setStep('deposit');
         else finalizeBooking();
     } else if (step === 'deposit') {
@@ -402,19 +367,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
     batch.set(aptRef, payload);
     batch.set(checkInRef, payload);
 
-    Object.entries(formAnswers).forEach(([formId, answers]) => {
-        const consentRef = doc(collection(firestore!, `tenants/${tenantId}/clients/${finalClientId}/signedConsents`));
-        const form = consentForms.find(f => f.id === formId);
-        batch.set(consentRef, {
-            id: consentRef.id,
-            formId,
-            formTitle: form?.title || 'Form',
-            clientId: finalClientId,
-            signedAt: now,
-            formData: answers
-        });
-    });
-
     if (depositDetails && data.paymentMethod !== 'none') {
         const txnRef = doc(collection(firestore!, `tenants/${tenantId}/transactions`));
         batch.set(txnRef, {
@@ -470,7 +422,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
       return clients.filter(c => c.name.toLowerCase().includes(s) || (c.email && c.email.toLowerCase().includes(s)) || (c.phone && c.phone.includes(s)));
   }, [clients, clientSearch]);
 
-  const currentAssignedPro = useMemo(() => allStaff?.find(s => s.id === assignedStaffId), [allStaff, assignedStaffId]);
+  const currentAssignedPro = useMemo(() => staff?.find(s => s.id === assignedStaffId), [staff, assignedStaffId]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -516,12 +468,12 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
                                                             field.value === 'new' ? "border-primary bg-primary/5 shadow-md" : "border-dashed hover:border-primary/20"
                                                         )}
                                                     >
-                                                        <div className="p-3 bg-muted rounded-xl"><UserPlus className="w-5 h-5 text-muted-foreground" /></div>
+                                                        <div className="p-3 bg-muted rounded-xl shadow-inner"><UserPlus className="w-5 h-5 text-muted-foreground" /></div>
                                                         <span className="font-black uppercase text-xs tracking-tight">Register New Profile</span>
                                                     </button>
                                                     {filteredClients.map(c => {
                                                         const isSel = field.value === c.id;
-                                                        const isMember = !!(c.activeMembershipId || c.subscription);
+                                                        const isClientMember = !!(c.activeMembershipId || c.subscription);
                                                         const hasPkg = (c.activePackages?.length || 0) > 0;
                                                         const hasDebt = (c.outstandingBalance || 0) > 0;
                                                         return (
@@ -539,7 +491,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
                                                                         <AvatarImage src={c.avatarUrl} className="object-cover" />
                                                                         <AvatarFallback className="font-black text-xs">{(c.name || 'G')[0]}</AvatarFallback>
                                                                     </Avatar>
-                                                                    {isMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}
+                                                                    {isClientMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}
                                                                 </div>
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-center gap-2">
@@ -644,7 +596,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
                                     </TooltipProvider>
                                 </div>
                             </div>
-                            <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
+                            <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-6 shadow-inner text-center">
                                 <div className="flex justify-between items-center px-2">
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
                                     <span className="font-black uppercase tracking-widest text-sm">{format(watchDate, 'MMMM yyyy')}</span>
@@ -670,35 +622,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
                         </motion.div>
                     )}
 
-                    {step === 'consents' && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="consents" className="space-y-10">
-                            <SelectionHeader icon={FileSignature} title="Digital Intake" stepNum={4} />
-                            <div className="space-y-12">
-                                {requiredForms.map(form => (
-                                    <div key={form.id} className="space-y-8 p-8 md:p-12 rounded-[3rem] border-2 border-white/50 bg-white/60 backdrop-blur-2xl shadow-2xl">
-                                        <div className="flex items-center gap-4 text-2xl font-black uppercase tracking-tighter pb-4 border-b border-dashed"><ListChecks className="w-8 h-8 text-primary" />{form.title}</div>
-                                        <div className="space-y-10 text-left">
-                                            {form.fields?.map(field => (
-                                                <FormFieldRenderer 
-                                                    key={field.id} 
-                                                    field={field} 
-                                                    value={formAnswers[form.id]?.[field.id]}
-                                                    onChange={(val) => setFormAnswers(prev => ({
-                                                        ...prev,
-                                                        [form.id]: { ...(prev[form.id] || {}), [field.id]: val }
-                                                    }))}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </motion.div>
-                    )}
-
                     {step === 'deposit' && depositDetails && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="deposit" className="space-y-10">
-                            <SelectionHeader icon={CreditCard} title="Secure Retainer" stepNum={5} />
+                            <SelectionHeader icon={CreditCard} title="Secure Retainer" stepNum={4} />
                             <div className="p-10 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                                 <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
                                 <p className="text-7xl font-black text-primary tracking-tighter font-mono">${depositDetails.amount.toFixed(2)}</p>
@@ -713,15 +639,15 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
                                     control={control}
                                     render={({ field }) => (
                                         <RadioGroup value={field.value} onValueChange={field.onChange} className="grid grid-cols-1 gap-3">
-                                            <label htmlFor="pay-vault" className={cn("flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50", !hasCardOnFile && "opacity-40 grayscale grayscale-[0.5]")}>
+                                            <label htmlFor="pay-vault" className={cn("flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50", !selectedClient?.cardOnFile?.token && "opacity-40 grayscale grayscale-[0.5]")}>
                                                 <div className="flex items-center gap-4">
-                                                    <RadioGroupItem value="card_on_file" id="pay-vault" disabled={!hasCardOnFile}/>
+                                                    <RadioGroupItem value="card_on_file" id="pay-vault" disabled={!selectedClient?.cardOnFile?.token}/>
                                                     <div className="space-y-0.5">
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">Vaulted Card</span>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{hasCardOnFile ? `${selectedClient?.cardOnFile?.brand} •••• ${selectedClient?.cardOnFile?.last4}` : 'No secure card archived'}</p>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{selectedClient?.cardOnFile?.token ? `${selectedClient?.cardOnFile?.brand} •••• ${selectedClient?.cardOnFile?.last4}` : 'No secure card archived'}</p>
                                                     </div>
                                                 </div>
-                                                <ShieldCheck className={cn("w-5 h-5", hasCardOnFile ? "text-primary" : "text-slate-300")} />
+                                                <ShieldCheck className={cn("w-5 h-5", selectedClient?.cardOnFile?.token ? "text-primary" : "text-slate-300")} />
                                             </label>
                                             <label htmlFor="pay-terminal" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 border-border">
                                                 <div className="flex items-center gap-4">
@@ -777,7 +703,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
                                 <Card className="p-6 rounded-[2rem] border-2 border-dashed bg-muted/10 space-y-4 text-left shadow-inner">
                                     <div className="flex items-center justify-between">
                                         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Session Intel</p>
-                                        {requiredForms.length > 0 && <Badge variant="outline" className={cn("text-[7px] font-black uppercase h-4 px-1.5", Object.keys(formAnswers).length === requiredForms.length ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200")}>{Object.keys(formAnswers).length === requiredForms.length ? "Intake Verified" : "Intake Pending"}</Badge>}
+                                        {requiredForms.length > 0 && <Badge variant="outline" className="text-[7px] font-black uppercase h-4 px-1.5 bg-amber-50 text-amber-700 border-amber-200">Intake Pending</Badge>}
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <CalendarIcon className="w-5 h-5 text-primary opacity-40" />
@@ -810,7 +736,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
             </div>
         </ScrollArea>
 
-        <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
+        <SheetFooter className={cn("p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl", isMobile && "p-6")}>
             {step !== 'success' && (
                 <div className="flex w-full gap-4">
                     {step !== 'details' && (
@@ -828,9 +754,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
                             <>
                                 {step === 'details' ? 'Provider Routing' : 
                                  step === 'assignment' ? 'Select Window' : 
-                                 step === 'timing' && requiredForms.length > 0 ? 'Review Intake' :
                                  step === 'timing' && depositDetails ? 'Deposit Settlement' : 
-                                 step === 'consents' && depositDetails ? 'Deposit Settlement' :
                                  'Finalize Booking'}
                                 <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                             </>
@@ -843,12 +767,3 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConf
     </Sheet>
   );
 };
-
-interface AddAppointmentDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (appointmentData: any) => void;
-  client?: Client | null;
-  appointmentToRebook?: Appointment | null;
-  memberships: Membership[];
-}

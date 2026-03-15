@@ -594,7 +594,7 @@ export default function ClientDetailPage() {
                 <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authorize debt reconciliation for: <strong>{client.name}</strong></DialogDescription>
             </DialogHeader>
             <div className="p-8 space-y-8">
-                <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-2 shadow-2xl shadow-primary/5">
+                <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                     <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Arrears Balance</p>
                     <p className="text-5xl font-black text-primary tracking-tighter font-mono">${Number(client.outstandingBalance).toFixed(2)}</p>
                 </div>
