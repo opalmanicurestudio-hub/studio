@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -13,6 +14,7 @@ import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface PackageCardProps {
   pack: Package;
@@ -62,43 +64,42 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
     return { materialCost: materials, timeLiabilityHours: time };
   }, [pack, primaryService, inventory]);
 
-  const tierAnalysis = useMemo(() => {
+  const individualStaffAnalysis = useMemo(() => {
     if (!primaryService) return [];
-    return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
-        const tierConfig = primaryService.serviceTiers?.find(t => t.tierId === tier.id);
+    return staff.filter(s => s.active).map(member => {
+        const tierConfig = primaryService.serviceTiers?.find(t => t.tierId === member.pricingTierId);
         const tierPrice = tierConfig ? tierConfig.price : primaryService.price;
         const tierDuration = tierConfig ? tierConfig.durationMinutes : primaryService.duration;
         const timeValue = ((tierDuration * pack.sessions) / 60) * tmhr;
         
-        const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
-        const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
-            let labor = 0;
-            if (s.payStructure === 'commission') labor = tierPrice * (s.commissionRate / 100);
-            else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (tierDuration / 60) * s.hourlyRate;
-            return acc + (labor * pack.sessions * (1 + (taxBurden / 100)));
-        }, 0) / (relevantStaff.length || 1);
+        let labor = 0;
+        if (member.payStructure === 'commission') labor = tierPrice * (member.commissionRate / 100);
+        else if (member.payStructure === 'hourly' && member.hourlyRate) labor = (tierDuration / 60) * member.hourlyRate;
+        else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) labor = ((tierDuration / 60) * member.hourlyRate) + (tierPrice * (member.commissionRate / 100));
 
-        const totalBurden = materialCost + timeValue + avgLaborRecovery;
+        const burdenedLabor = labor * pack.sessions * (1 + (taxBurden / 100));
+        const totalBurden = materialCost + timeValue + burdenedLabor;
         const netProfit = pack.price - totalBurden;
         const margin = pack.price > 0 ? (netProfit / pack.price) * 100 : 0;
 
         return {
-            id: tier.id,
-            name: tier.name,
+            id: member.id,
+            name: member.name,
+            avatarUrl: member.avatarUrl,
             totalBurden,
             netProfit,
             margin,
-            labor: avgLaborRecovery,
+            labor: burdenedLabor,
             timeValue
         };
     });
-  }, [pricingTiers, primaryService, pack, staff, tmhr, taxBurden, materialCost]);
+  }, [primaryService, pack, staff, tmhr, taxBurden, materialCost]);
 
   const yieldRange = useMemo(() => {
-      const profits = tierAnalysis.map(t => t.netProfit);
+      const profits = individualStaffAnalysis.map(t => t.netProfit);
       if (profits.length === 0) return { min: 0, max: 0 };
       return { min: Math.min(...profits), max: Math.max(...profits) };
-  }, [tierAnalysis]);
+  }, [individualStaffAnalysis]);
 
   const isScopeRestricted = pack.applicableProductIds && pack.applicableProductIds.length > 0;
 
@@ -194,26 +195,32 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
 
             <AccordionItem value="profit" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/5 mt-2">
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
-                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Itemized Yield Matrix
+                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Provider Yield Matrix
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
-                    {tierAnalysis.map(tier => (
-                        <div key={tier.id} className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
+                    {individualStaffAnalysis.map(sa => (
+                        <div key={sa.id} className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
                             <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-black uppercase text-slate-900">{tier.name}</span>
-                                <Badge className={cn("h-4 text-[7px] font-black border-none", tier.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
-                                    {tier.margin.toFixed(0)}% Margin
+                                <div className="flex items-center gap-2">
+                                    <Avatar className="h-6 w-6 border shadow-inner">
+                                        <AvatarImage src={sa.avatarUrl} className="object-cover" />
+                                        <AvatarFallback className="font-black text-[7px]">{(sa.name || 'S')[0]}</AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-[10px] font-black uppercase text-slate-900">{sa.name.split(' ')[0]}</span>
+                                </div>
+                                <Badge className={cn("h-4 text-[7px] font-black border-none", sa.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
+                                    {sa.margin.toFixed(0)}% Margin
                                 </Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-[8px] uppercase font-bold text-muted-foreground opacity-60">
                                 <span>Materials: ${materialCost.toFixed(2)}</span>
-                                <span className="text-right">Time (TMHR): ${tier.timeValue.toFixed(2)}</span>
-                                <span className="col-span-2 border-t pt-1 mt-1">Labor Burden: ${tier.labor.toFixed(2)}</span>
+                                <span className="text-right">Time (TMHR): ${sa.timeValue.toFixed(2)}</span>
+                                <span className="col-span-2 border-t pt-1 mt-1">Labor Burden: ${sa.labor.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between items-center font-black uppercase pt-1 border-t border-dashed border-primary/10">
-                                <span className="text-[9px] text-primary/60">Net Bundle Yield</span>
-                                <span className={cn("text-xs font-mono", tier.netProfit > 0 ? 'text-primary' : 'text-destructive')}>
-                                    ${tier.netProfit.toFixed(2)}
+                                <span className="text-[9px] text-primary/60">Net Yield</span>
+                                <span className={cn("text-xs font-mono", sa.netProfit > 0 ? 'text-primary' : 'text-destructive')}>
+                                    ${sa.netProfit.toFixed(2)}
                                 </span>
                             </div>
                         </div>

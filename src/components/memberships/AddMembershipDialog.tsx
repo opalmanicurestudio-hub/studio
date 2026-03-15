@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -31,7 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
 import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -69,14 +70,12 @@ const ProfitabilityAnalysis = ({
     price, 
     tmhr, 
     taxBurden, 
-    pricingTiers, 
     staff 
 }: { 
     perks: { services: MembershipPerk[], addOns: MembershipPerk[], products: MembershipPerk[] }, 
     price: number, 
     tmhr: number, 
     taxBurden: number, 
-    pricingTiers: PricingTier[], 
     staff: Staff[] 
 }) => {
     const { services, inventory } = useInventory();
@@ -103,13 +102,15 @@ const ProfitabilityAnalysis = ({
             }, 0);
         };
 
-        // Material Costs
+        // Material Costs (Formula costs)
         const servicesCost = perks.services.reduce((acc, perk) => {
             return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
         }, 0);
         const addOnsCost = perks.addOns.reduce((acc, perk) => {
             return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
         }, 0);
+        
+        // Retail Costs (Landed Cost per Unit)
         const productsCost = perks.products.reduce((acc, perk) => {
             const p = inventory.find(inv => inv.id === perk.id);
             return acc + (p?.costPerUnit || 0) * (perk.quantity || 1);
@@ -128,83 +129,91 @@ const ProfitabilityAnalysis = ({
         return { materialCost: servicesCost + addOnsCost + productsCost, timeLiabilityHours: (servicesDuration + addOnsDuration) / 60 };
     }, [perks, services, inventory]);
 
-    const tierAnalysis = useMemo(() => {
-        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+    const individualStaffAnalysis = useMemo(() => {
+        return staff.filter(s => s.active).map(member => {
             const timeValue = timeLiabilityHours * tmhr;
             
-            // Project labor based on tier average
-            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
-            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
-                let labor = 0;
-                // Projected labor for membership perks
-                const avgPrice = perks.services.reduce((sum, perk) => {
-                    const svc = services.find(sv => sv.id === perk.id);
-                    const tierPrice = svc?.serviceTiers?.find(t => t.tierId === tier.id)?.price || svc?.price || 0;
-                    return sum + (tierPrice * perk.quantity);
-                }, 0);
+            // Calculate specific labor cost for this pro
+            let labor = 0;
+            const projectedRevenueValue = perks.services.reduce((sum, perk) => {
+                const svc = services.find(sv => sv.id === perk.id);
+                // We use standard price for labor projection unless tier overrides exist
+                const priceAtTier = svc?.serviceTiers?.find(t => t.tierId === member.pricingTierId)?.price || svc?.price || 0;
+                return sum + (priceAtTier * perk.quantity);
+            }, 0);
 
-                if (s.payStructure === 'commission') labor = avgPrice * (s.commissionRate / 100);
-                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = timeLiabilityHours * s.hourlyRate;
-                
-                return acc + (labor * (1 + (taxBurden / 100)));
-            }, 0) / (relevantStaff.length || 1);
-
-            const totalBurden = materialCost + timeValue + avgLaborRecovery;
+            if (member.payStructure === 'commission') {
+                labor = projectedRevenueValue * (member.commissionRate / 100);
+            } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+                labor = timeLiabilityHours * member.hourlyRate;
+            } else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) {
+                labor = (timeLiabilityHours * member.hourlyRate) + (projectedRevenueValue * (member.commissionRate / 100));
+            }
+            
+            const burdenedLabor = labor * (1 + (taxBurden / 100));
+            const totalBurden = materialCost + timeValue + burdenedLabor;
             const netProfit = price - totalBurden;
             const margin = price > 0 ? (netProfit / price) * 100 : 0;
 
             return {
-                id: tier.id,
-                name: tier.name,
+                id: member.id,
+                name: member.name,
+                avatarUrl: member.avatarUrl,
                 totalBurden,
                 netProfit,
                 margin,
-                labor: avgLaborRecovery,
+                labor: burdenedLabor,
                 timeValue
             };
         });
-    }, [pricingTiers, timeLiabilityHours, tmhr, materialCost, staff, taxBurden, perks.services, services, price]);
+    }, [staff, timeLiabilityHours, tmhr, materialCost, taxBurden, perks.services, services, price]);
 
     return (
         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
-            <CardHeader className="p-8 pb-4">
+            <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
                     <Target className="w-3 h-3" />
-                    Yield Engine
+                    Individual Payout Matrix
                 </CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60">
-                    Net Analysis per Tier @ {taxBurden}% Tax Burden
+                    Net Analysis per technician @ {taxBurden}% Tax Burden
                 </CardDescription>
             </CardHeader>
-            <CardContent className="p-8 pt-0 space-y-6">
+            <CardContent className="p-8 pt-6 space-y-6">
                 <div className="space-y-4">
-                    {tierAnalysis.map(tier => (
-                        <div key={tier.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
+                    {individualStaffAnalysis.map(sa => (
+                        <div key={sa.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
                             <div className="flex justify-between items-center px-1">
-                                <span className="text-[9px] font-black uppercase text-slate-900 tracking-widest">{tier.name}</span>
-                                <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", tier.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
-                                    {tier.margin.toFixed(0)}% Margin
+                                <div className="flex items-center gap-3">
+                                    <Avatar className="h-8 w-8 border-2 border-background shadow-sm rounded-xl">
+                                        <AvatarImage src={sa.avatarUrl} className="object-cover" />
+                                        <AvatarFallback className="font-black text-[8px]">{(sa.name || 'S')[0]}</AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-[10px] font-black uppercase text-slate-900 tracking-widest">{sa.name.split(' ')[0]}</span>
+                                </div>
+                                <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", sa.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
+                                    {sa.margin.toFixed(0)}% Margin
                                 </Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left">
                                 <div className="space-y-0.5">
-                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Materials</p>
+                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Material Load</p>
                                     <p className="font-mono text-xs font-black text-slate-900">${materialCost.toFixed(2)}</p>
                                 </div>
                                 <div className="space-y-0.5 text-right">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Time (TMHR)</p>
-                                    <p className="font-mono text-xs font-black text-slate-900">${tier.timeValue.toFixed(2)}</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${sa.timeValue.toFixed(2)}</p>
                                 </div>
                                 <div className="space-y-0.5 text-left">
-                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Labor Load</p>
-                                    <p className="font-mono text-xs font-black text-slate-900">${tier.labor.toFixed(2)}</p>
+                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Burdened Labor</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${sa.labor.toFixed(2)}</p>
                                 </div>
                             </div>
                             <Separator className="border-dashed" />
                             <div className="flex justify-between items-baseline pt-1">
-                                <span className="text-[9px] font-black uppercase text-primary/60">Net Cycle Yield</span>
-                                <span className={cn("text-2xl font-black tracking-tighter font-mono", tier.netProfit >= 0 ? "text-primary" : "text-destructive")}>
-                                    ${tier.netProfit.toFixed(2)}
+                                <span className="text-[9px] font-black uppercase text-primary/60">Studio Net Yield</span>
+                                <span className={cn("text-2xl font-black tracking-tighter font-mono", sa.netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                                    ${sa.netProfit.toFixed(2)}
                                 </span>
                             </div>
                         </div>
@@ -212,8 +221,8 @@ const ProfitabilityAnalysis = ({
                 </div>
                 <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
-                    <p className="text-[9px] font-bold uppercase text-muted-foreground leading-relaxed tracking-tight text-left">
-                        Analysis reflects current <strong>${tmhr.toFixed(2)}/hr</strong> foundation and burdened provider labor projections.
+                    <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
+                        Yield reflects individual technician pay structures and your current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.
                     </p>
                 </div>
             </CardContent>
@@ -405,6 +414,41 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 )}
               </div>
 
+              <div className="space-y-4">
+                <div className='flex items-center justify-between px-1'>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail Perks (LTV)</Label>
+                    <Button variant="ghost" size="sm" onClick={() => setIsProductPerkSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                        <PlusCircle className="w-3 h-3 mr-1.5" /> Select Products
+                    </Button>
+                </div>
+                {includedProducts.length > 0 ? (
+                    <div className="grid gap-2">
+                    {includedProducts.map(perk => (
+                        <div key={perk.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
+                            <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{perk.name}</span>
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Qty</Label>
+                                    <Input 
+                                        type="number" 
+                                        value={perk.quantity || 1} 
+                                        onChange={e => updatePerkQuantity('product', perk.id, parseInt(e.target.value) || 1)} 
+                                        className="w-14 h-9 rounded-lg border-2 text-center font-black font-mono"
+                                    />
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeItem('product', perk.id)}><Trash2 className="w-4 h-4" /></Button>
+                            </div>
+                        </div>
+                    ))}
+                    </div>
+                ) : (
+                    <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                        <Box className="w-10 h-10" />
+                        <p className="text-[10px] font-black uppercase tracking-widest">No Retail Included</p>
+                    </div>
+                )}
+              </div>
+
               <div className="space-y-4 pt-4 border-t border-dashed">
                 <div className='flex items-center justify-between px-1 text-left'>
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail Privilege</Label>
@@ -482,7 +526,6 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
         price={price} 
         tmhr={tmhr} 
         taxBurden={taxBurden} 
-        pricingTiers={pricingTiers || []} 
         staff={staff || []} 
        />
     </div>

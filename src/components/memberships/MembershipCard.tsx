@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -13,6 +14,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { useTenant } from '@/context/TenantContext';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface MembershipCardProps {
   membership: Membership;
@@ -54,14 +56,17 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
         }, 0);
     };
 
+    // Services Material Cost
     const servicesMaterialCost = (membership.includedServices || []).reduce((acc, perk) => {
         return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
     }, 0);
 
+    // Addons Material Cost
     const addOnsMaterialCost = (membership.includedAddOns || []).reduce((acc, perk) => {
         return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
     }, 0);
 
+    // Included Products Cost (Landed Cost)
     const productsCost = (membership.includedProducts || []).reduce((acc, perk) => {
         const p = inventory.find(inv => inv.id === perk.id);
         return acc + (p?.costPerUnit || 0) * perk.quantity;
@@ -82,46 +87,48 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
     };
   }, [membership, services, inventory]);
 
-  const tierAnalysis = useMemo(() => {
-    return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+  const staffAnalysis = useMemo(() => {
+    return staff.filter(s => s.active).map(member => {
         const timeValue = timeLiabilityHours * tmhr;
         
-        const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
-        const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
-            let labor = 0;
-            const avgPrice = (membership.includedServices || []).reduce((sum, perk) => {
-                const svc = services.find(sv => sv.id === perk.id);
-                const tierPrice = svc?.serviceTiers?.find(t => t.tierId === tier.id)?.price || svc?.price || 0;
-                return sum + (tierPrice * perk.quantity);
-            }, 0);
+        let labor = 0;
+        const projectedRevenueValue = (membership.includedServices || []).reduce((sum, perk) => {
+            const svc = services.find(sv => sv.id === perk.id);
+            const tierPrice = svc?.serviceTiers?.find(t => t.tierId === member.pricingTierId)?.price || svc?.price || 0;
+            return sum + (tierPrice * perk.quantity);
+        }, 0);
 
-            if (s.payStructure === 'commission') labor = avgPrice * (s.commissionRate / 100);
-            else if (s.payStructure === 'hourly' && s.hourlyRate) labor = timeLiabilityHours * s.hourlyRate;
-            
-            return acc + (labor * (1 + (taxBurden / 100)));
-        }, 0) / (relevantStaff.length || 1);
-
-        const totalBurden = materialCost + timeValue + avgLaborRecovery;
+        if (member.payStructure === 'commission') {
+            labor = projectedRevenueValue * (member.commissionRate / 100);
+        } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+            labor = timeLiabilityHours * member.hourlyRate;
+        } else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) {
+            labor = (timeLiabilityHours * member.hourlyRate) + (projectedRevenueValue * (member.commissionRate / 100));
+        }
+        
+        const burdenedLabor = labor * (1 + (taxBurden / 100));
+        const totalBurden = materialCost + timeValue + burdenedLabor;
         const netProfit = membership.price - totalBurden;
         const margin = membership.price > 0 ? (netProfit / membership.price) * 100 : 0;
 
         return {
-            id: tier.id,
-            name: tier.name,
+            id: member.id,
+            name: member.name,
+            avatarUrl: member.avatarUrl,
             totalBurden,
             netProfit,
             margin,
-            labor: avgLaborRecovery,
+            labor: burdenedLabor,
             timeValue
         };
     });
-  }, [pricingTiers, timeLiabilityHours, tmhr, materialCost, staff, taxBurden, membership, services]);
+  }, [staff, timeLiabilityHours, tmhr, materialCost, taxBurden, membership, services]);
 
   const yieldRange = useMemo(() => {
-      const profits = tierAnalysis.map(t => t.netProfit);
+      const profits = staffAnalysis.map(t => t.netProfit);
       if (profits.length === 0) return { min: 0, max: 0 };
       return { min: Math.min(...profits), max: Math.max(...profits) };
-  }, [tierAnalysis]);
+  }, [staffAnalysis]);
 
   const isScopeRestricted = membership.applicableProductIds && membership.applicableProductIds.length > 0;
 
@@ -183,6 +190,12 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                                 <span className="font-black text-slate-900">{p.quantity}x</span>
                             </div>
                         ))}
+                        {(membership.includedProducts || []).map(p => (
+                            <div key={p.id} className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
+                                <span className="flex items-center gap-2"><Box className="w-3 h-3 text-indigo-500"/> {p.name}</span>
+                                <span className="font-black text-slate-900">{p.quantity}x</span>
+                            </div>
+                        ))}
                         {membership.retailDiscount && (
                             <div className="space-y-1.5">
                                 <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
@@ -201,48 +214,39 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                 </AccordionContent>
             </AccordionItem>
             
-            <AccordionItem value="capacity" className="border-2 rounded-2xl overflow-hidden bg-muted/5 border-border/50 mt-2">
-                <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
-                    <Clock className="w-3.5 h-3.5 mr-2 opacity-40"/> Capacity Load
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-2">
-                    <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm text-left">
-                        <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                            <span className="text-muted-foreground opacity-60">Time commitment</span>
-                            <span className="text-slate-900 font-mono">{timeLiabilityHours.toFixed(1)}h / member</span>
-                        </div>
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">This tier consumes {timeLiabilityHours.toFixed(1)} hours of studio billable capacity per member per cycle.</p>
-                    </div>
-                </AccordionContent>
-            </AccordionItem>
-
             <AccordionItem value="profit" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/5 mt-2">
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
-                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Itemized Yield Matrix
+                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Provider Yield Matrix
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
-                    {tierAnalysis.map(tier => (
-                        <div key={tier.id} className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
+                    {staffAnalysis.map(sa => (
+                        <div key={sa.id} className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
                             <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-black uppercase text-slate-900">{tier.name}</span>
-                                <Badge className={cn("h-4 text-[7px] font-black border-none", tier.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
-                                    {tier.margin.toFixed(0)}% Margin
+                                <div className="flex items-center gap-2">
+                                    <Avatar className="h-6 w-6 border shadow-inner">
+                                        <AvatarImage src={sa.avatarUrl} className="object-cover" />
+                                        <AvatarFallback className="font-black text-[7px]">{(sa.name || 'S')[0]}</AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-[10px] font-black uppercase text-slate-900">{sa.name.split(' ')[0]}</span>
+                                </div>
+                                <Badge className={cn("h-4 text-[7px] font-black border-none", sa.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
+                                    {sa.margin.toFixed(0)}% Margin
                                 </Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-[8px] uppercase font-bold text-muted-foreground opacity-60">
                                 <span>Materials: ${materialCost.toFixed(2)}</span>
-                                <span className="text-right">Time (TMHR): ${tier.timeValue.toFixed(2)}</span>
-                                <span className="col-span-2 border-t pt-1 mt-1">Labor Burden: ${tier.labor.toFixed(2)}</span>
+                                <span className="text-right">Time (TMHR): ${sa.timeValue.toFixed(2)}</span>
+                                <span className="col-span-2 border-t pt-1 mt-1">Labor Burden: ${sa.labor.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between items-center font-black uppercase pt-1 border-t border-dashed border-primary/10">
-                                <span className="text-[9px] text-primary/60">Net Tier Yield</span>
-                                <span className={cn("text-xs font-mono", tier.netProfit > 0 ? 'text-primary' : 'text-destructive')}>
-                                    ${tier.netProfit.toFixed(2)}
+                                <span className="text-[9px] text-primary/60">Net Yield</span>
+                                <span className={cn("text-xs font-mono", sa.netProfit > 0 ? 'text-primary' : 'text-destructive')}>
+                                    ${sa.netProfit.toFixed(2)}
                                 </span>
                             </div>
                         </div>
                     ))}
-                    <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 text-center">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr and burdened labor payouts.</p>
+                    <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 text-center">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr and itemized provider payouts.</p>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>

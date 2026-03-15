@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -41,6 +42,7 @@ import { Progress } from '@/components/ui/progress';
 import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useTenant } from '@/context/TenantContext';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface AddPackageDialogProps {
   open: boolean;
@@ -67,7 +69,6 @@ const ProfitabilityAnalysis = ({
     price, 
     tmhr, 
     taxBurden, 
-    pricingTiers, 
     staff 
 }: { 
     service: Service | undefined, 
@@ -75,7 +76,6 @@ const ProfitabilityAnalysis = ({
     price: number, 
     tmhr: number, 
     taxBurden: number, 
-    pricingTiers: PricingTier[], 
     staff: Staff[] 
 }) => {
     const { inventory } = useInventory();
@@ -107,58 +107,63 @@ const ProfitabilityAnalysis = ({
         return { baseHouseFloor: materialCost + timeCost };
     }, [service, sessions, tmhr, inventory]);
 
-    const tierAnalysis = useMemo(() => {
+    const staffAnalysis = useMemo(() => {
         if (!service) return [];
-        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
-            const tierConfig = service.serviceTiers?.find(t => t.tierId === tier.id);
+        return staff.filter(s => s.active).map(member => {
+            const tierConfig = service.serviceTiers?.find(t => t.tierId === member.pricingTierId);
             const tierPrice = tierConfig ? tierConfig.price : service.price;
             const tierDuration = tierConfig ? tierConfig.durationMinutes : service.duration;
+            const timeValue = ((tierDuration * sessions) / 60) * tmhr;
+            
+            let labor = 0;
+            if (member.payStructure === 'commission') labor = tierPrice * (member.commissionRate / 100);
+            else if (member.payStructure === 'hourly' && member.hourlyRate) labor = (tierDuration / 60) * member.hourlyRate;
+            else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) labor = ((tierDuration / 60) * member.hourlyRate) + (tierPrice * (member.commissionRate / 100));
 
-            // Project labor based on tier average
-            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
-            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
-                let labor = 0;
-                if (s.payStructure === 'commission') labor = tierPrice * (s.commissionRate / 100);
-                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (tierDuration / 60) * s.hourlyRate;
-                return acc + (labor * sessions * (1 + (taxBurden / 100)));
-            }, 0) / (relevantStaff.length || 1);
-
-            const totalBurden = baseHouseFloor + avgLaborRecovery;
+            const burdenedLabor = labor * sessions * (1 + (taxBurden / 100));
+            const totalBurden = baseHouseFloor + burdenedLabor;
             const netProfit = price - totalBurden;
             const margin = price > 0 ? (netProfit / price) * 100 : 0;
 
             return {
-                id: tier.id,
-                name: tier.name,
+                id: member.id,
+                name: member.name,
+                avatarUrl: member.avatarUrl,
                 totalBurden,
                 netProfit,
                 margin,
-                labor: avgLaborRecovery
+                labor: burdenedLabor
             };
         });
-    }, [pricingTiers, service, sessions, staff, taxBurden, baseHouseFloor, price]);
+    }, [service, sessions, staff, taxBurden, baseHouseFloor, price, tmhr]);
 
     if (!service) return null;
     
     return (
         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
-            <CardHeader className="p-8 pb-4">
+            <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
                     <Target className="w-3 h-3" />
-                    Yield Engine
+                    Individual Payout Matrix
                 </CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60">
-                    Net Analysis per Tier @ {taxBurden}% Tax Burden
+                    Net Analysis per technician @ {taxBurden}% Tax Burden
                 </CardDescription>
             </CardHeader>
-            <CardContent className="p-8 pt-0 space-y-6">
+            <CardContent className="p-8 pt-6 space-y-6">
                 <div className="space-y-4">
-                    {tierAnalysis.map(tier => (
-                        <div key={tier.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
+                    {staffAnalysis.map(sa => (
+                        <div key={sa.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
                             <div className="flex justify-between items-center px-1">
-                                <span className="text-[9px] font-black uppercase text-slate-900 tracking-widest">{tier.name}</span>
-                                <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", tier.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
-                                    {tier.margin.toFixed(0)}% Margin
+                                <div className="flex items-center gap-3">
+                                    <Avatar className="h-8 w-8 border-2 border-background shadow-sm rounded-xl">
+                                        <AvatarImage src={sa.avatarUrl} className="object-cover" />
+                                        <AvatarFallback className="font-black text-[8px]">{(sa.name || 'S')[0]}</AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-[10px] font-black uppercase text-slate-900 tracking-widest">{sa.name.split(' ')[0]}</span>
+                                </div>
+                                <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", sa.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
+                                    {sa.margin.toFixed(0)}% Margin
                                 </Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
@@ -168,14 +173,14 @@ const ProfitabilityAnalysis = ({
                                 </div>
                                 <div className="space-y-0.5 text-right">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Labor Load</p>
-                                    <p className="font-mono text-xs font-black text-slate-900">${tier.labor.toFixed(2)}</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${sa.labor.toFixed(2)}</p>
                                 </div>
                             </div>
                             <Separator className="border-dashed" />
                             <div className="flex justify-between items-baseline pt-1">
-                                <span className="text-[9px] font-black uppercase text-primary/60">Net Package Yield</span>
-                                <span className={cn("text-2xl font-black tracking-tighter font-mono", tier.netProfit >= 0 ? "text-primary" : "text-destructive")}>
-                                    ${tier.netProfit.toFixed(2)}
+                                <span className="text-[9px] font-black uppercase text-primary/60">Net Bundle Yield</span>
+                                <span className={cn("text-2xl font-black tracking-tighter font-mono", sa.netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                                    ${sa.netProfit.toFixed(2)}
                                 </span>
                             </div>
                         </div>
@@ -183,8 +188,8 @@ const ProfitabilityAnalysis = ({
                 </div>
                 <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
-                    <p className="text-[9px] font-bold uppercase text-muted-foreground leading-relaxed tracking-tight text-left">
-                        Yield reflects current <strong>${tmhr.toFixed(2)}/hr</strong> foundation and burdened provider labor.
+                    <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
+                        Yield reflects individual technician pay and current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.
                     </p>
                 </div>
             </CardContent>
@@ -366,7 +371,6 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
         price={price} 
         tmhr={tmhr} 
         taxBurden={taxBurden} 
-        pricingTiers={pricingTiers || []} 
         staff={staff || []} 
       />
     </div>
