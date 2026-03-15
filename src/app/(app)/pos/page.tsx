@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -192,7 +191,7 @@ function POSPage() {
 
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
-    const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package'; id: string } | null>(null);
+    const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package'; id: string; itemId?: string } | null>(null);
     const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
 
     const [policyEnforcementData, setPolicyEnforcementData] = useState<any | null>(null);
@@ -311,11 +310,11 @@ function POSPage() {
 
     const subtotal = useMemo(() => {
         const servicesSub = selectedAptsData.reduce((acc, data) => {
-            const isServiceRedeemed = redeemedOffer?.id === data.service.id;
+            const isServiceRedeemed = redeemedOffer?.itemId === data.service.id;
             const mainPrice = isServiceRedeemed ? 0 : getServicePrice(data.service, data.staff);
             
             const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => {
-                const isAddonRedeemed = redeemedOffer?.id === s.id;
+                const isAddonRedeemed = redeemedOffer?.itemId === s.id;
                 const addonStaffId = data.appointment.checkoutState?.serviceStaffOverrides?.[s.id] || data.appointment.staffId;
                 const addonStaff = staff.find(st => st.id === addonStaffId);
                 return sum + (isAddonRedeemed ? 0 : getServicePrice(s, addonStaff));
@@ -746,16 +745,16 @@ function POSPage() {
             });
             const mainStaffId = overrides[service.id] || apt.staffId;
             const mainStaffMember = (staff || []).find(s => s.id === mainStaffId);
-            const isMainRedeemed = redeemedOffer?.id === service.id;
+            const isMainRedeemed = redeemedOffer?.itemId === service.id;
             const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember)) + additional; 
             totalLtvIncrease += mainPartRevenue;
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
 
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
             addOnServices.forEach((addon: any) => {
-                const addonStaffId = overrides[addon.id] || data.appointment.staffId;
+                const addonStaffId = overrides[addon.id] || apt.staffId;
                 const addonStaffMember = staff.find((s: any) => s.id === addonStaffId);
-                const isAddonRedeemed = redeemedOffer?.id === addon.id;
+                const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
                 const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaffMember);
                 totalLtvIncrease += addonPrice;
                 if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice;
@@ -791,9 +790,9 @@ function POSPage() {
             if (redeemedOffer) {
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`));
                 const offeringName = redeemedOffer.type === 'membership' ? memberships?.find(m => m.id === redeemedOffer.id)?.name : packages?.find(p => p.id === redeemedOffer.id)?.name;
-                batch.set(redemptionRef, { id: redemptionRef.id, clientId: selectedClientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.id, serviceName: services?.find(s => s.id === redeemedOffer.id)?.name || 'Service', date: now, staffId: currentUser?.uid });
+                batch.set(redemptionRef, { id: redemptionRef.id, clientId: selectedClientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, serviceName: services?.find(s => s.id === redeemedOffer.itemId)?.name || 'Service', date: now, staffId: currentUser?.uid });
                 if (redeemedOffer.type === 'package') updates.activePackages = (selectedClient.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
-                else { updates['subscription.perkUsage.' + redeemedOffer.id] = increment(1); updates['subscription.perkLastUsed'] = now; }
+                else { updates['subscription.perkUsage.' + redeemedOffer.itemId] = increment(1); updates['subscription.perkLastUsed'] = now; }
             }
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
         }

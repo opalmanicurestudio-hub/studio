@@ -330,6 +330,15 @@ export const CheckoutHub = ({
                         });
                     }
                 });
+                membership.includedAddOns?.forEach(perk => {
+                    if (cartServiceIds.includes(perk.id)) {
+                        const exhausted = isPerkExhausted(selectedClient, perk.id, membership);
+                        items.push({
+                            type: 'membership', id: membership.id, itemId: perk.id, label: perk.name, subLabel: 'Membership Perk (Add-on)', exhausted, 
+                            usage: `${selectedClient.subscription?.perkUsage?.[perk.id] || 0}/${perk.quantity}`
+                        });
+                    }
+                });
             }
         }
 
@@ -348,7 +357,7 @@ export const CheckoutHub = ({
 
     const handleRedeem = (entitlement: any) => {
         if (entitlement.exhausted) return toast({ variant: 'destructive', title: 'Perk Exhausted', description: 'Limit reached for this billing cycle.' });
-        setRedeemedOffer({ type: entitlement.type, id: entitlement.id });
+        setRedeemedOffer({ type: entitlement.type, id: entitlement.id, itemId: entitlement.itemId });
         toast({ title: 'Entitlement Applied', description: `${entitlement.label} redeemed.` });
     };
 
@@ -447,7 +456,7 @@ export const CheckoutHub = ({
                                             </Avatar>
                                             {isMember && (
                                                 <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
-                                                    <Award className="w-2 h-2" />
+                                                    <Award className="w-2 x-2" />
                                                 </div>
                                             )}
                                         </div>
@@ -564,11 +573,11 @@ export const CheckoutHub = ({
                             <Button 
                                 key={idx} 
                                 variant="outline" 
-                                disabled={ent.exhausted || redeemedOffer?.id === ent.id}
+                                disabled={ent.exhausted || redeemedOffer?.itemId === ent.itemId}
                                 onClick={() => handleRedeem(ent)}
                                 className={cn(
                                     "h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all",
-                                    redeemedOffer?.id === ent.id ? "bg-green-500/10 border-green-500/20 text-green-700" : "bg-white border-indigo-500/10 hover:border-primary/30"
+                                    redeemedOffer?.itemId === ent.itemId ? "bg-green-500/10 border-green-500/20 text-green-700" : "bg-white border-indigo-500/10 hover:border-primary/30"
                                 )}
                             >
                                 <div className="text-left min-w-0 flex-1">
@@ -576,7 +585,7 @@ export const CheckoutHub = ({
                                     <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{ent.subLabel}</p>
                                 </div>
                                 <div className="text-right ml-4 shrink-0">
-                                    {redeemedOffer?.id === ent.id ? (
+                                    {redeemedOffer?.itemId === ent.itemId ? (
                                         <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge>
                                     ) : (
                                         <div className="space-y-0.5">
@@ -609,7 +618,7 @@ export const CheckoutHub = ({
                 ) : (
                     <div className="space-y-3">
                         {appointmentsData.map((data: any) => {
-                            const isRedeemed = redeemedOffer?.id === data.service.id;
+                            const isRedeemed = redeemedOffer?.itemId === data.service.id;
                             const isWaived = waivedAppointmentFees.has(data.appointment.id);
                             const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
                             
@@ -641,12 +650,16 @@ export const CheckoutHub = ({
                                                 {addOns.map((addon: any) => {
                                                     const addonStaffId = overrides[addon.id] || data.appointment.staffId;
                                                     const addonStaffMember = staff.find((s: any) => s.id === addonStaffId);
+                                                    const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
                                                     
                                                     return (
                                                         <div key={addon.id} className="space-y-0.5 group">
                                                             <div className="flex justify-between items-center">
-                                                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">+ {addon.name}</span>
-                                                                <span className="text-[10px] font-black font-mono text-muted-foreground">${getServicePrice(addon, data.staff).toFixed(2)}</span>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={cn("text-[10px] font-bold uppercase tracking-tight", isAddonRedeemed ? "text-primary" : "text-muted-foreground")}>+ {addon.name}</span>
+                                                                    {isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 px-1 font-black uppercase">REDEEMED</Badge>}
+                                                                </div>
+                                                                <span className={cn("text-[10px] font-black font-mono", isAddonRedeemed ? "line-through text-muted-foreground opacity-40" : "text-muted-foreground")}>${getServicePrice(addon, data.staff).toFixed(2)}</span>
                                                             </div>
                                                             <div className="flex items-center gap-1.5 opacity-60">
                                                                 <span className="text-[8px] font-black uppercase text-primary tracking-widest">{addonStaffMember?.name?.split(' ')[0] || 'Tech'}</span>
@@ -728,7 +741,7 @@ export const CheckoutHub = ({
                                     <CheckCircle className="h-4 w-4 text-primary" />
                                     <p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{code}</p>
                                 </div>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-primary hover:bg-primary/10 rounded-xl" onClick={() => handleRemoveDiscount(code)}><X className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" className="h-7 i-7 md:h-8 md:w-8 text-primary hover:bg-primary/10 rounded-xl" onClick={() => handleRemoveDiscount(code)}><X className="h-4 w-4" /></Button>
                             </div>
                         ))}
                     </div>

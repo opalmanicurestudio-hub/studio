@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -6,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, MoreHorizontal, ListChecks, Clock, Box, Scale } from 'lucide-react';
+import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, MoreHorizontal, ListChecks, Clock, Box, Scale, Zap } from 'lucide-react';
 import { type Membership, type Client, Staff, PricingTier } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -83,7 +82,10 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
         const timeValue = timeLiabilityHours * tmhr;
         
         let labor = 0;
-        const projectedRevenueValue = (membership.includedServices || []).reduce((sum, perk) => {
+        const projectedRevenueValue = [
+            ...(membership.includedServices || []),
+            ...(membership.includedAddOns || [])
+        ].reduce((sum, perk) => {
             const svc = services.find(sv => sv.id === perk.id);
             const tierPrice = svc?.serviceTiers?.find(t => t.tierId === member.pricingTierId)?.price || svc?.price || 0;
             return sum + (tierPrice * perk.quantity);
@@ -179,6 +181,12 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                         {(membership.includedServices || []).map(p => (
                             <div key={p.id} className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
                                 <span className="flex items-center gap-2"><CheckCircle className="w-3 h-3 text-green-500"/> {p.name}</span>
+                                <span className="font-black text-slate-900">{p.quantity}x</span>
+                            </div>
+                        ))}
+                        {(membership.includedAddOns || []).map(p => (
+                            <div key={p.id} className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
+                                <span className="flex items-center gap-2"><Zap className="w-3 h-3 text-amber-500"/> {p.name}</span>
                                 <span className="font-black text-slate-900">{p.quantity}x</span>
                             </div>
                         ))}

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -33,7 +32,7 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
-import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale } from 'lucide-react';
+import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale, Zap } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -46,6 +45,7 @@ import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { BrowseServicesDialog } from '../services/BrowseServicesDialog';
 
 interface AddMembershipDialogProps {
   open: boolean;
@@ -55,11 +55,11 @@ interface AddMembershipDialogProps {
 }
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
-    <div className="flex items-center gap-4 mb-6">
+    <div className="flex items-center gap-4 mb-6 text-left">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
-        <div className="space-y-0.5 text-left">
+        <div className="space-y-0.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
@@ -127,7 +127,7 @@ const ProfitabilityAnalysis = ({
             const timeValue = timeLiabilityHours * tmhr;
             
             let labor = 0;
-            const projectedRevenueValue = perks.services.reduce((sum, perk) => {
+            const projectedRevenueValue = [...perks.services, ...perks.addOns].reduce((sum, perk) => {
                 const svc = services.find(sv => sv.id === perk.id);
                 const priceAtTier = svc?.serviceTiers?.find(t => t.tierId === member.pricingTierId)?.price || svc?.price || 0;
                 return sum + (priceAtTier * perk.quantity);
@@ -158,11 +158,11 @@ const ProfitabilityAnalysis = ({
                 timeValue
             };
         });
-    }, [staff, timeLiabilityHours, tmhr, materialCost, taxBurden, perks.services, services, price]);
+    }, [staff, timeLiabilityHours, tmhr, materialCost, taxBurden, perks.services, perks.addOns, services, price]);
 
     return (
         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
-            <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm">
+            <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm text-left">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
                     <Target className="w-3 h-3" />
                     Individual Payout Matrix
@@ -351,7 +351,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                     </div>
                 </div>
                  <div className="space-y-2">
-                    <Label htmlFor="mem-interval" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Billing Cycle</Label>
+                    <Label htmlFor="mem-interval" className="text-[10px) font-black uppercase tracking-widest text-muted-foreground ml-1">Billing Cycle</Label>
                     <Select value={interval} onValueChange={(v: any) => setInterval(v)}>
                         <SelectTrigger id="mem-interval" className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                         <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -405,6 +405,41 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                     <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
                         <Sparkles className="w-10 h-10" />
                         <p className="text-[10px] font-black uppercase tracking-widest">No Services Included</p>
+                    </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className='flex items-center justify-between px-1'>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Included Add-ons</Label>
+                    <Button variant="ghost" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                        <PlusCircle className="w-3 h-3 mr-1.5" /> Select Add-ons
+                    </Button>
+                </div>
+                {includedAddOns.length > 0 ? (
+                    <div className="grid gap-2">
+                    {includedAddOns.map(perk => (
+                        <div key={perk.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
+                            <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{perk.name}</span>
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Qty</Label>
+                                    <Input 
+                                        type="number" 
+                                        value={perk.quantity || 1} 
+                                        onChange={e => updatePerkQuantity('addon', perk.id, parseInt(e.target.value) || 1)} 
+                                        className="w-14 h-9 rounded-lg border-2 text-center font-black font-mono"
+                                    />
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeItem('addon', perk.id)}><Trash2 className="w-4 h-4" /></Button>
+                            </div>
+                        </div>
+                    ))}
+                    </div>
+                ) : (
+                    <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                        <Zap className="w-10 h-10" />
+                        <p className="text-[10px] font-black uppercase tracking-widest">No Add-ons Included</p>
                     </div>
                 )}
               </div>
@@ -477,7 +512,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                                     const p = inventory.find(i => i.id === pid);
                                     return (
                                         <div key={pid} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
-                                            <div className="flex items-center gap-3 truncate flex-1">
+                                            <div className="flex items-center gap-3 truncate flex-1 text-left">
                                                 <div className="p-2 bg-muted rounded-lg shrink-0">
                                                     <Box className="w-3 h-3 text-muted-foreground opacity-40" />
                                                 </div>
@@ -558,15 +593,15 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
             </ContentComponent>
         </DialogContainer>
 
-         <BrowseProductsDialog
+         <BrowseServicesDialog
             open={isServiceSelectorOpen}
             onOpenChange={setIsServiceSelectorOpen}
             onSelect={(selected) => setIncludedServices(selected.map(s => {
                 const existing = includedServices.find(p => p.id === s.id);
                 return { id: s.id, name: s.name, quantity: existing?.quantity || 1 };
             }))}
-            allProducts={services.filter(s => s.type === 'service')}
-            initialSelected={services.filter(s => includedServices.some(p => p.id === s.id)) as any}
+            allServices={services.filter(s => s.type === 'service')}
+            initialSelected={services.filter(s => includedServices.some(p => p.id === s.id))}
         />
         <SelectAddOnsDialog
             open={isAddOnSelectorOpen}

@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
-import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle } from 'lucide-react';
+import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle, Zap } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption } from '@/lib/data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -75,7 +75,8 @@ export default function ClientPortalPage() {
         if (perkId === 'any') return true;
 
         const usageCount = client.subscription.perkUsage?.[perkId] || 0;
-        const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || activeMembership?.includedAddOns?.find(a => a.id === perkId);
+        const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
+                        activeMembership?.includedAddOns?.find(a => a.id === perkId);
         
         return usageCount >= (perkDef?.quantity || 1);
     };
@@ -141,6 +142,19 @@ export default function ClientPortalPage() {
                                                 <div key={perk.id} className="flex justify-between items-center text-xs">
                                                     <span className="flex items-center gap-1.5">
                                                         {isRedeemed ? <CheckCircle className="w-3 h-3 text-green-500" /> : <Star className="w-3 h-3 text-indigo-400" />}
+                                                        {perk.name}
+                                                    </span>
+                                                    <span>{used} / {perk.quantity}</span>
+                                                </div>
+                                            )
+                                        })}
+                                        {activeMembership.includedAddOns?.map(perk => {
+                                            const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                            const isRedeemed = isPerkUsedInCycle(perk.id);
+                                            return (
+                                                <div key={perk.id} className="flex justify-between items-center text-xs">
+                                                    <span className="flex items-center gap-1.5">
+                                                        {isRedeemed ? <CheckCircle className="w-3 h-3 text-green-500" /> : <Zap className="w-3 h-3 text-amber-400" />}
                                                         {perk.name}
                                                     </span>
                                                     <span>{used} / {perk.quantity}</span>
@@ -325,6 +339,32 @@ export default function ClientPortalPage() {
                                         </Card>
                                     )
                                 })}
+                                {(activeMembership.includedAddOns || []).map(s => {
+                                    const used = client.subscription?.perkUsage?.[s.id] || 0;
+                                    const isRedeemed = isPerkUsedInCycle(s.id);
+                                    return (
+                                        <Card key={s.id} className="bg-amber-500/5 border-amber-500/10">
+                                            <CardContent className="p-4 flex justify-between items-center">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={cn("p-2 rounded-full", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
+                                                        {isRedeemed ? <CheckCircle className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <p className="font-bold text-sm">{s.quantity}x {s.name}</p>
+                                                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Per Month &middot; {used} used</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    {isRedeemed ? (
+                                                        <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Redeemed</Badge>
+                                                    ) : (
+                                                        <Badge variant="default" className="text-[10px] bg-amber-600 border-none">Available</Badge>
+                                                    )}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    )
+                                })}
                                 {activeMembership.retailDiscount && (
                                     <Card className="bg-indigo-500/5 border-indigo-500/10">
                                         <CardContent className="p-4 flex items-center gap-3">
@@ -332,7 +372,7 @@ export default function ClientPortalPage() {
                                                 <Percent className="w-5 h-5" />
                                             </div>
                                             <div className="text-left">
-                                                <p className="font-bold text-sm">{activeMembership.retailDiscount}% Off All Retail</p>
+                                                <p className="font-bold text-sm">{activeMembership.retailDiscount}% Off Priority Retail</p>
                                                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Always Active</p>
                                             </div>
                                         </CardContent>

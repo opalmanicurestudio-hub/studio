@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -38,11 +37,15 @@ export const MembershipCapacityAudit: React.FC<MembershipCapacityAuditProps> = (
             const membership = memberships.find(m => m.id === mId);
             if (!membership) return;
 
-            const perks = membership.includedServices || [];
+            const perks = [
+                ...(membership.includedServices || []),
+                ...(membership.includedAddOns || [])
+            ];
+            
             perks.forEach(perk => {
                 const svc = services.find(s => s.id === perk.id);
                 if (svc) {
-                    totalMonthlyLiabilityMinutes += (svc.duration * (perk.quantity || 1));
+                    totalMonthlyLiabilityMinutes += (((svc.duration || 0) + (svc.padBefore || 0) + (svc.padAfter || 0)) * (perk.quantity || 1));
                 }
             });
         });
