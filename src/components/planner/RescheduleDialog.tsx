@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -76,7 +75,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Input } from '../ui/input';
-import { Textarea } from '../ui/textarea';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 
 const safeDate = (val: any): Date => {
@@ -136,7 +135,7 @@ const RescheduleAppointmentForm = ({
     onConfirm: (data: any) => void;
     isSubmitting: boolean;
 }) => {
-    const { scheduleProfiles, staff, events: allEvents } = useInventory();
+    const { scheduleProfiles, staff, events: allEvents, inventory } = useInventory();
     const { selectedTenant: tenant } = useTenant();
     const { toast } = useToast();
 
@@ -145,7 +144,6 @@ const RescheduleAppointmentForm = ({
     const [rescheduleDate, setRescheduleDate] = useState(safeDate(appointment.startTime));
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
     
-    // Fee State
     const [applyFee, setApplyFee] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'charge_new_card' | 'add_to_session'>('add_to_session');
     const [overrideBusinessHours, setOverrideBusinessHours] = useState(false);
@@ -162,9 +160,33 @@ const RescheduleAppointmentForm = ({
 
     const recoveryFee = useMemo(() => {
         if (!tenant?.tmhr || !service) return 0;
+        
         const duration = service.duration || 60;
-        return Number(((duration / 60) * tenant.tmhr).toFixed(2));
-    }, [tenant?.tmhr, service]);
+        const houseFloor = (duration / 60) * tenant.tmhr;
+        
+        const materialCost = (service.products || []).reduce((acc, p) => {
+            const product = inventory.find(i => i.id === p.id);
+            let cpu = 0;
+            if (product) {
+                if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
+                else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
+                else cpu = product.costPerUnit || 0;
+            }
+            return acc + (cpu * (p.quantityUsed || 1));
+        }, 0);
+
+        const proId = appointment.staffId;
+        const pro = staff.find(sm => sm.id === proId);
+        const price = service.serviceTiers?.find(t => t.tierId === pro?.pricingTierId)?.price || service.price;
+        
+        let labor = 0;
+        if (pro?.payStructure === 'commission') labor = price * (pro.commissionRate / 100);
+        else if (pro?.payStructure === 'hourly' && pro.hourlyRate) labor = (duration / 60) * pro.hourlyRate;
+        const taxBurden = tenant.employerTaxBurdenPct || 10;
+        const burdenedLabor = labor * (1 + (taxBurden / 100));
+
+        return Number((houseFloor + materialCost + burdenedLabor).toFixed(2));
+    }, [tenant, service, appointment.staffId, staff, inventory]);
 
     const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
@@ -237,12 +259,12 @@ const RescheduleAppointmentForm = ({
         <div className="space-y-8 flex flex-col h-full">
             <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl overflow-hidden">
                 <CardContent className="p-6 flex items-center gap-6 text-left">
-                    <Avatar className="w-16 h-16 border-4 border-background shadow-xl rounded-2xl shrink-0">
+                    <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-2xl shrink-0">
                         <AvatarImage src={client.avatarUrl} className="object-cover" />
                         <AvatarFallback className="font-black bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                        <p className="font-black text-xl uppercase tracking-tighter text-slate-900 leading-none mb-1 truncate">{client.name}</p>
+                        <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none mb-1 truncate">{client.name}</p>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{service.name}</p>
                     </div>
                 </CardContent>
@@ -292,7 +314,7 @@ const RescheduleAppointmentForm = ({
                                                 <label htmlFor="resched-pay-card" className={cn("cursor-pointer flex-1 h-full", !hasCardOnFile && "opacity-40 grayscale")}>
                                                     <RadioGroupItem value="card_on_file" id="resched-pay-card" className="peer sr-only" disabled={!hasCardOnFile} />
                                                     <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
-                                                        {hasCardOnFile ? <ShieldCheck className="w-5 h-5 mb-1.5 text-primary" /> : <Lock className="w-5 h-5 mb-1.5 text-slate-400" />}
+                                                        {hasCardOnFile ? <ShieldCheck className="w-6 h-6 mb-1.5 text-primary" /> : <Lock className="w-5 h-5 mb-1.5 text-slate-400" />}
                                                         <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">Vault</span>
                                                     </div>
                                                 </label>

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -19,7 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -61,7 +60,12 @@ import {
     ListChecks,
     Target,
     Activity,
-    FileText
+    FileText,
+    Hammer,
+    Box,
+    MapPin,
+    Zap,
+    Shield
 } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -76,9 +80,9 @@ import { ScrollArea } from '../ui/scroll-area';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
 import { Separator } from '@/components/ui/separator';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -254,11 +258,11 @@ const Step1 = ({
                         <div className="flex gap-3">
                             <Controller name="category" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5 flex-1"> <SelectValue placeholder="SELECT DEPARTMENT" /> </SelectTrigger>
+                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5 flex-1"> <SelectValue placeholder="SELECT DEPARTMENT" /> </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl"> {categories.map(cat => ( <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem> ))} </SelectContent>
                                 </Select>
                             )}/>
-                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2 shrink-0"><PlusCircle className="h-6 w-6 opacity-40"/></Button>
+                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0"><PlusCircle className="h-6 w-6 opacity-40"/></Button>
                         </div>
                     )}
                 </div>
@@ -514,6 +518,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
     const { staff } = useInventory();
     const { selectedTenant } = useTenant();
     const tmhr = selectedTenant?.tmhr || 50;
+    const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
     const currentValues = watch();
     const depositType = watch('depositType');
 

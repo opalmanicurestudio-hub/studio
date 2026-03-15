@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
@@ -67,6 +66,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { type Tenant, type BookingPageSettings, type BookingFAQItem, type BookingGalleryItem, type Review, type Service, type PricingTier, type Staff } from '@/lib/data';
@@ -74,7 +74,6 @@ import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { nanoid } from 'nanoid';
@@ -82,7 +81,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format, parseISO, isSameMonth } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -555,7 +553,7 @@ function SettingsContent() {
                         <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight"><Building className="w-5 h-5 text-primary"/>Business Profile</CardTitle>
                         <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Manage your business locations and branding.</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 sm:p-8 space-y-2">
+                    <CardContent className="p-6 sm:p-8 space-y-2 text-left">
                         {tenants.map(tenant => (
                             <div key={tenant.id} className="flex items-center justify-between p-4 bg-muted/20 rounded-2xl border-2 border-transparent hover:border-primary/10 transition-all">
                                 {editingTenantId === tenant.id ? (
