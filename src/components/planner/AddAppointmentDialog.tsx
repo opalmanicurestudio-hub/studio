@@ -33,7 +33,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  CalendarIcon, 
+  Calendar as CalendarIcon, 
   PlusCircle, 
   ChevronLeft, 
   ChevronRight, 
@@ -60,7 +60,9 @@ import {
   UserPlus,
   Loader,
   Smartphone,
-  Mail
+  Mail,
+  Cake,
+  Star
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
@@ -79,21 +81,6 @@ import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
-
-const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-    return new Date(val);
-};
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -439,7 +426,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
@@ -550,7 +537,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         control={control}
                                         render={({ field }) => (
                                             <Select onValueChange={field.onChange} value={field.value}>
-                                                <SelectTrigger id="service-edit" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-black uppercase text-xs tracking-tight">
+                                                <SelectTrigger id="service-add-apt" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-black uppercase text-xs tracking-tight">
                                                     <SelectValue placeholder="SELECT TREATMENT..." />
                                                 </SelectTrigger>
                                                 <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -640,7 +627,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                             <SelectionHeader icon={CreditCard} title="Secure Retainer" stepNum={4} />
                             <div className="p-10 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                                 <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
-                                <p className="text-7xl font-black text-primary tracking-tighter font-mono">${depositDetails.amount.toFixed(2)}</p>
+                                <p className="text-5xl font-black text-primary tracking-tighter font-mono">${depositDetails.amount.toFixed(2)}</p>
                                 <div className="pt-4 border-t border-primary/10">
                                     <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3">{depositDetails.type.toUpperCase()} RECOVERY</Badge>
                                 </div>
@@ -696,7 +683,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                             </div>
                             <div className="space-y-3">
                                 <h2 className="text-4xl font-black uppercase tracking-tighter text-slate-900">Registry Entry Finalized</h2>
-                                <p className="text-muted-foreground font-medium max-w-xs mx-auto leading-relaxed">The session has been successfully pinned to the studio manifest.</p>
+                                <p className="text-muted-foreground font-medium max-w-xs mx-auto leading-relaxed text-center">The session has been successfully pinned to the studio manifest.</p>
                             </div>
                             
                             <div className="grid gap-6 max-w-sm mx-auto">
@@ -758,7 +745,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                     )}
                     <Button 
                         onClick={handleNext} 
-                        disabled={(step === 'details' && (!watchClientId || !watchServiceId))}
+                        disabled={isSubmitting || (step === 'details' && (!watchClientId || !watchServiceId))}
                         className={cn(
                             "h-12 md:h-20 font-black uppercase tracking-widest text-[10px] md:text-2xl rounded-[2rem] shadow-2xl shadow-primary/30 group transition-all",
                             currentStepIndex === 0 ? "w-full" : "flex-[2.5]"

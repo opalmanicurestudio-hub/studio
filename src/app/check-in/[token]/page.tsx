@@ -41,12 +41,13 @@ import {
     FileSignature,
     ListChecks,
     ArrowDown,
-    Lock
+    Lock,
+    Info,
+    ListOrdered,
+    Shield
 } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
-import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type ConsentForm } from '@/lib/data';
-import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc, getDocs, writeBatch, increment, arrayUnion, arrayRemove } from 'firebase/firestore';
@@ -73,23 +74,71 @@ const ViewContainer = ({ children }: { children: React.ReactNode }) => (
     <motion.div 
         initial={{ opacity: 0, y: 20 }} 
         animate={{ opacity: 1, y: 0 }} 
-        className="w-full max-w-lg"
+        className="w-full max-w-lg px-2 sm:px-0"
     >
-        <Card className="border-4 rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl">
+        <Card className="border-4 rounded-[2.5rem] md:rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl">
             {children}
         </Card>
     </motion.div>
 );
 
 const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
-    <CardHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
+    <CardHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left">
         <div className="flex items-center gap-3 mb-2">
-            {Icon ? <Icon className="w-5 h-5 text-primary" /> : <Sparkles className="w-5 h-5 text-primary" />}
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
+            {Icon ? <Icon className="w-4 h-4 md:w-5 md:h-5 text-primary" /> : <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />}
+            <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
         </div>
-        <CardTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
-        <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
+        <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
+        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
+);
+
+const WelcomeOnboardingView = ({ client, service, tenant, needsDeposit, needsIntake, onStart }: any) => (
+    <ViewContainer>
+        <ViewHeader title="Welcome" subtitle="Onboarding Protocol" icon={Sparkles} />
+        <CardContent className="p-6 md:p-10 space-y-8 text-left">
+            <div className="space-y-2">
+                <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                    Hello, {client?.name.split(' ')[0]}!
+                </h3>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    We are preparing your <strong>{service?.name}</strong> at {tenant?.name}. To finalize your check-in, please complete our onboarding sequence:
+                </p>
+            </div>
+
+            <div className="space-y-3">
+                {[
+                    { label: 'Identity Verification', status: 'ready', icon: Fingerprint, color: 'text-primary' },
+                    { label: 'Secure Retainer', status: needsDeposit ? 'pending' : 'certified', icon: CreditCard, color: needsDeposit ? 'text-amber-600' : 'text-green-600' },
+                    { label: 'Professional Intake', status: needsIntake ? 'pending' : 'certified', icon: FileSignature, color: needsIntake ? 'text-amber-600' : 'text-green-600' },
+                ].map((step, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-muted/20 border-2 border-transparent">
+                        <div className="flex items-center gap-3">
+                            <div className={cn("p-2 rounded-xl bg-white shadow-inner", step.color)}>
+                                <step.icon className="w-4 h-4" />
+                            </div>
+                            <span className="text-xs font-black uppercase tracking-tight text-slate-700">{step.label}</span>
+                        </div>
+                        <Badge variant="outline" className={cn("text-[8px] font-black uppercase h-5 px-2", step.status === 'certified' ? "bg-green-500 text-white border-none" : "bg-white")}>
+                            {step.status === 'certified' ? 'Certified' : 'Required'}
+                        </Badge>
+                    </div>
+                ))}
+            </div>
+
+            <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 border-primary/10 flex items-start gap-3">
+                <Info className="w-4 h-4 text-primary shrink-0 mt-0.5 opacity-40" />
+                <p className="text-[10px] font-bold text-slate-600 leading-tight uppercase">
+                    Your session is reserved. Complete these steps to unlock the arrival notification for your professional.
+                </p>
+            </div>
+        </CardContent>
+        <CardFooter className="p-6 md:p-8 pt-0">
+            <Button onClick={onStart} className="w-full h-16 md:h-20 rounded-[2rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group">
+                Begin Sequence <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2" />
+            </Button>
+        </CardFooter>
+    </ViewContainer>
 );
 
 const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: { requiredForms: ConsentForm[], onComplete: () => void, formAnswers: Record<string, any>, setFormAnswers: any }) => {
@@ -117,7 +166,7 @@ const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: 
         <ViewContainer>
             <ViewHeader title="Intake" subtitle={`Agreement ${currentFormIndex + 1} of ${requiredForms.length}`} icon={FileSignature} />
             <ScrollArea className="max-h-[60vh]">
-                <CardContent className="p-8 space-y-10 text-left">
+                <CardContent className="p-6 md:p-8 space-y-10 text-left">
                     <div className="space-y-2">
                         <Badge className="bg-primary/10 text-primary border-none font-black uppercase text-[8px] tracking-widest h-5 px-2 mb-2">Requirement</Badge>
                         <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{form.title}</h3>
@@ -137,7 +186,7 @@ const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: 
                     </div>
                 </CardContent>
             </ScrollArea>
-            <CardFooter className="p-8 pt-4 border-t bg-muted/5">
+            <CardFooter className="p-6 md:p-8 pt-4 border-t bg-muted/5">
                 <Button onClick={handleNext} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
                     {isLast ? 'Finalize & Authenticate' : 'Next Agreement'}
                     <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
@@ -159,23 +208,23 @@ const DepositPaymentView = ({ amount, onComplete }: { amount: number, onComplete
 
     return (
         <ViewContainer>
-            <ViewHeader title="Secure Retainer" subtitle="Secure your scheduled window" icon={CreditCard} />
-            <CardContent className="p-10 text-center space-y-10">
-                <div className="p-10 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
-                    <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
-                    <p className="text-7xl font-black text-primary tracking-tighter font-mono">${amount.toFixed(2)}</p>
+            <ViewHeader title="Secure Retainer" subtitle="Authorize scheduled window" icon={CreditCard} />
+            <CardContent className="p-6 md:p-10 text-center space-y-10">
+                <div className="p-8 md:p-10 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
+                    <p className="text-[9px] md:text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
+                    <p className="text-5xl md:text-7xl font-black text-primary tracking-tighter font-mono">${amount.toFixed(2)}</p>
                     <div className="pt-4 border-t border-primary/10">
-                        <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3">PROTECTED PAYMENT</Badge>
+                        <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3 shadow-sm">PROTECTED PAYMENT</Badge>
                     </div>
                 </div>
                 <div className="space-y-6 text-left">
-                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
+                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
                     <div className="grid grid-cols-2 gap-6"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
                 </div>
                 <div className="flex items-center justify-center gap-3 opacity-40"><Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted SSL Secure Tunnel</span></div>
             </CardContent>
-            <CardFooter className="p-8 pt-0">
-                <Button onClick={handlePay} disabled={isPaying} className="w-full h-20 rounded-[2.5rem] text-2xl font-black uppercase shadow-3xl shadow-primary/30 group">
+            <CardFooter className="p-6 md:p-8 pt-0">
+                <Button onClick={handlePay} disabled={isPaying} className="w-full h-16 md:h-20 rounded-[2.5rem] text-xl md:text-2xl font-black uppercase shadow-3xl shadow-primary/30 group">
                     {isPaying ? <Loader className="animate-spin h-8 w-8" /> : <>Authorize Payment <ArrowRight className="ml-3 w-8 h-8 transition-transform group-hover:translate-x-2"/></>}
                 </Button>
             </CardFooter>
@@ -242,7 +291,7 @@ const ServicingView = ({ serviceName }: { serviceName: string }) => (
             </div>
             <div className="space-y-2">
                 <p className="font-black text-xl uppercase tracking-tight text-slate-900">Sit Back & Relax</p>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed">Your <strong>{serviceName}</strong> is currently underway. We'll provide your checkout ticket once complete.</p>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your <strong>{serviceName}</strong> is currently underway. We'll provide your checkout ticket once complete.</p>
             </div>
         </CardContent>
     </ViewContainer>
@@ -273,12 +322,12 @@ const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveRe
             </div>
             <div className="space-y-2">
                 <p className="font-black text-xl uppercase tracking-tight text-slate-900">Thank You!</p>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed">We hope you enjoyed your experience. We look forward to seeing you again soon.</p>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed text-center">We hope you enjoyed your experience. We look forward to seeing you again soon.</p>
             </div>
         </CardContent>
         <CardFooter className="p-8 pt-0 flex flex-col gap-3">
             <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20"><a href={`/book/${tenantId}`}>Book Next Session</a></Button>
-            <Button variant="ghost" onClick={onLeaveReview} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Leave a Review</Button>
+            <Button variant="ghost" onClick={onLeaveReview} className="w-full font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Leave a Review</Button>
         </CardFooter>
     </ViewContainer>
 );
@@ -304,7 +353,7 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                                 <p className="text-[10px] font-black uppercase tracking-widest text-destructive/60">Outstanding Protocol Fee</p>
                                 <div className="flex justify-between items-baseline">
                                     <p className="text-4xl font-black text-destructive tracking-tighter font-mono">${Number(fee).toFixed(2)}</p>
-                                    <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-destructive/20 text-destructive">OVERHEAD RECOVERY</Badge>
+                                    <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-destructive/20 text-destructive shadow-sm">OVERHEAD RECOVERY</Badge>
                                 </div>
                                 <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed pt-2 border-t border-destructive/10">This fee has been added to your dossier. Settle now to clear your account and rebook immediately.</p>
                             </div>
@@ -358,7 +407,7 @@ const ReviewFormView = ({ onSubmit, onCancel, serviceName, staffName }: { onSubm
         <ViewContainer>
             <ViewHeader title="Feedback" subtitle={`How was your ${serviceName}?`} icon={Star} />
             <CardContent className="p-8 space-y-8 text-center">
-                <div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div>
+                <div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-center">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div>
                 <div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts on the treatment..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium" value={text} onChange={(e) => setText(e.target.value)} /></div>
             </CardContent>
             <CardFooter className="p-8 pt-0 flex flex-col gap-3"><Button onClick={() => onSubmit(rating, text)} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30">Submit Review</Button><Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase tracking-widest text-[10px]">Maybe Later</Button></CardFooter>
@@ -391,6 +440,7 @@ export default function CheckInPage() {
     const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]));
     const { data: signedConsents } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.clientId ? null : collection(firestore, `tenants/${tenantId}/clients/${appointmentData.clientId}/signedConsents`), [firestore, tenantId, appointmentData?.clientId]));
 
+    const [hasStarted, setHasStarted] = useState(false);
     const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
     const [lateTime, setLateTime] = useState(0);
     const [showLateOptions, setShowLateOptions] = useState(false);
@@ -415,6 +465,9 @@ export default function CheckInPage() {
         const today = new Date();
         return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
     }, [client?.birthday]);
+
+    const needsDeposit = appointment?.status === 'deposit_pending';
+    const needsIntake = requiredForms.length > 0 && !isIntakeFlow && currentStatus !== 'arrived';
 
     useEffect(() => { if (appointment?.checkInStatus) { setCurrentStatus(appointment.checkInStatus); if (appointment.checkInStatus === 'running_late') setLateTime(appointment.lateTimeMinutes || 0); } }, [appointment]);
 
@@ -587,23 +640,34 @@ export default function CheckInPage() {
     if (reviewSubmitted) return <ReviewSubmittedView onDone={() => { setReviewSubmitted(false); setIsReviewFlow(false); }} />;
     if (isReviewFlow) return <ReviewFormView serviceName={service.name} staffName={assignedStaff?.name || 'your professional'} onSubmit={handleSubmitReview} onCancel={() => setIsReviewFlow(false)} />;
     
-    if (appointment?.status === 'deposit_pending') return <DepositPaymentView amount={appointment.cancellationFeeApplied || 0} onComplete={handleRemoteDepositPaid} />;
-    
-    if (isIntakeFlow) return <IntakeView requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} onComplete={handleCompleteIntake} />;
-    
-    if (showBirthdayCelebration) return <BirthdayCelebrationView clientName={client?.name || 'Guest'} onDone={() => setShowBirthdayCelebration(false)} />;
+    if (appointment?.status === 'cancelled' || currentStatus === 'auto_cancelled') return <CancelledView tenantId={tenant?.id} fee={appointment.cancellationFeeApplied} onSettle={handleSettleFee} />;
 
-    if (appointment?.status === 'servicing') return <ServicingView serviceName={service.name} />;
+    if (!hasStarted && appointment?.status !== 'completed' && appointment?.status !== 'servicing' && appointment?.status !== 'ready_for_checkout') {
+        return (
+            <WelcomeOnboardingView 
+                client={client} 
+                service={service} 
+                tenant={tenant} 
+                needsDeposit={needsDeposit} 
+                needsIntake={requiredForms.length > 0} 
+                onStart={() => setHasStarted(true)} 
+            />
+        );
+    }
+
+    if (appointment?.status === 'deposit_pending') return <DepositPaymentView amount={appointment.cancellationFeeApplied || 0} onComplete={handleRemoteDepositPaid} />;
+    if (isIntakeFlow) return <IntakeView requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} onComplete={handleCompleteIntake} />;
+    if (showBirthdayCelebration) return <BirthdayCelebrationView clientName={client?.name || 'Guest'} onDone={() => setShowBirthdayCelebration(false)} />;
+    if (appointment?.status === 'servicing') return <ServicingView serviceName={service?.name || 'Service'} />;
     if (appointment?.status === 'ready_for_checkout') return <CheckoutView qrCodeUrl={`https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`} ticketId={appointment.id.slice(-6).toUpperCase()} />;
-    if (appointment?.status === 'completed') return <ThankYouView tenantId={tenant.id} onLeaveReview={() => setIsReviewFlow(true)} />;
-    if (appointment?.status === 'cancelled' || currentStatus === 'auto_cancelled') return <CancelledView tenantId={tenant.id} fee={appointment.cancellationFeeApplied} onSettle={handleSettleFee} />;
+    if (appointment?.status === 'completed') return <ThankYouView tenantId={tenant?.id || ''} onLeaveReview={() => setIsReviewFlow(true)} />;
 
     if (!appointment || !client || !service || !tenant) return <CancelledView />;
 
     return (
         <ViewContainer>
             <ViewHeader title="Identity Check" subtitle="Verify your session" icon={Fingerprint} />
-            <CardContent className="p-8 md:p-10 space-y-10">
+            <CardContent className="p-6 md:p-10 space-y-10">
                 {Number(client.outstandingBalance || 0) > 0 && (
                     <Alert variant="destructive" className="bg-destructive/5 border-destructive border-4 rounded-[2rem] p-6 shadow-2xl shadow-destructive/10">
                         <Wallet className="h-6 w-6 text-destructive" />
@@ -611,7 +675,7 @@ export default function CheckInPage() {
                         <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">Account balance of <strong className="text-lg tracking-tighter text-destructive">${Number(client.outstandingBalance).toFixed(2)}</strong> detected. Settle with your professional today.</AlertDescription>
                     </Alert>
                 )}
-                <div className="p-6 md:p-8 rounded-[2.5rem] bg-muted/10 border-2 border-border/50 space-y-6 shadow-inner">
+                <div className="p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] bg-muted/10 border-2 border-border/50 space-y-6 shadow-inner">
                      <div className="flex items-center gap-6">
                         <Avatar className="w-16 h-16 md:w-20 md:h-20 rounded-2xl border-4 border-background shadow-xl"><AvatarImage src={service.imageUrl} className="object-cover" /><AvatarFallback className="bg-primary/10 text-primary"><Activity className="w-8 h-8" /></AvatarFallback></Avatar>
                         <div className="min-w-0 flex-1 text-left"><p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-slate-900 leading-none mb-2 truncate">{service.name}</p><p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{format(appointment.startTime, 'EEEE, MMMM d')} &middot; {format(appointment.startTime, 'h:mm a')}</p></div>
@@ -634,7 +698,7 @@ export default function CheckInPage() {
                             </div>
                         </div>
                     )}
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 pt-6 border-t border-dashed border-border/50"><div className="flex items-center gap-2"><Clock className="w-3.5 h-3.5"/> {service.duration}m</div><div className="flex items-center gap-2 truncate max-w-[150px]"><MapPin className="w-3.5 h-3.5"/> {tenant.name}</div></div>
+                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 pt-6 border-t border-dashed border-border/50"><div className="flex items-center gap-2"><Clock className="w-3.5 h-3.5"/> {service.duration}m</div><div className="flex items-center gap-2 truncate max-w-[150px] text-right"><MapPin className="w-3.5 h-3.5"/> {tenant.name}</div></div>
                 </div>
                 {showLateOptions ? (
                     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
