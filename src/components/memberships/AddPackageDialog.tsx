@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
 import { type Package, type Service, type InventoryItem, type PricingTier, type Staff } from '@/lib/data';
 import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
@@ -141,7 +141,7 @@ const ProfitabilityAnalysis = ({
     
     return (
         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
-            <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm">
+            <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm text-left">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
                     <Target className="w-3 h-3" />
                     Individual Payout Matrix
@@ -166,8 +166,8 @@ const ProfitabilityAnalysis = ({
                                     {sa.margin.toFixed(0)}% Margin
                                 </Badge>
                             </div>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                                <div className="space-y-0.5 text-left">
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left">
+                                <div className="space-y-0.5">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">House Floor</p>
                                     <p className="font-mono text-xs font-black text-slate-900">${baseHouseFloor.toFixed(2)}</p>
                                 </div>
@@ -177,7 +177,7 @@ const ProfitabilityAnalysis = ({
                                 </div>
                             </div>
                             <Separator className="border-dashed" />
-                            <div className="flex justify-between items-baseline pt-1">
+                            <div className="flex justify-between items-baseline pt-1 text-left">
                                 <span className="text-[9px] font-black uppercase text-primary/60">Net Bundle Yield</span>
                                 <span className={cn("text-2xl font-black tracking-tighter font-mono", sa.netProfit >= 0 ? "text-primary" : "text-destructive")}>
                                     ${sa.netProfit.toFixed(2)}
@@ -186,7 +186,7 @@ const ProfitabilityAnalysis = ({
                         </div>
                     ))}
                 </div>
-                <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
+                <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
                         Yield reflects individual technician pay and current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.
@@ -282,14 +282,14 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
               </Select>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="pkg-sessions" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Session Count</Label>
                     <div className="relative">
                         <Activity className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                         <Input id="pkg-sessions" type="number" value={sessions || ''} onChange={e => setSessions(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-muted/5 text-center" />
                     </div>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="pkg-price" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Total Bundle Value</Label>
                     <div className="relative">
                         <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
@@ -297,7 +297,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                     </div>
                 </div>
             </div>
-             <div className="space-y-2">
+             <div className="space-y-2 text-left">
                 <Label htmlFor="pkg-expires" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Retention Window (Months)</Label>
                 <div className="relative">
                     <Clock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
@@ -345,7 +345,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                                     const p = inventory.find(i => i.id === pid);
                                     return (
                                         <div key={pid} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
-                                            <div className="flex items-center gap-3 truncate flex-1">
+                                            <div className="flex items-center gap-3 truncate flex-1 text-left">
                                                 <div className="p-2 bg-muted rounded-lg shrink-0">
                                                     <Box className="w-3 h-3 text-muted-foreground opacity-40" />
                                                 </div>

@@ -128,7 +128,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-teal-500/10 shrink-0 -mt-1 -mr-1"><MoreHorizontal className="h-4 w-4 text-teal-500" /></Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
+                <DropdownMenuContent align="end" className="rounded-2xl shadow-xl p-1">
                     <DropdownMenuItem onClick={() => onViewUsers(pack)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Eye className="mr-2 h-3.5 w-3.5 opacity-40" /> View Holders</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onEdit(pack)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Edit className="mr-2 h-3.5 w-3.5 opacity-40" /> Refine Bundle</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onDelete(pack.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest py-2.5"><Trash2 className="mr-2 h-3.5 w-3.5 opacity-40" /> Terminate</DropdownMenuItem>
@@ -182,7 +182,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
                     <Clock className="w-3.5 h-3.5 mr-2 opacity-40"/> Capacity Load
                 </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-2">
+                <AccordionContent className="px-4 pb-4 pt-2 text-left">
                     <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm text-left">
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
                             <span className="text-muted-foreground opacity-60">Time liability</span>
@@ -215,7 +215,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                             <div className="grid grid-cols-2 gap-2 text-[8px] uppercase font-bold text-muted-foreground opacity-60">
                                 <span>Materials: ${materialCost.toFixed(2)}</span>
                                 <span className="text-right">Time (TMHR): ${sa.timeValue.toFixed(2)}</span>
-                                <span className="col-span-2 border-t pt-1 mt-1">Labor Burden: ${sa.labor.toFixed(2)}</span>
+                                <span className="col-span-2 border-t pt-1 mt-1">Burdened Labor: ${sa.labor.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between items-center font-black uppercase pt-1 border-t border-dashed border-primary/10">
                                 <span className="text-[9px] text-primary/60">Net Yield</span>

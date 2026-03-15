@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -25,7 +25,7 @@ interface MembershipCardProps {
 }
 
 export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clients, onEdit, onViewUsers, onDelete }) => {
-  const { services, inventory, staff, pricingTiers } = useInventory();
+  const { services, inventory, staff } = useInventory();
   const { selectedTenant } = useTenant();
   const tmhr = selectedTenant?.tmhr || 50;
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
@@ -56,17 +56,8 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
         }, 0);
     };
 
-    // Services Material Cost
-    const servicesMaterialCost = (membership.includedServices || []).reduce((acc, perk) => {
-        return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
-    }, 0);
-
-    // Addons Material Cost
-    const addOnsMaterialCost = (membership.includedAddOns || []).reduce((acc, perk) => {
-        return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
-    }, 0);
-
-    // Included Products Cost (Landed Cost)
+    const servicesMaterialCost = (membership.includedServices || []).reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);
+    const addOnsMaterialCost = (membership.includedAddOns || []).reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);
     const productsCost = (membership.includedProducts || []).reduce((acc, perk) => {
         const p = inventory.find(inv => inv.id === perk.id);
         return acc + (p?.costPerUnit || 0) * perk.quantity;
@@ -87,7 +78,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
     };
   }, [membership, services, inventory]);
 
-  const staffAnalysis = useMemo(() => {
+  const individualStaffAnalysis = useMemo(() => {
     return staff.filter(s => s.active).map(member => {
         const timeValue = timeLiabilityHours * tmhr;
         
@@ -125,10 +116,10 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
   }, [staff, timeLiabilityHours, tmhr, materialCost, taxBurden, membership, services]);
 
   const yieldRange = useMemo(() => {
-      const profits = staffAnalysis.map(t => t.netProfit);
+      const profits = individualStaffAnalysis.map(t => t.netProfit);
       if (profits.length === 0) return { min: 0, max: 0 };
       return { min: Math.min(...profits), max: Math.max(...profits) };
-  }, [staffAnalysis]);
+  }, [individualStaffAnalysis]);
 
   const isScopeRestricted = membership.applicableProductIds && membership.applicableProductIds.length > 0;
 
@@ -182,7 +173,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
                     <ListChecks className="w-3.5 h-3.5 mr-2 opacity-40"/> Included Perks
                 </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-2 space-y-2">
+                <AccordionContent className="px-4 pb-4 pt-2 space-y-2 text-left">
                     <div className="space-y-1.5">
                         {(membership.includedServices || []).map(p => (
                             <div key={p.id} className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
@@ -219,7 +210,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                     <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Provider Yield Matrix
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
-                    {staffAnalysis.map(sa => (
+                    {individualStaffAnalysis.map(sa => (
                         <div key={sa.id} className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
                             <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-2">
@@ -236,7 +227,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                             <div className="grid grid-cols-2 gap-2 text-[8px] uppercase font-bold text-muted-foreground opacity-60">
                                 <span>Materials: ${materialCost.toFixed(2)}</span>
                                 <span className="text-right">Time (TMHR): ${sa.timeValue.toFixed(2)}</span>
-                                <span className="col-span-2 border-t pt-1 mt-1">Labor Burden: ${sa.labor.toFixed(2)}</span>
+                                <span className="col-span-2 border-t pt-1 mt-1">Burdened Labor: ${sa.labor.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between items-center font-black uppercase pt-1 border-t border-dashed border-primary/10">
                                 <span className="text-[9px] text-primary/60">Net Yield</span>
@@ -246,7 +237,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                             </div>
                         </div>
                     ))}
-                    <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 text-center">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr and itemized provider payouts.</p>
+                    <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 text-center">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr and burdened labor payouts.</p>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>

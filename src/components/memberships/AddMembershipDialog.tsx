@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
 import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -45,6 +45,7 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface AddMembershipDialogProps {
   open: boolean;
@@ -102,21 +103,13 @@ const ProfitabilityAnalysis = ({
             }, 0);
         };
 
-        // Material Costs (Formula costs)
-        const servicesCost = perks.services.reduce((acc, perk) => {
-            return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
-        }, 0);
-        const addOnsCost = perks.addOns.reduce((acc, perk) => {
-            return acc + calculateServiceMaterialCost(perk.id, perk.quantity);
-        }, 0);
-        
-        // Retail Costs (Landed Cost per Unit)
+        const servicesCost = perks.services.reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);
+        const addOnsCost = perks.addOns.reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);
         const productsCost = perks.products.reduce((acc, perk) => {
             const p = inventory.find(inv => inv.id === perk.id);
             return acc + (p?.costPerUnit || 0) * (perk.quantity || 1);
         }, 0);
 
-        // Time Liability
         const servicesDuration = perks.services.reduce((acc, perk) => {
             const s = services.find(svc => svc.id === perk.id);
             return acc + (s?.duration || 0) * (perk.quantity || 1);
@@ -133,11 +126,9 @@ const ProfitabilityAnalysis = ({
         return staff.filter(s => s.active).map(member => {
             const timeValue = timeLiabilityHours * tmhr;
             
-            // Calculate specific labor cost for this pro
             let labor = 0;
             const projectedRevenueValue = perks.services.reduce((sum, perk) => {
                 const svc = services.find(sv => sv.id === perk.id);
-                // We use standard price for labor projection unless tier overrides exist
                 const priceAtTier = svc?.serviceTiers?.find(t => t.tierId === member.pricingTierId)?.price || svc?.price || 0;
                 return sum + (priceAtTier * perk.quantity);
             }, 0);
@@ -219,7 +210,7 @@ const ProfitabilityAnalysis = ({
                         </div>
                     ))}
                 </div>
-                <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
+                <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
                         Yield reflects individual technician pay structures and your current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.
@@ -511,7 +502,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                   { id: 'allow-rollover', label: 'Rollover Protocol', desc: 'Unused perks transfer to next cycle', state: allowRollover, setter: setAllowRollover }
               ].map(policy => (
                 <div key={policy.id} className="flex items-center justify-between p-5 rounded-2xl border-2 bg-muted/5 shadow-inner group transition-all hover:bg-muted/10">
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 text-left">
                         <Label htmlFor={policy.id} className="text-sm font-black uppercase tracking-tight cursor-pointer">{policy.label}</Label>
                         <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{policy.desc}</p>
                     </div>
