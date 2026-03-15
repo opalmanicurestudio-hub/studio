@@ -34,7 +34,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type ConsentForm, type InventoryItem, type PricingTier, type Resource } from '@/lib/data';
+import { type ConsentForm, type InventoryItem, type PricingTier, type Resource, type Staff } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -612,14 +612,14 @@ const Step4 = ({ consentForms, breakEvenCost, pricingTiers }: { consentForms: Co
                 <div className="space-y-8 text-left">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
                         <div className="space-y-3">
-                            <Label htmlFor="cancel-window-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Notice Window (Hours)</Label>
-                            <Input id="cancel-window-edit" type="number" placeholder="Inherit Studio Default" {...register('cancellationWindowHours')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
+                            <Label htmlFor="cancel-window-add" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Notice Window (Hours)</Label>
+                            <Input id="cancel-window-add" type="number" placeholder="Inherit Studio Default" {...register('cancellationWindowHours')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
                         </div>
                         <div className="space-y-3">
-                            <Label htmlFor="custom-fee-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Override Fee ($)</Label>
+                            <Label htmlFor="custom-fee-add" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Override Fee ($)</Label>
                             <div className="relative">
                                 <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                <Input id="custom-fee-edit" type="number" step="0.01" placeholder="Inherit Matrix" {...register('customCancellationFee')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" />
+                                <Input id="custom-fee-add" type="number" step="0.01" placeholder="Inherit Matrix" {...register('customCancellationFee')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" />
                             </div>
                         </div>
                     </div>

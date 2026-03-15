@@ -34,7 +34,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type ConsentForm, type InventoryItem, type PricingTier, type Resource } from '@/lib/data';
+import { type ConsentForm, type InventoryItem, type PricingTier, type Resource, type Staff } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -413,7 +413,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                             </Button>
                         </div>
                         {selectedAddOns.length > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
                                 {selectedAddOns.map((item: any) => (
                                     <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
                                         <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{item.name}</span>
@@ -484,6 +484,11 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
 
 const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
+    const { staff } = useInventory();
+    const { selectedTenant } = useTenant();
+    const tmhr = selectedTenant?.tmhr || 50;
+    const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
+    const currentValues = watch();
     const depositType = watch('depositType');
 
     useEffect(() => {
@@ -510,7 +515,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                             </div>
                         </div>
                     </CardHeader>
-                    <CardContent className="p-8">
+                    <CardContent className="p-8 text-left">
                         <div className="relative">
                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-8 w-8 text-primary opacity-40" />
                             <Input id="standard-price-edit" type="number" step="0.01" placeholder="0.00" {...register('price')} className="h-20 pl-14 rounded-3xl border-2 font-black text-4xl tracking-tighter text-primary shadow-inner bg-white focus-visible:ring-primary/20" />
@@ -582,71 +587,6 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
     );
 };
 
-const RecoveryTargetMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, staff }: { pricingTiers: PricingTier[], currentValues: any, tmhr: number, taxBurden: number, staff: Staff[] }) => {
-    const { inventory } = useInventory();
-    
-    const materialCost = useMemo(() => {
-        return (currentValues.products || []).reduce((acc: number, p: any) => {
-            const product = inventory.find(i => i.id === p.id);
-            let cpu = 0;
-            if (product) {
-                if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
-                else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
-                else cpu = product.costPerUnit || 0;
-            }
-            return acc + (cpu * (p.quantityUsed || 1));
-        }, 0);
-    }, [currentValues.products, inventory]);
-
-    const tierAnalysis = useMemo(() => {
-        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
-            const tierConfig = currentValues.serviceTiers?.find((t: any) => t.tierId === tier.id);
-            const price = tierConfig ? tierConfig.price : (currentValues.price || 0);
-            const duration = tierConfig ? tierConfig.durationMinutes : (currentValues.duration || 60);
-            
-            const timeValue = (duration / 60) * tmhr;
-            
-            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
-            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
-                let labor = 0;
-                if (s.payStructure === 'commission') labor = price * (s.commissionRate / 100);
-                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (duration / 60) * s.hourlyRate;
-                return acc + (labor * (1 + (taxBurden / 100)));
-            }, 0) / (relevantStaff.length || 1);
-
-            return {
-                id: tier.id,
-                name: tier.name,
-                target: timeValue + materialCost + avgLaborRecovery,
-                breakdown: { timeValue, materialCost, labor: avgLaborRecovery }
-            };
-        });
-    }, [pricingTiers, currentValues, tmhr, materialCost, staff, taxBurden]);
-
-    return (
-        <Card className="border-2 rounded-[2rem] bg-muted/10 overflow-hidden shadow-inner">
-            <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
-            <CardContent className="p-6 pt-0 space-y-4">
-                <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">The matrix suggests a fee that covers studio time value, materials, and intended staff earnings.</p>
-                <div className="grid gap-2">
-                    {tierAnalysis.map(tier => (
-                        <div key={tier.id} className="flex justify-between items-center bg-white p-3 rounded-xl border-2 border-transparent hover:border-primary/10 transition-all shadow-sm">
-                            <div className="text-left">
-                                <p className="text-[10px] font-black uppercase text-slate-900">{tier.name}</p>
-                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Basis: Time + Mats + Labor</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="font-black font-mono text-primary text-sm">${tier.target.toFixed(2)}</p>
-                                <p className="text-[8px] font-black uppercase text-primary/40">Target Recovery</p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </CardContent>
-        </Card>
-    );
-};
-
 const Step4 = ({ consentForms, pricingTiers, breakEvenCost }: { consentForms: ConsentForm[], pricingTiers: PricingTier[], breakEvenCost: number }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const { staff } = useInventory();
@@ -699,7 +639,7 @@ const Step4 = ({ consentForms, pricingTiers, breakEvenCost }: { consentForms: Co
                 <div className="space-y-8 text-left">
                     <div className="space-y-2">
                         <Label htmlFor="confirmationMessage-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Confirmation Message</Label>
-                        <Textarea id="confirmationMessage-edit" placeholder="Specific post-booking instructions..." {...register('confirmationMessage')} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" />
+                        <Textarea id="confirmationMessage-edit" placeholder="Specific post-booking instructions..." {...register('confirmationMessage')} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
                     </div>
                     
                     <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
@@ -769,7 +709,7 @@ export const EditServiceDialog: React.FC<any> = ({
         });
       setStep(1);
     }
-  }, [service, open, methods]);
+  }, [service, open, reset]);
 
   const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/consentForms`), [firestore, selectedTenant]));
   const { data: pricingTiersData } = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`), [firestore, selectedTenant]));
@@ -821,7 +761,7 @@ export const EditServiceDialog: React.FC<any> = ({
         <ScrollArea className="flex-1">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
-                {step === 2 && <Step2 resources={resources} allServices={services} />}
+                {step === 2 && <Step2 resources={resources} allServices={allServices} />}
                 {step === 3 && <Step3 breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />}
                 {step === 4 && <Step4 consentForms={consentForms || []} pricingTiers={pricingTiersData || []} breakEvenCost={breakEvenCost} />}
             </div>
