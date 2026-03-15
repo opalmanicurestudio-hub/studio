@@ -38,7 +38,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { Progress } from '@/components/ui/progress';
+import { Progress } from '../ui/progress';
 import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useTenant } from '@/context/TenantContext';
@@ -103,7 +103,8 @@ const ProfitabilityAnalysis = ({
         };
 
         const materialCost = calculateServiceMaterialCost(service) * sessions;
-        const timeCost = ((service.duration * sessions) / 60) * tmhr;
+        const totalServiceTime = ((service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0)) * sessions;
+        const timeCost = (totalServiceTime / 60) * tmhr;
         return { baseHouseFloor: materialCost + timeCost };
     }, [service, sessions, tmhr, inventory]);
 
@@ -113,7 +114,8 @@ const ProfitabilityAnalysis = ({
             const tierConfig = service.serviceTiers?.find(t => t.tierId === member.pricingTierId);
             const tierPrice = tierConfig ? tierConfig.price : service.price;
             const tierDuration = tierConfig ? tierConfig.durationMinutes : service.duration;
-            const timeValue = ((tierDuration * sessions) / 60) * tmhr;
+            const totalDuration = (tierDuration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
+            const timeValue = ((totalDuration * sessions) / 60) * tmhr;
             
             let labor = 0;
             if (member.payStructure === 'commission') labor = tierPrice * (member.commissionRate / 100);
@@ -129,6 +131,7 @@ const ProfitabilityAnalysis = ({
                 id: member.id,
                 name: member.name,
                 avatarUrl: member.avatarUrl,
+                payStructure: member.payStructure,
                 totalBurden,
                 netProfit,
                 margin,
@@ -146,7 +149,7 @@ const ProfitabilityAnalysis = ({
                     <Target className="w-3 h-3" />
                     Individual Payout Matrix
                 </CardTitle>
-                <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60">
+                <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60 text-left">
                     Net Analysis per technician @ {taxBurden}% Tax Burden
                 </CardDescription>
             </CardHeader>
@@ -160,7 +163,10 @@ const ProfitabilityAnalysis = ({
                                         <AvatarImage src={sa.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[8px]">{(sa.name || 'S')[0]}</AvatarFallback>
                                     </Avatar>
-                                    <span className="text-[10px] font-black uppercase text-slate-900 tracking-widest">{sa.name.split(' ')[0]}</span>
+                                    <div className="text-left min-w-0">
+                                        <p className="text-[10px] font-black uppercase text-slate-900 truncate leading-none mb-0.5">{sa.name.split(' ')[0]}</p>
+                                        <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p>
+                                    </div>
                                 </div>
                                 <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", sa.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
                                     {sa.margin.toFixed(0)}% Margin

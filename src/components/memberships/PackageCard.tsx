@@ -25,6 +25,14 @@ interface PackageCardProps {
   onDelete: (id: string) => void;
 }
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return new Date(val);
+    return new Date(val);
+};
+
 export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, clients, onEdit, onViewUsers, onDelete }) => {
   const { staff, pricingTiers, inventory } = useInventory();
   const { selectedTenant } = useTenant();
@@ -60,8 +68,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
     };
 
     const materials = calculateServiceMaterialCost(primaryService) * pack.sessions;
-    const time = (primaryService.duration * pack.sessions) / 60;
-    return { materialCost: materials, timeLiabilityHours: time };
+    const totalTimeMinutes = ((primaryService.duration || 0) + (primaryService.padBefore || 0) + (primaryService.padAfter || 0)) * pack.sessions;
+    return { materialCost: materials, timeLiabilityHours: totalTimeMinutes / 60 };
   }, [pack, primaryService, inventory]);
 
   const individualStaffAnalysis = useMemo(() => {
@@ -70,7 +78,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
         const tierConfig = primaryService.serviceTiers?.find(t => t.tierId === member.pricingTierId);
         const tierPrice = tierConfig ? tierConfig.price : primaryService.price;
         const tierDuration = tierConfig ? tierConfig.durationMinutes : primaryService.duration;
-        const timeValue = ((tierDuration * pack.sessions) / 60) * tmhr;
+        const totalDuration = (tierDuration || 0) + (primaryService.padBefore || 0) + (primaryService.padAfter || 0);
+        const timeValue = ((totalDuration * pack.sessions) / 60) * tmhr;
         
         let labor = 0;
         if (member.payStructure === 'commission') labor = tierPrice * (member.commissionRate / 100);
@@ -86,6 +95,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
             id: member.id,
             name: member.name,
             avatarUrl: member.avatarUrl,
+            payStructure: member.payStructure,
             totalBurden,
             netProfit,
             margin,
@@ -128,7 +138,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-teal-500/10 shrink-0 -mt-1 -mr-1"><MoreHorizontal className="h-4 w-4 text-teal-500" /></Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="rounded-2xl shadow-xl p-1">
+                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
                     <DropdownMenuItem onClick={() => onViewUsers(pack)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Eye className="mr-2 h-3.5 w-3.5 opacity-40" /> View Holders</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onEdit(pack)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Edit className="mr-2 h-3.5 w-3.5 opacity-40" /> Refine Bundle</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onDelete(pack.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest py-2.5"><Trash2 className="mr-2 h-3.5 w-3.5 opacity-40" /> Terminate</DropdownMenuItem>
@@ -183,12 +193,12 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     <Clock className="w-3.5 h-3.5 mr-2 opacity-40"/> Capacity Load
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2 text-left">
-                    <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm text-left">
+                    <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm">
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
                             <span className="text-muted-foreground opacity-60">Time liability</span>
                             <span className="text-slate-900 font-mono">{timeLiabilityHours.toFixed(1)}h / bundle</span>
                         </div>
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">This bundle consumes {timeLiabilityHours.toFixed(1)} hours of studio billable capacity until fully redeemed.</p>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">This bundle consumes {timeLiabilityHours.toFixed(1)} hours of studio billable capacity per member until fully redeemed.</p>
                     </div>
                 </AccordionContent>
             </AccordionItem>
@@ -206,7 +216,10 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                                         <AvatarImage src={sa.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[7px]">{(sa.name || 'S')[0]}</AvatarFallback>
                                     </Avatar>
-                                    <span className="text-[10px] font-black uppercase text-slate-900">{sa.name.split(' ')[0]}</span>
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-black uppercase text-slate-900 leading-none mb-0.5">{sa.name.split(' ')[0]}</p>
+                                        <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p>
+                                    </div>
                                 </div>
                                 <Badge className={cn("h-4 text-[7px] font-black border-none", sa.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
                                     {sa.margin.toFixed(0)}% Margin

@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -65,11 +65,11 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
 
     const serviceTime = (membership.includedServices || []).reduce((acc, perk) => {
         const s = services.find(svc => svc.id === perk.id);
-        return acc + (s?.duration || 0) * perk.quantity;
+        return acc + ((s?.duration || 0) + (s?.padBefore || 0) + (s?.padAfter || 0)) * perk.quantity;
     }, 0);
     const addOnTime = (membership.includedAddOns || []).reduce((acc, perk) => {
         const s = services.find(svc => svc.id === perk.id);
-        return acc + (s?.duration || 0) * perk.quantity;
+        return acc + ((s?.duration || 0) + (s?.padBefore || 0) + (s?.padAfter || 0)) * perk.quantity;
     }, 0);
 
     return { 
@@ -106,6 +106,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
             id: member.id,
             name: member.name,
             avatarUrl: member.avatarUrl,
+            payStructure: member.payStructure,
             totalBurden,
             netProfit,
             margin,
@@ -204,6 +205,21 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                     </div>
                 </AccordionContent>
             </AccordionItem>
+
+            <AccordionItem value="capacity" className="border-2 rounded-2xl overflow-hidden bg-muted/5 border-border/50 mt-2">
+                <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+                    <Clock className="w-3.5 h-3.5 mr-2 opacity-40"/> Capacity Load
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 pt-2 text-left">
+                    <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm">
+                        <div className="flex justify-between items-center text-[10px] font-bold uppercase">
+                            <span className="text-muted-foreground opacity-60">Time liability</span>
+                            <span className="text-slate-900 font-mono">{timeLiabilityHours.toFixed(1)}h / cycle</span>
+                        </div>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">This membership consumes {timeLiabilityHours.toFixed(1)} hours of studio billable capacity per member, per cycle.</p>
+                    </div>
+                </AccordionContent>
+            </AccordionItem>
             
             <AccordionItem value="profit" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/5 mt-2">
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
@@ -218,7 +234,10 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                                         <AvatarImage src={sa.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[7px]">{(sa.name || 'S')[0]}</AvatarFallback>
                                     </Avatar>
-                                    <span className="text-[10px] font-black uppercase text-slate-900">{sa.name.split(' ')[0]}</span>
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-black uppercase text-slate-900 leading-none mb-0.5">{sa.name.split(' ')[0]}</p>
+                                        <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p>
+                                    </div>
                                 </div>
                                 <Badge className={cn("h-4 text-[7px] font-black border-none", sa.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
                                     {sa.margin.toFixed(0)}% Margin

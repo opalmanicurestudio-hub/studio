@@ -112,11 +112,11 @@ const ProfitabilityAnalysis = ({
 
         const servicesDuration = perks.services.reduce((acc, perk) => {
             const s = services.find(svc => svc.id === perk.id);
-            return acc + (s?.duration || 0) * (perk.quantity || 1);
+            return acc + ((s?.duration || 0) + (s?.padBefore || 0) + (s?.padAfter || 0)) * (perk.quantity || 1);
         }, 0);
         const addOnsDuration = perks.addOns.reduce((acc, perk) => {
             const s = services.find(svc => svc.id === perk.id);
-            return acc + (s?.duration || 0) * (perk.quantity || 1);
+            return acc + ((s?.duration || 0) + (s?.padBefore || 0) + (s?.padAfter || 0)) * (perk.quantity || 1);
         }, 0);
 
         return { materialCost: servicesCost + addOnsCost + productsCost, timeLiabilityHours: (servicesDuration + addOnsDuration) / 60 };
@@ -150,6 +150,7 @@ const ProfitabilityAnalysis = ({
                 id: member.id,
                 name: member.name,
                 avatarUrl: member.avatarUrl,
+                payStructure: member.payStructure,
                 totalBurden,
                 netProfit,
                 margin,
@@ -166,7 +167,7 @@ const ProfitabilityAnalysis = ({
                     <Target className="w-3 h-3" />
                     Individual Payout Matrix
                 </CardTitle>
-                <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60">
+                <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60 text-left">
                     Net Analysis per technician @ {taxBurden}% Tax Burden
                 </CardDescription>
             </CardHeader>
@@ -180,7 +181,10 @@ const ProfitabilityAnalysis = ({
                                         <AvatarImage src={sa.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[8px]">{(sa.name || 'S')[0]}</AvatarFallback>
                                     </Avatar>
-                                    <span className="text-[10px] font-black uppercase text-slate-900 tracking-widest">{sa.name.split(' ')[0]}</span>
+                                    <div className="text-left min-w-0">
+                                        <p className="text-[10px] font-black uppercase text-slate-900 truncate leading-none mb-0.5">{sa.name.split(' ')[0]}</p>
+                                        <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p>
+                                    </div>
                                 </div>
                                 <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", sa.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
                                     {sa.margin.toFixed(0)}% Margin
@@ -201,7 +205,7 @@ const ProfitabilityAnalysis = ({
                                 </div>
                             </div>
                             <Separator className="border-dashed" />
-                            <div className="flex justify-between items-baseline pt-1">
+                            <div className="flex justify-between items-baseline pt-1 text-left">
                                 <span className="text-[9px] font-black uppercase text-primary/60">Studio Net Yield</span>
                                 <span className={cn("text-2xl font-black tracking-tighter font-mono", sa.netProfit >= 0 ? "text-primary" : "text-destructive")}>
                                     ${sa.netProfit.toFixed(2)}
