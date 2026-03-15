@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -31,8 +32,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
+import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -43,6 +44,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
+import { useTenant } from '@/context/TenantContext';
 
 interface AddMembershipDialogProps {
   open: boolean;
@@ -63,10 +65,11 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
     </div>
 );
 
-const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: MembershipPerk[], addOns: MembershipPerk[], products: MembershipPerk[] }, price: number }) => {
+const ProfitabilityAnalysis = ({ perks, price, tmhr }: { perks: { services: MembershipPerk[], addOns: MembershipPerk[], products: MembershipPerk[] }, price: number, tmhr: number }) => {
     const { services, inventory } = useInventory();
     
-    const totalCostOfPerks = useMemo(() => {
+    const { totalCostOfPerks, totalDurationMinutes } = useMemo(() => {
+        // Material Costs
         const servicesCost = perks.services.reduce((acc, perk) => {
             const s = services.find(svc => svc.id === perk.id);
             return acc + (s?.cost || 0) * (perk.quantity || 1);
@@ -79,8 +82,23 @@ const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: Membership
             const p = inventory.find(inv => inv.id === perk.id);
             return acc + (p?.costPerUnit || 0) * (perk.quantity || 1);
         }, 0);
-        return servicesCost + addOnsCost + productsCost;
-    }, [perks, services, inventory]);
+
+        // Time Liability
+        const servicesDuration = perks.services.reduce((acc, perk) => {
+            const s = services.find(svc => svc.id === perk.id);
+            return acc + (s?.duration || 0) * (perk.quantity || 1);
+        }, 0);
+        const addOnsDuration = perks.addOns.reduce((acc, perk) => {
+            const s = services.find(svc => svc.id === perk.id);
+            return acc + (s?.duration || 0) * (perk.quantity || 1);
+        }, 0);
+
+        const materialCost = servicesCost + addOnsCost + productsCost;
+        const totalDuration = servicesDuration + addOnsDuration;
+        const timeCost = (totalDuration / 60) * tmhr;
+
+        return { totalCostOfPerks: materialCost + timeCost, totalDurationMinutes: totalDuration };
+    }, [perks, services, inventory, tmhr]);
 
     const netProfit = price - totalCostOfPerks;
     const profitMargin = price > 0 ? (netProfit / price) * 100 : 0;
@@ -96,11 +114,11 @@ const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: Membership
             <CardContent className="p-8 pt-0 space-y-6">
                 <div className="p-6 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
-                        <span>Revenue Rate</span>
+                        <span>Cycle Revenue</span>
                         <span className="font-mono text-slate-900">${price.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-destructive opacity-60">
-                        <span>Est. Perk Overhead</span>
+                        <span>Est. Allotment Burden</span>
                         <span className="font-mono text-destructive">-${totalCostOfPerks.toFixed(2)}</span>
                     </div>
                     <Separator className="border-dashed" />
@@ -119,7 +137,7 @@ const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: Membership
                 <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-muted-foreground leading-relaxed tracking-tight text-left">
-                        Calculated based on current treatment costs and landed asset values in your manifest.
+                        Yield includes <strong>{(totalDurationMinutes / 60).toFixed(1)}h</strong> of studio capacity @ <strong>${tmhr.toFixed(2)}/hr</strong>.
                     </p>
                 </div>
             </CardContent>
@@ -136,6 +154,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
 }) => {
   const isMobile = useIsMobile();
   const { services, inventory } = useInventory();
+  const { selectedTenant } = useTenant();
+  const tmhr = selectedTenant?.tmhr || 50;
   
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -256,7 +276,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 </div>
             </div>
              <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 mt-4 shadow-inner">
-                <div className="space-y-1">
+                <div className="space-y-1 text-left">
                     <Label htmlFor="mem-private" className="text-lg font-black uppercase tracking-tight">Private Access</Label>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Hide from the public booking directory</p>
                 </div>
@@ -304,18 +324,18 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
               </div>
 
               <div className="space-y-4">
-                <div className='flex items-center justify-between px-1'>
+                <div className='flex items-center justify-between px-1 text-left'>
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail Privilege</Label>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 p-6 rounded-[2.5rem] border-2 bg-muted/10 shadow-inner">
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label htmlFor="retail-discount" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Priority Discount</Label>
                         <div className="relative">
                             <Percent className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                             <Input id="retail-discount" type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary bg-white shadow-sm" />
                         </div>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label htmlFor="retail-discount-limit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Usage Load (Per Cycle)</Label>
                         <Input id="retail-discount-limit" type="number" value={retailDiscountLimit || ''} onChange={e => setRetailDiscountLimit(Number(e.target.value))} placeholder="0" className="h-14 rounded-2xl border-2 font-black text-xl font-mono bg-white shadow-sm text-center" />
                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 text-center">0 for unlimited access</p>
@@ -344,7 +364,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
           </div>
       </div>
 
-       <ProfitabilityAnalysis perks={{ services: includedServices, addOns: includedAddOns, products: includedProducts }} price={price} />
+       <ProfitabilityAnalysis perks={{ services: includedServices, addOns: includedAddOns, products: includedProducts }} price={price} tmhr={tmhr} />
     </div>
   );
 

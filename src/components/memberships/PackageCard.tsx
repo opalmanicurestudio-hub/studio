@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -9,7 +10,8 @@ import { type Package, type Service, type Client } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { cn } from '@/lib/utils';
-import { Separator } from '../ui/separator';
+import { Separator } from '@/components/ui/separator';
+import { useTenant } from '@/context/TenantContext';
 
 interface PackageCardProps {
   pack: Package;
@@ -21,6 +23,9 @@ interface PackageCardProps {
 }
 
 export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, clients, onEdit, onViewUsers, onDelete }) => {
+  const { selectedTenant } = useTenant();
+  const tmhr = selectedTenant?.tmhr || 50;
+
   const activePackages = useMemo(() => {
     return clients.filter(c => c.activePackages?.some(p => p.packageId === pack.id)).length;
   }, [clients, pack.id]);
@@ -28,13 +33,22 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
   const totalRevenue = activePackages * pack.price;
   const primaryService = useMemo(() => services.find(s => s.id === pack.serviceId), [pack.serviceId, services]);
 
-  const { netProfit, profitMargin } = useMemo(() => {
-    if (!primaryService) return { netProfit: 0, profitMargin: 0 };
-    const totalCost = (primaryService.cost || 0) * pack.sessions;
+  const { netProfit, profitMargin, totalLiabilityCost } = useMemo(() => {
+    if (!primaryService) return { netProfit: 0, profitMargin: 0, totalLiabilityCost: 0 };
+    
+    // 1. Material Burden
+    const materialCost = (primaryService.cost || 0) * pack.sessions;
+    
+    // 2. Time Burden at TMHR
+    const totalDurationHours = (primaryService.duration * pack.sessions) / 60;
+    const timeCost = totalDurationHours * tmhr;
+
+    const totalCost = materialCost + timeCost;
     const profit = pack.price - totalCost;
     const margin = pack.price > 0 ? (profit / pack.price) * 100 : 0;
-    return { netProfit: profit, profitMargin: margin };
-  }, [pack, primaryService]);
+    
+    return { netProfit: profit, profitMargin: margin, totalLiabilityCost: totalCost };
+  }, [pack, primaryService, tmhr]);
 
   return (
     <Card className={cn(
@@ -76,7 +90,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{activePackages}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">Bundles</span></p>
             </div>
             <div className="p-4 rounded-2xl bg-teal-500/[0.03] border-2 border-transparent group-hover:border-teal-500/10 transition-all text-right">
-                <p className="text-[9px] font-black uppercase text-teal-600/60 tracking-widest mb-1 opacity-60">Total LTV</p>
+                <p className="text-[9px] font-black uppercase text-teal-600/60 tracking-widest mb-1 opacity-60">Total Yield</p>
                 <p className="text-xl font-black font-mono tracking-tighter text-teal-600">${totalRevenue.toFixed(0)}</p>
             </div>
         </div>
@@ -86,7 +100,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
                     <ListChecks className="w-3.5 h-3.5 mr-2 opacity-40"/> Bundle Manifest
                 </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4 pt-2">
+                <AccordionContent className="px-4 pb-4 pt-2 text-left">
                     <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-3 rounded-xl border shadow-sm">
                         <span className="flex items-center gap-2"><FileCheck2 className="w-3.5 h-3.5 text-teal-500"/> {primaryService?.name || 'N/A'}</span>
                         <span className="font-black text-slate-900">{pack.sessions} SESSIONS</span>
@@ -97,17 +111,17 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
             
             <AccordionItem value="profit" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/5 mt-2">
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
-                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Yield Analysis
+                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Dynamic Yield
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2">
-                    <div className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm">
+                    <div className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                            <span className="text-muted-foreground opacity-60">Retail Bundle</span>
+                            <span className="text-muted-foreground opacity-60">Bundle Revenue</span>
                             <span className="text-slate-900 font-mono">${pack.price.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                            <span className="text-muted-foreground opacity-60">Service Liability</span>
-                            <span className="text-destructive font-mono">-${((primaryService?.cost || 0) * pack.sessions).toFixed(2)}</span>
+                            <span className="text-muted-foreground opacity-60">Liability Burden</span>
+                            <span className="text-destructive font-mono">-${totalLiabilityCost.toFixed(2)}</span>
                         </div>
                         <Separator className="border-dashed" />
                         <div className="flex justify-between items-center font-black uppercase">
@@ -116,6 +130,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                                 ${netProfit.toFixed(2)}
                             </span>
                         </div>
+                        <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 pt-1">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr</p>
                     </div>
                 </AccordionContent>
             </AccordionItem>
@@ -123,13 +138,10 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
       </CardContent>
       
       <div className="p-3 border-t bg-muted/5 mt-auto">
-        <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary group/btn" onClick={() => onViewUsers(pack)}>
-            Examine Portfolio Load <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
+        <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn" onClick={() => onViewUsers(pack)}>
+            Examine Portfolio Load <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover:btn:translate-x-1" />
         </Button>
       </div>
     </Card>
   );
 };
-
-const DropdownMenu = ({ children }: any) => <div>{children}</div>;
-import { DropdownMenu as DM, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../ui/dropdown-menu';

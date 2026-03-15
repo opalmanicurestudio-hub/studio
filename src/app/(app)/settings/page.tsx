@@ -314,7 +314,6 @@ function SettingsContent() {
       return services.slice(0, 5).map(s => {
           const houseFloor = (s.duration / 60) * tmhr + (s.cost || 0);
           
-          // Use median pro or first pro for preview logic
           const seniorPro = staff.find(sm => pricingTiers.find(pt => pt.id === sm.pricingTierId)?.name.toLowerCase().includes('senior')) || staff[0];
           const seniorTier = s.serviceTiers?.find(t => t.tierId === seniorPro?.pricingTierId);
           const price = seniorTier ? seniorTier.price : s.price;

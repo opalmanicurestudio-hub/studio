@@ -13,6 +13,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/
 import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
+import { useTenant } from '@/context/TenantContext';
 
 interface MembershipCardProps {
   membership: Membership;
@@ -24,19 +25,20 @@ interface MembershipCardProps {
 
 export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clients, onEdit, onViewUsers, onDelete }) => {
   const { services, inventory } = useInventory();
+  const { selectedTenant } = useTenant();
+  const tmhr = selectedTenant?.tmhr || 50;
   
   const activeMembers = useMemo(() => {
     return clients.filter(c => c.activeMembershipId === membership.id).length;
   }, [clients, membership.id]);
 
-  const mrr = activeMembers * membership.price;
-
   const { costOfPerks, netProfit, profitMargin, monthlyTimeLiability } = useMemo(() => {
-    const servicesCost = (membership.includedServices || []).reduce((acc, perk) => {
+    // 1. Calculate Material Costs
+    const servicesMaterialCost = (membership.includedServices || []).reduce((acc, perk) => {
         const s = services.find(svc => svc.id === perk.id);
         return acc + (s?.cost || 0) * perk.quantity;
     }, 0);
-    const addOnsCost = (membership.includedAddOns || []).reduce((acc, perk) => {
+    const addOnsMaterialCost = (membership.includedAddOns || []).reduce((acc, perk) => {
         const s = services.find(svc => svc.id === perk.id);
         return acc + (s?.cost || 0) * perk.quantity;
     }, 0);
@@ -44,9 +46,8 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
         const p = inventory.find(inv => inv.id === perk.id);
         return acc + (p?.costPerUnit || 0) * perk.quantity;
     }, 0);
-    const totalCost = servicesCost + addOnsCost + productsCost;
 
-    // Time Liability per member
+    // 2. Calculate Time Liability per member
     const serviceTime = (membership.includedServices || []).reduce((acc, perk) => {
         const s = services.find(svc => svc.id === perk.id);
         return acc + (s?.duration || 0) * perk.quantity;
@@ -56,6 +57,10 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
         return acc + (s?.duration || 0) * perk.quantity;
     }, 0);
 
+    const timeLiabilityHours = (serviceTime + addOnTime) / 60;
+    const timeCostAtTmhr = timeLiabilityHours * tmhr;
+
+    const totalCost = servicesMaterialCost + addOnsMaterialCost + productsCost + timeCostAtTmhr;
     const profit = membership.price - totalCost;
     const margin = membership.price > 0 ? (profit / membership.price) * 100 : 0;
     
@@ -63,9 +68,9 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
         costOfPerks: totalCost, 
         netProfit: profit, 
         profitMargin: margin, 
-        monthlyTimeLiability: (serviceTime + addOnTime) / 60 
+        monthlyTimeLiability: timeLiabilityHours 
     };
-  }, [membership, services, inventory]);
+  }, [membership, services, inventory, tmhr]);
 
   return (
     <Card className={cn(
@@ -145,23 +150,23 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                             <span className="text-muted-foreground opacity-60">Time commitment</span>
                             <span className="text-slate-900 font-mono">{monthlyTimeLiability.toFixed(1)}h / member</span>
                         </div>
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">This tier consumes {monthlyTimeLiability.toFixed(1)} hours of studio billable capacity per member per billing cycle.</p>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">This tier consumes {monthlyTimeLiability.toFixed(1)} hours of studio billable capacity per member per cycle.</p>
                     </div>
                 </AccordionContent>
             </AccordionItem>
 
             <AccordionItem value="profit" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/5 mt-2">
                 <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
-                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Yield Analysis
+                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Dynamic Yield
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2">
                     <div className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                            <span className="text-muted-foreground opacity-60">Unit Price</span>
+                            <span className="text-muted-foreground opacity-60">Retail Price</span>
                             <span className="text-slate-900 font-mono">${membership.price.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                            <span className="text-muted-foreground opacity-60">Perk Overhead</span>
+                            <span className="text-muted-foreground opacity-60">Total Allotment Cost</span>
                             <span className="text-destructive font-mono">-${costOfPerks.toFixed(2)}</span>
                         </div>
                         <Separator className="border-dashed" />
@@ -171,6 +176,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                                 ${netProfit.toFixed(2)}
                             </span>
                         </div>
+                        <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 pt-1">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr</p>
                     </div>
                 </AccordionContent>
             </AccordionItem>
@@ -179,7 +185,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
       
       <div className="p-3 border-t bg-muted/5 mt-auto">
         <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn" onClick={() => onViewUsers(membership)}>
-            Examine Active Portfolio <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
+            Examine Active Portfolio <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover:btn:translate-x-1" />
         </Button>
       </div>
     </Card>
