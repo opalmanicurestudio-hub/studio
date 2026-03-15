@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -33,7 +32,7 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
-import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock } from 'lucide-react';
+import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -168,6 +167,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   const [includedProducts, setIncludedProducts] = useState<MembershipPerk[]>([]);
   const [retailDiscount, setRetailDiscount] = useState<number>(0);
   const [retailDiscountLimit, setRetailDiscountLimit] = useState<number>(0);
+  const [applicableProductIds, setApplicableProductIds] = useState<string[]>([]);
 
   const [forfeitOnLateCancel, setForfeitOnLateCancel] = useState(true);
   const [forfeitOnNoShow, setForfeitOnNoShow] = useState(true);
@@ -175,7 +175,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
 
   const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
-  const [isProductSelectorOpen, setIsProductSelectorOpen] = useState(false);
+  const [isProductPerkSelectorOpen, setIsProductPerkSelectorOpen] = useState(false);
+  const [isApplicableProductsSelectorOpen, setIsApplicableProductsSelectorOpen] = useState(false);
 
   useEffect(() => {
     if (membershipToEdit) {
@@ -189,6 +190,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setIncludedProducts(membershipToEdit.includedProducts || []);
       setRetailDiscount(membershipToEdit.retailDiscount || 0);
       setRetailDiscountLimit(membershipToEdit.retailDiscountLimit || 0);
+      setApplicableProductIds(membershipToEdit.applicableProductIds || []);
       setForfeitOnLateCancel(membershipToEdit.forfeitOnLateCancel);
       setForfeitOnNoShow(membershipToEdit.forfeitOnNoShow);
       setAllowRollover(membershipToEdit.allowRollover);
@@ -203,6 +205,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setIncludedProducts([]);
       setRetailDiscount(0);
       setRetailDiscountLimit(0);
+      setApplicableProductIds([]);
       setForfeitOnLateCancel(true);
       setForfeitOnNoShow(true);
       setAllowRollover(false);
@@ -222,6 +225,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       includedProducts,
       retailDiscount,
       retailDiscountLimit,
+      applicableProductIds,
       forfeitOnLateCancel,
       forfeitOnNoShow,
       allowRollover,
@@ -323,7 +327,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 )}
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 pt-4 border-t border-dashed">
                 <div className='flex items-center justify-between px-1 text-left'>
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail Privilege</Label>
                 </div>
@@ -341,6 +345,37 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 text-center">0 for unlimited access</p>
                     </div>
                 </div>
+
+                {retailDiscount > 0 && (
+                    <div className="space-y-4 pt-2">
+                        <div className='flex items-center justify-between px-1'>
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Eligible Products</Label>
+                            <Button variant="ghost" size="sm" onClick={() => setIsApplicableProductsSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                                <PlusCircle className="w-3 h-3 mr-1.5" /> Select Scope
+                            </Button>
+                        </div>
+                        {applicableProductIds.length > 0 ? (
+                            <div className="grid gap-2">
+                                {applicableProductIds.map(pid => {
+                                    const p = inventory.find(i => i.id === pid);
+                                    return (
+                                        <div key={pid} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
+                                            <div className="flex items-center gap-3 truncate flex-1">
+                                                <div className="p-2 bg-muted rounded-lg shrink-0">
+                                                    <Box className="w-3 h-3 text-muted-foreground opacity-40" />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{p?.name || 'Unknown Product'}</span>
+                                            </div>
+                                            <Button variant="ghost" size="icon" className="h-7 h-7 text-destructive shrink-0" onClick={() => setApplicableProductIds(prev => prev.filter(id => id !== pid))}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        ) : (
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-4 border-2 border-dashed rounded-xl">Applied to all retail assets</p>
+                        )}
+                    </div>
+                )}
               </div>
           </div>
       </div>
@@ -377,7 +412,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   return (
     <>
         <DialogContainer open={open} onOpenChange={onOpenChange}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-4xl max-h-[90dvh]")}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
@@ -421,14 +456,21 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
             initialSelected={services.filter(s => includedAddOns.some(p => p.id === s.id))}
         />
         <BrowseProductsDialog
-            open={isProductSelectorOpen}
-            onOpenChange={setIsProductSelectorOpen}
+            open={isProductPerkSelectorOpen}
+            onOpenChange={setIsProductPerkSelectorOpen}
             onSelect={(selected) => setIncludedProducts(selected.map(p => {
                 const existing = includedProducts.find(pk => pk.id === p.id);
                 return { id: p.id, name: p.name, quantity: existing?.quantity || 1 };
             }))}
             allProducts={inventory.filter(p => p.type === 'retail')}
             initialSelected={inventory.filter(p => includedProducts.some(pk => pk.id === p.id))}
+        />
+        <BrowseProductsDialog
+            open={isApplicableProductsSelectorOpen}
+            onOpenChange={setIsApplicableProductsSelectorOpen}
+            onSelect={(selected) => setApplicableProductIds(selected.map(p => p.id))}
+            allProducts={inventory.filter(p => p.type === 'retail')}
+            initialSelected={inventory.filter(p => applicableProductIds.includes(p.id))}
         />
     </>
   );

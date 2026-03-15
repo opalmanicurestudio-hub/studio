@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -6,7 +5,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, MoreHorizontal, ListChecks, Clock } from 'lucide-react';
+import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, MoreHorizontal, ListChecks, Clock, Box } from 'lucide-react';
 import { type Membership, type Client } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -72,6 +71,8 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
     };
   }, [membership, services, inventory, tmhr]);
 
+  const isScopeRestricted = membership.applicableProductIds && membership.applicableProductIds.length > 0;
+
   return (
     <Card className={cn(
         "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col border-indigo-500/20 bg-white hover:border-indigo-500/50 hover:shadow-2xl hover:shadow-indigo-500/10",
@@ -131,9 +132,17 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                             </div>
                         ))}
                         {membership.retailDiscount && (
-                            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
-                                <span className="flex items-center gap-2"><Percent className="w-3 h-3 text-blue-500"/> Retail Privilege</span>
-                                <span className="font-black text-slate-900">{membership.retailDiscount}% OFF</span>
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
+                                    <span className="flex items-center gap-2"><Percent className="w-3 h-3 text-blue-500"/> Retail Privilege</span>
+                                    <span className="font-black text-slate-900">{membership.retailDiscount}% OFF</span>
+                                </div>
+                                {isScopeRestricted && (
+                                    <div className="flex items-center gap-1.5 px-2 text-[8px] font-black uppercase text-muted-foreground opacity-60">
+                                        <Box className="w-2.5 h-2.5" />
+                                        <span>Restricted to {membership.applicableProductIds?.length} SKUs</span>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

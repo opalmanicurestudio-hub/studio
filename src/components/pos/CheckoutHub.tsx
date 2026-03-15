@@ -42,7 +42,8 @@ import {
     Lock,
     Sparkles,
     Info,
-    PartyPopper
+    PartyPopper,
+    Box
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -159,7 +160,7 @@ export const CheckoutHub = ({
     appliedDiscountCodes,
     setAppliedDiscountCodes,
     discount,
-    membershipDiscount,
+    membershipDiscount: _, // We calculate this internally now for precision
     isSubmitting,
     paymentTab,
     setPaymentTab,
@@ -383,6 +384,47 @@ export const CheckoutHub = ({
     };
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
+
+    const membershipDiscount = useMemo(() => {
+        if (!selectedClientId || !clients || !memberships || !packages) return 0;
+        const client = clients.find(c => c.id === selectedClientId);
+        const mId = client?.activeMembershipId || client?.subscription?.membershipId;
+        
+        let bestDiscountPct = 0;
+        let eligibleProductIds: string[] = [];
+
+        if (mId) {
+            const membership = memberships.find(m => m.id === mId);
+            if (membership?.retailDiscount) {
+                bestDiscountPct = membership.retailDiscount;
+                eligibleProductIds = membership.applicableProductIds || [];
+            }
+        }
+
+        if (client?.activePackages) {
+            client.activePackages.forEach(p => {
+                const pkgDef = packages.find(pkg => pkg.id === p.packageId);
+                if (pkgDef?.retailDiscount && pkgDef.retailDiscount > bestDiscountPct) {
+                    bestDiscountPct = pkgDef.retailDiscount;
+                    eligibleProductIds = pkgDef.applicableProductIds || [];
+                }
+            });
+        }
+
+        if (bestDiscountPct === 0) return 0;
+
+        return cart.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            if (product?.type !== 'retail') return acc;
+            
+            const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
+            if (isEligible) {
+                const price = product?.msrp || product?.costPerUnit || 0;
+                return acc + (price * item.quantity * (bestDiscountPct / 100));
+            }
+            return acc;
+        }, 0);
+    }, [selectedClientId, clients, memberships, packages, cart, inventory]);
 
     return (
         <div className="flex flex-col space-y-6 md:space-y-10">

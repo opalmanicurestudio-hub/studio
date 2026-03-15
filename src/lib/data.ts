@@ -536,6 +536,7 @@ export type Membership = {
   includedProducts?: MembershipPerk[];
   retailDiscount?: number;
   retailDiscountLimit?: number; 
+  applicableProductIds?: string[];
   forfeitOnLateCancel: boolean;
   forfeitOnNoShow: boolean;
   allowRollover: boolean;
@@ -549,6 +550,8 @@ export type Package = {
   price: number;
   expiresInMonths: number;
   isPrivate: boolean;
+  retailDiscount?: number;
+  applicableProductIds?: string[];
 };
 
 export type FormField = {

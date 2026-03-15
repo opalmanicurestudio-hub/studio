@@ -1,11 +1,10 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks } from 'lucide-react';
+import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box } from 'lucide-react';
 import { type Package, type Service, type Client } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -49,6 +48,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
     
     return { netProfit: profit, profitMargin: margin, totalLiabilityCost: totalCost };
   }, [pack, primaryService, tmhr]);
+
+  const isScopeRestricted = pack.applicableProductIds && pack.applicableProductIds.length > 0;
 
   return (
     <Card className={cn(
@@ -101,9 +102,25 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     <ListChecks className="w-3.5 h-3.5 mr-2 opacity-40"/> Bundle Manifest
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2 text-left">
-                    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-3 rounded-xl border shadow-sm">
-                        <span className="flex items-center gap-2"><FileCheck2 className="w-3.5 h-3.5 text-teal-500"/> {primaryService?.name || 'N/A'}</span>
-                        <span className="font-black text-slate-900">{pack.sessions} SESSIONS</span>
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-3 rounded-xl border shadow-sm">
+                            <span className="flex items-center gap-2"><FileCheck2 className="w-3.5 h-3.5 text-teal-500"/> {primaryService?.name || 'N/A'}</span>
+                            <span className="font-black text-slate-900">{pack.sessions} SESSIONS</span>
+                        </div>
+                        {pack.retailDiscount && pack.retailDiscount > 0 && (
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
+                                    <span className="flex items-center gap-2"><Percent className="w-3 h-3 text-teal-500"/> Retail Privilege</span>
+                                    <span className="font-black text-teal-600">{pack.retailDiscount}% OFF</span>
+                                </div>
+                                {isScopeRestricted && (
+                                    <div className="flex items-center gap-1.5 px-2 text-[8px] font-black uppercase text-muted-foreground opacity-60">
+                                        <Box className="w-2.5 h-2.5" />
+                                        <span>Restricted to {pack.applicableProductIds?.length} SKUs</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <p className="text-[8px] font-black text-center text-muted-foreground uppercase mt-3 opacity-40 tracking-widest">Expires in {pack.expiresInMonths} months</p>
                 </AccordionContent>
