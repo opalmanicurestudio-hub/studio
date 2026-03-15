@@ -266,6 +266,9 @@ export type Service = {
   fixedCost?: number;
   costPerAttendee?: number;
   requiredResourceIds?: string[];
+  // Policy Overrides
+  cancellationWindowHours?: number;
+  customCancellationFee?: number;
 };
 
 export type Batch = {
@@ -646,6 +649,9 @@ export type Tenant = {
   bookingPageSettings?: BookingPageSettings;
   lateInconveniencePremium?: number;
   employerTaxBurdenPct?: number;
+  // Global Recovery Policy
+  defaultCancellationMode?: 'matrix' | 'flat';
+  defaultRescheduleMode?: 'matrix' | 'flat';
 };
 
 export type Resource = {

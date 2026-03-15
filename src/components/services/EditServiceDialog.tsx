@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type ConsentForm, type InventoryItem, type PricingTier, type Resource } from '@/lib/data';
@@ -39,7 +39,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity, Edit, MapPin, Pipette, CheckCircle, FileText, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity, Edit, MapPin, Pipette, CheckCircle, FileText, ShieldCheck, Target, Percent, Users, Zap, Shield } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -53,6 +53,9 @@ import { ScrollArea } from '../ui/scroll-area';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
+import { Separator } from '@/components/ui/separator';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -85,6 +88,8 @@ const serviceSchema = z.object({
 
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
+  cancellationWindowHours: z.coerce.number().optional(),
+  customCancellationFee: z.coerce.number().optional(),
 }).superRefine((data, ctx) => {
     const hasTiers = data.serviceTiers && data.serviceTiers.length > 0;
     if (!hasTiers && (data.price === undefined || data.price < 0)) {
@@ -94,17 +99,82 @@ const serviceSchema = z.object({
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
 
-const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
+const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
     <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
-        <div className="space-y-0.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
     </div>
 );
+
+const RecoveryTargetMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, staff }: { pricingTiers: PricingTier[], currentValues: any, tmhr: number, taxBurden: number, staff: Staff[] }) => {
+    const { inventory } = useInventory();
+    
+    const materialCost = useMemo(() => {
+        return (currentValues.products || []).reduce((acc: number, p: any) => {
+            const product = inventory.find(i => i.id === p.id);
+            let cpu = 0;
+            if (product) {
+                if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
+                else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
+                else cpu = product.costPerUnit || 0;
+            }
+            return acc + (cpu * (p.quantityUsed || 1));
+        }, 0);
+    }, [currentValues.products, inventory]);
+
+    const tierAnalysis = useMemo(() => {
+        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+            const tierConfig = currentValues.serviceTiers?.find((t: any) => t.tierId === tier.id);
+            const price = tierConfig ? tierConfig.price : (currentValues.price || 0);
+            const duration = tierConfig ? tierConfig.durationMinutes : (currentValues.duration || 60);
+            
+            const timeValue = (duration / 60) * tmhr;
+            
+            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
+            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
+                let labor = 0;
+                if (s.payStructure === 'commission') labor = price * (s.commissionRate / 100);
+                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (duration / 60) * s.hourlyRate;
+                return acc + (labor * (1 + (taxBurden / 100)));
+            }, 0) / (relevantStaff.length || 1);
+
+            return {
+                id: tier.id,
+                name: tier.name,
+                target: timeValue + materialCost + avgLaborRecovery,
+                breakdown: { timeValue, materialCost, labor: avgLaborRecovery }
+            };
+        });
+    }, [pricingTiers, currentValues, tmhr, materialCost, staff, taxBurden]);
+
+    return (
+        <Card className="border-2 rounded-[2rem] bg-muted/10 overflow-hidden shadow-inner">
+            <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
+            <CardContent className="p-6 pt-0 space-y-4">
+                <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">The matrix suggests a fee that covers studio time value, materials, and intended staff earnings.</p>
+                <div className="grid gap-2">
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.id} className="flex justify-between items-center bg-white p-3 rounded-xl border-2 border-transparent hover:border-primary/10 transition-all shadow-sm">
+                            <div className="text-left">
+                                <p className="text-[10px] font-black uppercase text-slate-900">{tier.name}</p>
+                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Basis: Time + Mats + Labor</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-black font-mono text-primary text-sm">${tier.target.toFixed(2)}</p>
+                                <p className="text-[8px] font-black uppercase text-primary/40">Target Recovery</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
 
 const Step1 = ({ 
     categories, 
@@ -129,7 +199,7 @@ const Step1 = ({
     
     return (
         <div className="space-y-10">
-            <SectionHeader icon={Activity} title="Identity & Type" />
+            <SectionHeader icon={Activity} title="Identity & Type" step={1} />
             <div className="space-y-6 text-left">
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/[0.03] border-primary/10 shadow-sm transition-all has-[:checked]:bg-primary/5 has-[:checked]:border-primary/20">
                     <div className='space-y-1'>
@@ -148,19 +218,20 @@ const Step1 = ({
                 <div className="space-y-2">
                     <Label htmlFor="category-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Library Department</Label>
                     {isAddingCategory ? (
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 text-left">
                             <Input placeholder="NEW CATEGORY..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} className="h-12 rounded-xl border-2 font-black uppercase text-xs" />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
+                            <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-slate-400 font-bold uppercase text-[10px]">Cancel</Button>
                         </div>
                     ) : (
-                        <div className="flex gap-2">
+                        <div className="flex gap-3">
                             <Controller name="category" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5"> <SelectValue placeholder="SELECT DEPARTMENT" /> </SelectTrigger>
+                                    <SelectTrigger className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5 flex-1"> <SelectValue placeholder="SELECT DEPARTMENT" /> </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl"> {categories.map(cat => ( <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem> ))} </SelectContent>
                                 </Select>
                             )}/>
-                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2"> <PlusCircle className="h-5 w-5" /> </Button>
+                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2 shrink-0"><PlusCircle className="h-6 w-6 opacity-40"/></Button>
                         </div>
                     )}
                 </div>
@@ -180,12 +251,12 @@ const Step1 = ({
                     </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="description-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Clinical Description</Label>
                     <Textarea id="description-edit" placeholder="Describe the service objectives..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Menu Visual</Label>
                     <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
                 </div>
@@ -255,7 +326,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
 
     return (
         <div className="space-y-10">
-            <SectionHeader icon={Calculator} title="Formula & Resources" />
+            <SectionHeader icon={Calculator} title="Formula & Resources" step={2} />
             <div className="space-y-8 text-left">
                 <div className="space-y-4">
                     <div className='flex items-center justify-between px-1'>
@@ -273,7 +344,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                                 const unit = inventoryItem?.costingMethod === 'uses' ? (inventoryItem.useUnit || 'uses') : (inventoryItem?.unit || 'ml');
                                 return (
                                     <div key={product.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
-                                        <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{product.name}</span>
+                                        <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{product.name}</span>
                                         <div className="flex items-center gap-3">
                                             <div className="flex items-center gap-2">
                                                 <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
@@ -424,8 +495,8 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
 
     return (
         <div className="space-y-10">
-            <SectionHeader icon={DollarSign} title="Yield & Logic" />
-            <div className="space-y-8">
+            <SectionHeader icon={DollarSign} title="Yield & Logic" step={3} />
+            <div className="space-y-8 text-left">
                 <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
                     <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm">
                         <div className="flex justify-between items-center">
@@ -475,43 +546,117 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                             ))}
                         </RadioGroup>
                     )}/>
-                    {['deposit', 'breakeven'].includes(depositType!) && (
-                        <Card className="bg-muted/10 border-2 rounded-[2rem] shadow-inner mt-2">
-                            <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                {depositType === 'deposit' && (
-                                    <div className="space-y-2 text-left">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Calculation</Label>
-                                        <Controller name="depositSubType" control={control} render={({ field }) => (
-                                            <Select onValueChange={field.onChange} value={field.value}>
-                                                <SelectTrigger className="h-12 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger>
-                                                <SelectContent className="rounded-xl border-2 shadow-2xl"><SelectItem value="flat" className="font-bold">FLAT RATE</SelectItem><SelectItem value="percentage" className="font-bold">PERCENTAGE</SelectItem></SelectContent>
-                                            </Select>
-                                        )}/>
-                                    </div>
-                                )}
-                                <div className="space-y-2 text-left">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Allotment</Label>
-                                    <Controller name="depositAmount" control={control} render={({ field }) => (
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
-                                            <Input type="number" step="0.01" placeholder="25.00" {...field} value={field.value ?? ''} className="h-12 pl-8 rounded-xl border-2 font-black text-lg shadow-inner bg-white" disabled={depositType === 'breakeven'}/>
+                    <AnimatePresence>
+                        {['deposit', 'breakeven'].includes(depositType!) && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                                <Card className="bg-muted/10 border-2 rounded-[2rem] shadow-inner mt-2">
+                                    <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        {depositType === 'deposit' && (
+                                            <div className="space-y-2 text-left">
+                                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Calculation</Label>
+                                                <Controller name="depositSubType" control={control} render={({ field }) => (
+                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                        <SelectTrigger className="h-12 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger>
+                                                        <SelectContent className="rounded-xl border-2 shadow-2xl"><SelectItem value="flat" className="font-bold">FLAT RATE</SelectItem><SelectItem value="percentage" className="font-bold">PERCENTAGE</SelectItem></SelectContent>
+                                                    </Select>
+                                                )}/>
+                                            </div>
+                                        )}
+                                        <div className="space-y-2 text-left">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Allotment</Label>
+                                            <Controller name="depositAmount" control={control} render={({ field }) => (
+                                                <div className="relative">
+                                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
+                                                    <Input type="number" step="0.01" placeholder="25.00" {...field} value={field.value ?? ''} className="h-12 pl-8 rounded-xl border-2 font-black text-lg shadow-inner bg-white" disabled={depositType === 'breakeven'}/>
+                                                </div>
+                                            )} />
                                         </div>
-                                    )} />
-                                </div>
-                            </CardContent>
-                        </Card>
-                    )}
+                                    </CardContent>
+                                </Card>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </div>
         </div>
     );
 };
 
-const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
+const RecoveryTargetMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, staff }: { pricingTiers: PricingTier[], currentValues: any, tmhr: number, taxBurden: number, staff: Staff[] }) => {
+    const { inventory } = useInventory();
+    
+    const materialCost = useMemo(() => {
+        return (currentValues.products || []).reduce((acc: number, p: any) => {
+            const product = inventory.find(i => i.id === p.id);
+            let cpu = 0;
+            if (product) {
+                if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
+                else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
+                else cpu = product.costPerUnit || 0;
+            }
+            return acc + (cpu * (p.quantityUsed || 1));
+        }, 0);
+    }, [currentValues.products, inventory]);
+
+    const tierAnalysis = useMemo(() => {
+        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+            const tierConfig = currentValues.serviceTiers?.find((t: any) => t.tierId === tier.id);
+            const price = tierConfig ? tierConfig.price : (currentValues.price || 0);
+            const duration = tierConfig ? tierConfig.durationMinutes : (currentValues.duration || 60);
+            
+            const timeValue = (duration / 60) * tmhr;
+            
+            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
+            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
+                let labor = 0;
+                if (s.payStructure === 'commission') labor = price * (s.commissionRate / 100);
+                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (duration / 60) * s.hourlyRate;
+                return acc + (labor * (1 + (taxBurden / 100)));
+            }, 0) / (relevantStaff.length || 1);
+
+            return {
+                id: tier.id,
+                name: tier.name,
+                target: timeValue + materialCost + avgLaborRecovery,
+                breakdown: { timeValue, materialCost, labor: avgLaborRecovery }
+            };
+        });
+    }, [pricingTiers, currentValues, tmhr, materialCost, staff, taxBurden]);
+
+    return (
+        <Card className="border-2 rounded-[2rem] bg-muted/10 overflow-hidden shadow-inner">
+            <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
+            <CardContent className="p-6 pt-0 space-y-4">
+                <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">The matrix suggests a fee that covers studio time value, materials, and intended staff earnings.</p>
+                <div className="grid gap-2">
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.id} className="flex justify-between items-center bg-white p-3 rounded-xl border-2 border-transparent hover:border-primary/10 transition-all shadow-sm">
+                            <div className="text-left">
+                                <p className="text-[10px] font-black uppercase text-slate-900">{tier.name}</p>
+                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Basis: Time + Mats + Labor</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-black font-mono text-primary text-sm">${tier.target.toFixed(2)}</p>
+                                <p className="text-[8px] font-black uppercase text-primary/40">Target Recovery</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
+const Step4 = ({ consentForms, pricingTiers, breakEvenCost }: { consentForms: ConsentForm[], pricingTiers: PricingTier[], breakEvenCost: number }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
+    const { staff } = useInventory();
+    const { selectedTenant } = useTenant();
+    const tmhr = selectedTenant?.tmhr || 50;
+    const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
+    const currentValues = watch();
+    
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
-    
     const requiredForms = consentForms?.filter(f => requiredFormIds.includes(f.id)) || [];
 
     const handleRemoveForm = (formId: string) => {
@@ -519,46 +664,77 @@ const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     };
 
     return (
-        <div className="space-y-10">
-            <SectionHeader icon={ShieldCheck} title="Compliance & Post-Op" />
-            <div className="space-y-8 text-left">
-                <div className="space-y-2">
-                    <Label htmlFor="confirmationMessage-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Confirmation Message</Label>
-                    <Textarea id="confirmationMessage-edit" placeholder="Specific post-booking instructions..." {...register('confirmationMessage')} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" />
-                </div>
-                
-                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
-                    <div className='space-y-1'>
-                        <Label htmlFor="private-service-edit" className="text-lg font-black uppercase tracking-tight">Private Listing</Label>
-                        <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Hide from the public booking directory</p>
+        <div className="space-y-12">
+            <div className="space-y-10">
+                <SectionHeader icon={ShieldCheck} title="Cancellation Policy Override" step={4} />
+                <div className="space-y-8 text-left">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                        <div className="space-y-3">
+                            <Label htmlFor="cancel-window-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Notice Window (Hours)</Label>
+                            <Input id="cancel-window-edit" type="number" placeholder="Inherit Studio Default" {...register('cancellationWindowHours')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
+                        </div>
+                        <div className="space-y-3">
+                            <Label htmlFor="custom-fee-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Override Fee ($)</Label>
+                            <div className="relative">
+                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                <Input id="custom-fee-edit" type="number" step="0.01" placeholder="Inherit Matrix" {...register('customCancellationFee')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" />
+                            </div>
+                        </div>
                     </div>
-                    <Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
-                </div>
 
-                <div className="space-y-4">
-                    <div className='flex items-center justify-between px-1'>
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                            <ListChecks className="w-3.5 h-3.5 opacity-40" /> Required Agreements
-                        </Label>
-                        <Button variant="ghost" size="sm" onClick={() => setIsConsentFormBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
-                            <PlusCircle className="w-3 h-3 mr-1.5" /> Browse Library
-                        </Button>
+                    <RecoveryTargetMatrix 
+                        pricingTiers={pricingTiers} 
+                        currentValues={currentValues} 
+                        tmhr={tmhr} 
+                        taxBurden={taxBurden} 
+                        staff={staff} 
+                    />
+                </div>
+            </div>
+
+            <Separator className="border-dashed" />
+
+            <div className="space-y-10">
+                <SectionHeader icon={ListChecks} title="Logistics & Post-Op" step={5} />
+                <div className="space-y-8 text-left">
+                    <div className="space-y-2">
+                        <Label htmlFor="confirmationMessage-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Confirmation Message</Label>
+                        <Textarea id="confirmationMessage-edit" placeholder="Specific post-booking instructions..." {...register('confirmationMessage')} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" />
                     </div>
-                    {requiredForms.length > 0 ? (
-                        <div className="grid grid-cols-1 gap-2">
-                            {requiredForms.map(form => (
-                                <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
-                                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveForm(form.id)}><Trash2 className="w-4 h-4" /></Button>
-                                </div>
-                            ))}
+                    
+                    <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
+                        <div className='space-y-1'>
+                            <Label htmlFor="private-service-edit" className="text-lg font-black uppercase tracking-tight">Private Listing</Label>
+                            <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Hide from the public booking directory</p>
                         </div>
-                    ) : (
-                        <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                            <FileText className="w-12 h-12" />
-                            <p className="text-[10px] font-black uppercase tracking-widest">No Legal Requirements</p>
+                        <Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className='flex items-center justify-between px-1'>
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                <ListChecks className="w-3.5 h-3.5 opacity-40" /> Required Agreements
+                            </Label>
+                            <Button variant="ghost" size="sm" onClick={() => setIsConsentFormBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                                <PlusCircle className="w-3 h-3 mr-1.5" /> Browse Library
+                            </Button>
                         </div>
-                    )}
+                        {requiredForms.length > 0 ? (
+                            <div className="grid grid-cols-1 gap-2">
+                                {requiredForms.map(form => (
+                                    <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
+                                        <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveForm(form.id)}><Trash2 className="w-4 h-4" /></Button>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                <FileText className="w-12 h-12" />
+                                <p className="text-[10px] font-black uppercase tracking-widest">No Legal Requirements</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
             <BrowseConsentFormsDialog open={isConsentFormBrowserOpen} onOpenChange={setIsConsentFormBrowserOpen} onSelect={(forms) => { setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true }); }} allForms={consentForms || []} initialSelected={requiredForms} />
@@ -589,6 +765,7 @@ export const EditServiceDialog: React.FC<any> = ({
     if (service && open) {
         methods.reset({
             id: service.id, name: service.name, type: service.type, isAddon: service.type === 'addon', isPrivate: service.isPrivate, category: service.category, duration: service.duration, padBefore: service.padBefore, padAfter: service.padAfter, description: service.description, imageUrl: service.imageUrl, price: service.price, serviceTiers: service.serviceTiers || [], products: service.products || [], requiredResourceIds: service.requiredResourceIds || [], compatibleAddOnIds: service.compatibleAddOnIds || [], depositType: service.depositType || 'none', depositSubType: service.depositSubType, depositAmount: service.depositAmount, confirmationMessage: service.confirmationMessage || '', requiredFormIds: service.requiredFormIds || [], capacity: service.capacity,
+            cancellationWindowHours: service.cancellationWindowHours, customCancellationFee: service.customCancellationFee,
         });
       setStep(1);
     }
@@ -644,9 +821,9 @@ export const EditServiceDialog: React.FC<any> = ({
         <ScrollArea className="flex-1">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
-                {step === 2 && <Step2 resources={resources} allServices={allServices} />}
+                {step === 2 && <Step2 resources={resources} allServices={services} />}
                 {step === 3 && <Step3 breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />}
-                {step === 4 && <Step4 consentForms={consentForms || []} />}
+                {step === 4 && <Step4 consentForms={consentForms || []} pricingTiers={pricingTiersData || []} breakEvenCost={breakEvenCost} />}
             </div>
         </ScrollArea>
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>

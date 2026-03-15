@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -46,7 +47,9 @@ import {
     ListOrdered,
     Shield,
     Undo2,
-    CalendarDays
+    CalendarDays,
+    TrendingDown,
+    Landmark
 } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse, endOfDay } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type ConsentForm } from '@/lib/data';
@@ -107,7 +110,7 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
     </CardHeader>
 );
 
-const RescheduleView = ({ appointment, service, staff, schedule, allAppointments, onConfirm, onCancel }: any) => {
+const RescheduleView = ({ appointment, service, staff, schedule, allAppointments, onConfirm, onCancel, recoveryFee }: any) => {
     const [date, setDate] = useState<Date>(safeDate(appointment.startTime));
     const [time, setTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
     const [isSaving, setIsSaving] = useState(false);
@@ -157,6 +160,16 @@ const RescheduleView = ({ appointment, service, staff, schedule, allAppointments
         <ViewContainer>
             <ViewHeader title="Reschedule" subtitle="Shift your window" icon={Undo2} />
             <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                {recoveryFee > 0 && (
+                    <div className="p-5 rounded-2xl bg-destructive/5 border-2 border-destructive/10 space-y-2 shadow-inner">
+                        <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Protocol Adjustment Fee</p>
+                        <div className="flex justify-between items-baseline">
+                            <p className="text-3xl font-black text-destructive tracking-tighter font-mono">${recoveryFee.toFixed(2)}</p>
+                            <Badge className="bg-destructive text-white border-none text-[8px] h-5 font-black uppercase">Late Move</Badge>
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase opacity-80 pt-2 border-t border-destructive/10">This fee covers the reserved studio overhead for your original window.</p>
+                    </div>
+                )}
                 <div className="rounded-[2rem] border-2 bg-muted/10 p-6 space-y-6 shadow-inner text-center">
                     <div className="flex justify-between items-center px-2">
                         <Button variant="outline" size="icon" className="h-8 w-8 rounded-full" onClick={() => setDate(subWeeks(date, 1))}><ChevronLeft className="w-4 h-4" /></Button>
@@ -181,7 +194,7 @@ const RescheduleView = ({ appointment, service, staff, schedule, allAppointments
                 </div>
             </CardContent>
             <CardFooter className="p-6 md:p-8 pt-0 flex flex-col gap-3">
-                <Button onClick={handleAction} disabled={!time || isSaving} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl">
+                <Button onClick={handleAction} disabled={!time || isSaving} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">
                     {isSaving ? <Loader className="animate-spin" /> : 'Confirm New Window'}
                 </Button>
                 <Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase text-[10px] text-muted-foreground">Go Back</Button>
@@ -190,16 +203,40 @@ const RescheduleView = ({ appointment, service, staff, schedule, allAppointments
     );
 };
 
-const CancelView = ({ onConfirm, onCancel }: { onConfirm: () => void, onCancel: () => void }) => (
+const CancelView = ({ onConfirm, onCancel, recoveryFee, items }: { onConfirm: () => void, onCancel: () => void, recoveryFee: number, items: any[] }) => (
     <ViewContainer>
         <ViewHeader title="Cancel" subtitle="Protocol Termination" icon={Ban} />
-        <CardContent className="p-10 text-center space-y-8">
-            <div className="w-20 h-20 bg-destructive/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl rotate-12">
+        <CardContent className="p-8 md:p-10 text-center space-y-10">
+            <div className="w-20 h-20 bg-destructive/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl rotate-12">
                 <AlertTriangle className="w-10 h-10 text-destructive -rotate-12" />
             </div>
-            <div className="space-y-2">
-                <h3 className="text-xl font-black uppercase tracking-tight">Confirm Cancellation?</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase">This will void your reserved window. Late cancellation fees may apply based on studio policy.</p>
+            
+            <div className="space-y-4">
+                <div className="space-y-1">
+                    <h3 className="text-xl font-black uppercase tracking-tight text-slate-900">Confirm Cancellation?</h3>
+                    <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase opacity-60">This will void your reserved studio window.</p>
+                </div>
+
+                {recoveryFee > 0 && (
+                    <div className="p-6 rounded-[2.5rem] bg-destructive/5 border-2 border-destructive/10 space-y-4 shadow-inner text-left">
+                        <div className="flex justify-between items-center px-1">
+                            <p className="text-[9px] font-black uppercase text-destructive tracking-[0.2em]">Protocol Recovery Manifest</p>
+                            <Badge className="bg-destructive text-white border-none h-4 px-1.5 font-black text-[7px] uppercase">LATE NOTICE</Badge>
+                        </div>
+                        <div className="space-y-2">
+                            {items.map((item, idx) => (
+                                <div key={idx} className="flex justify-between items-center text-[10px] font-bold uppercase opacity-80 border-b border-destructive/10 pb-2 last:border-0 last:pb-0">
+                                    <span className="truncate pr-2">{item.name} Overhead</span>
+                                    <span className="font-mono text-destructive">${item.fee.toFixed(2)}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="pt-4 border-t-2 border-dashed border-destructive/20 flex justify-between items-baseline px-1">
+                            <span className="text-[10px] font-black uppercase text-destructive">Total Account Burden</span>
+                            <span className="text-3xl font-black font-mono text-destructive tracking-tighter">${recoveryFee.toFixed(2)}</span>
+                        </div>
+                    </div>
+                )}
             </div>
         </CardContent>
         <CardFooter className="p-8 pt-0 flex flex-col gap-3">
@@ -228,14 +265,14 @@ const WelcomeOnboardingView = ({ client, service, tenant, needsDeposit, needsInt
                     { label: 'Secure Retainer', status: needsDeposit ? 'pending' : 'certified', icon: CreditCard, color: needsDeposit ? 'text-amber-600' : 'text-green-600' },
                     { label: 'Professional Intake', status: needsIntake ? 'pending' : 'certified', icon: FileSignature, color: needsIntake ? 'text-amber-600' : 'text-green-600' },
                 ].map((step, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-muted/20 border-2 border-transparent">
+                    <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-muted/20 border-2 border-transparent shadow-sm">
                         <div className="flex items-center gap-3">
                             <div className={cn("p-2 rounded-xl bg-white shadow-inner", step.color)}>
                                 <step.icon className="w-4 h-4" />
                             </div>
                             <span className="text-xs font-black uppercase tracking-tight text-slate-700">{step.label}</span>
                         </div>
-                        <Badge variant="outline" className={cn("text-[8px] font-black uppercase h-5 px-2", step.status === 'certified' ? "bg-green-500 text-white border-none" : "bg-white")}>
+                        <Badge variant="outline" className={cn("text-[8px] font-black uppercase h-5 px-2 shadow-sm border-2", step.status === 'certified' ? "bg-green-500 text-white border-green-600" : "bg-white")}>
                             {step.status === 'certified' ? 'Certified' : 'Required'}
                         </Badge>
                     </div>
@@ -243,7 +280,7 @@ const WelcomeOnboardingView = ({ client, service, tenant, needsDeposit, needsInt
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-4">
-                <Button variant="outline" onClick={onReschedule} className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                <Button variant="outline" onClick={onReschedule} className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm hover:bg-primary/[0.03]">
                     <Undo2 className="w-3.5 h-3.5 mr-2 opacity-40" /> Reschedule
                 </Button>
                 <Button variant="outline" onClick={onCancel} className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm text-destructive hover:bg-destructive/5 border-destructive/20">
@@ -385,7 +422,7 @@ const ReviewFormView = ({ onSubmit, onCancel, serviceName, staffName }: { onSubm
     return (
         <ViewContainer>
             <ViewHeader title="Feedback" subtitle={`How was your ${serviceName}?`} icon={Star} />
-            <CardContent className="p-8 space-y-8 text-center"><div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-center">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div><div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px]" value={text} onChange={(e) => setText(e.target.value)} /></div></CardContent>
+            <CardContent className="p-8 space-y-8 text-center"><div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-center">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div><div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px]" value={text} onChange={(e) => setText(text)} /></div></CardContent>
             <CardFooter className="p-8 pt-0 flex flex-col gap-3"><Button onClick={() => onSubmit(rating, text)} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30">Submit Review</Button><Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase tracking-widest text-[10px]">Maybe Later</Button></CardFooter>
         </ViewContainer>
     );
@@ -423,11 +460,69 @@ export default function CheckInPage() {
     const [isRescheduleFlow, setIsRescheduleFlow] = useState(false);
     const [reviewSubmitted, setReviewSubmitted] = useState(false);
     const [showBirthdayCelebration, setShowBirthdayCelebration] = useState(false);
+    const [birthdayName, setBirthdayName] = useState('');
     const [isIntakeFlow, setIsIntakeFlow] = useState(false);
     const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
 
     const appointment = useMemo(() => appointmentData ? { ...appointmentData, startTime: safeDate(appointmentData.startTime), endTime: safeDate(appointmentData.endTime) } : null, [appointmentData]);
-    const isTodayAppointment = useMemo(() => appointment ? isToday(appointment.startTime) : false, [appointment]);
+    
+    const recoveryFeeItems = useMemo(() => {
+        if (!appointment || !service || !tenant) return [];
+        const tmhr = tenant.tmhr || 50;
+        const mainFee = service.customCancellationFee || (service.duration / 60) * tmhr;
+        return [{ name: service.name, fee: mainFee }];
+    }, [appointment, service, tenant]);
+
+    const totalRecoveryFee = useMemo(() => recoveryFeeItems.reduce((acc, i) => acc + i.fee, 0), [recoveryFeeItems]);
+
+    useEffect(() => { if (appointment?.checkInStatus) { setCurrentStatus(appointment.checkInStatus); if (appointment.checkInStatus === 'running_late') setLateTime(appointment.lateTimeMinutes || 0); } }, [appointment]);
+
+    const handleUpdateStatus = (newStatus: Appointment['checkInStatus'], lateMinutes?: number) => {
+        if (!appointment || !firestore || !tenantId || !tenant) return;
+        if (newStatus === 'arrived' && requiredForms.length > 0) { setIsIntakeFlow(true); return; }
+        const tmhr = tenant.tmhr || 50;
+        const grace = tenant.lateArrivalGracePeriod || 15;
+        const updateData: Partial<Appointment> = { checkInStatus: newStatus };
+        if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
+        const batch = writeBatch(firestore);
+        
+        if (newStatus === 'running_late' && lateMinutes && lateMinutes > grace) {
+            const fee = Math.ceil((lateMinutes / 60) * tmhr);
+            if (appointment.clientId && fee > 0) batch.update(doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: appointment.id, appointmentDate: safeDate(appointment.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Overhead Recovery (+${lateMinutes}m)` }) });
+        }
+        batch.update(doc(firestore, 'appointmentCheckIns', token), updateData);
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), updateData);
+        batch.commit().then(() => { setCurrentStatus(newStatus); });
+    };
+
+    const handleConfirmCancel = async () => {
+        if (!appointment || !firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        const updates = { status: 'cancelled' as const, cancellationReason: 'client_request' as const, cancellationFeeApplied: totalRecoveryFee };
+        batch.update(doc(firestore, 'appointmentCheckIns', token), updates);
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), updates);
+        if (totalRecoveryFee > 0 && appointment.clientId) {
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId), { outstandingBalance: increment(totalRecoveryFee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: appointment.id, appointmentDate: safeDate(appointment.startTime).toISOString(), feeAmount: totalRecoveryFee, reason: 'Late Cancellation Overhead Recovery' }) });
+        }
+        await batch.commit();
+        setIsCancelFlow(false);
+        toast({ title: "Appointment Cancelled" });
+    };
+
+    const handleConfirmReschedule = async (newStart: string, newEnd: string) => {
+        if (!appointment || !firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        const fee = totalRecoveryFee; // Applied if within window
+        const updates = { startTime: newStart, endTime: newEnd, status: 'confirmed' as const };
+        batch.update(doc(firestore, 'appointmentCheckIns', token), updates);
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), updates);
+        if (fee > 0 && appointment.clientId) {
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: appointment.id, appointmentDate: safeDate(appointment.startTime).toISOString(), feeAmount: fee, reason: 'Reschedule Adjustment Protocol' }) });
+        }
+        await batch.commit();
+        setIsRescheduleFlow(false);
+        toast({ title: "Appointment Rescheduled" });
+    };
 
     const requiredForms = useMemo(() => {
         if (!service || !consentForms) return [];
@@ -442,79 +537,15 @@ export default function CheckInPage() {
         return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
     }, [client?.birthday]);
 
-    useEffect(() => { if (appointment?.checkInStatus) { setCurrentStatus(appointment.checkInStatus); if (appointment.checkInStatus === 'running_late') setLateTime(appointment.lateTimeMinutes || 0); } }, [appointment]);
-
-    const handleUpdateStatus = (newStatus: Appointment['checkInStatus'], lateMinutes?: number) => {
-        if (!appointment || !firestore || !tenantId || !tenant) return;
-        if (newStatus === 'arrived' && requiredForms.length > 0) { setIsIntakeFlow(true); return; }
-        const tmhr = tenant.tmhr || 50;
-        const grace = tenant.lateArrivalGracePeriod || 15;
-        const autoCancelEnabled = tenant.autoCancelLateArrivals !== false;
-        const updateData: Partial<Appointment> = { checkInStatus: newStatus };
-        if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
-        const batch = writeBatch(firestore);
-        if (newStatus === 'running_late' && lateMinutes && lateMinutes > grace) {
-            const totalDur = (service?.duration || 60);
-            let hasConflict = false;
-            if (appointment.staffId && allAppointments) {
-                const theoreticalEnd = addMinutes(safeDate(appointment.startTime), lateMinutes + totalDur);
-                const nextApt = allAppointments.filter(a => a.staffId === appointment.staffId && a.id !== appointment.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > safeDate(appointment.startTime)).sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
-                if (nextApt && theoreticalEnd > safeDate(nextApt.startTime)) hasConflict = true;
-            }
-            if (autoCancelEnabled || hasConflict) {
-                const fee = Math.ceil((totalDur / 60) * tmhr);
-                (updateData as any).status = 'cancelled'; (updateData as any).cancellationReason = hasConflict ? 'clash' : 'late'; (updateData as any).cancellationFeeApplied = fee; (updateData as any).cancellationPaymentStatus = 'unpaid';
-                if (appointment.clientId && fee > 0) batch.update(doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: appointment.id, appointmentDate: safeDate(appointment.startTime).toISOString(), feeAmount: fee, reason: `Auto-Cancel: ${hasConflict ? 'Schedule Conflict' : 'Late Arrival'}` }) });
-            }
-        }
-        batch.update(doc(firestore, 'appointmentCheckIns', token), updateData);
-        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), updateData);
-        batch.commit().then(() => { setCurrentStatus(newStatus); if (newStatus === 'arrived' && isBirthdayToday) setShowBirthdayCelebration(true); });
-    };
-
-    const handleConfirmCancel = async () => {
-        if (!appointment || !firestore || !tenantId) return;
-        const batch = writeBatch(firestore);
-        batch.update(doc(firestore, 'appointmentCheckIns', token), { status: 'cancelled', cancellationReason: 'client_request' });
-        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { status: 'cancelled', cancellationReason: 'client_request' });
-        await batch.commit();
-        setIsCancelFlow(false);
-        toast({ title: "Appointment Cancelled" });
-    };
-
-    const handleConfirmReschedule = async (newStart: string, newEnd: string) => {
-        if (!appointment || !firestore || !tenantId) return;
-        const batch = writeBatch(firestore);
-        const updates = { startTime: newStart, endTime: newEnd, status: 'confirmed' as const };
-        batch.update(doc(firestore, 'appointmentCheckIns', token), updates);
-        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), updates);
-        await batch.commit();
-        setIsRescheduleFlow(false);
-        toast({ title: "Appointment Rescheduled" });
-    };
-
-    const handleCompleteIntake = async () => {
-        if (!appointment || !firestore || !tenantId || !client) return;
-        const batch = writeBatch(firestore);
-        Object.entries(formAnswers).forEach(([formId, answers]) => {
-            const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
-            const template = consentForms?.find(f => f.id === formId);
-            batch.set(consentDocRef, { id: consentDocRef.id, formId, formTitle: template?.title || 'Signed Form', clientId: client.id, signedAt: new Date().toISOString(), formData: answers });
-        });
-        batch.update(doc(firestore, 'appointmentCheckIns', token), { checkInStatus: 'arrived' });
-        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { checkInStatus: 'arrived' });
-        await batch.commit(); setIsIntakeFlow(false); setCurrentStatus('arrived'); if (isBirthdayToday) setShowBirthdayCelebration(true);
-    };
-
     if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) return <div className="flex flex-col items-center gap-4"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest opacity-60">Initializing Portal...</p></div>;
-    if (isCancelFlow) return <CancelView onConfirm={handleConfirmCancel} onCancel={() => setIsCancelFlow(false)} />;
-    if (isRescheduleFlow) return <RescheduleView appointment={appointment} service={service} staff={staff || []} schedule={scheduleProfiles?.[0]} allAppointments={allAppointments || []} onConfirm={handleConfirmReschedule} onCancel={() => setIsRescheduleFlow(false)} />;
-    if (reviewSubmitted) return <ReviewSubmittedView onDone={() => { setReviewSubmitted(false); setIsReviewFlow(false); }} />;
-    if (isReviewFlow) return <ReviewFormView serviceName={service.name} staffName={assignedStaff?.name || 'your pro'} onSubmit={(r, t) => { if (!appointment || !tenantId || !firestore) return; const id = nanoid(); setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/reviews`, id), { id, tenantId, clientId: appointment.clientId, clientName: client?.name || 'Guest', clientAvatarUrl: client?.avatarUrl || '', staffId: appointment.staffId || '', serviceId: appointment.serviceId, serviceName: service?.name || 'Service', rating: r, text: t, isPublic: false, isFeatured: false, createdAt: new Date().toISOString() }, {}); setReviewSubmitted(true); }} onCancel={() => setIsReviewFlow(false)} />;
+    
+    if (isCancelFlow) return <CancelView onConfirm={handleConfirmCancel} onCancel={() => setIsCancelFlow(false)} recoveryFee={totalRecoveryFee} items={recoveryFeeItems} />;
+    if (isRescheduleFlow) return <RescheduleView appointment={appointment} service={service} staff={staff || []} schedule={scheduleProfiles?.[0]} allAppointments={allAppointments || []} onConfirm={handleConfirmReschedule} onCancel={() => setIsRescheduleFlow(false)} recoveryFee={totalRecoveryFee} />;
+    
     if (appointment?.status === 'cancelled' || currentStatus === 'auto_cancelled') return <CancelledView tenantId={tenant?.id} fee={appointment.cancellationFeeApplied} />;
     if (!hasStarted && appointment?.status !== 'completed' && appointment?.status !== 'servicing' && appointment?.status !== 'ready_for_checkout') return <WelcomeOnboardingView client={client} service={service} tenant={tenant} needsDeposit={appointment?.status === 'deposit_pending'} needsIntake={requiredForms.length > 0} onStart={() => setHasStarted(true)} onReschedule={() => setIsRescheduleFlow(true)} onCancel={() => setIsCancelFlow(true)} />;
-    if (appointment?.status === 'deposit_pending') return <DepositPaymentView amount={appointment.cancellationFeeApplied || 0} onComplete={async () => { if (!appointment || !firestore || !tenantId || !client) return; const batch = writeBatch(firestore); batch.update(doc(firestore, 'appointmentCheckIns', token), { status: 'confirmed' }); batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { status: 'confirmed' }); await batch.commit(); toast({ title: "Retainer Secured" }); }} />;
-    if (isIntakeFlow) return <IntakeView requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} onComplete={handleCompleteIntake} />;
+    
+    if (isIntakeFlow) return <IntakeView requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} onComplete={() => { setIsIntakeFlow(false); setCurrentStatus('arrived'); handleUpdateStatus('arrived'); }} />;
     if (showBirthdayCelebration) return <BirthdayCelebrationView clientName={client?.name || 'Guest'} onDone={() => setShowBirthdayCelebration(false)} />;
     if (appointment?.status === 'servicing') return <ServicingView serviceName={service?.name || 'Service'} />;
     if (appointment?.status === 'ready_for_checkout') return <CheckoutView qrCodeUrl={`https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`} ticketId={appointment.id.slice(-6).toUpperCase()} />;
@@ -539,34 +570,24 @@ export default function CheckInPage() {
                     )}
                 </div>
 
-                {isTodayAppointment ? (
-                    <div className="space-y-6">
-                        {showLateOptions ? (
-                            <div className="space-y-8">
-                                <h4 className="text-lg font-black uppercase tracking-tighter text-center text-slate-900">Estimated Delay?</h4>
-                                <RadioGroup value={lateTime > 0 ? String(lateTime) : undefined} onValueChange={(val) => setLateTime(parseInt(val))} className="grid grid-cols-4 gap-3">{['5', '10', '15', '20'].map(m => (<div key={m}><RadioGroupItem value={m} id={`late-${m}`} className="peer sr-only" /><Label htmlFor={`late-${m}`} className="flex items-center justify-center h-14 rounded-2xl border-4 border-muted font-black text-lg cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary hover:bg-muted/50">{m === '20' ? '20+' : m}</Label></div>))}</RadioGroup>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><button className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Back</button><Button onClick={() => handleUpdateStatus('running_late', lateTime)} disabled={lateTime === 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/20">Update Arrival</Button></div>
+                <div className="space-y-6">
+                    {currentStatus === 'pending' ? (
+                        <div className="flex flex-col gap-4">
+                            <div className="grid grid-cols-2 gap-4"><Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-20 rounded-3xl border-4 font-black uppercase tracking-widest text-xs flex flex-col gap-2"><Clock className="h-6 w-6 opacity-40" />Running Late</Button><Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-20 rounded-3xl border-4 border-primary/20 bg-primary/5 text-primary font-black uppercase tracking-widest text-xs flex flex-col gap-2 shadow-inner"><Car className="h-6 w-6" />On My Way</Button></div>
+                            <Button size="lg" variant="default" onClick={() => handleUpdateStatus('arrived')} className="h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30 active:scale-95 transition-all"><MapPin className="mr-3 h-6 w-6" />I Have Arrived</Button>
+                        </div>
+                    ) : (
+                        <div className="p-10 bg-primary/5 border-4 border-primary/20 rounded-[3rem] text-center space-y-6 shadow-xl">
+                            <div className={cn("w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl rotate-6", currentStatus === 'arrived' ? "bg-green-500 shadow-green-500/20" : "bg-amber-500 shadow-amber-500/20")}>
+                                {currentStatus === 'arrived' ? <CheckCircle2 className="w-14 h-14 text-white -rotate-6" /> : <Clock className="w-14 h-14 text-white -rotate-6 animate-pulse" />}
                             </div>
-                        ) : currentStatus === 'pending' ? (
-                            <div className="flex flex-col gap-4">
-                                <div className="grid grid-cols-2 gap-4"><Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-20 rounded-3xl border-4 font-black uppercase tracking-widest text-xs flex flex-col gap-2"><Clock className="h-6 w-6 opacity-40" />Running Late</Button><Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-20 rounded-3xl border-4 border-primary/20 bg-primary/5 text-primary font-black uppercase tracking-widest text-xs flex flex-col gap-2 shadow-inner"><Car className="h-6 w-6" />On My Way</Button></div>
-                                <Button size="lg" variant="default" onClick={() => handleUpdateStatus('arrived')} className="h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30 active:scale-95 transition-all"><MapPin className="mr-3 h-6 w-6" />I Have Arrived</Button>
+                            <div className="space-y-2">
+                                <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{currentStatus === 'arrived' ? 'Arrived' : `Late +${lateTime}m`}</h3>
+                                <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">We've updated our terminal. We'll be with you shortly.</p>
                             </div>
-                        ) : (
-                            <div className="p-10 bg-primary/5 border-4 border-primary/20 rounded-[3rem] text-center space-y-6 shadow-xl">
-                                <div className={cn("w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl rotate-6", currentStatus === 'arrived' ? "bg-green-500 shadow-green-500/20" : "bg-amber-500 shadow-amber-500/20")}>
-                                    {currentStatus === 'arrived' ? <CheckCircle2 className="w-14 h-14 text-white -rotate-6" /> : <Clock className="w-14 h-14 text-white -rotate-6 animate-pulse" />}
-                                </div>
-                                <div className="space-y-2">
-                                    <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{currentStatus === 'arrived' ? 'Arrived' : `Late +${lateTime}m`}</h3>
-                                    <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">We've updated our terminal. We'll be with you shortly.</p>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    <div className="p-8 rounded-[2rem] border-4 border-dashed border-muted text-center space-y-4 opacity-60"><Lock className="w-10 h-10 mx-auto text-muted-foreground opacity-40" /><div className="space-y-1"><p className="font-black uppercase tracking-tight text-sm text-slate-900">Protocol Locked</p><p className="text-[10px] font-bold uppercase text-slate-500 leading-relaxed px-4">Arrival status updates unlock on the day of your appointment.</p></div></div>
-                )}
+                        </div>
+                    )}
+                </div>
             </CardContent>
             <CardFooter className="p-8 pt-0 flex flex-col gap-3">
                 <Button variant="ghost" onClick={() => setIsRescheduleFlow(true)} className="w-full font-black uppercase text-[10px] tracking-widest text-primary">Reschedule Appointment</Button>
@@ -575,3 +596,11 @@ export default function CheckInPage() {
         </ViewContainer>
     );
 }
+
+const ReviewSubmittedView = ({ onDone }: { onDone: () => void }) => (
+    <ViewContainer>
+        <ViewHeader title="Feedback Received" subtitle="Reputation Confirmed" icon={Star} />
+        <CardContent className="p-10 text-center space-y-8"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><CheckCircle2 className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Thank You!</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your story helps us maintain excellence across the studio. We value your input.</p></div></CardContent>
+        <CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30">Close Portal</Button></CardFooter>
+    </ViewContainer>
+);

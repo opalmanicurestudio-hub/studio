@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type ConsentForm, type InventoryItem, type PricingTier, type Resource } from '@/lib/data';
@@ -39,7 +39,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity, ShieldCheck, Target, Percent, Box, MapPin } from 'lucide-react';
+import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight, ListChecks, Activity, ShieldCheck, Target, Percent, Box, MapPin, Users, Zap, Shield } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -53,6 +53,9 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { Separator } from '@/components/ui/separator';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Service name is required'),
@@ -84,6 +87,8 @@ const serviceSchema = z.object({
 
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
+  cancellationWindowHours: z.coerce.number().optional(),
+  customCancellationFee: z.coerce.number().optional(),
 }).superRefine((data, ctx) => {
     const hasTiers = data.serviceTiers && data.serviceTiers.length > 0;
     if (!hasTiers && (data.price === undefined || data.price < 0)) {
@@ -104,6 +109,71 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
         </div>
     </div>
 );
+
+const RecoveryTargetMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, staff }: { pricingTiers: PricingTier[], currentValues: any, tmhr: number, taxBurden: number, staff: Staff[] }) => {
+    const { inventory } = useInventory();
+    
+    const materialCost = useMemo(() => {
+        return (currentValues.products || []).reduce((acc: number, p: any) => {
+            const product = inventory.find(i => i.id === p.id);
+            let cpu = 0;
+            if (product) {
+                if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
+                else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
+                else cpu = product.costPerUnit || 0;
+            }
+            return acc + (cpu * (p.quantityUsed || 1));
+        }, 0);
+    }, [currentValues.products, inventory]);
+
+    const tierAnalysis = useMemo(() => {
+        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+            const tierConfig = currentValues.serviceTiers?.find((t: any) => t.tierId === tier.id);
+            const price = tierConfig ? tierConfig.price : (currentValues.price || 0);
+            const duration = tierConfig ? tierConfig.durationMinutes : (currentValues.duration || 60);
+            
+            const timeValue = (duration / 60) * tmhr;
+            
+            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
+            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
+                let labor = 0;
+                if (s.payStructure === 'commission') labor = price * (s.commissionRate / 100);
+                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (duration / 60) * s.hourlyRate;
+                return acc + (labor * (1 + (taxBurden / 100)));
+            }, 0) / (relevantStaff.length || 1);
+
+            return {
+                id: tier.id,
+                name: tier.name,
+                target: timeValue + materialCost + avgLaborRecovery,
+                breakdown: { timeValue, materialCost, labor: avgLaborRecovery }
+            };
+        });
+    }, [pricingTiers, currentValues, tmhr, materialCost, staff, taxBurden]);
+
+    return (
+        <Card className="border-2 rounded-[2rem] bg-muted/10 overflow-hidden shadow-inner">
+            <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
+            <CardContent className="p-6 pt-0 space-y-4">
+                <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">The matrix suggests a fee that covers studio time value, materials, and intended staff earnings.</p>
+                <div className="grid gap-2">
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.id} className="flex justify-between items-center bg-white p-3 rounded-xl border-2 border-transparent hover:border-primary/10 transition-all shadow-sm">
+                            <div className="text-left">
+                                <p className="text-[10px] font-black uppercase text-slate-900">{tier.name}</p>
+                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Basis: Time + Mats + Labor</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-black font-mono text-primary text-sm">${tier.target.toFixed(2)}</p>
+                                <p className="text-[8px] font-black uppercase text-primary/40">Target Recovery</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
 
 const Step1 = ({ 
     categories, 
@@ -415,6 +485,11 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
 
 const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
+    const { staff } = useInventory();
+    const { selectedTenant } = useTenant();
+    const tmhr = selectedTenant?.tmhr || 50;
+    const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
+    const currentValues = watch();
     const depositType = watch('depositType');
 
     useEffect(() => {
@@ -513,8 +588,14 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
     );
 };
 
-const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
+const Step4 = ({ consentForms, breakEvenCost, pricingTiers }: { consentForms: ConsentForm[], breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
+    const { staff } = useInventory();
+    const { selectedTenant } = useTenant();
+    const tmhr = selectedTenant?.tmhr || 50;
+    const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
+    const currentValues = watch();
+    
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
     
@@ -525,46 +606,77 @@ const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     };
 
     return (
-        <div className="space-y-10">
-            <SectionHeader icon={ShieldCheck} title="Logistics & Compliance" step={4} />
-            <div className="space-y-8 text-left">
-                <div className="space-y-2">
-                    <Label htmlFor="confirmationMessage" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Confirmation Message</Label>
-                    <Textarea id="confirmationMessage" placeholder="Specific post-booking instructions..." {...register('confirmationMessage')} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" />
-                </div>
-                
-                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
-                    <div className='space-y-1'>
-                        <Label htmlFor="private-service" className="text-base font-black uppercase tracking-tight">Private Listing</Label>
-                        <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Hide from the public booking directory</p>
+        <div className="space-y-12">
+            <div className="space-y-10">
+                <SectionHeader icon={ShieldCheck} title="Cancellation Policy Override" step={4} />
+                <div className="space-y-8 text-left">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                        <div className="space-y-3">
+                            <Label htmlFor="cancel-window-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Notice Window (Hours)</Label>
+                            <Input id="cancel-window-edit" type="number" placeholder="Inherit Studio Default" {...register('cancellationWindowHours')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
+                        </div>
+                        <div className="space-y-3">
+                            <Label htmlFor="custom-fee-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Override Fee ($)</Label>
+                            <div className="relative">
+                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                <Input id="custom-fee-edit" type="number" step="0.01" placeholder="Inherit Matrix" {...register('customCancellationFee')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" />
+                            </div>
+                        </div>
                     </div>
-                    <Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
-                </div>
 
-                <div className="space-y-4">
-                    <div className='flex items-center justify-between px-1'>
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                            <ListChecks className="w-3.5 h-3.5 opacity-40" /> Required Agreements
-                        </Label>
-                        <Button variant="ghost" size="sm" onClick={() => setIsConsentFormBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
-                            <PlusCircle className="w-3 h-3 mr-1.5" /> Browse Library
-                        </Button>
+                    <RecoveryTargetMatrix 
+                        pricingTiers={pricingTiers} 
+                        currentValues={currentValues} 
+                        tmhr={tmhr} 
+                        taxBurden={taxBurden} 
+                        staff={staff} 
+                    />
+                </div>
+            </div>
+
+            <Separator className="border-dashed" />
+
+            <div className="space-y-10">
+                <SectionHeader icon={ListChecks} title="Logistics & Compliance" step={5} />
+                <div className="space-y-8 text-left">
+                    <div className="space-y-2">
+                        <Label htmlFor="confirmationMessage" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Confirmation Message</Label>
+                        <Textarea id="confirmationMessage" placeholder="Specific post-booking instructions..." {...register('confirmationMessage')} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
                     </div>
-                    {requiredForms.length > 0 ? (
-                        <div className="grid grid-cols-1 gap-2">
-                            {requiredForms.map(form => (
-                                <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
-                                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveForm(form.id)}><Trash2 className="w-4 h-4" /></Button>
-                                </div>
-                            ))}
+                    
+                    <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
+                        <div className='space-y-1'>
+                            <Label htmlFor="private-service" className="text-base font-black uppercase tracking-tight">Private Listing</Label>
+                            <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Hide from the public booking directory</p>
                         </div>
-                    ) : (
-                        <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                            <FileText className="w-12 h-12" />
-                            <p className="text-[10px] font-black uppercase tracking-widest">No Legal Requirements</p>
+                        <Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className='flex items-center justify-between px-1'>
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                <ListChecks className="w-3.5 h-3.5 opacity-40" /> Required Agreements
+                            </Label>
+                            <Button variant="ghost" size="sm" onClick={() => setIsConsentFormBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                                <PlusCircle className="w-3 h-3 mr-1.5" /> Browse Library
+                            </Button>
                         </div>
-                    )}
+                        {requiredForms.length > 0 ? (
+                            <div className="grid grid-cols-1 gap-2">
+                                {requiredForms.map(form => (
+                                    <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
+                                        <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveForm(form.id)}><Trash2 className="w-4 h-4" /></Button>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                <FileText className="w-12 h-12" />
+                                <p className="text-[10px] font-black uppercase tracking-widest">No Legal Requirements</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
             <BrowseConsentFormsDialog open={isConsentFormBrowserOpen} onOpenChange={setIsConsentFormBrowserOpen} onSelect={(forms) => { setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true }); }} allForms={consentForms || []} initialSelected={requiredForms} />
@@ -646,7 +758,7 @@ export const AddServiceDialog: React.FC<any> = ({
                 {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
                 {step === 2 && <Step2 resources={resources} allServices={services} />}
                 {step === 3 && <Step3 breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />}
-                {step === 4 && <Step4 consentForms={consentForms || []} />}
+                {step === 4 && <Step4 consentForms={consentForms || []} breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />}
             </div>
         </ScrollArea>
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>

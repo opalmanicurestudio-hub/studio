@@ -48,7 +48,8 @@ import {
   ListChecks,
   Loader,
   DollarSign,
-  ShieldCheck
+  ShieldCheck,
+  Target
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -75,6 +76,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -86,8 +88,8 @@ const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; da
   });
 
   return (
-    <div className="flex items-center gap-4 p-4 border-b last:border-b-0">
-      <div className="flex items-center gap-3 w-32">
+    <div className="flex items-center gap-4 p-4 border-b last:border-b-0 text-left">
+      <div className="flex items-center gap-3 w-32 shrink-0">
         <Switch
           id={`switch-${day}`}
           checked={dayData.enabled}
@@ -102,11 +104,11 @@ const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; da
           onValueChange={(value) => onDayChange('start', value)}
           disabled={!isEditing || !dayData.enabled}
         >
-          <SelectTrigger>
+          <SelectTrigger className="h-10 rounded-xl border-2 font-bold bg-white">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
-            {timeOptions.map(time => <SelectItem key={`${day}-start-${time}`} value={time}>{time}</SelectItem>)}
+          <SelectContent className="rounded-xl border-2 shadow-2xl">
+            {timeOptions.map(time => <SelectItem key={`${day}-start-${time}`} value={time} className="font-bold uppercase text-[10px] tracking-widest">{time}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select
@@ -114,11 +116,11 @@ const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; da
           onValueChange={(value) => onDayChange('end', value)}
           disabled={!isEditing || !dayData.enabled}
         >
-          <SelectTrigger>
+          <SelectTrigger className="h-10 rounded-xl border-2 font-bold bg-white">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
-            {timeOptions.map(time => <SelectItem key={`${day}-end-${time}`} value={time}>{time}</SelectItem>)}
+          <SelectContent className="rounded-xl border-2 shadow-2xl">
+            {timeOptions.map(time => <SelectItem key={`${day}-end-${time}`} value={time} className="font-bold uppercase text-[10px] tracking-widest">{time}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -166,7 +168,7 @@ function SettingsContent() {
   const { toast } = useToast();
   const { firestore } = useFirebase();
   const { tenants, selectedTenant, isLoading: isTenantContextLoading } = useTenant();
-  const { services } = useInventory();
+  const { services, inventory, staff } = useInventory();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
 
@@ -284,7 +286,9 @@ function SettingsContent() {
         'requireTillWitness',
         'cancellationPolicy', 
         'lateArrivalPolicy', 
-        'noShowPolicy'
+        'noShowPolicy',
+        'defaultCancellationMode',
+        'defaultRescheduleMode'
     ];
     const dataToUpdate: Partial<Tenant> = {};
     policiesFields.forEach(field => {
@@ -300,6 +304,31 @@ function SettingsContent() {
       toast({ variant: 'destructive', title: 'Save Failed' });
     }
   };
+
+  const recoveryMatrixPreview = useMemo(() => {
+      if (!services || !selectedTenant) return [];
+      const tmhr = selectedTenant.tmhr || 50;
+      const taxBurden = selectedTenant.employerTaxBurdenPct || 10;
+
+      return services.slice(0, 5).map(s => {
+          const houseFloor = (s.duration / 60) * tmhr + (s.cost || 0);
+          const seniorTier = s.serviceTiers?.find(t => pricingTiers.find(pt => pt.id === t.tierId)?.name.toLowerCase().includes('senior'));
+          const price = seniorTier ? seniorTier.price : s.price;
+          
+          const seniorPro = staff.find(sm => pricingTiers.find(pt => pt.id === sm.pricingTierId)?.name.toLowerCase().includes('senior'));
+          let labor = 0;
+          if (seniorPro?.payStructure === 'commission') labor = price * (seniorPro.commissionRate / 100);
+          else if (seniorPro?.payStructure === 'hourly' && seniorPro.hourlyRate) labor = (s.duration / 60) * seniorPro.hourlyRate;
+          
+          const totalTarget = houseFloor + (labor * (1 + (taxBurden / 100)));
+
+          return {
+              name: s.name,
+              houseFloor,
+              totalTarget
+          };
+      });
+  }, [services, selectedTenant, staff]);
 
   const handleBookingBuilderEdit = () => {
     setBackupTenantData(tenantData);
@@ -446,52 +475,6 @@ function SettingsContent() {
       updateDocumentNonBlocking(reviewRef, { isFeatured });
   }
 
-  const generatePolicy = (type: 'cancellation' | 'noShow' | 'late') => {
-    const grace = tenantData.lateArrivalGracePeriod || 15;
-    const window = tenantData.cancellationWindowHours || 24;
-    const tmhr = selectedTenant?.tmhr || 50;
-
-    switch (type) {
-        case 'cancellation':
-            return `Appointments cancelled within ${window} hours of the scheduled time are subject to an overhead recovery fee calculated based on the reserved duration ($${tmhr.toFixed(2)}/hr).`;
-        case 'noShow':
-            return `Failure to show up for an appointment without prior notice will result in a penalty fee of 100% of the scheduled service price.`;
-        case 'late':
-            return `We offer a ${grace}-minute grace period. Beyond this, your appointment may be auto-cancelled to protect the schedules of other clients.`;
-        default: return '';
-    }
-  };
-
-  const lateFeeImpacts = useMemo(() => {
-      const tmhr = selectedTenant?.tmhr || 50;
-      const premium = tenantData.lateInconveniencePremium || 0;
-      const intervals = [10, 15, 20, 30];
-      
-      return intervals.map(mins => {
-          const timeLostCost = (mins / 60) * tmhr;
-          const totalFee = timeLostCost + premium;
-          return {
-              mins,
-              timeLostCost,
-              totalFee
-          };
-      });
-  }, [selectedTenant?.tmhr, tenantData.lateInconveniencePremium]);
-
-  const serviceBreakevenImpacts = useMemo(() => {
-      const tmhr = selectedTenant?.tmhr || 50;
-      if (!services) return [];
-      return services.slice(0, 5).map(s => {
-          const timeCost = (s.duration / 60) * tmhr;
-          const materialCost = s.cost || 0;
-          return {
-              name: s.name,
-              duration: s.duration,
-              breakeven: timeCost + materialCost
-          };
-      });
-  }, [services, selectedTenant?.tmhr]);
-
   const isLoadingTotal = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
   
   const tabs = [
@@ -532,7 +515,7 @@ function SettingsContent() {
                 <SelectTrigger className="w-full h-12 rounded-xl border-2">
                     <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
-                <SelectContent className="rounded-2xl border-2">
+                <SelectContent className="rounded-2xl border-2 shadow-2xl">
                   {tabs.map(tab => (
                     <SelectItem key={tab.value} value={tab.value} className="font-bold uppercase text-[10px] tracking-widest">
                         <div className="flex items-center gap-2">
@@ -637,22 +620,22 @@ function SettingsContent() {
             </TabsContent>
 
             <TabsContent value="policies" className="mt-6 space-y-10">
-                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden text-left">
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
-                        <div className="text-left">
+                        <div>
                             <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight">
                             <FileText className="w-5 h-5 text-primary" />
-                            Business Policies
+                            Policy & Recovery Manifest
                             </CardTitle>
                             <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
-                            Define rules for cancellations and late arrivals.
+                            Configure how the studio recovers overhead from late moves.
                             </CardDescription>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                         {isPoliciesEditing ? (
                             <>
                                 <Button variant="outline" onClick={handlePoliciesCancel} className="h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
-                                <Button onClick={handlePoliciesSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Save Policies</Button>
+                                <Button onClick={handlePoliciesSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Save Manifest</Button>
                             </>
                         ) : (
                             <Button onClick={handlePoliciesEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-3.5 w-3.5"/>Modify</Button>
@@ -660,140 +643,109 @@ function SettingsContent() {
                         </div>
                     </CardHeader>
                     <CardContent className="p-6 sm:p-8 space-y-12">
-                        <div className="space-y-6">
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
-                                <Clock className="w-4 h-4" /> Lateness & Grace Periods
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                <div className="space-y-3">
-                                    <Label htmlFor="late-grace-period" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Arrival Grace Period (Minutes)</Label>
-                                    <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" disabled={!isPoliciesEditing}/>
-                                </div>
-                                <div className="space-y-3">
-                                    <Label htmlFor="late-inconvenience-premium" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
-                                        <Zap className="w-3 h-3 text-primary" />
-                                        Inconvenience Premium ($)
-                                    </Label>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                        <Input id="late-inconvenience-premium" type="number" value={tenantData.lateInconveniencePremium || ''} onChange={(e) => setTenantData(prev => ({...prev, lateInconveniencePremium: Number(e.target.value)}))} placeholder="e.g., 10.00" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" disabled={!isPoliciesEditing}/>
-                                    </div>
-                                    <p className="text-[9px] text-muted-foreground uppercase font-bold opacity-60 ml-1">Flat rate added to lost time cost.</p>
-                                </div>
-                                
-                                <div className="md:col-span-2 space-y-4 pt-4 border-t-2 border-dashed">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                        <Calculator className="w-3.5 h-3.5" /> Projected Late Fee Impact
-                                    </Label>
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                                        {lateFeeImpacts.map(impact => (
-                                            <div key={impact.mins} className="p-5 rounded-[2rem] bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all text-center space-y-1 shadow-inner">
-                                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">{impact.mins}m Delay</p>
-                                                <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${impact.totalFee.toFixed(2)}</p>
-                                                <p className="text-[8px] font-bold text-primary/60 uppercase">(${impact.timeLostCost.toFixed(2)} Time Value)</p>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <div className="p-5 rounded-2xl border-2 border-dashed bg-primary/[0.02] flex items-start gap-4">
-                                        <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
-                                        <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
-                                            Analysis is calculated using your unique studio foundation. Actual fees are only applied when guests are accommodated past your grace period.
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-between rounded-[2rem] border-2 p-6 bg-primary/5 md:col-span-2 shadow-inner">
-                                    <div className='space-y-1 text-left'>
-                                        <Label htmlFor="auto-cancel" className="text-base font-black uppercase tracking-tight flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Enforce Auto-Cancel</Label>
-                                        <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Void sessions if delay overlaps following bookings</p>
-                                    </div>
-                                    <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} className="scale-125" />
-                                </div>
+                        <div className="space-y-8">
+                            <div className="space-y-1">
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                    <Target className="w-4 h-4" /> Recovery Strategy Defaults
+                                </h3>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 ml-6">These protocols populate the planner when a move occurs.</p>
                             </div>
-                        </div>
-
-                        <Separator className="border-dashed" />
-
-                        <div className="space-y-6">
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
-                                <Ban className="w-4 h-4" /> Cancellation Logic
-                            </h3>
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                <div className="space-y-3">
-                                    <Label htmlFor="cancellation-window" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Protocol Window (Hours)</Label>
-                                    <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" disabled={!isPoliciesEditing} />
-                                </div>
-                                <div className="space-y-3">
-                                    <Label htmlFor="cancellation-fee" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Base Overhead Recovery ($)</Label>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                        <Input id="cancellation-fee" type="number" value={tenantData.cancellationFee || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="e.g., 25.00" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" disabled={!isPoliciesEditing}/>
-                                    </div>
-                                    <p className="text-[9px] text-muted-foreground uppercase font-bold opacity-60 ml-1">Applied for late notice or no-shows.</p>
+                                <div className="space-y-4 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner text-left">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Default Cancellation Protocol</Label>
+                                    <RadioGroup 
+                                        value={tenantData.defaultCancellationMode || 'matrix'} 
+                                        onValueChange={(v: any) => setTenantData(prev => ({...prev, defaultCancellationMode: v}))}
+                                        disabled={!isPoliciesEditing}
+                                        className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+                                    >
+                                        <label htmlFor="mode-c-matrix" className="cursor-pointer">
+                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all h-full flex flex-col justify-center", tenantData.defaultCancellationMode === 'matrix' || !tenantData.defaultCancellationMode ? "border-primary bg-white shadow-md text-primary" : "border-transparent text-slate-400 opacity-60")}>
+                                                <span className="text-[9px] font-black uppercase">Itemized Matrix</span>
+                                                <RadioGroupItem value="matrix" id="mode-c-matrix" className="sr-only" />
+                                            </div>
+                                        </label>
+                                        <label htmlFor="mode-c-flat" className="cursor-pointer">
+                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all h-full flex flex-col justify-center", tenantData.defaultCancellationMode === 'flat' ? "border-primary bg-white shadow-md text-primary" : "border-transparent text-slate-400 opacity-60")}>
+                                                <span className="text-[9px] font-black uppercase">Studio Flat Rate</span>
+                                                <RadioGroupItem value="flat" id="mode-c-flat" className="sr-only" />
+                                            </div>
+                                        </label>
+                                    </RadioGroup>
                                 </div>
 
-                                <div className="md:col-span-2 space-y-4 pt-4 border-t-2 border-dashed">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                        <Landmark className="w-3.5 h-3.5" /> Profitable Recovery Matrix
-                                    </Label>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        {serviceBreakevenImpacts.map(s => (
-                                            <div key={s.name} className="p-4 rounded-2xl bg-destructive/[0.02] border-2 border-transparent hover:border-destructive/10 transition-all flex justify-between items-center group">
-                                                <div className="min-w-0">
-                                                    <p className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{s.name}</p>
-                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{s.duration}m duration</p>
+                                <div className="space-y-4 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner text-left">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Default Reschedule Protocol</Label>
+                                    <RadioGroup 
+                                        value={tenantData.defaultRescheduleMode || 'matrix'} 
+                                        onValueChange={(v: any) => setTenantData(prev => ({...prev, defaultRescheduleMode: v}))}
+                                        disabled={!isPoliciesEditing}
+                                        className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+                                    >
+                                        <label htmlFor="mode-r-matrix" className="cursor-pointer">
+                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all h-full flex flex-col justify-center", tenantData.defaultRescheduleMode === 'matrix' || !tenantData.defaultRescheduleMode ? "border-primary bg-white shadow-md text-primary" : "border-transparent text-slate-400 opacity-60")}>
+                                                <span className="text-[9px] font-black uppercase">Itemized Matrix</span>
+                                                <RadioGroupItem value="matrix" id="mode-r-matrix" className="sr-only" />
+                                            </div>
+                                        </label>
+                                        <label htmlFor="mode-r-flat" className="cursor-pointer">
+                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all h-full flex flex-col justify-center", tenantData.defaultRescheduleMode === 'flat' ? "border-primary bg-white shadow-md text-primary" : "border-transparent text-slate-400 opacity-60")}>
+                                                <span className="text-[9px] font-black uppercase">Studio Flat Rate</span>
+                                                <RadioGroupItem value="flat" id="mode-r-flat" className="sr-only" />
+                                            </div>
+                                        </label>
+                                    </RadioGroup>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4 pt-4 border-t-2 border-dashed">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                    <Calculator className="w-3.5 h-3.5" /> Profitable Recovery Matrix (Live Preview)
+                                </Label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {recoveryMatrixPreview.map(item => (
+                                        <div key={item.name} className="p-5 rounded-[2rem] bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all text-left space-y-3 shadow-inner">
+                                            <p className="text-[10px] font-black uppercase text-slate-900 truncate">{item.name}</p>
+                                            <div className="flex justify-between items-baseline">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Matrix Target</span>
+                                                    <span className="text-xl font-black font-mono tracking-tighter text-primary">${item.totalTarget.toFixed(2)}</span>
                                                 </div>
-                                                <div className="text-right shrink-0">
-                                                    <p className="text-sm font-black font-mono tracking-tighter text-destructive">${s.breakeven.toFixed(2)}</p>
-                                                    <p className="text-[8px] font-black uppercase text-destructive/40">Recovery Target</p>
+                                                <div className="text-right flex flex-col">
+                                                    <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Floor Cost</span>
+                                                    <span className="text-xs font-black font-mono text-slate-600">${item.houseFloor.toFixed(2)}</span>
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
-                                    <div className="p-5 rounded-2xl border-2 border-dashed bg-destructive/[0.02] flex items-start gap-4">
-                                        <TrendingDown className="w-5 h-5 text-destructive shrink-0 mt-0.5 opacity-40" />
-                                        <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
-                                            A truly profitable fee covers your overhead recovery target. Use the target values above to set a base fee that protects your bottom line for every lost window.
-                                        </p>
-                                    </div>
+                                        </div>
+                                    ))}
                                 </div>
-                            </div>
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between px-1">
-                                    <Label htmlFor="cancellation-policy" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Digital Policy Text (Public)</Label>
-                                    {isPoliciesEditing && <Button variant="ghost" size="sm" className="h-7 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))}>Auto-Draft Strategy</Button>}
-                                </div>
-                                <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder="Draft protocol conditions..." rows={4} className="rounded-2xl border-2 bg-muted/5 font-medium leading-relaxed text-slate-700" disabled={!isPoliciesEditing} />
-                            </div>
-                        </div>
-
-                        <Separator className="border-dashed" />
-
-                        <div className="space-y-6">
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
-                                <ShieldCheck className="w-4 h-4" /> Terminal Governance
-                            </h3>
-                            
-                            <div className="grid grid-cols-1 gap-8">
-                                <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner">
-                                    <div className='space-y-1 text-left'>
-                                        <Label htmlFor="require-witness" className="text-base font-black uppercase tracking-tight flex items-center gap-2"><Users className="w-4 h-4" /> Dual-Audit Requirement</Label>
-                                        <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Requires a witness signature to close the studio till</p>
-                                    </div>
-                                    <Switch 
-                                        id="require-witness" 
-                                        checked={tenantData.requireTillWitness !== false} 
-                                        onCheckedChange={(checked) => setTenantData(prev => ({...prev, requireTillWitness: checked}))} 
-                                        disabled={!isPoliciesEditing} 
-                                        className="scale-125" 
-                                    />
-                                </div>
-                                <div className="p-5 rounded-2xl border-2 border-dashed bg-muted/10 flex items-start gap-4 text-left">
-                                    <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
+                                <div className="p-5 rounded-2xl border-2 border-dashed bg-primary/[0.02] flex items-start gap-4">
+                                    <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                                     <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
-                                        Independent studios may disable witness verification to streamline the end-of-shift reconciliation for solo providers.
+                                        Suggested targets calculate <strong>House Floor</strong> (Time @ TMHR + Materials) plus <strong>Provider Labor</strong> (Intended Commission/Wages). This ensures your studio stays profitable even during late notice moves.
                                     </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <Separator className="border-dashed" />
+
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                <Clock className="w-4 h-4" /> Global Guardrails (Default Window)
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-3">
+                                    <Label htmlFor="cancel-window-glob" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Standard Window (Hours)</Label>
+                                    <Input id="cancel-window-glob" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" disabled={!isPoliciesEditing} />
+                                </div>
+                                <div className="space-y-3">
+                                    <Label htmlFor="flat-fee-glob" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Standard Flat Fee Override ($)</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                        <Input id="flat-fee-glob" type="number" value={tenantData.cancellationFee || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="e.g., 25.00" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" disabled={!isPoliciesEditing}/>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -818,7 +770,7 @@ function SettingsContent() {
                                     <Button onClick={handleBookingBuilderSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Design</Button>
                                 </>
                             ) : (
-                                <Button onClick={handleBookingBuilderEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-4 w-4"/>Edit Design</Button>
+                                <Button onClick={handleBookingBuilderEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-3.5 w-3.5"/>Edit Design</Button>
                             )}
                         </div>
                     </CardHeader>
@@ -1042,7 +994,7 @@ function SettingsContent() {
                                 <Button onClick={handleQueueSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Save Protocol</Button>
                             </>
                         ) : (
-                            <Button onClick={handleQueueEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-4 w-4"/>Modify</Button>
+                            <Button onClick={handleQueueEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-3.5 w-3.5"/>Modify</Button>
                         )}
                         </div>
                     </CardHeader>
@@ -1070,7 +1022,7 @@ function SettingsContent() {
                                 <Button onClick={handleSmsSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Auth</Button>
                             </>
                         ) : (
-                            <Button onClick={handleSmsEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-4 w-4"/>Modify</Button>
+                            <Button onClick={handleSmsEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-3.5 w-3.5"/>Modify</Button>
                         )}
                         </div>
                     </CardHeader>
