@@ -297,7 +297,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 {selectedServices.map(service => (
                                     <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                                         <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{service.name}</span>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                        <Button variant="ghost" size="icon" className="h-7 h-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
                                     </div>
                                 ))}
                             </div>
@@ -546,7 +546,7 @@ export const EditStaffDialog: React.FC<any> = ({
 
                     <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-10 pt-4")}>
                         <div className="flex w-full gap-4 items-center">
-                            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
+                            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-14 font-black uppercase tracking-tighter text-[11px] text-slate-500">Cancel</Button>
                             <Button type="submit" className="flex-[2.5] h-16 rounded-[2rem] font-black uppercase tracking-widest text-sm shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit Changes <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1"/></Button>
                         </div>
                     </DialogFooter>

@@ -181,7 +181,7 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { appointments: allAppointments, services, memberships, transactions: allTransactions, redemptions: allRedemptions } = useInventory();
+  const { appointments: allAppointments, services, memberships, packages, redemptions: allRedemptions } = useInventory();
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
