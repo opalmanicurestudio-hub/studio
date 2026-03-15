@@ -331,7 +331,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                         <Label htmlFor="pkg-retail-discount" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Priority Discount</Label>
                         <div className="relative">
                             <Percent className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                            <Input id="pkg-retail-discount" type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary bg-white shadow-sm" />
+                            <Input id="pkg-retail-discount" type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="0" className="h-14 rounded-2xl border-2 font-black text-xl font-mono text-primary bg-white shadow-sm" />
                         </div>
                     </div>
                 </div>

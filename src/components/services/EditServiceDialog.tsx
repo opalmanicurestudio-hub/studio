@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -233,7 +232,7 @@ const Step1 = ({
             <SectionHeader icon={Activity} title="Identity & Type" step={1} />
             <div className="space-y-6 text-left">
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/[0.03] border-primary/10 shadow-sm transition-all has-[:checked]:bg-primary/5 has-[:checked]:border-primary/20">
-                    <div className='space-y-1'>
+                    <div className='space-y-1 text-left'>
                         <Label htmlFor="is-addon-edit" className="text-base font-black uppercase tracking-tight">Add-on Enhancement</Label>
                         <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Appendable to primary treatments</p>
                     </div>

@@ -59,7 +59,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
-        <div className="space-y-0.5">
+        <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
@@ -215,7 +215,7 @@ const ProfitabilityAnalysis = ({
                     ))}
                 </div>
                 <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
-                    <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
+                    < alienation className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
                         Yield reflects individual technician pay structures and your current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.
                     </p>
@@ -574,7 +574,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
                     </div>
                     <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
                     <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</DialogDescription>
