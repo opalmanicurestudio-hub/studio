@@ -155,7 +155,7 @@ const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: 
         });
 
         if (!allFieldsFilled) {
-            return; // In real app, show toast
+            return; 
         }
 
         if (isLast) onComplete();
@@ -212,7 +212,7 @@ const DepositPaymentView = ({ amount, onComplete }: { amount: number, onComplete
             <CardContent className="p-6 md:p-10 text-center space-y-10">
                 <div className="p-8 md:p-10 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                     <p className="text-[9px] md:text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
-                    <p className="text-5xl md:text-7xl font-black text-primary tracking-tighter font-mono">${amount.toFixed(2)}</p>
+                    <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter font-mono">${amount.toFixed(2)}</p>
                     <div className="pt-4 border-t border-primary/10">
                         <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3 shadow-sm">PROTECTED PAYMENT</Badge>
                     </div>
@@ -452,6 +452,11 @@ export default function CheckInPage() {
     const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
 
     const appointment = useMemo(() => appointmentData ? { ...appointmentData, startTime: safeDate(appointmentData.startTime), endTime: safeDate(appointmentData.endTime) } : null, [appointmentData]);
+
+    const isTodayAppointment = useMemo(() => {
+        if (!appointment) return false;
+        return isToday(appointment.startTime);
+    }, [appointment]);
 
     const requiredForms = useMemo(() => {
         if (!service || !consentForms || !signedConsents) return [];
@@ -700,25 +705,38 @@ export default function CheckInPage() {
                     )}
                     <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 pt-6 border-t border-dashed border-border/50"><div className="flex items-center gap-2"><Clock className="w-3.5 h-3.5"/> {service.duration}m</div><div className="flex items-center gap-2 truncate max-w-[150px] text-right"><MapPin className="w-3.5 h-3.5"/> {tenant.name}</div></div>
                 </div>
-                {showLateOptions ? (
-                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
-                         <h4 className="text-lg font-black uppercase tracking-tighter text-center text-slate-900">Estimated Delay?</h4>
-                        <RadioGroup value={lateTime > 0 ? String(lateTime) : undefined} onValueChange={(val) => setLateTime(parseInt(val))} className="grid grid-cols-4 gap-3">{['5', '10', '15', '20'].map(m => (<div key={m}><RadioGroupItem value={m} id={`late-${m}`} className="peer sr-only" /><Label htmlFor={`late-${m}`} className="flex items-center justify-center h-14 rounded-2xl border-4 border-muted font-black text-lg cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary hover:bg-muted/50">{m === '20' ? '20+' : m}</Label></div>))}</RadioGroup>
-                        {lateTime > (tenant.lateArrivalGracePeriod || 15) && (<motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2rem] bg-destructive/10 border-4 border-destructive/20 text-destructive text-center space-y-3 shadow-xl shadow-destructive/5"><AlertTriangle className="w-8 h-8 mx-auto mb-1 animate-pulse"/><p className="font-black uppercase tracking-tight text-base leading-none">Protocol Warning</p><p className="text-[10px] font-bold uppercase leading-relaxed tracking-tight opacity-80 text-center">Arrivals past {tenant.lateArrivalGracePeriod || 15}m may require a protocol recovery fee.</p></motion.div>)}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><button className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Back</button><Button onClick={() => handleUpdateStatus('running_late', lateTime)} disabled={lateTime === 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/20">Update Arrival</Button></div>
+
+                {isTodayAppointment ? (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                        {showLateOptions ? (
+                            <div className="space-y-8">
+                                <h4 className="text-lg font-black uppercase tracking-tighter text-center text-slate-900">Estimated Delay?</h4>
+                                <RadioGroup value={lateTime > 0 ? String(lateTime) : undefined} onValueChange={(val) => setLateTime(parseInt(val))} className="grid grid-cols-4 gap-3">{['5', '10', '15', '20'].map(m => (<div key={m}><RadioGroupItem value={m} id={`late-${m}`} className="peer sr-only" /><Label htmlFor={`late-${m}`} className="flex items-center justify-center h-14 rounded-2xl border-4 border-muted font-black text-lg cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary hover:bg-muted/50">{m === '20' ? '20+' : m}</Label></div>))}</RadioGroup>
+                                {lateTime > (tenant.lateArrivalGracePeriod || 15) && (<motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2rem] bg-destructive/10 border-4 border-destructive/20 text-destructive text-center space-y-3 shadow-xl shadow-destructive/5"><AlertTriangle className="w-8 h-8 mx-auto mb-1 animate-pulse"/><p className="font-black uppercase tracking-tight text-base leading-none">Protocol Warning</p><p className="text-[10px] font-bold uppercase leading-relaxed tracking-tight opacity-80 text-center">Arrivals past {tenant.lateArrivalGracePeriod || 15}m may require a protocol recovery fee.</p></motion.div>)}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><button className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Back</button><Button onClick={() => handleUpdateStatus('running_late', lateTime)} disabled={lateTime === 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/20">Update Arrival</Button></div>
+                            </div>
+                        ) : currentStatus === 'pending' ? (
+                            <div className="flex flex-col gap-4">
+                                <div className="grid grid-cols-2 gap-4"><Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-20 rounded-3xl border-4 font-black uppercase tracking-widest text-xs flex flex-col gap-2"><Clock className="h-6 w-6 opacity-40" />Running Late</Button><Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-20 rounded-3xl border-4 border-primary/20 bg-primary/5 text-primary font-black uppercase tracking-widest text-xs flex flex-col gap-2 shadow-inner"><Car className="h-6 w-6" />On My Way</Button></div>
+                                <Button size="lg" variant="default" onClick={() => handleUpdateStatus('arrived')} className="h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30 active:scale-95 transition-all"><MapPin className="mr-3 h-6 w-6" />I Have Arrived</Button>
+                            </div>
+                        ) : currentStatus === 'on_my_way' ? (
+                            <div className="space-y-8 animate-in zoom-in-95 duration-500"><div className="p-8 bg-primary/5 border-4 border-primary/20 rounded-[2.5rem] text-center space-y-4 shadow-xl"><div className="w-20 h-20 bg-primary rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-primary/30 -rotate-6 animate-bounce"><Car className="w-10 h-10 text-white" /></div><div className="space-y-1"><h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">En Route</h3><p className="text-[10px] font-bold uppercase tracking-widest text-primary opacity-60">We've cleared your path.</p></div></div><Button size="lg" className="w-full h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30" onClick={() => handleUpdateStatus('arrived')}><MapPin className="mr-3 h-6 w-6" />Tap Upon Arrival</Button></div>
+                        ) : currentStatus === 'arrived' ? (
+                            <div className="p-10 bg-green-500/10 border-4 border-green-500/20 rounded-[3rem] text-center space-y-6 shadow-xl animate-in zoom-in-95"><div className="w-24 h-24 bg-green-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/20 rotate-6"><CheckCircle2 className="w-14 h-14 text-white -rotate-6" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Checked In</h3><p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">Relax, we've notified {(assignedStaff?.name || 'your pro').split(' ')[0]}. We'll be with you shortly.</p></div></div>
+                        ) : currentStatus === 'running_late' ? (
+                            <div className="space-y-8 animate-in zoom-in-95"><div className="p-10 bg-amber-500/10 border-4 border-amber-500/20 rounded-[3rem] text-center space-y-6 shadow-xl"><div className="w-24 h-24 bg-amber-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-amber-500/20 -rotate-6"><Clock className="w-14 h-14 text-white rotate-6 animate-pulse" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Noted: +{lateTime}m</h3><p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">Thanks for the heads up! We've adjusted your arrival window on our end.</p></div></div><Button size="lg" variant="outline" className="w-full h-20 rounded-[2rem] border-4 font-black uppercase tracking-[0.2em] text-lg hover:bg-green-50 hover:border-green-500/20 group" onClick={() => handleUpdateStatus('arrived')}><MapPin className="mr-3 h-6 w-6 text-primary group-hover:text-green-600" />Tap Upon Arrival</Button></div>
+                        ) : null}
                     </div>
-                ) : currentStatus === 'pending' ? (
-                    <div className="flex flex-col gap-4">
-                        <div className="grid grid-cols-2 gap-4"><Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-20 rounded-3xl border-4 font-black uppercase tracking-widest text-xs flex flex-col gap-2"><Clock className="h-6 w-6 opacity-40" />Running Late</Button><Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-20 rounded-3xl border-4 border-primary/20 bg-primary/5 text-primary font-black uppercase tracking-widest text-xs flex flex-col gap-2 shadow-inner"><Car className="h-6 w-6" />On My Way</Button></div>
-                        <Button size="lg" variant="default" onClick={() => handleUpdateStatus('arrived')} className="h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30 active:scale-95 transition-all"><MapPin className="mr-3 h-6 w-6" />I Have Arrived</Button>
+                ) : (
+                    <div className="p-8 rounded-[2rem] border-4 border-dashed border-muted text-center space-y-4 opacity-60">
+                        <Lock className="w-10 h-10 mx-auto text-muted-foreground opacity-40" />
+                        <div className="space-y-1">
+                            <p className="font-black uppercase tracking-tight text-sm text-slate-900">Protocol Locked</p>
+                            <p className="text-[10px] font-bold uppercase text-slate-500 leading-relaxed px-4">Arrival status updates unlock on the day of your appointment.</p>
+                        </div>
                     </div>
-                ) : currentStatus === 'on_my_way' ? (
-                    <div className="space-y-8 animate-in zoom-in-95 duration-500"><div className="p-8 bg-primary/5 border-4 border-primary/20 rounded-[2.5rem] text-center space-y-4 shadow-xl"><div className="w-20 h-20 bg-primary rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-primary/30 -rotate-6 animate-bounce"><Car className="w-10 h-10 text-white" /></div><div className="space-y-1"><h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">En Route</h3><p className="text-[10px] font-bold uppercase tracking-widest text-primary opacity-60">We've cleared your path.</p></div></div><Button size="lg" className="w-full h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30" onClick={() => handleUpdateStatus('arrived')}><MapPin className="mr-3 h-6 w-6" />Tap Upon Arrival</Button></div>
-                ) : currentStatus === 'arrived' ? (
-                    <div className="p-10 bg-green-500/10 border-4 border-green-500/20 rounded-[3rem] text-center space-y-6 shadow-xl animate-in zoom-in-95"><div className="w-24 h-24 bg-green-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/20 rotate-6"><CheckCircle2 className="w-14 h-14 text-white -rotate-6" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Checked In</h3><p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">Relax, we've notified {(assignedStaff?.name || 'your pro').split(' ')[0]}. We'll be with you shortly.</p></div></div>
-                ) : currentStatus === 'running_late' ? (
-                    <div className="space-y-8 animate-in zoom-in-95"><div className="p-10 bg-amber-500/10 border-4 border-amber-500/20 rounded-[3rem] text-center space-y-6 shadow-xl"><div className="w-24 h-24 bg-amber-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-amber-500/20 -rotate-6"><Clock className="w-14 h-14 text-white rotate-6 animate-pulse" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Noted: +{lateTime}m</h3><p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">Thanks for the heads up! We've adjusted your arrival window on our end.</p></div></div><Button size="lg" variant="outline" className="w-full h-20 rounded-[2rem] border-4 font-black uppercase tracking-[0.2em] text-lg hover:bg-green-50 hover:border-green-500/20 group" onClick={() => handleUpdateStatus('arrived')}><MapPin className="mr-3 h-6 w-6 text-primary group-hover:text-green-600" />Tap Upon Arrival</Button></div>
-                ) : null}
+                )}
             </CardContent>
         </ViewContainer>
     );

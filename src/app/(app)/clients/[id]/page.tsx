@@ -303,7 +303,7 @@ export default function ClientDetailPage() {
                 </div>
                 <div className="flex items-center gap-2 md:gap-3 w-full sm:w-auto">
                     <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Link href="/clients" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link></Button>
-                    {isOwnerOrAdmin && <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)} className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm"><Edit className="h-4 w-4 mr-2" />Modify</Button>}
+                    {isOwnerOrAdmin && <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)} className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Edit className="h-4 w-4 mr-2" />Modify</Button>}
                 </div>
             </div>
             

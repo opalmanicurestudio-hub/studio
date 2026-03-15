@@ -654,7 +654,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                     <RadioGroupItem value="terminal" id="pay-terminal" />
                                                     <div className="space-y-0.5">
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">Terminal Entry</span>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Authorize new card via terminal</p>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase font-bold tracking-tight opacity-60">Authorize new card via terminal</p>
                                                     </div>
                                                 </div>
                                                 <Zap className="w-5 h-5 text-primary" />
@@ -664,7 +664,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                     <RadioGroupItem value="none" id="pay-pending" />
                                                     <div className="space-y-0.5">
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">Remote Settlement Required</span>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Guest pays via secure link before session</p>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Guest pays via secure link before session</p>
                                                     </div>
                                                 </div>
                                                 <Smartphone className="w-5 h-5 text-muted-foreground opacity-40" />
