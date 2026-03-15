@@ -32,8 +32,8 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
-import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box } from 'lucide-react';
-import { type Membership, type Service, type InventoryItem, type MembershipPerk } from '@/lib/data';
+import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale } from 'lucide-react';
+import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -64,10 +64,24 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
     </div>
 );
 
-const ProfitabilityAnalysis = ({ perks, price, tmhr }: { perks: { services: MembershipPerk[], addOns: MembershipPerk[], products: MembershipPerk[] }, price: number, tmhr: number }) => {
+const ProfitabilityAnalysis = ({ 
+    perks, 
+    price, 
+    tmhr, 
+    taxBurden, 
+    pricingTiers, 
+    staff 
+}: { 
+    perks: { services: MembershipPerk[], addOns: MembershipPerk[], products: MembershipPerk[] }, 
+    price: number, 
+    tmhr: number, 
+    taxBurden: number, 
+    pricingTiers: PricingTier[], 
+    staff: Staff[] 
+}) => {
     const { services, inventory } = useInventory();
     
-    const { totalCostOfPerks, totalDurationMinutes } = useMemo(() => {
+    const { materialCost, timeLiabilityHours } = useMemo(() => {
         // Material Costs
         const servicesCost = perks.services.reduce((acc, perk) => {
             const s = services.find(svc => svc.id === perk.id);
@@ -92,16 +106,46 @@ const ProfitabilityAnalysis = ({ perks, price, tmhr }: { perks: { services: Memb
             return acc + (s?.duration || 0) * (perk.quantity || 1);
         }, 0);
 
-        const materialCost = servicesCost + addOnsCost + productsCost;
-        const totalDuration = servicesDuration + addOnsDuration;
-        const timeCost = (totalDuration / 60) * tmhr;
+        return { materialCost: servicesCost + addOnsCost + productsCost, timeLiabilityHours: (servicesDuration + addOnsDuration) / 60 };
+    }, [perks, services, inventory]);
 
-        return { totalCostOfPerks: materialCost + timeCost, totalDurationMinutes: totalDuration };
-    }, [perks, services, inventory, tmhr]);
+    const tierAnalysis = useMemo(() => {
+        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+            const timeValue = timeLiabilityHours * tmhr;
+            
+            // Project labor based on tier average
+            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
+            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
+                let labor = 0;
+                // Simplified labor projection for membership: using average service value within tier
+                const avgPrice = perks.services.reduce((sum, perk) => {
+                    const svc = services.find(sv => sv.id === perk.id);
+                    const tierPrice = svc?.serviceTiers?.find(t => t.tierId === tier.id)?.price || svc?.price || 0;
+                    return sum + (tierPrice * perk.quantity);
+                }, 0);
 
-    const netProfit = price - totalCostOfPerks;
-    const profitMargin = price > 0 ? (netProfit / price) * 100 : 0;
-    
+                if (s.payStructure === 'commission') labor = avgPrice * (s.commissionRate / 100);
+                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = timeLiabilityHours * s.hourlyRate;
+                
+                return acc + (labor * (1 + (taxBurden / 100)));
+            }, 0) / (relevantStaff.length || 1);
+
+            const totalBurden = materialCost + timeValue + avgLaborRecovery;
+            const netProfit = price - totalBurden;
+            const margin = price > 0 ? (netProfit / price) * 100 : 0;
+
+            return {
+                id: tier.id,
+                name: tier.name,
+                totalBurden,
+                netProfit,
+                margin,
+                labor: avgLaborRecovery,
+                timeValue
+            };
+        });
+    }, [pricingTiers, timeLiabilityHours, tmhr, materialCost, staff, taxBurden, perks.services, services, price]);
+
     return (
         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
             <CardHeader className="p-8 pb-4">
@@ -109,34 +153,48 @@ const ProfitabilityAnalysis = ({ perks, price, tmhr }: { perks: { services: Memb
                     <Target className="w-3 h-3" />
                     Yield Engine
                 </CardTitle>
+                <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60">
+                    Net Analysis per Tier @ {taxBurden}% Tax Burden
+                </CardDescription>
             </CardHeader>
             <CardContent className="p-8 pt-0 space-y-6">
-                <div className="p-6 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
-                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
-                        <span>Cycle Revenue</span>
-                        <span className="font-mono text-slate-900">${price.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-destructive opacity-60">
-                        <span>Est. Allotment Burden</span>
-                        <span className="font-mono text-destructive">-${totalCostOfPerks.toFixed(2)}</span>
-                    </div>
-                    <Separator className="border-dashed" />
-                    <div className="flex justify-between items-baseline pt-2">
-                        <div className="flex flex-col text-left">
-                            <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Net Operating Yield</span>
-                            <span className={cn("text-3xl font-black tracking-tighter font-mono leading-none", netProfit >= 0 ? "text-primary" : "text-destructive")}>
-                                ${netProfit.toFixed(2)}
-                            </span>
+                <div className="space-y-4">
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
+                            <div className="flex justify-between items-center px-1">
+                                <span className="text-[9px] font-black uppercase text-slate-900 tracking-widest">{tier.name}</span>
+                                <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", tier.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
+                                    {tier.margin.toFixed(0)}% Margin
+                                </Badge>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left">
+                                <div className="space-y-0.5">
+                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Materials</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${materialCost.toFixed(2)}</p>
+                                </div>
+                                <div className="space-y-0.5 text-right">
+                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Time (TMHR)</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${tier.timeValue.toFixed(2)}</p>
+                                </div>
+                                <div className="space-y-0.5 text-left">
+                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Labor Load</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${tier.labor.toFixed(2)}</p>
+                                </div>
+                            </div>
+                            <Separator className="border-dashed" />
+                            <div className="flex justify-between items-baseline pt-1">
+                                <span className="text-[9px] font-black uppercase text-primary/60">Net Cycle Yield</span>
+                                <span className={cn("text-2xl font-black tracking-tighter font-mono", tier.netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                                    ${tier.netProfit.toFixed(2)}
+                                </span>
+                            </div>
                         </div>
-                        <Badge className={cn("text-white border-none font-black text-xs font-mono", netProfit >= 0 ? "bg-primary" : "bg-destructive")}>
-                            {profitMargin.toFixed(1)}%
-                        </Badge>
-                    </div>
+                    ))}
                 </div>
                 <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-muted-foreground leading-relaxed tracking-tight text-left">
-                        Yield includes <strong>{(totalDurationMinutes / 60).toFixed(1)}h</strong> of studio capacity @ <strong>${tmhr.toFixed(2)}/hr</strong>.
+                        Analysis reflects current <strong>${tmhr.toFixed(2)}/hr</strong> foundation and burdened provider labor projections.
                     </p>
                 </div>
             </CardContent>
@@ -152,9 +210,10 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   membershipToEdit,
 }) => {
   const isMobile = useIsMobile();
-  const { services, inventory } = useInventory();
+  const { services, inventory, pricingTiers, staff } = useInventory();
   const { selectedTenant } = useTenant();
   const tmhr = selectedTenant?.tmhr || 50;
+  const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -399,7 +458,14 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
           </div>
       </div>
 
-       <ProfitabilityAnalysis perks={{ services: includedServices, addOns: includedAddOns, products: includedProducts }} price={price} tmhr={tmhr} />
+       <ProfitabilityAnalysis 
+        perks={{ services: includedServices, addOns: includedAddOns, products: includedProducts }} 
+        price={price} 
+        tmhr={tmhr} 
+        taxBurden={taxBurden} 
+        pricingTiers={pricingTiers || []} 
+        staff={staff || []} 
+       />
     </div>
   );
 
@@ -412,8 +478,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   return (
     <>
         <DialogContainer open={open} onOpenChange={onOpenChange}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
-                <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
+            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+                <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
@@ -426,7 +492,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                         {FormContent}
                     </div>
                 </ScrollArea>
-                <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
+                <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-10 pt-4")}>
                     <div className="grid grid-cols-2 gap-3 w-full">
                         <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
                         <Button onClick={handleSave} className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Establish Tier <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>

@@ -4,13 +4,15 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box } from 'lucide-react';
-import { type Package, type Service, type Client } from '@/lib/data';
+import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box, Clock, Scale } from 'lucide-react';
+import { type Package, type Service, type Client, Staff, PricingTier } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 
 interface PackageCardProps {
   pack: Package;
@@ -22,8 +24,10 @@ interface PackageCardProps {
 }
 
 export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, clients, onEdit, onViewUsers, onDelete }) => {
+  const { staff, pricingTiers } = useInventory();
   const { selectedTenant } = useTenant();
   const tmhr = selectedTenant?.tmhr || 50;
+  const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
 
   const activePackages = useMemo(() => {
     return clients.filter(c => c.activePackages?.some(p => p.packageId === pack.id)).length;
@@ -32,22 +36,50 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
   const totalRevenue = activePackages * pack.price;
   const primaryService = useMemo(() => services.find(s => s.id === pack.serviceId), [pack.serviceId, services]);
 
-  const { netProfit, profitMargin, totalLiabilityCost } = useMemo(() => {
-    if (!primaryService) return { netProfit: 0, profitMargin: 0, totalLiabilityCost: 0 };
-    
-    // 1. Material Burden
-    const materialCost = (primaryService.cost || 0) * pack.sessions;
-    
-    // 2. Time Burden at TMHR
-    const totalDurationHours = (primaryService.duration * pack.sessions) / 60;
-    const timeCost = totalDurationHours * tmhr;
+  const { materialCost, timeLiabilityHours } = useMemo(() => {
+    if (!primaryService) return { materialCost: 0, timeLiabilityHours: 0 };
+    const materials = (primaryService.cost || 0) * pack.sessions;
+    const time = (primaryService.duration * pack.sessions) / 60;
+    return { materialCost: materials, timeLiabilityHours: time };
+  }, [pack, primaryService]);
 
-    const totalCost = materialCost + timeCost;
-    const profit = pack.price - totalCost;
-    const margin = pack.price > 0 ? (profit / pack.price) * 100 : 0;
-    
-    return { netProfit: profit, profitMargin: margin, totalLiabilityCost: totalCost };
-  }, [pack, primaryService, tmhr]);
+  const tierAnalysis = useMemo(() => {
+    if (!primaryService) return [];
+    return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+        const tierConfig = primaryService.serviceTiers?.find(t => t.tierId === tier.id);
+        const tierPrice = tierConfig ? tierConfig.price : primaryService.price;
+        const tierDuration = tierConfig ? tierConfig.durationMinutes : primaryService.duration;
+        const timeValue = ((tierDuration * pack.sessions) / 60) * tmhr;
+        
+        const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
+        const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
+            let labor = 0;
+            if (s.payStructure === 'commission') labor = tierPrice * (s.commissionRate / 100);
+            else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (tierDuration / 60) * s.hourlyRate;
+            return acc + (labor * pack.sessions * (1 + (taxBurden / 100)));
+        }, 0) / (relevantStaff.length || 1);
+
+        const totalBurden = materialCost + timeValue + avgLaborRecovery;
+        const netProfit = pack.price - totalBurden;
+        const margin = pack.price > 0 ? (netProfit / pack.price) * 100 : 0;
+
+        return {
+            id: tier.id,
+            name: tier.name,
+            totalBurden,
+            netProfit,
+            margin,
+            labor: avgLaborRecovery,
+            timeValue
+        };
+    });
+  }, [pricingTiers, primaryService, pack, staff, tmhr, taxBurden, materialCost]);
+
+  const yieldRange = useMemo(() => {
+      const profits = tierAnalysis.map(t => t.netProfit);
+      if (profits.length === 0) return { min: 0, max: 0 };
+      return { min: Math.min(...profits), max: Math.max(...profits) };
+  }, [tierAnalysis]);
 
   const isScopeRestricted = pack.applicableProductIds && pack.applicableProductIds.length > 0;
 
@@ -91,8 +123,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{activePackages}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">Bundles</span></p>
             </div>
             <div className="p-4 rounded-2xl bg-teal-500/[0.03] border-2 border-transparent group-hover:border-teal-500/10 transition-all text-right">
-                <p className="text-[9px] font-black uppercase text-teal-600/60 tracking-widest mb-1 opacity-60">Total Yield</p>
-                <p className="text-xl font-black font-mono tracking-tighter text-teal-600">${totalRevenue.toFixed(0)}</p>
+                <p className="text-[9px] font-black uppercase text-teal-600/60 tracking-widest mb-1 opacity-60">Net Yield Range</p>
+                <p className="text-xl font-black font-mono tracking-tighter text-teal-600">${yieldRange.min.toFixed(0)} - ${yieldRange.max.toFixed(0)}</p>
             </div>
         </div>
 
@@ -126,29 +158,48 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 </AccordionContent>
             </AccordionItem>
             
-            <AccordionItem value="profit" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/5 mt-2">
-                <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
-                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Dynamic Yield
+            <AccordionItem value="capacity" className="border-2 rounded-2xl overflow-hidden bg-muted/5 border-border/50 mt-2">
+                <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+                    <Clock className="w-3.5 h-3.5 mr-2 opacity-40"/> Capacity Load
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2">
-                    <div className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
+                    <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm text-left">
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                            <span className="text-muted-foreground opacity-60">Bundle Revenue</span>
-                            <span className="text-slate-900 font-mono">${pack.price.toFixed(2)}</span>
+                            <span className="text-muted-foreground opacity-60">Time liability</span>
+                            <span className="text-slate-900 font-mono">{timeLiabilityHours.toFixed(1)}h / bundle</span>
                         </div>
-                        <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                            <span className="text-muted-foreground opacity-60">Liability Burden</span>
-                            <span className="text-destructive font-mono">-${totalLiabilityCost.toFixed(2)}</span>
-                        </div>
-                        <Separator className="border-dashed" />
-                        <div className="flex justify-between items-center font-black uppercase">
-                            <span className="text-[10px] text-primary">Net Bundle Yield</span>
-                            <span className={cn("text-sm font-mono tracking-tighter", netProfit > 0 ? 'text-primary' : 'text-destructive')}>
-                                ${netProfit.toFixed(2)}
-                            </span>
-                        </div>
-                        <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 pt-1">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr</p>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">This bundle consumes {timeLiabilityHours.toFixed(1)} hours of studio billable capacity until fully redeemed.</p>
                     </div>
+                </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="profit" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/5 mt-2">
+                <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-primary">
+                    <BarChart className="w-3.5 h-3.5 mr-2 opacity-40"/> Itemized Yield Matrix
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.id} className="space-y-2 p-3 bg-white rounded-xl border border-primary/10 shadow-sm text-left">
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-black uppercase text-slate-900">{tier.name}</span>
+                                <Badge className={cn("h-4 text-[7px] font-black border-none", tier.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
+                                    {tier.margin.toFixed(0)}% Margin
+                                </Badge>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-[8px] uppercase font-bold text-muted-foreground opacity-60">
+                                <span>Materials: ${materialCost.toFixed(2)}</span>
+                                <span className="text-right">Time (TMHR): ${tier.timeValue.toFixed(2)}</span>
+                                <span className="col-span-2 border-t pt-1 mt-1">Labor Burden: ${tier.labor.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center font-black uppercase pt-1 border-t border-dashed border-primary/10">
+                                <span className="text-[9px] text-primary/60">Net Bundle Yield</span>
+                                <span className={cn("text-xs font-mono", tier.netProfit > 0 ? 'text-primary' : 'text-destructive')}>
+                                    ${tier.netProfit.toFixed(2)}
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                    <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 text-center">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr and burdened labor payouts.</p>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>

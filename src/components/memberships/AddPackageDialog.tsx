@@ -31,8 +31,8 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { type Package, type Service, type InventoryItem } from '@/lib/data';
-import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box } from 'lucide-react';
+import { type Package, type Service, type InventoryItem, type PricingTier, type Staff } from '@/lib/data';
+import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +40,7 @@ import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
+import { useTenant } from '@/context/TenantContext';
 
 interface AddPackageDialogProps {
   open: boolean;
@@ -60,14 +61,64 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
     </div>
 );
 
-const ProfitabilityAnalysis = ({ service, sessions, price }: { service: Service | undefined, sessions: number, price: number }) => {
-    const totalCostOfPerks = useMemo(() => {
-        if (!service) return 0;
-        return (service.cost || 0) * sessions;
-    }, [service, sessions]);
+const ProfitabilityAnalysis = ({ 
+    service, 
+    sessions, 
+    price, 
+    tmhr, 
+    taxBurden, 
+    pricingTiers, 
+    staff 
+}: { 
+    service: Service | undefined, 
+    sessions: number, 
+    price: number, 
+    tmhr: number, 
+    taxBurden: number, 
+    pricingTiers: PricingTier[], 
+    staff: Staff[] 
+}) => {
+    const { inventory } = useInventory();
 
-    const netProfit = price - totalCostOfPerks;
-    const profitMargin = price > 0 ? (netProfit / price) * 100 : 0;
+    const { baseHouseFloor } = useMemo(() => {
+        if (!service) return { baseHouseFloor: 0 };
+        const materialCost = (service.cost || 0) * sessions;
+        const timeCost = ((service.duration * sessions) / 60) * tmhr;
+        return { baseHouseFloor: materialCost + timeCost };
+    }, [service, sessions, tmhr]);
+
+    const tierAnalysis = useMemo(() => {
+        if (!service) return [];
+        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+            const tierConfig = service.serviceTiers?.find(t => t.tierId === tier.id);
+            const tierPrice = tierConfig ? tierConfig.price : service.price;
+            const tierDuration = tierConfig ? tierConfig.durationMinutes : service.duration;
+
+            // Project labor based on tier average
+            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
+            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
+                let labor = 0;
+                if (s.payStructure === 'commission') labor = tierPrice * (s.commissionRate / 100);
+                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (tierDuration / 60) * s.hourlyRate;
+                return acc + (labor * sessions * (1 + (taxBurden / 100)));
+            }, 0) / (relevantStaff.length || 1);
+
+            const totalBurden = baseHouseFloor + avgLaborRecovery;
+            const netProfit = price - totalBurden;
+            const margin = price > 0 ? (netProfit / price) * 100 : 0;
+
+            return {
+                id: tier.id,
+                name: tier.name,
+                totalBurden,
+                netProfit,
+                margin,
+                labor: avgLaborRecovery
+            };
+        });
+    }, [pricingTiers, service, sessions, staff, taxBurden, baseHouseFloor, price]);
+
+    if (!service) return null;
     
     return (
         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
@@ -76,39 +127,49 @@ const ProfitabilityAnalysis = ({ service, sessions, price }: { service: Service 
                     <Target className="w-3 h-3" />
                     Yield Engine
                 </CardTitle>
+                <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60">
+                    Net Analysis per Tier @ {taxBurden}% Tax Burden
+                </CardDescription>
             </CardHeader>
             <CardContent className="p-8 pt-0 space-y-6">
-                <div className="p-6 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
-                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
-                        <span>Package Revenue</span>
-                        <span className="font-mono text-slate-900">${price.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-destructive opacity-60">
-                        <span>Est. Service Liability</span>
-                        <span className="font-mono text-destructive">-${totalCostOfPerks.toFixed(2)}</span>
-                    </div>
-                    <Separator className="border-dashed" />
-                    <div className="flex justify-between items-baseline pt-2">
-                        <div className="flex flex-col text-left">
-                            <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Net Project Yield</span>
-                            <span className={cn("text-3xl font-black tracking-tighter font-mono leading-none", netProfit >= 0 ? "text-primary" : "text-destructive")}>
-                                ${netProfit.toFixed(2)}
-                            </span>
+                <div className="space-y-4">
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
+                            <div className="flex justify-between items-center px-1">
+                                <span className="text-[9px] font-black uppercase text-slate-900 tracking-widest">{tier.name}</span>
+                                <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 uppercase", tier.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
+                                    {tier.margin.toFixed(0)}% Margin
+                                </Badge>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                                <div className="space-y-0.5 text-left">
+                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">House Floor</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${baseHouseFloor.toFixed(2)}</p>
+                                </div>
+                                <div className="space-y-0.5 text-right">
+                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Labor Load</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${tier.labor.toFixed(2)}</p>
+                                </div>
+                            </div>
+                            <Separator className="border-dashed" />
+                            <div className="flex justify-between items-baseline pt-1">
+                                <span className="text-[9px] font-black uppercase text-primary/60">Net Package Yield</span>
+                                <span className={cn("text-2xl font-black tracking-tighter font-mono", tier.netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                                    ${tier.netProfit.toFixed(2)}
+                                </span>
+                            </div>
                         </div>
-                        <Badge className={cn("text-white border-none font-black text-xs font-mono", netProfit >= 0 ? "bg-primary" : "bg-destructive")}>
-                            {profitMargin.toFixed(1)}%
-                        </Badge>
-                    </div>
+                    ))}
                 </div>
                 <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-muted-foreground leading-relaxed tracking-tight text-left">
-                        Analysis based on {sessions}x individual session costs recorded in your library.
+                        Yield reflects current <strong>${tmhr.toFixed(2)}/hr</strong> foundation and burdened provider labor.
                     </p>
                 </div>
             </CardContent>
         </Card>
-    )
+    );
 };
 
 export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
@@ -118,7 +179,10 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
   packageToEdit,
 }) => {
   const isMobile = useIsMobile();
-  const { services, inventory } = useInventory();
+  const { services, inventory, pricingTiers, staff } = useInventory();
+  const { selectedTenant } = useTenant();
+  const tmhr = selectedTenant?.tmhr || 50;
+  const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   
   const [name, setName] = useState('');
   const [primaryServiceId, setPrimaryServiceId] = useState<string>('');
@@ -182,7 +246,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
             <div className="space-y-2">
               <Label htmlFor="pkg-service" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Target Treatment</Label>
               <Select value={primaryServiceId} onValueChange={setPrimaryServiceId}>
-                <SelectTrigger id="pkg-service" className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-muted/5">
+                <SelectTrigger id="pkg-service" className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5">
                     <SelectValue placeholder="SELECT FROM MENU..." />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -276,7 +340,15 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
           </div>
       </div>
       
-      <ProfitabilityAnalysis service={primaryService} sessions={sessions} price={price} />
+      <ProfitabilityAnalysis 
+        service={primaryService} 
+        sessions={sessions} 
+        price={price} 
+        tmhr={tmhr} 
+        taxBurden={taxBurden} 
+        pricingTiers={pricingTiers || []} 
+        staff={staff || []} 
+      />
     </div>
   );
 
