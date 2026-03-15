@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -18,6 +19,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -71,7 +73,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, query, where, getDocs } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
@@ -503,7 +505,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                                         {hasPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
                                                                         {hasDebt && <Badge variant="destructive" className="border-none text-[7px] h-3.5 px-1 font-black uppercase animate-pulse">ARREARS</Badge>}
                                                                     </div>
-                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 truncate">{c.email || c.phone || 'No contact'}</p>
+                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 truncate">{c.email || c.phone || 'No contact on file'}</p>
                                                                 </div>
                                                                 {isSel && <Check className="w-5 h-5 text-primary" />}
                                                             </button>
@@ -541,7 +543,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         control={control}
                                         render={({ field }) => (
                                             <Select onValueChange={field.onChange} value={field.value}>
-                                                <SelectTrigger className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-black uppercase text-xs tracking-tight">
+                                                <SelectTrigger id="service-edit" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-black uppercase text-xs tracking-tight">
                                                     <SelectValue placeholder="SELECT TREATMENT..." />
                                                 </SelectTrigger>
                                                 <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -586,7 +588,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
                             <div className="flex items-center justify-between">
                                 <SelectionHeader icon={Clock} title="Schedule Window" stepNum={3} />
-                                <div className="flex items-center gap-2 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
+                                <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
                                     <TooltipProvider>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
@@ -738,34 +740,38 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                 </AnimatePresence>
             </div>
         </ScrollArea>
-
-        <SheetFooter className={cn("p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl", isMobile && "p-6")}>
-            {step !== 'success' && (
+        
+        {step !== 'success' && (
+            <SheetFooter className={cn("p-4 sm:p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-2xl")}>
                 <div className="flex w-full gap-4">
-                    {step !== 'details' && (
-                        <Button variant="ghost" onClick={() => {
-                            const prevIndex = steps.indexOf(step) - 1;
-                            setStep(steps[prevIndex] as Step);
-                        }} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Back</Button>
+                    {currentStepIndex > 0 && (
+                        <Button variant="ghost" onClick={handlePrevStep} className="flex-1 h-12 md:h-20 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">
+                            Back
+                        </Button>
                     )}
                     <Button 
-                        onClick={handleNext} 
-                        disabled={isSubmitting || (step === 'details' && (!watchClientId || !watchServiceId))}
-                        className={cn("h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 group transition-all", step === 'details' ? "w-full" : "flex-[2.5]")}
+                        onClick={handleNextStep} 
+                        disabled={(currentStep === 'details' && (!watchClientId || !watchServiceId))}
+                        className={cn(
+                            "h-12 md:h-20 font-black uppercase tracking-widest text-[10px] md:text-2xl rounded-[2rem] shadow-2xl shadow-primary/30 group transition-all",
+                            currentStepIndex === 0 ? "w-full" : "flex-[2.5]"
+                        )}
                     >
-                        {isSubmitting ? <Loader className="animate-spin h-5 w-5" /> : (
+                        {isSubmitting ? (
+                            <Loader className="animate-spin h-8 w-8" />
+                        ) : (
                             <>
-                                {step === 'details' ? 'Provider Routing' : 
-                                 step === 'assignment' ? 'Select Window' : 
-                                 step === 'timing' && depositDetails ? 'Deposit Settlement' : 
+                                {currentStep === 'details' ? 'Provider Routing' : 
+                                 currentStep === 'assignment' ? 'Select Window' : 
+                                 currentStep === 'timing' && depositDetails ? 'Deposit Settlement' : 
                                  'Finalize Booking'}
-                                <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                                <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
                             </>
                         )}
                     </Button>
                 </div>
-            )}
-        </SheetFooter>
+            </SheetFooter>
+        )}
       </SheetContent>
     </Sheet>
   );

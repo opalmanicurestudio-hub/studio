@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -64,7 +65,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, writeBatch, increment } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
