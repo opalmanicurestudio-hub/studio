@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -78,7 +79,8 @@ import {
   Landmark,
   Wallet,
   CheckCircle2,
-  Repeat
+  Repeat,
+  Info
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff, type Event, type InventoryItem, type PricingTier, type Membership, type ConsentForm } from '@/lib/data';
@@ -130,7 +132,7 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 
 type Step = 'details' | 'assignment' | 'timing' | 'consents' | 'deposit' | 'success';
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client: initialClient, appointmentToRebook, memberships }) => {
+export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, onConfirm, client: initialClient, appointmentToRebook, memberships }) => {
   const isMobile = useIsMobile();
   const { firestore, user } = useFirebase();
   const { selectedTenant, role } = useTenant();
@@ -144,6 +146,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   const [assignedStaffId, setAssignedStaffId] = useState<string | null>(null);
   const [clientSearch, setClientSearch] = useState('');
   const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
+  const [checkInToken, setCheckInToken] = useState('');
 
   const methods = useForm({
     defaultValues: {
@@ -171,6 +174,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
         setAssignedStaffId(null);
         setClientSearch('');
         setFormAnswers({});
+        setCheckInToken('');
         const staffDefault = (role === 'staff' && user) ? user.uid : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
         reset({
             clientId: initialClient?.id || appointmentToRebook?.clientId || '',
@@ -293,6 +297,14 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     return { amount: Math.ceil(amount), type: selectedService.depositType };
   }, [selectedService]);
 
+  const steps = useMemo(() => {
+    const flow: Step[] = ['details', 'assignment', 'timing'];
+    if (requiredForms.length > 0) flow.push('consents');
+    if (depositDetails) flow.push('deposit');
+    flow.push('success');
+    return flow;
+  }, [requiredForms.length, depositDetails]);
+
   const handleNext = async () => {
     if (step === 'details') {
         const isNew = watchClientId === 'new';
@@ -368,6 +380,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     
     const aptId = nanoid();
     const token = nanoid(16);
+    setCheckInToken(token);
     const aptRef = doc(firestore!, `tenants/${tenantId}/appointments`, aptId);
     const checkInRef = doc(firestore!, 'appointmentCheckIns', token);
 
@@ -430,7 +443,13 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     }
   };
 
-  const currentAssignedPro = useMemo(() => allStaff?.find(s => s.id === assignedStaffId), [allStaff, assignedStaffId]);
+  const handleCopyLink = () => {
+    if (checkInToken) {
+        const link = `${window.location.origin}/check-in/${checkInToken}`;
+        navigator.clipboard.writeText(link);
+        toast({ title: 'Portal Link Copied' });
+    }
+  };
 
   const SelectionHeader = ({ icon: Icon, title, stepNum }: { icon: any, title: string, stepNum: number }) => (
     <div className="flex items-center gap-4 mb-8 text-left">
@@ -448,10 +467,10 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
       if (!clients) return [];
       if (!clientSearch.trim()) return clients.slice(0, 10);
       const s = clientSearch.toLowerCase();
-      return clients.filter(c => c.name.toLowerCase().includes(s) || c.email.toLowerCase().includes(s) || c.phone.includes(s));
+      return clients.filter(c => c.name.toLowerCase().includes(s) || (c.email && c.email.toLowerCase().includes(s)) || (c.phone && c.phone.includes(s)));
   }, [clients, clientSearch]);
 
-  const hasCardOnFile = !!selectedClient?.cardOnFile?.token;
+  const currentAssignedPro = useMemo(() => allStaff?.find(s => s.id === assignedStaffId), [allStaff, assignedStaffId]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -466,7 +485,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
         </SheetHeader>
 
         <ScrollArea className="flex-1">
-            <div className="p-8">
+            <div className="p-8 pb-32">
                 <AnimatePresence mode="wait">
                     {step === 'details' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="details" className="space-y-10">
@@ -528,7 +547,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
                                                                         {hasPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
                                                                         {hasDebt && <Badge variant="destructive" className="border-none text-[7px] h-3.5 px-1 font-black uppercase animate-pulse">ARREARS</Badge>}
                                                                     </div>
-                                                                    <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 truncate">{c.email || c.phone || 'No contact'}</p>
+                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 truncate">{c.email || c.phone || 'No contact'}</p>
                                                                 </div>
                                                                 {isSel && <Check className="w-5 h-5 text-primary" />}
                                                             </button>
@@ -756,7 +775,10 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
                                     </div>
                                 </Card>
                                 <Card className="p-6 rounded-[2rem] border-2 border-dashed bg-muted/10 space-y-4 text-left shadow-inner">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center">Session Intel</p>
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Session Intel</p>
+                                        {requiredForms.length > 0 && <Badge variant="outline" className={cn("text-[7px] font-black uppercase h-4 px-1.5", Object.keys(formAnswers).length === requiredForms.length ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200")}>{Object.keys(formAnswers).length === requiredForms.length ? "Intake Verified" : "Intake Pending"}</Badge>}
+                                    </div>
                                     <div className="flex items-center gap-4">
                                         <CalendarIcon className="w-5 h-5 text-primary opacity-40" />
                                         <div className="space-y-0.5">
@@ -767,6 +789,16 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
                                     <div className="pt-4 border-t border-white/50 flex items-center gap-4">
                                         <Sparkles className="w-5 h-5 text-primary opacity-40" />
                                         <p className="font-black uppercase text-xs truncate">{selectedService?.name}</p>
+                                    </div>
+                                    <div className="pt-4 border-t border-white/50 space-y-3">
+                                        <p className="text-[9px] font-black uppercase text-primary">Remote Onboarding Protocol</p>
+                                        <Button variant="outline" size="sm" onClick={handleCopyLink} className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                                            <PlusCircle className="w-3.5 h-3.5 mr-2" /> Copy Portal Link
+                                        </Button>
+                                        <div className="p-3 bg-white/50 rounded-xl border-2 border-dashed border-primary/10 flex items-start gap-2">
+                                            <Info className="w-3.5 h-3.5 text-primary opacity-40 mt-0.5" />
+                                            <p className="text-[8px] font-bold text-slate-500 leading-tight uppercase">Provide this link to the guest to complete their signed agreements remotely.</p>
+                                        </div>
                                     </div>
                                 </Card>
                             </div>
@@ -782,18 +814,21 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
             {step !== 'success' && (
                 <div className="flex w-full gap-4">
                     {step !== 'details' && (
-                        <Button variant="ghost" onClick={() => handlePrevStep()} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Back</Button>
+                        <Button variant="ghost" onClick={() => {
+                            const prevIndex = steps.indexOf(step) - 1;
+                            setStep(steps[prevIndex] as Step);
+                        }} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Back</Button>
                     )}
                     <Button 
                         onClick={handleNext} 
-                        disabled={isSubmitting || (!watchClientId && step === 'details') || !watchServiceId}
+                        disabled={isSubmitting || (step === 'details' && (!watchClientId || !watchServiceId))}
                         className={cn("h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 group transition-all", step === 'details' ? "w-full" : "flex-[2.5]")}
                     >
                         {isSubmitting ? <Loader className="animate-spin h-5 w-5" /> : (
                             <>
                                 {step === 'details' ? 'Provider Routing' : 
                                  step === 'assignment' ? 'Select Window' : 
-                                 step === 'timing' && requiredForms.length > 0 ? 'Digital Intake' :
+                                 step === 'timing' && requiredForms.length > 0 ? 'Review Intake' :
                                  step === 'timing' && depositDetails ? 'Deposit Settlement' : 
                                  step === 'consents' && depositDetails ? 'Deposit Settlement' :
                                  'Finalize Booking'}

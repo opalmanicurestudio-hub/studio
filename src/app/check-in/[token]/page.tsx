@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -8,10 +9,43 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint, Star, ArrowRight, Cake, PartyPopper, Gift } from 'lucide-react';
+import { 
+    Clock, 
+    Car, 
+    MapPin, 
+    Check, 
+    AlertTriangle, 
+    X, 
+    CreditCard, 
+    Loader, 
+    ChevronLeft, 
+    ChevronRight, 
+    TicketIcon, 
+    User as UserIcon, 
+    Activity, 
+    CheckCircle, 
+    Wallet, 
+    CheckCircle2, 
+    Sparkles, 
+    Zap, 
+    Calendar as CalendarIcon, 
+    ShieldCheck, 
+    Ban, 
+    XCircle, 
+    ShoppingCart, 
+    Fingerprint, 
+    Star, 
+    ArrowRight, 
+    Cake, 
+    PartyPopper, 
+    Gift,
+    FileSignature,
+    ListChecks,
+    ArrowDown
+} from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Tenant, type Staff, type ConsentForm } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc, setDocumentNonBlocking } from '@/firebase';
@@ -24,6 +58,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { Textarea } from '@/components/ui/textarea';
 import { nanoid } from 'nanoid';
+import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -55,6 +91,61 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
         <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
 );
+
+const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: { requiredForms: ConsentForm[], onComplete: () => void, formAnswers: Record<string, any>, setFormAnswers: any }) => {
+    const [currentFormIndex, setCurrentMemberIndex] = useState(0);
+    const form = requiredForms[currentFormIndex];
+    
+    const isLast = currentFormIndex === requiredForms.length - 1;
+
+    const handleNext = () => {
+        const answers = formAnswers[form.id] || {};
+        const allFieldsFilled = (form.fields || []).every(f => {
+            if (f.type === 'heading' || f.type === 'paragraph') return true;
+            return !!answers[f.id];
+        });
+
+        if (!allFieldsFilled) {
+            return; // In real app, show toast
+        }
+
+        if (isLast) onComplete();
+        else setCurrentMemberIndex(currentFormIndex + 1);
+    };
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Intake" subtitle={`Agreement ${currentFormIndex + 1} of ${requiredForms.length}`} icon={FileSignature} />
+            <ScrollArea className="max-h-[60vh]">
+                <CardContent className="p-8 space-y-10 text-left">
+                    <div className="space-y-2">
+                        <Badge className="bg-primary/10 text-primary border-none font-black uppercase text-[8px] tracking-widest h-5 px-2 mb-2">Requirement</Badge>
+                        <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{form.title}</h3>
+                    </div>
+                    <div className="space-y-8">
+                        {form.fields?.map(field => (
+                            <FormFieldRenderer 
+                                key={field.id} 
+                                field={field} 
+                                value={formAnswers[form.id]?.[field.id]}
+                                onChange={(val) => setFormAnswers((prev: any) => ({
+                                    ...prev,
+                                    [form.id]: { ...(prev[form.id] || {}), [field.id]: val }
+                                }))}
+                            />
+                        ))}
+                    </div>
+                </CardContent>
+            </ScrollArea>
+            <CardFooter className="p-8 pt-4 border-t bg-muted/5">
+                <Button onClick={handleNext} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
+                    {isLast ? 'Finalize & Authenticate' : 'Next Agreement'}
+                    <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
+                </Button>
+            </CardFooter>
+        </ViewContainer>
+    );
+};
 
 const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, onDone: () => void }) => (
     <ViewContainer>
@@ -261,6 +352,8 @@ export default function CheckInPage() {
     const staffDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.staffId ? null : doc(firestore, `tenants/${tenantId}/staff`, appointmentData.staffId), [firestore, tenantId, appointmentData?.staffId]);
     const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
     const { data: allAppointments } = useCollection<Appointment>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]));
+    const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]));
+    const { data: signedConsents } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.clientId ? null : collection(firestore, `tenants/${tenantId}/clients/${appointmentData.clientId}/signedConsents`), [firestore, tenantId, appointmentData?.clientId]));
 
     const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
     const [lateTime, setLateTime] = useState(0);
@@ -268,8 +361,17 @@ export default function CheckInPage() {
     const [isReviewFlow, setIsReviewFlow] = useState(false);
     const [reviewSubmitted, setReviewSubmitted] = useState(false);
     const [showBirthdayCelebration, setShowBirthdayCelebration] = useState(false);
+    const [birthdayName, setBirthdayName] = useState('');
+    const [isIntakeFlow, setIsIntakeFlow] = useState(false);
+    const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
 
     const appointment = useMemo(() => appointmentData ? { ...appointmentData, startTime: safeDate(appointmentData.startTime), endTime: safeDate(appointmentData.endTime) } : null, [appointmentData]);
+
+    const requiredForms = useMemo(() => {
+        if (!service || !consentForms || !signedConsents) return [];
+        const requiredIds = service.requiredFormIds || [];
+        return consentForms.filter(f => requiredIds.includes(f.id));
+    }, [service, consentForms, signedConsents]);
 
     const isBirthdayToday = useMemo(() => {
         if (!client?.birthday) return false;
@@ -282,6 +384,12 @@ export default function CheckInPage() {
 
     const handleUpdateStatus = (newStatus: Appointment['checkInStatus'], lateMinutes?: number) => {
         if (!appointment || !firestore || !tenantId || !tenant) return;
+        
+        if (newStatus === 'arrived' && requiredForms.length > 0) {
+            setIsIntakeFlow(true);
+            return;
+        }
+
         const tmhr = tenant.tmhr || 50;
         const premium = tenant.lateInconveniencePremium || 0;
         const grace = tenant.lateArrivalGracePeriod || 15;
@@ -336,6 +444,43 @@ export default function CheckInPage() {
         });
     };
 
+    const handleCompleteIntake = async () => {
+        if (!appointment || !firestore || !tenantId || !client) return;
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+
+        Object.entries(formAnswers).forEach(([formId, answers]) => {
+            const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
+            const template = consentForms?.find(f => f.id === formId);
+            batch.set(consentDocRef, {
+                id: consentDocRef.id,
+                formId,
+                formTitle: template?.title || 'Signed Form',
+                clientId: client.id,
+                signedAt: now,
+                formData: answers,
+            });
+        });
+
+        batch.update(doc(firestore, 'appointmentCheckIns', token), { checkInStatus: 'arrived' });
+        
+        if (appointment.staffId) {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/notifications`)), { 
+                userId: appointment.staffId, 
+                type: 'compliance', 
+                message: `${client.name} has completed digital intake and arrived.`, 
+                link: '/planner', 
+                createdAt: now, 
+                read: false 
+            });
+        }
+
+        await batch.commit();
+        setIsIntakeFlow(false);
+        setCurrentStatus('arrived');
+        if (isBirthdayToday) setShowBirthdayCelebration(true);
+    };
+
     const handleSettleFee = async () => {
         if (!appointment || !firestore || !tenantId || !client) return;
         const batch = writeBatch(firestore);
@@ -363,8 +508,10 @@ export default function CheckInPage() {
     };
     
     if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) return <div className="flex flex-col items-center gap-4"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Initializing Portal...</p></div>;
+    
     if (reviewSubmitted) return <ReviewSubmittedView onDone={() => { setReviewSubmitted(false); setIsReviewFlow(false); }} />;
     if (isReviewFlow) return <ReviewFormView serviceName={service.name} staffName={assignedStaff?.name || 'your professional'} onSubmit={handleSubmitReview} onCancel={() => setIsReviewFlow(false)} />;
+    if (isIntakeFlow) return <IntakeView requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} onComplete={handleCompleteIntake} />;
     
     if (showBirthdayCelebration) return <BirthdayCelebrationView clientName={client?.name || 'Guest'} onDone={() => setShowBirthdayCelebration(false)} />;
 
