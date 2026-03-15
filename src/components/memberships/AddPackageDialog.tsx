@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { type Package, type Service, type InventoryItem, type PricingTier, type Staff } from '@/lib/data';
 import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
@@ -137,7 +137,7 @@ const ProfitabilityAnalysis = ({
                         <div key={tier.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
                             <div className="flex justify-between items-center px-1">
                                 <span className="text-[9px] font-black uppercase text-slate-900 tracking-widest">{tier.name}</span>
-                                <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 uppercase", tier.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
+                                <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", tier.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>
                                     {tier.margin.toFixed(0)}% Margin
                                 </Badge>
                             </div>
@@ -362,7 +362,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
     <>
         <DialogContainer open={open} onOpenChange={onOpenChange}>
             <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
-                <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
+                <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
@@ -375,7 +375,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                         {FormContent}
                     </div>
                 </ScrollArea>
-                <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
+                <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-10 pt-4")}>
                     <div className="grid grid-cols-2 gap-3 w-full">
                         <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
                         <Button onClick={handleSave} className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Establish Bundle <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>

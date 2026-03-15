@@ -82,7 +82,6 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { Separator } from '@/components/ui/separator';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -435,7 +434,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
 
                 {!isAddon && (
                     <div className="space-y-4">
-                        <div className='flex items-center justify-between px-1'>
+                        <div className='flex items-center justify-between px-1 text-left'>
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                 <PlusCircle className="w-3.5 h-3.5 opacity-40" /> Enhancement Compatibility
                             </Label>
@@ -674,8 +673,8 @@ const Step4 = ({ consentForms, pricingTiers, breakEvenCost }: { consentForms: Co
                     </div>
                     
                     <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
-                        <div className='space-y-1'>
-                            <Label htmlFor="private-service-edit" className="text-lg font-black uppercase tracking-tight">Private Listing</Label>
+                        <div className='space-y-1 text-left'>
+                            <Label htmlFor="private-service-edit" className="text-base font-black uppercase tracking-tight">Private Listing</Label>
                             <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Hide from the public booking directory</p>
                         </div>
                         <Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
@@ -797,7 +796,7 @@ export const EditServiceDialog: React.FC<any> = ({
         <ScrollArea className="flex-1">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
-                {step === 2 && <Step2 resources={resources} allServices={allServices} />}
+                {step === 2 && <Step2 resources={resources} allServices={services} />}
                 {step === 3 && <Step3 breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />}
                 {step === 4 && <Step4 consentForms={consentForms || []} pricingTiers={pricingTiersData || []} breakEvenCost={breakEvenCost} />}
             </div>

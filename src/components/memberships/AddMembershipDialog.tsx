@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
 import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -117,7 +117,7 @@ const ProfitabilityAnalysis = ({
             const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
             const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
                 let labor = 0;
-                // Simplified labor projection for membership: using average service value within tier
+                // Projected labor for membership perks
                 const avgPrice = perks.services.reduce((sum, perk) => {
                     const svc = services.find(sv => sv.id === perk.id);
                     const tierPrice = svc?.serviceTiers?.find(t => t.tierId === tier.id)?.price || svc?.price || 0;
@@ -488,7 +488,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                     <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="flex-1">
-                    <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
+                    <div className={cn("p-8", isMobile ? "p-6" : "p-8")}>
                         {FormContent}
                     </div>
                 </ScrollArea>
