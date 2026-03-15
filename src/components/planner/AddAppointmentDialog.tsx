@@ -1,15 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import {
   Sheet,
   SheetContent,
@@ -18,7 +10,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,16 +30,13 @@ import {
   ChevronLeft, 
   ChevronRight, 
   User, 
-  Lock, 
   Award, 
   Clock, 
   Users, 
   Sparkles, 
   ArrowRight, 
   Check, 
-  Tag, 
   Search,
-  FileSignature,
   ShieldCheck,
   CreditCard,
   Zap,
@@ -71,13 +60,12 @@ import { nanoid } from 'nanoid';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase } from '@/firebase';
+import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, writeBatch, increment, arrayUnion, query, where, getDocs, deleteField } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, query, where, getDocs } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
@@ -98,7 +86,8 @@ type Step = 'details' | 'assignment' | 'timing' | 'deposit' | 'success';
 
 export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client: initialClient, appointmentToRebook }) => {
   const isMobile = useIsMobile();
-  const { firestore, user } = useFirebase();
+  const { firestore } = useFirebase();
+  const { user } = useUser();
   const { selectedTenant, role } = useTenant();
   const { services, staff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB } = useInventory();
   const { toast } = useToast();

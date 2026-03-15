@@ -44,9 +44,11 @@ import {
     Lock,
     Info,
     ListOrdered,
-    Shield
+    Shield,
+    Undo2,
+    CalendarDays
 } from 'lucide-react';
-import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
+import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse, endOfDay } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type ConsentForm } from '@/lib/data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc, setDocumentNonBlocking } from '@/firebase';
@@ -69,6 +71,18 @@ const safeDate = (val: any): Date => {
     if (typeof val?.toDate === 'function') return val.toDate();
     return new Date(val);
 };
+
+const timeStringToDate = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    if (!timeStr) return d;
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+    d.setHours(hours, minutes);
+    return d;
+}
 
 const ViewContainer = ({ children }: { children: React.ReactNode }) => (
     <motion.div 
@@ -93,7 +107,109 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
     </CardHeader>
 );
 
-const WelcomeOnboardingView = ({ client, service, tenant, needsDeposit, needsIntake, onStart }: any) => (
+const RescheduleView = ({ appointment, service, staff, schedule, allAppointments, onConfirm, onCancel }: any) => {
+    const [date, setDate] = useState<Date>(safeDate(appointment.startTime));
+    const [time, setTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
+    const [isSaving, setIsSaving] = useState(false);
+
+    const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
+    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
+
+    const timeSlots = useMemo(() => {
+        if (!service || !date || !schedule || !staff || !allAppointments) return [];
+        const bookingInterval = 15;
+        const dayName = format(date, 'eeee').toLowerCase();
+        const assignedPro = staff.find((s: Staff) => s.id === appointment.staffId);
+        
+        const sched = assignedPro?.availability?.week?.[dayName] || schedule.week?.[dayName];
+        if (!sched?.enabled) return [];
+
+        const openT = timeStringToDate(sched.start, date);
+        const closeT = timeStringToDate(sched.end, date);
+        
+        const busyIntervals: { start: Date, end: Date }[] = [];
+        allAppointments.filter((a: any) => isSameDay(safeDate(a.startTime), date) && a.staffId === appointment.staffId && a.id !== appointment.id && a.status !== 'cancelled').forEach((a: any) => {
+            busyIntervals.push({ start: safeDate(a.startTime), end: safeDate(a.endTime) });
+        });
+
+        const options: string[] = [];
+        let curr = openT;
+        while (curr < closeT) {
+            const potentialEnd = addMinutes(curr, service.duration);
+            if (potentialEnd > closeT) break;
+            const overlap = busyIntervals.some(interval => areIntervalsOverlapping({ start: curr, end: potentialEnd }, interval, { inclusive: false }));
+            if (!overlap) options.push(format(curr, 'HH:mm'));
+            curr = addMinutes(curr, bookingInterval);
+        }
+        return options;
+    }, [date, service, schedule, staff, allAppointments, appointment.staffId, appointment.id]);
+
+    const handleAction = async () => {
+        setIsSaving(true);
+        const [h, m] = time.split(':').map(Number);
+        const start = setMinutes(setHours(startOfDay(date), h), m);
+        const end = addMinutes(start, service.duration);
+        await onConfirm(start.toISOString(), end.toISOString());
+        setIsSaving(false);
+    };
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Reschedule" subtitle="Shift your window" icon={Undo2} />
+            <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                <div className="rounded-[2rem] border-2 bg-muted/10 p-6 space-y-6 shadow-inner text-center">
+                    <div className="flex justify-between items-center px-2">
+                        <Button variant="outline" size="icon" className="h-8 w-8 rounded-full" onClick={() => setDate(subWeeks(date, 1))}><ChevronLeft className="w-4 h-4" /></Button>
+                        <span className="font-black uppercase tracking-widest text-[10px]">{format(date, 'MMMM yyyy')}</span>
+                        <Button variant="outline" size="icon" className="h-8 w-8 rounded-full" onClick={() => setDate(addWeeks(date, 1))}><ChevronRight className="w-4 h-4" /></Button>
+                    </div>
+                    <div className="grid grid-cols-7 gap-1">
+                        {weekDays.map(day => (
+                            <button key={day.toISOString()} onClick={() => setDate(day)} disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} className={cn("flex flex-col items-center justify-center p-2 rounded-xl border-2 transition-all", isSameDay(day, date) ? "bg-primary text-white border-primary" : "bg-white border-transparent")}>
+                                <span className="text-[8px] uppercase font-black opacity-60">{format(day, 'E')}</span>
+                                <span className="font-black text-sm">{format(day, 'd')}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-6 border-t border-dashed">
+                        {timeSlots.map(t => (
+                            <Button key={t} variant={time === t ? 'default' : 'outline'} onClick={() => setTime(t)} className="h-10 text-[10px] font-black uppercase rounded-xl border-2 shadow-sm">
+                                {format(timeStringToDate(t, new Date()), 'h:mm a')}
+                            </Button>
+                        ))}
+                    </div>
+                </div>
+            </CardContent>
+            <CardFooter className="p-6 md:p-8 pt-0 flex flex-col gap-3">
+                <Button onClick={handleAction} disabled={!time || isSaving} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl">
+                    {isSaving ? <Loader className="animate-spin" /> : 'Confirm New Window'}
+                </Button>
+                <Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase text-[10px] text-muted-foreground">Go Back</Button>
+            </CardFooter>
+        </ViewContainer>
+    );
+};
+
+const CancelView = ({ onConfirm, onCancel }: { onConfirm: () => void, onCancel: () => void }) => (
+    <ViewContainer>
+        <ViewHeader title="Cancel" subtitle="Protocol Termination" icon={Ban} />
+        <CardContent className="p-10 text-center space-y-8">
+            <div className="w-20 h-20 bg-destructive/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl rotate-12">
+                <AlertTriangle className="w-10 h-10 text-destructive -rotate-12" />
+            </div>
+            <div className="space-y-2">
+                <h3 className="text-xl font-black uppercase tracking-tight">Confirm Cancellation?</h3>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase">This will void your reserved window. Late cancellation fees may apply based on studio policy.</p>
+            </div>
+        </CardContent>
+        <CardFooter className="p-8 pt-0 flex flex-col gap-3">
+            <Button variant="destructive" onClick={onConfirm} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-xl shadow-destructive/20">Authorize Cancellation</Button>
+            <Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase text-[10px] text-muted-foreground">Keep Appointment</Button>
+        </CardFooter>
+    </ViewContainer>
+);
+
+const WelcomeOnboardingView = ({ client, service, tenant, needsDeposit, needsIntake, onStart, onReschedule, onCancel }: any) => (
     <ViewContainer>
         <ViewHeader title="Welcome" subtitle="Onboarding Protocol" icon={Sparkles} />
         <CardContent className="p-6 md:p-10 space-y-8 text-left">
@@ -126,11 +242,13 @@ const WelcomeOnboardingView = ({ client, service, tenant, needsDeposit, needsInt
                 ))}
             </div>
 
-            <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 border-primary/10 flex items-start gap-3">
-                <Info className="w-4 h-4 text-primary shrink-0 mt-0.5 opacity-40" />
-                <p className="text-[10px] font-bold text-slate-600 leading-tight uppercase">
-                    Your session is reserved. Complete these steps to unlock the arrival notification for your professional.
-                </p>
+            <div className="grid grid-cols-2 gap-3 pt-4">
+                <Button variant="outline" onClick={onReschedule} className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                    <Undo2 className="w-3.5 h-3.5 mr-2 opacity-40" /> Reschedule
+                </Button>
+                <Button variant="outline" onClick={onCancel} className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm text-destructive hover:bg-destructive/5 border-destructive/20">
+                    <XCircle className="w-3.5 h-3.5 mr-2 opacity-40" /> Cancel Visit
+                </Button>
             </div>
         </CardContent>
         <CardFooter className="p-6 md:p-8 pt-0">
@@ -144,20 +262,12 @@ const WelcomeOnboardingView = ({ client, service, tenant, needsDeposit, needsInt
 const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: { requiredForms: ConsentForm[], onComplete: () => void, formAnswers: Record<string, any>, setFormAnswers: any }) => {
     const [currentFormIndex, setCurrentFormIndex] = useState(0);
     const form = requiredForms[currentFormIndex];
-    
     const isLast = currentFormIndex === requiredForms.length - 1;
 
     const handleNext = () => {
         const answers = formAnswers[form.id] || {};
-        const allFieldsFilled = (form.fields || []).every(f => {
-            if (f.type === 'heading' || f.type === 'paragraph') return true;
-            return !!answers[f.id];
-        });
-
-        if (!allFieldsFilled) {
-            return; 
-        }
-
+        const allFilled = (form.fields || []).every(f => (f.type === 'heading' || f.type === 'paragraph' || !!answers[f.id]));
+        if (!allFilled) return;
         if (isLast) onComplete();
         else setCurrentFormIndex(currentFormIndex + 1);
     };
@@ -198,14 +308,7 @@ const IntakeView = ({ requiredForms, onComplete, formAnswers, setFormAnswers }: 
 
 const DepositPaymentView = ({ amount, onComplete }: { amount: number, onComplete: () => void }) => {
     const [isPaying, setIsPaying] = useState(false);
-
-    const handlePay = async () => {
-        setIsPaying(true);
-        await new Promise(r => setTimeout(r, 1500));
-        onComplete();
-        setIsPaying(false);
-    };
-
+    const handlePay = async () => { setIsPaying(true); await new Promise(r => setTimeout(r, 1500)); onComplete(); setIsPaying(false); };
     return (
         <ViewContainer>
             <ViewHeader title="Secure Retainer" subtitle="Authorize scheduled window" icon={CreditCard} />
@@ -213,9 +316,7 @@ const DepositPaymentView = ({ amount, onComplete }: { amount: number, onComplete
                 <div className="p-8 md:p-10 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                     <p className="text-[9px] md:text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
                     <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter font-mono">${amount.toFixed(2)}</p>
-                    <div className="pt-4 border-t border-primary/10">
-                        <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3 shadow-sm">PROTECTED PAYMENT</Badge>
-                    </div>
+                    <div className="pt-4 border-t border-primary/10"><Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3 shadow-sm">PROTECTED PAYMENT</Badge></div>
                 </div>
                 <div className="space-y-6 text-left">
                     <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
@@ -223,11 +324,7 @@ const DepositPaymentView = ({ amount, onComplete }: { amount: number, onComplete
                 </div>
                 <div className="flex items-center justify-center gap-3 opacity-40"><Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted SSL Secure Tunnel</span></div>
             </CardContent>
-            <CardFooter className="p-6 md:p-8 pt-0">
-                <Button onClick={handlePay} disabled={isPaying} className="w-full h-16 md:h-20 rounded-[2.5rem] text-xl md:text-2xl font-black uppercase shadow-3xl shadow-primary/30 group">
-                    {isPaying ? <Loader className="animate-spin h-8 w-8" /> : <>Authorize Payment <ArrowRight className="ml-3 w-8 h-8 transition-transform group-hover:translate-x-2"/></>}
-                </Button>
-            </CardFooter>
+            <CardFooter className="p-6 md:p-8 pt-0"><Button onClick={handlePay} disabled={isPaying} className="w-full h-16 md:h-20 rounded-[2.5rem] text-xl md:text-2xl font-black uppercase shadow-3xl shadow-primary/30 group">{isPaying ? <Loader className="animate-spin h-8 w-8" /> : <>Authorize Payment <ArrowRight className="ml-3 w-8 h-8 transition-transform group-hover:translate-x-2"/></>}</Button></CardFooter>
         </ViewContainer>
     );
 };
@@ -235,49 +332,10 @@ const DepositPaymentView = ({ amount, onComplete }: { amount: number, onComplete
 const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, onDone: () => void }) => (
     <ViewContainer>
         <div className="relative overflow-hidden">
-            <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <motion.div 
-                    animate={{ rotate: 360 }} 
-                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-                    className="absolute -top-20 -right-20 opacity-5"
-                >
-                    <Sparkles className="w-64 h-64 text-primary" />
-                </motion.div>
-            </div>
-
+            <div className="absolute inset-0 pointer-events-none overflow-hidden"><motion.div animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute -top-20 -right-20 opacity-5"><Sparkles className="w-64 h-64 text-primary" /></motion.div></div>
             <ViewHeader title="Happy Birthday!" subtitle="Celebrating Excellence" icon={Cake} />
-            
-            <CardContent className="p-10 text-center space-y-8 relative z-10">
-                <motion.div 
-                    initial={{ scale: 0, rotate: -180 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ type: "spring", damping: 12, stiffness: 200 }}
-                    className="w-32 h-32 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-12"
-                >
-                    <PartyPopper className="w-16 h-16 text-primary -rotate-12" />
-                </motion.div>
-                
-                <div className="space-y-3">
-                    <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                        Cheers to <br/>
-                        <span className="text-primary italic font-serif lowercase tracking-normal">{clientName.split(' ')[0]}!</span>
-                    </h2>
-                    <p className="text-sm md:text-base font-medium text-slate-500 leading-relaxed max-w-xs mx-auto">
-                        We're thrilled to celebrate with you today. Expect a little something extra during your visit!
-                    </p>
-                </div>
-
-                <div className="p-5 rounded-2xl bg-primary/5 border-2 border-dashed border-primary/20 flex items-center justify-center gap-3 shadow-inner">
-                    <Gift className="w-5 h-5 text-primary animate-bounce" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-primary">Ask your pro for a birthday surprise</span>
-                </div>
-            </CardContent>
-            
-            <CardFooter className="p-8 pt-0">
-                <Button onClick={onDone} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
-                    Check In Now <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
-                </Button>
-            </CardFooter>
+            <CardContent className="p-10 text-center space-y-8 relative z-10"><motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", damping: 12, stiffness: 200 }} className="w-32 h-32 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-12"><PartyPopper className="w-16 h-16 text-primary -rotate-12" /></motion.div><div className="space-y-3"><h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Cheers to <br/><span className="text-primary italic font-serif lowercase tracking-normal">{clientName.split(' ')[0]}!</span></h2><p className="text-sm md:text-base font-medium text-slate-500 leading-relaxed max-w-xs mx-auto">We're thrilled to celebrate with you today. Expect a little something extra during your visit!</p></div><div className="p-5 rounded-2xl bg-primary/5 border-2 border-dashed border-primary/20 flex items-center justify-center gap-3 shadow-inner"><Gift className="w-5 h-5 text-primary animate-bounce" /><span className="text-[10px] font-black uppercase tracking-widest text-primary">Ask your pro for a birthday surprise</span></div></CardContent>
+            <CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">Check In Now <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></Button></CardFooter>
         </div>
     </ViewContainer>
 );
@@ -285,117 +343,38 @@ const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, o
 const ServicingView = ({ serviceName }: { serviceName: string }) => (
     <ViewContainer>
         <ViewHeader title="In Service" subtitle="Your session is active" icon={Clock} />
-        <CardContent className="p-10 text-center space-y-6">
-            <div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
-                <Activity className="w-12 h-12 text-primary -rotate-6" />
-            </div>
-            <div className="space-y-2">
-                <p className="font-black text-xl uppercase tracking-tight text-slate-900">Sit Back & Relax</p>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your <strong>{serviceName}</strong> is currently underway. We'll provide your checkout ticket once complete.</p>
-            </div>
-        </CardContent>
+        <CardContent className="p-10 text-center space-y-6"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><Activity className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Sit Back & Relax</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your <strong>{serviceName}</strong> is currently underway. We'll provide your checkout ticket once complete.</p></div></CardContent>
     </ViewContainer>
 );
 
 const CheckoutView = ({ qrCodeUrl, ticketId }: { qrCodeUrl: string, ticketId: string }) => (
     <ViewContainer>
         <ViewHeader title="Finalize" subtitle="Ready for checkout" icon={ShoppingCart} />
-        <CardContent className="p-8 text-center space-y-8">
-            <p className="text-sm font-bold text-slate-600 uppercase tracking-tight">Scan this code at the desk to pay.</p>
-            <div className="p-6 bg-white rounded-[2.5rem] shadow-2xl border-4 border-primary/10 inline-block mx-auto">
-                <Image src={qrCodeUrl} alt="Checkout QR Code" width={220} height={220} className="rounded-xl" />
-            </div>
-            <div className="bg-primary/5 p-6 rounded-[2rem] border-2 border-primary/10 space-y-1">
-                <p className="text-[10px] uppercase font-black tracking-widest text-primary/60">Checkout Ticket</p>
-                <p className="text-4xl font-black font-mono tracking-tighter text-primary">#{ticketId}</p>
-            </div>
-        </CardContent>
+        <CardContent className="p-8 text-center space-y-8"><p className="text-sm font-bold text-slate-600 uppercase tracking-tight">Scan this code at the desk to pay.</p><div className="p-6 bg-white rounded-[2.5rem] shadow-2xl border-4 border-primary/10 inline-block mx-auto"><Image src={qrCodeUrl} alt="Checkout QR Code" width={220} height={220} className="rounded-xl" /></div><div className="bg-primary/5 p-6 rounded-[2rem] border-2 border-primary/10 space-y-1"><p className="text-[10px] uppercase font-black tracking-widest text-primary/60">Checkout Ticket</p><p className="text-4xl font-black font-mono tracking-tighter text-primary">#{ticketId}</p></div></CardContent>
     </ViewContainer>
 );
 
 const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveReview: () => void }) => (
     <ViewContainer>
         <ViewHeader title="Complete" subtitle="Session Finished" icon={CheckCircle2} />
-        <CardContent className="p-10 text-center space-y-8">
-            <div className="w-24 h-24 bg-green-500/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 -rotate-6">
-                <CheckCircle2 className="w-14 h-14 text-green-500 rotate-6" />
-            </div>
-            <div className="space-y-2">
-                <p className="font-black text-xl uppercase tracking-tight text-slate-900">Thank You!</p>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed text-center">We hope you enjoyed your experience. We look forward to seeing you again soon.</p>
-            </div>
-        </CardContent>
-        <CardFooter className="p-8 pt-0 flex flex-col gap-3">
-            <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20"><a href={`/book/${tenantId}`}>Book Next Session</a></Button>
-            <Button variant="ghost" onClick={onLeaveReview} className="w-full font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Leave a Review</Button>
-        </CardFooter>
+        <CardContent className="p-10 text-center space-y-8"><div className="w-24 h-24 bg-green-500/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 -rotate-6"><CheckCircle2 className="w-14 h-14 text-green-500 rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Thank You!</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">We hope you enjoyed your experience. We look forward to seeing you again soon.</p></div></CardContent>
+        <CardFooter className="p-8 pt-0 flex flex-col gap-3"><Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20"><a href={`/book/${tenantId}`}>Book Next Session</a></Button><Button variant="ghost" onClick={onLeaveReview} className="w-full font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Leave a Review</Button></CardFooter>
     </ViewContainer>
 );
 
 const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: number, onSettle?: () => void }) => {
     const [step, setStep] = useState<'info' | 'payment' | 'success'>('info');
-
     return (
         <ViewContainer>
             <ViewHeader title="Cancelled" subtitle="Appointment Void" icon={Ban} />
             <CardContent className="p-8 md:p-10 text-center space-y-8">
                 {step === 'info' ? (
-                    <>
-                        <div className="w-24 h-24 bg-destructive/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5 rotate-12">
-                            <XCircle className="w-12 h-12 text-destructive -rotate-12" />
-                        </div>
-                        <div className="space-y-2 text-left">
-                            <p className="font-black text-xl uppercase tracking-tight text-slate-900 text-center">Session Voided</p>
-                            <p className="text-sm font-medium text-slate-500 leading-relaxed text-center">This appointment has been cancelled due to policy violation (late notice or scheduling conflict).</p>
-                        </div>
-                        {fee && Number(fee) > 0 && (
-                            <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 space-y-2 shadow-inner text-left">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-destructive/60">Outstanding Protocol Fee</p>
-                                <div className="flex justify-between items-baseline">
-                                    <p className="text-4xl font-black text-destructive tracking-tighter font-mono">${Number(fee).toFixed(2)}</p>
-                                    <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-destructive/20 text-destructive shadow-sm">OVERHEAD RECOVERY</Badge>
-                                </div>
-                                <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed pt-2 border-t border-destructive/10">This fee has been added to your dossier. Settle now to clear your account and rebook immediately.</p>
-                            </div>
-                        )}
-                    </>
+                    <><div className="w-24 h-24 bg-destructive/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5 rotate-12"><XCircle className="w-12 h-12 text-destructive -rotate-12" /></div><div className="space-y-2 text-left"><p className="font-black text-xl uppercase tracking-tight text-slate-900 text-center">Session Voided</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">This appointment has been cancelled. We've updated our studio manifest.</p></div>{fee && Number(fee) > 0 && (<div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 space-y-2 shadow-inner text-left"><p className="text-[10px] font-black uppercase tracking-widest text-destructive/60">Outstanding Protocol Fee</p><div className="flex justify-between items-baseline"><p className="text-4xl font-black text-destructive tracking-tighter font-mono">${Number(fee).toFixed(2)}</p><Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-destructive/20 text-destructive shadow-sm">RECOVERY</Badge></div><p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed pt-2 border-t border-destructive/10">Settle now to clear your account and rebook immediately.</p></div>)}</>
                 ) : (
-                    <div className="space-y-6 animate-in fade-in zoom-in-95 text-left">
-                        <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4"><CreditCard className="w-8 h-8 text-primary" /></div>
-                        <div className="space-y-2 text-center">
-                            <h3 className="text-xl font-black uppercase tracking-tighter">Settle Balance</h3>
-                            <p className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize ${Number(fee).toFixed(2)}</p>
-                        </div>
-                        <div className="space-y-4">
-                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
-                            <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
-                        </div>
-                    </div>
+                    <div className="space-y-6 animate-in fade-in zoom-in-95 text-left"><div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4"><CreditCard className="w-8 h-8 text-primary" /></div><div className="space-y-2 text-center"><h3 className="text-xl font-black uppercase tracking-tighter">Settle Balance</h3><p className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize ${Number(fee).toFixed(2)}</p></div><div className="space-y-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div></div></div>
                 )}
             </CardContent>
-            <CardFooter className="p-8 pt-0 flex flex-col gap-3">
-                {fee && Number(fee) > 0 && step === 'info' ? (
-                    <Button onClick={() => setStep('payment')} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
-                        Settle & Rebook <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
-                    </Button>
-                ) : fee && Number(fee) > 0 && step === 'payment' ? (
-                    <Button onClick={onSettle} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30">Authorize Payment</Button>
-                ) : (
-                    tenantId && (
-                        <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">
-                            <a href={`/book/${tenantId}`}>Secure New Window</a>
-                        </Button>
-                    )
-                )}
-                {step === 'payment' && (
-                    <Button variant="ghost" onClick={() => setStep('info')} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Back</Button>
-                )}
-                {step === 'info' && (
-                    <Button asChild variant="ghost" className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">
-                        <a href="/">Return to Homepage</a>
-                    </Button>
-                )}
-            </CardFooter>
+            <CardFooter className="p-8 pt-0 flex flex-col gap-3">{fee && Number(fee) > 0 && step === 'info' ? (<Button onClick={() => setStep('payment')} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">Settle & Rebook <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></Button>) : fee && Number(fee) > 0 && step === 'payment' ? (<Button onClick={onSettle} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30">Authorize Payment</Button>) : (tenantId && (<Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20"><a href={`/book/${tenantId}`}>Secure New Window</a></Button>))}{step === 'payment' && (<Button variant="ghost" onClick={() => setStep('info')} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Back</Button>)}{step === 'info' && (<Button asChild variant="ghost" className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground"><a href="/">Return to Homepage</a></Button>)}</CardFooter>
         </ViewContainer>
     );
 };
@@ -406,16 +385,11 @@ const ReviewFormView = ({ onSubmit, onCancel, serviceName, staffName }: { onSubm
     return (
         <ViewContainer>
             <ViewHeader title="Feedback" subtitle={`How was your ${serviceName}?`} icon={Star} />
-            <CardContent className="p-8 space-y-8 text-center">
-                <div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-center">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div>
-                <div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts on the treatment..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium" value={text} onChange={(e) => setText(e.target.value)} /></div>
-            </CardContent>
+            <CardContent className="p-8 space-y-8 text-center"><div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-center">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div><div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px]" value={text} onChange={(e) => setText(e.target.value)} /></div></CardContent>
             <CardFooter className="p-8 pt-0 flex flex-col gap-3"><Button onClick={() => onSubmit(rating, text)} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30">Submit Review</Button><Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase tracking-widest text-[10px]">Maybe Later</Button></CardFooter>
         </ViewContainer>
     );
 };
-
-const ReviewSubmittedView = ({ onDone }: { onDone: () => void }) => (<ViewContainer><ViewHeader title="Success" subtitle="Review Authenticated" icon={CheckCircle2} /><CardContent className="p-10 text-center space-y-6"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><Sparkles className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Contribution Logged</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your feedback has been recorded and will help us continue providing excellence.</p></div></CardContent><CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Return</Button></CardFooter></ViewContainer>);
 
 export default function CheckInPage() {
     const params = useParams();
@@ -438,31 +412,28 @@ export default function CheckInPage() {
     const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
     const { data: allAppointments } = useCollection<Appointment>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]));
     const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]));
-    const { data: signedConsents } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.clientId ? null : collection(firestore, `tenants/${tenantId}/clients/${appointmentData.clientId}/signedConsents`), [firestore, tenantId, appointmentData?.clientId]));
+    const { data: scheduleProfiles } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]));
 
     const [hasStarted, setHasStarted] = useState(false);
     const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
     const [lateTime, setLateTime] = useState(0);
     const [showLateOptions, setShowLateOptions] = useState(false);
     const [isReviewFlow, setIsReviewFlow] = useState(false);
+    const [isCancelFlow, setIsCancelFlow] = useState(false);
+    const [isRescheduleFlow, setIsRescheduleFlow] = useState(false);
     const [reviewSubmitted, setReviewSubmitted] = useState(false);
     const [showBirthdayCelebration, setShowBirthdayCelebration] = useState(false);
-    const [birthdayName, setBirthdayName] = useState('');
     const [isIntakeFlow, setIsIntakeFlow] = useState(false);
     const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
 
     const appointment = useMemo(() => appointmentData ? { ...appointmentData, startTime: safeDate(appointmentData.startTime), endTime: safeDate(appointmentData.endTime) } : null, [appointmentData]);
-
-    const isTodayAppointment = useMemo(() => {
-        if (!appointment) return false;
-        return isToday(appointment.startTime);
-    }, [appointment]);
+    const isTodayAppointment = useMemo(() => appointment ? isToday(appointment.startTime) : false, [appointment]);
 
     const requiredForms = useMemo(() => {
-        if (!service || !consentForms || !signedConsents) return [];
+        if (!service || !consentForms) return [];
         const requiredIds = service.requiredFormIds || [];
         return consentForms.filter(f => requiredIds.includes(f.id));
-    }, [service, consentForms, signedConsents]);
+    }, [service, consentForms]);
 
     const isBirthdayToday = useMemo(() => {
         if (!client?.birthday) return false;
@@ -471,34 +442,19 @@ export default function CheckInPage() {
         return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
     }, [client?.birthday]);
 
-    const needsDeposit = appointment?.status === 'deposit_pending';
-    const needsIntake = requiredForms.length > 0 && !isIntakeFlow && currentStatus !== 'arrived';
-
     useEffect(() => { if (appointment?.checkInStatus) { setCurrentStatus(appointment.checkInStatus); if (appointment.checkInStatus === 'running_late') setLateTime(appointment.lateTimeMinutes || 0); } }, [appointment]);
 
     const handleUpdateStatus = (newStatus: Appointment['checkInStatus'], lateMinutes?: number) => {
         if (!appointment || !firestore || !tenantId || !tenant) return;
-        
-        if (newStatus === 'arrived' && requiredForms.length > 0) {
-            setIsIntakeFlow(true);
-            return;
-        }
-
+        if (newStatus === 'arrived' && requiredForms.length > 0) { setIsIntakeFlow(true); return; }
         const tmhr = tenant.tmhr || 50;
-        const premium = tenant.lateInconveniencePremium || 0;
         const grace = tenant.lateArrivalGracePeriod || 15;
         const autoCancelEnabled = tenant.autoCancelLateArrivals !== false;
         const updateData: Partial<Appointment> = { checkInStatus: newStatus };
         if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
         const batch = writeBatch(firestore);
-        
-        let estArrival: string | undefined;
-        if (lateMinutes) {
-            estArrival = format(addMinutes(safeDate(appointment.startTime), lateMinutes), 'h:mm a');
-        }
-
         if (newStatus === 'running_late' && lateMinutes && lateMinutes > grace) {
-            const totalDur = (service?.duration || 60) + (service?.padBefore || 0) + (service?.padAfter || 0);
+            const totalDur = (service?.duration || 60);
             let hasConflict = false;
             if (appointment.staffId && allAppointments) {
                 const theoreticalEnd = addMinutes(safeDate(appointment.startTime), lateMinutes + totalDur);
@@ -506,213 +462,89 @@ export default function CheckInPage() {
                 if (nextApt && theoreticalEnd > safeDate(nextApt.startTime)) hasConflict = true;
             }
             if (autoCancelEnabled || hasConflict) {
-                const fee = Math.ceil((totalDur / 60) * tmhr + premium);
+                const fee = Math.ceil((totalDur / 60) * tmhr);
                 (updateData as any).status = 'cancelled'; (updateData as any).cancellationReason = hasConflict ? 'clash' : 'late'; (updateData as any).cancellationFeeApplied = fee; (updateData as any).cancellationPaymentStatus = 'unpaid';
-                if (appointment.clientId && fee > 0) {
-                    batch.update(doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: appointment.id, appointmentDate: safeDate(appointment.startTime).toISOString(), feeAmount: fee, reason: `Auto-Cancel: ${hasConflict ? 'Schedule Conflict' : 'Late Arrival'}` }) });
-                }
+                if (appointment.clientId && fee > 0) batch.update(doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: appointment.id, appointmentDate: safeDate(appointment.startTime).toISOString(), feeAmount: fee, reason: `Auto-Cancel: ${hasConflict ? 'Schedule Conflict' : 'Late Arrival'}` }) });
             }
         }
         batch.update(doc(firestore, 'appointmentCheckIns', token), updateData);
-        if (appointment.staffId) {
-            const statusLabels: Record<string, string> = { 
-                on_my_way: 'is on their way', 
-                arrived: 'has arrived', 
-                running_late: `is running ${lateMinutes}m late (Est. arrival: ${estArrival})`, 
-                auto_cancelled: 'appointment was auto-cancelled due to lateness' 
-            };
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/notifications`)), { 
-                userId: appointment.staffId, 
-                type: 'client_movement', 
-                message: `${client?.name || appointment.clientName} ${statusLabels[newStatus as keyof typeof statusLabels] || 'updated status'}.`, 
-                link: '/planner', 
-                createdAt: new Date().toISOString(), 
-                read: false 
-            });
-        }
-        batch.commit().then(() => {
-            setCurrentStatus(newStatus);
-            if (newStatus === 'arrived' && isBirthdayToday) {
-                setShowBirthdayCelebration(true);
-            }
-        });
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), updateData);
+        batch.commit().then(() => { setCurrentStatus(newStatus); if (newStatus === 'arrived' && isBirthdayToday) setShowBirthdayCelebration(true); });
+    };
+
+    const handleConfirmCancel = async () => {
+        if (!appointment || !firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        batch.update(doc(firestore, 'appointmentCheckIns', token), { status: 'cancelled', cancellationReason: 'client_request' });
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { status: 'cancelled', cancellationReason: 'client_request' });
+        await batch.commit();
+        setIsCancelFlow(false);
+        toast({ title: "Appointment Cancelled" });
+    };
+
+    const handleConfirmReschedule = async (newStart: string, newEnd: string) => {
+        if (!appointment || !firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        const updates = { startTime: newStart, endTime: newEnd, status: 'confirmed' as const };
+        batch.update(doc(firestore, 'appointmentCheckIns', token), updates);
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), updates);
+        await batch.commit();
+        setIsRescheduleFlow(false);
+        toast({ title: "Appointment Rescheduled" });
     };
 
     const handleCompleteIntake = async () => {
         if (!appointment || !firestore || !tenantId || !client) return;
         const batch = writeBatch(firestore);
-        const now = new Date().toISOString();
-
         Object.entries(formAnswers).forEach(([formId, answers]) => {
             const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
             const template = consentForms?.find(f => f.id === formId);
-            batch.set(consentDocRef, {
-                id: consentDocRef.id,
-                formId,
-                formTitle: template?.title || 'Signed Form',
-                clientId: client.id,
-                signedAt: now,
-                formData: answers,
-            });
+            batch.set(consentDocRef, { id: consentDocRef.id, formId, formTitle: template?.title || 'Signed Form', clientId: client.id, signedAt: new Date().toISOString(), formData: answers });
         });
-
         batch.update(doc(firestore, 'appointmentCheckIns', token), { checkInStatus: 'arrived' });
-        
-        if (appointment.staffId) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/notifications`)), { 
-                userId: appointment.staffId, 
-                type: 'compliance', 
-                message: `${client.name} has completed digital intake and arrived.`, 
-                link: '/planner', 
-                createdAt: now, 
-                read: false 
-            });
-        }
-
-        await batch.commit();
-        setIsIntakeFlow(false);
-        setCurrentStatus('arrived');
-        if (isBirthdayToday) setShowBirthdayCelebration(true);
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { checkInStatus: 'arrived' });
+        await batch.commit(); setIsIntakeFlow(false); setCurrentStatus('arrived'); if (isBirthdayToday) setShowBirthdayCelebration(true);
     };
 
-    const handleSettleFee = async () => {
-        if (!appointment || !firestore || !tenantId || !client) return;
-        const batch = writeBatch(firestore);
-        const fee = Number(appointment.cancellationFeeApplied || 0);
-        const feeRecord = client.unpaidFees?.find(f => f.appointmentId === appointment.id);
-        
-        batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: new Date().toISOString(), description: `Late Protocol Fee: ${client.name}`, clientOrVendor: client.name, clientId: appointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card (Mobile)', hasReceipt: false, appointmentId: appointment.id });
-        
-        const clientRef = doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId);
-        batch.update(clientRef, { outstandingBalance: increment(-fee) });
-        if (feeRecord) batch.update(clientRef, { unpaidFees: arrayRemove(feeRecord) });
-        
-        batch.update(doc(firestore, 'appointmentCheckIns', token), { cancellationPaymentStatus: 'paid' });
-        
-        await batch.commit();
-        toast({ title: "Account Reconciled" }); 
-        router.push(`/book/${tenantId}`);
-    };
-
-    const handleRemoteDepositPaid = async () => {
-        if (!appointment || !firestore || !tenantId || !client) return;
-        const batch = writeBatch(firestore);
-        const now = new Date().toISOString();
-        const amount = Number(appointment.cancellationFeeApplied || 0);
-
-        batch.update(doc(firestore, 'appointmentCheckIns', token), { status: 'confirmed' });
-        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { status: 'confirmed' });
-
-        batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
-            date: now,
-            description: `Remote Retainer: ${service?.name}`,
-            clientOrVendor: client.name,
-            clientId: client.id,
-            type: 'income',
-            context: 'Business',
-            category: 'Retainers',
-            amount: amount,
-            paymentMethod: 'Card (Remote)',
-            hasReceipt: false,
-            appointmentId: appointment.id,
-            staffId: appointment.staffId
-        });
-
-        if (appointment.staffId) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/notifications`)), { 
-                userId: appointment.staffId, 
-                type: 'revenue', 
-                message: `${client.name} has authorized the remote retainer for their session.`, 
-                link: '/planner', 
-                createdAt: now, 
-                read: false 
-            });
-        }
-
-        await batch.commit();
-        toast({ title: "Retainer Secured" });
-    };
-
-    const handleSubmitReview = async (rating: number, text: string) => {
-        if (!appointment || !tenantId || !firestore) return;
-        const reviewId = nanoid();
-        await setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/reviews`, reviewId), { id: reviewId, tenantId, clientId: appointment.clientId, clientName: client?.name || 'Guest', clientAvatarUrl: client?.avatarUrl || '', staffId: appointment.staffId || '', serviceId: appointment.serviceId, serviceName: service?.name || 'Service', rating, text, isPublic: false, isFeatured: false, createdAt: new Date().toISOString() }, {});
-        setReviewSubmitted(true);
-    };
-    
-    if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) return <div className="flex flex-col items-center gap-4"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Initializing Portal...</p></div>;
-    
+    if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) return <div className="flex flex-col items-center gap-4"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest opacity-60">Initializing Portal...</p></div>;
+    if (isCancelFlow) return <CancelView onConfirm={handleConfirmCancel} onCancel={() => setIsCancelFlow(false)} />;
+    if (isRescheduleFlow) return <RescheduleView appointment={appointment} service={service} staff={staff || []} schedule={scheduleProfiles?.[0]} allAppointments={allAppointments || []} onConfirm={handleConfirmReschedule} onCancel={() => setIsRescheduleFlow(false)} />;
     if (reviewSubmitted) return <ReviewSubmittedView onDone={() => { setReviewSubmitted(false); setIsReviewFlow(false); }} />;
-    if (isReviewFlow) return <ReviewFormView serviceName={service.name} staffName={assignedStaff?.name || 'your professional'} onSubmit={handleSubmitReview} onCancel={() => setIsReviewFlow(false)} />;
-    
-    if (appointment?.status === 'cancelled' || currentStatus === 'auto_cancelled') return <CancelledView tenantId={tenant?.id} fee={appointment.cancellationFeeApplied} onSettle={handleSettleFee} />;
-
-    if (!hasStarted && appointment?.status !== 'completed' && appointment?.status !== 'servicing' && appointment?.status !== 'ready_for_checkout') {
-        return (
-            <WelcomeOnboardingView 
-                client={client} 
-                service={service} 
-                tenant={tenant} 
-                needsDeposit={needsDeposit} 
-                needsIntake={requiredForms.length > 0} 
-                onStart={() => setHasStarted(true)} 
-            />
-        );
-    }
-
-    if (appointment?.status === 'deposit_pending') return <DepositPaymentView amount={appointment.cancellationFeeApplied || 0} onComplete={handleRemoteDepositPaid} />;
+    if (isReviewFlow) return <ReviewFormView serviceName={service.name} staffName={assignedStaff?.name || 'your pro'} onSubmit={(r, t) => { if (!appointment || !tenantId || !firestore) return; const id = nanoid(); setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/reviews`, id), { id, tenantId, clientId: appointment.clientId, clientName: client?.name || 'Guest', clientAvatarUrl: client?.avatarUrl || '', staffId: appointment.staffId || '', serviceId: appointment.serviceId, serviceName: service?.name || 'Service', rating: r, text: t, isPublic: false, isFeatured: false, createdAt: new Date().toISOString() }, {}); setReviewSubmitted(true); }} onCancel={() => setIsReviewFlow(false)} />;
+    if (appointment?.status === 'cancelled' || currentStatus === 'auto_cancelled') return <CancelledView tenantId={tenant?.id} fee={appointment.cancellationFeeApplied} />;
+    if (!hasStarted && appointment?.status !== 'completed' && appointment?.status !== 'servicing' && appointment?.status !== 'ready_for_checkout') return <WelcomeOnboardingView client={client} service={service} tenant={tenant} needsDeposit={appointment?.status === 'deposit_pending'} needsIntake={requiredForms.length > 0} onStart={() => setHasStarted(true)} onReschedule={() => setIsRescheduleFlow(true)} onCancel={() => setIsCancelFlow(true)} />;
+    if (appointment?.status === 'deposit_pending') return <DepositPaymentView amount={appointment.cancellationFeeApplied || 0} onComplete={async () => { if (!appointment || !firestore || !tenantId || !client) return; const batch = writeBatch(firestore); batch.update(doc(firestore, 'appointmentCheckIns', token), { status: 'confirmed' }); batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { status: 'confirmed' }); await batch.commit(); toast({ title: "Retainer Secured" }); }} />;
     if (isIntakeFlow) return <IntakeView requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} onComplete={handleCompleteIntake} />;
     if (showBirthdayCelebration) return <BirthdayCelebrationView clientName={client?.name || 'Guest'} onDone={() => setShowBirthdayCelebration(false)} />;
     if (appointment?.status === 'servicing') return <ServicingView serviceName={service?.name || 'Service'} />;
     if (appointment?.status === 'ready_for_checkout') return <CheckoutView qrCodeUrl={`https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`} ticketId={appointment.id.slice(-6).toUpperCase()} />;
     if (appointment?.status === 'completed') return <ThankYouView tenantId={tenant?.id || ''} onLeaveReview={() => setIsReviewFlow(true)} />;
 
-    if (!appointment || !client || !service || !tenant) return <CancelledView />;
-
     return (
         <ViewContainer>
             <ViewHeader title="Identity Check" subtitle="Verify your session" icon={Fingerprint} />
             <CardContent className="p-6 md:p-10 space-y-10">
-                {Number(client.outstandingBalance || 0) > 0 && (
-                    <Alert variant="destructive" className="bg-destructive/5 border-destructive border-4 rounded-[2rem] p-6 shadow-2xl shadow-destructive/10">
-                        <Wallet className="h-6 w-6 text-destructive" />
-                        <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Arrears Alert</AlertTitle>
-                        <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">Account balance of <strong className="text-lg tracking-tighter text-destructive">${Number(client.outstandingBalance).toFixed(2)}</strong> detected. Settle with your professional today.</AlertDescription>
-                    </Alert>
-                )}
-                <div className="p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] bg-muted/10 border-2 border-border/50 space-y-6 shadow-inner">
+                <div className="p-6 rounded-[2rem] bg-muted/10 border-2 space-y-6 shadow-inner">
                      <div className="flex items-center gap-6">
-                        <Avatar className="w-16 h-16 md:w-20 md:h-20 rounded-2xl border-4 border-background shadow-xl"><AvatarImage src={service.imageUrl} className="object-cover" /><AvatarFallback className="bg-primary/10 text-primary"><Activity className="w-8 h-8" /></AvatarFallback></Avatar>
-                        <div className="min-w-0 flex-1 text-left"><p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-slate-900 leading-none mb-2 truncate">{service.name}</p><p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{format(appointment.startTime, 'EEEE, MMMM d')} &middot; {format(appointment.startTime, 'h:mm a')}</p></div>
+                        <Avatar className="w-16 h-16 rounded-2xl border-4 border-background shadow-xl"><AvatarImage src={service.imageUrl} className="object-cover" /><AvatarFallback className="bg-primary/10 text-primary"><Activity className="w-8 h-8" /></AvatarFallback></Avatar>
+                        <div className="min-w-0 flex-1 text-left"><p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-slate-900 truncate leading-none mb-2">{service.name}</p><p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{format(appointment.startTime, 'EEEE, MMMM d')} &middot; {format(appointment.startTime, 'h:mm a')}</p></div>
                     </div>
                     {assignedStaff && (
                         <div className="pt-6 border-t border-dashed border-border/50">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <Avatar className="h-10 w-10 border-2 border-background shadow-md rounded-xl"><AvatarImage src={assignedStaff.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar>
-                                    <div className="text-left">
-                                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
-                                        <p className="font-black text-sm uppercase tracking-tight text-slate-800 leading-none">{assignedStaff.name}</p>
-                                    </div>
-                                </div>
-                                {isBirthdayToday && (
-                                    <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] uppercase h-6 px-3 rounded-lg shadow-sm">
-                                        <Cake className="w-3 h-3 mr-1.5" /> BIRTHDAY MODE
-                                    </Badge>
-                                )}
+                            <div className="flex items-center gap-4 text-left">
+                                <Avatar className="h-10 w-10 border-2 border-background shadow-md rounded-xl"><AvatarImage src={assignedStaff.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar>
+                                <div className="text-left"><p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p><p className="font-black text-sm uppercase text-slate-800 leading-none">{assignedStaff.name}</p></div>
                             </div>
                         </div>
                     )}
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 pt-6 border-t border-dashed border-border/50"><div className="flex items-center gap-2"><Clock className="w-3.5 h-3.5"/> {service.duration}m</div><div className="flex items-center gap-2 truncate max-w-[150px] text-right"><MapPin className="w-3.5 h-3.5"/> {tenant.name}</div></div>
                 </div>
 
                 {isTodayAppointment ? (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="space-y-6">
                         {showLateOptions ? (
                             <div className="space-y-8">
                                 <h4 className="text-lg font-black uppercase tracking-tighter text-center text-slate-900">Estimated Delay?</h4>
                                 <RadioGroup value={lateTime > 0 ? String(lateTime) : undefined} onValueChange={(val) => setLateTime(parseInt(val))} className="grid grid-cols-4 gap-3">{['5', '10', '15', '20'].map(m => (<div key={m}><RadioGroupItem value={m} id={`late-${m}`} className="peer sr-only" /><Label htmlFor={`late-${m}`} className="flex items-center justify-center h-14 rounded-2xl border-4 border-muted font-black text-lg cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary hover:bg-muted/50">{m === '20' ? '20+' : m}</Label></div>))}</RadioGroup>
-                                {lateTime > (tenant.lateArrivalGracePeriod || 15) && (<motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2rem] bg-destructive/10 border-4 border-destructive/20 text-destructive text-center space-y-3 shadow-xl shadow-destructive/5"><AlertTriangle className="w-8 h-8 mx-auto mb-1 animate-pulse"/><p className="font-black uppercase tracking-tight text-base leading-none">Protocol Warning</p><p className="text-[10px] font-bold uppercase leading-relaxed tracking-tight opacity-80 text-center">Arrivals past {tenant.lateArrivalGracePeriod || 15}m may require a protocol recovery fee.</p></motion.div>)}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><button className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Back</button><Button onClick={() => handleUpdateStatus('running_late', lateTime)} disabled={lateTime === 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/20">Update Arrival</Button></div>
                             </div>
                         ) : currentStatus === 'pending' ? (
@@ -720,24 +552,26 @@ export default function CheckInPage() {
                                 <div className="grid grid-cols-2 gap-4"><Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-20 rounded-3xl border-4 font-black uppercase tracking-widest text-xs flex flex-col gap-2"><Clock className="h-6 w-6 opacity-40" />Running Late</Button><Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-20 rounded-3xl border-4 border-primary/20 bg-primary/5 text-primary font-black uppercase tracking-widest text-xs flex flex-col gap-2 shadow-inner"><Car className="h-6 w-6" />On My Way</Button></div>
                                 <Button size="lg" variant="default" onClick={() => handleUpdateStatus('arrived')} className="h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30 active:scale-95 transition-all"><MapPin className="mr-3 h-6 w-6" />I Have Arrived</Button>
                             </div>
-                        ) : currentStatus === 'on_my_way' ? (
-                            <div className="space-y-8 animate-in zoom-in-95 duration-500"><div className="p-8 bg-primary/5 border-4 border-primary/20 rounded-[2.5rem] text-center space-y-4 shadow-xl"><div className="w-20 h-20 bg-primary rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-primary/30 -rotate-6 animate-bounce"><Car className="w-10 h-10 text-white" /></div><div className="space-y-1"><h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">En Route</h3><p className="text-[10px] font-bold uppercase tracking-widest text-primary opacity-60">We've cleared your path.</p></div></div><Button size="lg" className="w-full h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30" onClick={() => handleUpdateStatus('arrived')}><MapPin className="mr-3 h-6 w-6" />Tap Upon Arrival</Button></div>
-                        ) : currentStatus === 'arrived' ? (
-                            <div className="p-10 bg-green-500/10 border-4 border-green-500/20 rounded-[3rem] text-center space-y-6 shadow-xl animate-in zoom-in-95"><div className="w-24 h-24 bg-green-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/20 rotate-6"><CheckCircle2 className="w-14 h-14 text-white -rotate-6" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Checked In</h3><p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">Relax, we've notified {(assignedStaff?.name || 'your pro').split(' ')[0]}. We'll be with you shortly.</p></div></div>
-                        ) : currentStatus === 'running_late' ? (
-                            <div className="space-y-8 animate-in zoom-in-95"><div className="p-10 bg-amber-500/10 border-4 border-amber-500/20 rounded-[3rem] text-center space-y-6 shadow-xl"><div className="w-24 h-24 bg-amber-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-amber-500/20 -rotate-6"><Clock className="w-14 h-14 text-white rotate-6 animate-pulse" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Noted: +{lateTime}m</h3><p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">Thanks for the heads up! We've adjusted your arrival window on our end.</p></div></div><Button size="lg" variant="outline" className="w-full h-20 rounded-[2rem] border-4 font-black uppercase tracking-[0.2em] text-lg hover:bg-green-50 hover:border-green-500/20 group" onClick={() => handleUpdateStatus('arrived')}><MapPin className="mr-3 h-6 w-6 text-primary group-hover:text-green-600" />Tap Upon Arrival</Button></div>
-                        ) : null}
+                        ) : (
+                            <div className="p-10 bg-primary/5 border-4 border-primary/20 rounded-[3rem] text-center space-y-6 shadow-xl">
+                                <div className={cn("w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl rotate-6", currentStatus === 'arrived' ? "bg-green-500 shadow-green-500/20" : "bg-amber-500 shadow-amber-500/20")}>
+                                    {currentStatus === 'arrived' ? <CheckCircle2 className="w-14 h-14 text-white -rotate-6" /> : <Clock className="w-14 h-14 text-white -rotate-6 animate-pulse" />}
+                                </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{currentStatus === 'arrived' ? 'Arrived' : `Late +${lateTime}m`}</h3>
+                                    <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">We've updated our terminal. We'll be with you shortly.</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ) : (
-                    <div className="p-8 rounded-[2rem] border-4 border-dashed border-muted text-center space-y-4 opacity-60">
-                        <Lock className="w-10 h-10 mx-auto text-muted-foreground opacity-40" />
-                        <div className="space-y-1">
-                            <p className="font-black uppercase tracking-tight text-sm text-slate-900">Protocol Locked</p>
-                            <p className="text-[10px] font-bold uppercase text-slate-500 leading-relaxed px-4">Arrival status updates unlock on the day of your appointment.</p>
-                        </div>
-                    </div>
+                    <div className="p-8 rounded-[2rem] border-4 border-dashed border-muted text-center space-y-4 opacity-60"><Lock className="w-10 h-10 mx-auto text-muted-foreground opacity-40" /><div className="space-y-1"><p className="font-black uppercase tracking-tight text-sm text-slate-900">Protocol Locked</p><p className="text-[10px] font-bold uppercase text-slate-500 leading-relaxed px-4">Arrival status updates unlock on the day of your appointment.</p></div></div>
                 )}
             </CardContent>
+            <CardFooter className="p-8 pt-0 flex flex-col gap-3">
+                <Button variant="ghost" onClick={() => setIsRescheduleFlow(true)} className="w-full font-black uppercase text-[10px] tracking-widest text-primary">Reschedule Appointment</Button>
+                <Button variant="ghost" onClick={() => setIsCancelFlow(true)} className="w-full font-black uppercase text-[10px] tracking-widest text-destructive">Cancel Appointment</Button>
+            </CardFooter>
         </ViewContainer>
     );
 }
