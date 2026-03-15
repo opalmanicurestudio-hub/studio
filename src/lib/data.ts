@@ -391,6 +391,7 @@ export type Appointment = {
   appliedDiscountCode?: string;
   isPotentialAlias?: boolean;
   matchedClientId?: string;
+  isSecondary?: boolean;
 };
 
 export type EventChecklistItem = {
@@ -467,7 +468,7 @@ export type Quote = {
   notes?: string;
   totalHours?: number;
   createdAt: string;
-  sentAt?: string;
+  sentAt?: string; 
   userId: string;
   requiredFormIds?: string[];
   staffPayouts: {

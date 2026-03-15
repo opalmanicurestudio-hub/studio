@@ -81,6 +81,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format, parseISO, isSameMonth } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Separator } from '@/components/ui/separator';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {

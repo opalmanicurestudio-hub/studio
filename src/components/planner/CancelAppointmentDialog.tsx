@@ -235,7 +235,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                                     <p className="text-xs font-black uppercase tracking-tight truncate flex-1 text-left">{m.name}</p>
                                     <Badge variant="outline" className="h-5 text-[8px] font-black bg-white">{m.window}h Window</Badge>
                                 </CardHeader>
-                                <CardContent className="p-4 space-y-3">
+                                <CardContent className="p-4 space-y-3 text-left">
                                     <div className="flex items-center justify-between group">
                                         <div className="flex items-center gap-3">
                                             <Checkbox id={`house-${m.id}`} checked={selectedHouseRecoveryIds.has(m.id)} onCheckedChange={() => toggleHouse(m.id)} className="h-5 w-5 rounded-lg border-2" />
