@@ -54,7 +54,8 @@ import {
   CheckCircle2,
   Repeat,
   Info,
-  Unlock
+  Unlock,
+  UserPlus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier, type Membership, type ConsentForm } from '@/lib/data';
@@ -174,11 +175,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const selectedClient = useMemo(() => clients?.find(c => c.id === watchClientId), [clients, watchClientId]);
   const selectedService = useMemo(() => services?.find(s => s.id === watchServiceId), [services, watchServiceId]);
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
-
-  const requiredForms = useMemo(() => {
-    if (!selectedService || !consentForms) return [];
-    return consentForms.filter(f => selectedService.requiredFormIds?.includes(f.id));
-  }, [selectedService, consentForms]);
 
   const qualifiedStaff = useMemo(() => {
     if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return staff;
@@ -426,7 +422,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
