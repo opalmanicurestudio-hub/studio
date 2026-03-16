@@ -157,7 +157,7 @@ const ProfitabilityAnalysis = ({
                 <div className="space-y-4">
                     {staffAnalysis.map(sa => (
                         <div key={sa.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
-                            <div className="flex justify-between items-center px-1">
+                            <div className="flex justify-between items-center px-1 text-left">
                                 <div className="flex items-center gap-3">
                                     <Avatar className="h-8 w-8 border-2 border-background shadow-sm rounded-xl">
                                         <AvatarImage src={sa.avatarUrl} className="object-cover" />
@@ -271,13 +271,13 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
         <SectionHeader icon={Repeat} title="Bundle Identity" step={1} />
         <div className="space-y-6 text-left">
             <div className="space-y-2">
-                <Label htmlFor="pkg-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Package Label</Label>
-                <Input id="pkg-name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g., SIGNATURE BLOWOUT 5-PACK" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
+                <Label htmlFor="pkg-name-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Package Label</Label>
+                <Input id="pkg-name-edit" value={name} onChange={e => setName(e.target.value)} placeholder="e.g., SIGNATURE BLOWOUT 5-PACK" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pkg-service" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Target Treatment</Label>
+              <Label htmlFor="pkg-service-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Target Treatment</Label>
               <Select value={primaryServiceId} onValueChange={setPrimaryServiceId}>
-                <SelectTrigger id="pkg-service" className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5">
+                <SelectTrigger id="pkg-service-edit" className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5">
                     <SelectValue placeholder="SELECT FROM MENU..." />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -289,33 +289,33 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="space-y-2 text-left">
-                    <Label htmlFor="pkg-sessions" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Session Count</Label>
+                    <Label htmlFor="pkg-sessions-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Session Count</Label>
                     <div className="relative">
                         <Activity className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                        <Input id="pkg-sessions" type="number" value={sessions || ''} onChange={e => setSessions(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-muted/5 text-center" />
+                        <Input id="pkg-sessions-edit" type="number" value={sessions || ''} onChange={e => setSessions(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-muted/5 text-center" />
                     </div>
                 </div>
                 <div className="space-y-2 text-left">
-                    <Label htmlFor="pkg-price" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Total Bundle Value</Label>
+                    <Label htmlFor="pkg-price-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Total Bundle Value</Label>
                     <div className="relative">
                         <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                        <Input id="pkg-price" type="number" value={price || ''} onChange={e => setPrice(Number(e.target.value))} placeholder="0.00" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-muted/5 text-primary" />
+                        <Input id="pkg-price-edit" type="number" value={price || ''} onChange={e => setPrice(Number(e.target.value))} placeholder="0.00" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-muted/5 text-primary" />
                     </div>
                 </div>
             </div>
              <div className="space-y-2 text-left">
-                <Label htmlFor="pkg-expires" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Retention Window (Months)</Label>
+                <Label htmlFor="pkg-expires-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Retention Window (Months)</Label>
                 <div className="relative">
                     <Clock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                    <Input id="pkg-expires" type="number" value={expiresIn || ''} onChange={e => setExpiresIn(Number(e.target.value))} placeholder="6" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-muted/5" />
+                    <Input id="pkg-expires-edit" type="number" value={expiresIn || ''} onChange={e => setExpiresIn(Number(e.target.value))} placeholder="6" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-muted/5" />
                 </div>
             </div>
              <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 mt-4 shadow-inner">
                 <div className="space-y-1 text-left">
-                    <Label htmlFor="pkg-private" className="text-lg font-black uppercase tracking-tight">Private Bundle</Label>
+                    <Label htmlFor="pkg-private-edit" className="text-lg font-black uppercase tracking-tight">Private Bundle</Label>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Hide from the public booking directory</p>
                 </div>
-                <Switch id="pkg-private" checked={isPrivate} onCheckedChange={setIsPrivate} className="scale-125" />
+                <Switch id="pkg-private-edit" checked={isPrivate} onCheckedChange={setIsPrivate} className="scale-125" />
             </div>
         </div>
       </div>
@@ -329,17 +329,17 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 p-6 rounded-[2.5rem] border-2 bg-muted/10 shadow-inner">
                     <div className="space-y-2 text-left">
-                        <Label htmlFor="pkg-retail-discount" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Priority Discount</Label>
+                        <Label htmlFor="pkg-retail-discount-edit" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Priority Discount</Label>
                         <div className="relative">
                             <Percent className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                            <Input id="pkg-retail-discount" type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="0" className="h-14 rounded-2xl border-2 font-black text-xl font-mono text-primary bg-white shadow-sm" />
+                            <Input id="pkg-retail-discount-edit" type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="0" className="h-14 rounded-2xl border-2 font-black text-xl font-mono text-primary bg-white shadow-sm" />
                         </div>
                     </div>
                 </div>
 
                 {retailDiscount > 0 && (
                     <div className="space-y-4 pt-2">
-                        <div className='flex items-center justify-between px-1'>
+                        <div className='flex items-center justify-between px-1 text-left'>
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Eligible Products</Label>
                             <Button variant="ghost" size="sm" onClick={() => setIsApplicableProductsSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Select Scope

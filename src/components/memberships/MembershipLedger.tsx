@@ -115,7 +115,7 @@ const safeDate = (val: any): Date => {
 
 const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
     <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
+        <CardHeader className="p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                 {title}
             </CardTitle>
@@ -218,7 +218,7 @@ const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTe
         )}>
             <CardContent className="p-4 space-y-4">
                 <div className="flex justify-between items-start gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div className="relative shrink-0">
                             <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
                                 <AvatarImage src={client?.avatarUrl} className="object-cover" />
@@ -667,7 +667,7 @@ export const MembershipLedger = () => {
                         )}
                     </div>
                     <div className="flex flex-col md:flex-row items-center gap-4 pt-4 border-t border-dashed">
-                        <div className="relative flex-1 w-full">
+                        <div className="relative flex-1 w-full text-left">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                             <Input 
                                 placeholder="SEARCH GUESTS..." 
@@ -757,7 +757,7 @@ export const MembershipLedger = () => {
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate max-w-[200px]">{t.description}</p>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="text-left font-black text-[10px] uppercase text-slate-600">{format(new Date(t.date), 'MMM d, yyyy')}</TableCell>
+                                                <TableCell className="text-left font-black text-[10px] uppercase text-slate-600">{format(safeDate(t.date), 'MMM d, yyyy')}</TableCell>
                                                 <TableCell className="text-left">
                                                     <Badge variant="outline" className="h-5 px-2 border-none bg-primary/5 text-primary text-[8px] font-black uppercase">{t.paymentMethod}</Badge>
                                                 </TableCell>

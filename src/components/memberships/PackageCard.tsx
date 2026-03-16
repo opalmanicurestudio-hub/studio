@@ -13,6 +13,7 @@ import { type Package, type Service, type Client, Staff, PricingTier } from '@/l
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { format, parseISO } from 'date-fns';
 
 interface PackageCardProps {
   pack: Package;
@@ -125,11 +126,11 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 </div>
                  <div className="min-w-0 text-left">
                     <CardTitle className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-none mb-1.5 truncate">{pack.name}</CardTitle>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <Badge variant="outline" className="h-5 px-2 rounded-full font-black text-[8px] uppercase tracking-widest border-teal-500/20 text-teal-600 bg-white">
                             ${pack.price.toFixed(0)} FULL VALUE
                         </Badge>
-                        {pack.isPrivate && <Badge className="h-5 px-2 rounded-full font-black text-[8px] uppercase bg-slate-900 text-white border-none">Private</Badge>}
+                        {pack.isPrivate && <Badge className="h-5 px-2 rounded-full font-black text-[8px] uppercase bg-slate-900 text-white border-none shadow-sm">Private</Badge>}
                     </div>
                 </div>
             </div>
@@ -154,7 +155,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/10 text-destructive" onClick={() => onDelete(pack.id)}>
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="h-4 w-4" />
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Terminate</TooltipContent>
@@ -189,7 +190,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                         {pack.retailDiscount && pack.retailDiscount > 0 && (
                             <div className="space-y-1.5">
                                 <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-2 rounded-lg border shadow-sm">
-                                    <span className="flex items-center gap-2"><Percent className="w-3 h-3 text-teal-500"/> Retail Privilege</span>
+                                    <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5 text-teal-500"/> Retail Privilege</span>
                                     <span className="font-black text-teal-600">{pack.retailDiscount}% OFF</span>
                                 </div>
                                 {isScopeRestricted && (
@@ -201,7 +202,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                             </div>
                         )}
                     </div>
-                    <p className="text-[8px] font-black text-center text-muted-foreground uppercase mt-3 opacity-40 tracking-widest">Expires in {pack.expiresInMonths} months</p>
+                    <p className="text-[8px] font-black text-center text-muted-foreground uppercase mt-3 opacity-40 tracking-widest text-center">Expires in {pack.expiresInMonths} months</p>
                 </AccordionContent>
             </AccordionItem>
             
@@ -210,7 +211,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     <Clock className="w-3.5 h-3.5 mr-2 opacity-40"/> Capacity Load
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 pt-2 text-left">
-                    <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm">
+                    <div className="space-y-2 p-3 bg-white rounded-xl border border-border/50 shadow-sm text-left">
                         <div className="flex justify-between items-center text-[10px] font-bold uppercase">
                             <span className="text-muted-foreground opacity-60">Time liability</span>
                             <span className="text-slate-900 font-mono">{timeLiabilityHours.toFixed(1)}h / bundle</span>
@@ -238,7 +239,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                                         <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p>
                                     </div>
                                 </div>
-                                <Badge className={cn("h-4 text-[7px] font-black border-none", sa.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
+                                <Badge className={cn("h-4 text-[7px] font-black border-none shadow-sm", sa.netProfit >= 0 ? "bg-green-500 text-white" : "bg-destructive text-white")}>
                                     {sa.margin.toFixed(0)}% Margin
                                 </Badge>
                             </div>

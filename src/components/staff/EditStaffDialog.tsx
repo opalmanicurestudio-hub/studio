@@ -260,7 +260,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         <Input id="specialties-edit" placeholder="e.g., BALAYAGE, PRECISION CUTS" {...register('specialties')} className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner bg-white" />
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-4 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                             <Smartphone className="w-3.5 h-3.5 opacity-40" /> Social Presence
                         </Label>
@@ -294,7 +294,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
                                 {selectedServices.map(service => (
                                     <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
-                                        <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{service.name}</span>
+                                        <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{service.name}</span>
                                         <Button variant="ghost" size="icon" className="h-7 h-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
                                     </div>
                                 ))}
@@ -320,7 +320,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             <div className="grid grid-cols-1 gap-2 text-left">
                                 {assignedForms.map(form => (
                                     <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
-                                        <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
+                                        <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{form.title}</span>
                                         <Button variant="ghost" size="icon" className="h-7 h-7 text-destructive group-hover:opacity-100 transition-opacity" onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
                                     </div>
                                 ))}
@@ -343,7 +343,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     <div className="space-y-4">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60 text-left"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Full Legal Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
                             <div className="space-y-1.5 text-left">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
                                 <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (

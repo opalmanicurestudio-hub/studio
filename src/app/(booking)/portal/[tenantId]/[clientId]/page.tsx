@@ -8,14 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
-import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle, Zap, CheckCircle2 } from 'lucide-react';
+import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle, Zap, CheckCircle2, ArrowRight, Tag, Sparkles, Wallet } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption } from '@/lib/data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 
 const safeDate = (val: any): Date => {
@@ -113,7 +113,7 @@ export default function ClientPortalPage() {
                 <div className="relative group">
                     <Avatar className="w-32 h-32 border-4 border-white shadow-2xl rounded-[3rem] overflow-hidden transition-all group-hover:scale-105">
                         <AvatarImage src={client.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="font-black text-2xl bg-primary/10 text-primary">{client.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+                        <AvatarFallback className="font-black text-2xl bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     {activeMembership && (
                         <div className="absolute -top-3 -right-3 bg-indigo-600 text-white p-2 rounded-2xl shadow-xl border-4 border-white">
@@ -147,7 +147,7 @@ export default function ClientPortalPage() {
                                 {client.subscription && (
                                     <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase h-5 px-2 mt-2">{client.subscription.status}</Badge>
                                 )}
-                                <div className="pt-4 border-t border-indigo-500/10 mt-4 space-y-1">
+                                <div className="pt-4 border-t border-indigo-500/10 mt-4 space-y-1 text-left">
                                     <p className="text-[8px] font-black text-indigo-600/60 uppercase">Renewal Date</p>
                                     <p className="text-xs font-black uppercase text-slate-700">{client.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMMM d, yyyy') : 'N/A'}</p>
                                 </div>
@@ -168,7 +168,7 @@ export default function ClientPortalPage() {
                     </CardContent>
                 </Card>
                 <Card className="rounded-[2rem] border-2 shadow-sm relative group overflow-hidden">
-                    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Gift className="w-20 h-20 text-slate-900" /></div>
+                    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Tag className="w-20 h-20 text-slate-900" /></div>
                     <CardHeader className="pb-2">
                         <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Tag className="w-3.5 h-3.5" /> Referral Protocol</CardTitle>
                     </CardHeader>
@@ -185,9 +185,9 @@ export default function ClientPortalPage() {
             <Tabs defaultValue="appointments" className="w-full">
                 <ScrollArea className="w-full">
                     <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-10 w-max mx-auto">
-                        <TabsTrigger value="appointments" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Schedule</TabsTrigger>
-                        <TabsTrigger value="benefits" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Benefit Pulse</TabsTrigger>
-                        <TabsTrigger value="history" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Usage Archive</TabsTrigger>
+                        <TabsTrigger value="appointments" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Schedule</TabsTrigger>
+                        <TabsTrigger value="benefits" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Benefit Pulse</TabsTrigger>
+                        <TabsTrigger value="history" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Usage Archive</TabsTrigger>
                     </TabsList>
                     <ScrollBar orientation="horizontal" className="hidden" />
                 </ScrollArea>
@@ -226,7 +226,7 @@ export default function ClientPortalPage() {
                     <Separator className="border-dashed" />
 
                     <div>
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60">Dossier History</h3>
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Dossier History</h3>
                         <div className="grid gap-3">
                             {pastAppointments.slice(0, 10).map(apt => {
                                 const svc = services?.find(s => s.id === apt.serviceId);

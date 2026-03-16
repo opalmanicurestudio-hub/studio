@@ -296,7 +296,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-dashed">
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Compliance & Digital Intake</h3>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Compliance & Digital Intake</h3>
                     <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-4 shadow-inner">
                         <div className="flex items-center justify-between">
                             <span className="text-[9px] font-black uppercase text-muted-foreground">Certified Status</span>
@@ -308,7 +308,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                             <div className="space-y-2">
                                 {complianceInfo.pendingForms.map(f => (
                                     <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-amber-700 bg-amber-500/5 p-2 rounded-lg border border-amber-200">
-                                        <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-40"/> {f.title}</span>
+                                        <span className="flex items-center gap-2 truncate text-left"><FileSignature className="w-3 h-3 opacity-40"/> {f.title}</span>
                                         <span className="shrink-0 ml-4">Required</span>
                                     </div>
                                 ))}

@@ -1,4 +1,4 @@
-'use client';
+'use server';
 
 import React, { useMemo, useState, useEffect } from 'react';
 import {
@@ -21,7 +21,29 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare, Workflow, Zap, PackageOpen, Square, BookMarked, Tag, Sparkles } from 'lucide-react';
+import { 
+    FlaskConical, 
+    PlusCircle, 
+    Trash2, 
+    Info, 
+    Clock, 
+    CheckCircle, 
+    Package, 
+    MessageSquare, 
+    Workflow, 
+    Zap, 
+    PackageOpen, 
+    Square, 
+    BookMarked, 
+    Tag, 
+    Sparkles,
+    Check,
+    Loader,
+    ArrowRight,
+    ListChecks,
+    Activity,
+    Users
+} from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -34,7 +56,7 @@ import { differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Badge } from '../ui/badge';
-import { useUser, useFirebase } from '@/firebase';
+import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -315,52 +337,57 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   return (
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh] rounded-t-[3rem] border-none" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
-            <DialogHeader className="p-6 pb-0 text-left flex-shrink-0">
-                <DialogTitle>{titleText}</DialogTitle>
-                <DialogDescription>Verify actuals and mark completed parts before moving forward.</DialogDescription>
+        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl rounded-[3rem] border-4 max-h-[95dvh]")}>
+            <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
+                <div className="flex items-center gap-3 mb-2">
+                    <Sparkles className="w-5 h-5 text-primary" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical review</span>
+                </div>
+                <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{titleText}</DialogTitle>
+                <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
-            <ScrollArea className="flex-1 min-h-0">
-              <div className="p-6 pt-4 space-y-6">
-                <Card>
-                    <CardContent className="p-4 flex items-center gap-4">
-                        <Avatar className="w-12 h-12">
-                            <AvatarImage src={client.avatarUrl} />
-                            <AvatarFallback>{(client.name || 'G').substring(0,2).toUpperCase()}</AvatarFallback>
+            <ScrollArea className="flex-1">
+              <div className={cn("pb-32 space-y-10", isMobile ? "p-6" : "p-8")}>
+                <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden">
+                    <CardContent className="p-6 flex items-center gap-6 text-left">
+                        <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2rem] shrink-0">
+                            <AvatarImage src={client.avatarUrl} className="object-cover" />
+                            <AvatarFallback className="font-black bg-primary/10 text-primary text-xl">{(client.name || 'G').substring(0,2).toUpperCase()}</AvatarFallback>
                         </Avatar>
-                        <div className="text-left">
-                            <p className="font-semibold">{client.name}</p>
-                            <p className="text-sm text-muted-foreground">{service.name}</p>
+                        <div className="min-w-0 flex-1">
+                            <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5">{service.name}</p>
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="border-2 border-primary/10">
-                  <CardHeader className="pb-3 flex-shrink-0 text-left"><CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground">Flow Control</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
+                <div className="space-y-8">
+                  <SectionHeader icon={ListChecks} title="Flow Control" step={1} />
+                  <div className="space-y-4">
                         <div className="space-y-3">
-                            <div className="space-y-2 p-3 bg-muted/20 rounded-2xl border-2 transition-all has-[:checked]:border-primary">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
+                            <div className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div className="flex items-center gap-4 min-w-0 flex-1">
                                         <Checkbox 
                                             id={`complete-${service.id}`} 
                                             checked={completedServiceIds.includes(service.id)} 
                                             onCheckedChange={() => toggleServiceComplete(service.id)}
+                                            className="h-6 w-6 rounded-full border-2"
                                         />
                                         <div className="min-w-0 text-left">
-                                            <Label htmlFor={`complete-${service.id}`} className="text-sm font-bold block truncate">{service.name}</Label>
-                                            <p className="text-[10px] font-black uppercase text-primary tracking-widest">Main Service</p>
+                                            <Label htmlFor={`complete-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{service.name}</Label>
+                                            <p className="text-[9px] font-black uppercase text-primary tracking-widest opacity-60">Main Service</p>
                                         </div>
                                     </div>
                                     <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
-                                        <SelectTrigger className="w-[120px] h-10 text-[10px] font-black uppercase border-2 bg-background">
+                                        <SelectTrigger className="w-[140px] h-11 rounded-xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
                                             <SelectValue placeholder="Staff" />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[service.id])).map(s => (
-                                                <SelectItem key={s.id} value={s.id}>
+                                                <SelectItem key={s.id} value={s.id} className="rounded-xl font-bold uppercase text-[9px] tracking-widest">
                                                     <div className="flex items-center gap-2">
-                                                        <span className={cn("w-1.5 h-1.5 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
+                                                        <span className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
                                                         <span>{s?.name?.split(' ')[0] || 'Tech'}</span>
                                                     </div>
                                                 </SelectItem>
@@ -370,30 +397,31 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                             </div>
                             {selectedAddOns.map(addon => (
-                                <div key={addon.id} className="space-y-3 p-3 bg-muted/20 rounded-2xl border-2 transition-all has-[:checked]:border-primary">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
+                                <div key={addon.id} className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-4 min-w-0 flex-1">
                                             <Checkbox 
                                                 id={`complete-${addon.id}`} 
                                                 checked={completedServiceIds.includes(addon.id)} 
                                                 onCheckedChange={() => toggleServiceComplete(addon.id)}
+                                                className="h-6 w-6 rounded-full border-2"
                                             />
                                             <div className="min-w-0 text-left">
-                                                <Label htmlFor={`complete-${addon.id}`} className="text-sm font-bold block truncate">{addon.name}</Label>
-                                                <Badge variant="outline" className={cn("text-[8px] h-4 px-1 uppercase font-black cursor-pointer", (concurrentServiceIds.includes(addon.id)) ? "bg-primary/10 text-primary border-primary/20" : "bg-muted text-muted-foreground border-transparent")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
-                                                    {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2 h-2 mr-0.5" /> Concurrent</> : <><Workflow className="w-2 h-2 mr-0.5" /> Sequential</>}
+                                                <Label htmlFor={`complete-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{addon.name}</Label>
+                                                <Badge variant="outline" className={cn("text-[8px] h-5 px-2 uppercase font-black tracking-widest cursor-pointer border-2 shadow-sm transition-all", (concurrentServiceIds.includes(addon.id)) ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
+                                                    {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2.5 h-2.5 mr-1" /> Concurrent</> : <><Workflow className="w-2.5 h-2.5 mr-1" /> Sequential</>}
                                                 </Badge>
                                             </div>
                                         </div>
                                         <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
-                                            <SelectTrigger className="w-[120px] h-10 text-[10px] font-black uppercase border-2 bg-background">
+                                            <SelectTrigger className="w-[140px] h-11 rounded-xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
                                                 <SelectValue placeholder="Staff" />
                                             </SelectTrigger>
-                                            <SelectContent>
+                                            <SelectContent className="rounded-xl border-2 shadow-2xl">
                                                 {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[addon.id]) && (!addon.requiredSkills || addon.requiredSkills?.length === 0 || addon.requiredSkills.every(sk => (s.skillSet || []).includes(sk)))).map(s => (
-                                                    <SelectItem key={s.id} value={s.id}>
+                                                    <SelectItem key={s.id} value={s.id} className="rounded-xl font-bold uppercase text-[9px] tracking-widest">
                                                         <div className="flex items-center gap-2">
-                                                            <span className={cn("w-1.5 h-1.5 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
+                                                            <span className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
                                                             <span>{s?.name?.split(' ')[0] || 'Tech'}</span>
                                                         </div>
                                                     </SelectItem>
@@ -404,152 +432,158 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                             ))}
                         </div>
-                  </CardContent>
-                </Card>
+                        <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-[0.2em] shadow-inner bg-muted/5 mt-2">
+                            <PlusCircle className="mr-2 h-4 w-4 text-primary opacity-40" /> Append Add-on Enhancement
+                        </Button>
+                  </div>
+                </div>
 
-                <Card>
-                    <CardHeader className="text-left">
-                        <CardTitle>Usage Actuals</CardTitle>
-                        <CardDescription>Verify time and product formula used.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4 text-sm">
-                        <div className="space-y-2 text-left">
-                          <Label htmlFor="actual-duration-rev" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground"><Clock className="w-3 h-3" /> Actual Duration (minutes)</Label>
+                <div className="space-y-8 pt-10 border-t border-dashed">
+                    <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
+                    <div className="space-y-8 text-left">
+                        <div className="space-y-3">
+                          <Label htmlFor="actual-duration-review" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+                              <Clock className="w-3.5 h-3.5 opacity-40" /> Actual Duration (Minutes)
+                          </Label>
                           <Input 
-                              id="actual-duration-rev"
+                              id="actual-duration-review"
                               type="number"
                               value={actualDuration}
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
-                              className="h-12 text-lg font-black font-mono border-2"
+                              className="h-16 text-3xl font-black font-mono border-2 rounded-2xl shadow-inner bg-muted/5 text-center focus-visible:ring-primary/20"
                           />
                           {actualDuration > service.duration && (
-                              <div className="p-3 bg-amber-500/5 border-2 border-amber-500/10 rounded-xl">
-                                  <span className="text-[10px] font-black text-amber-700 flex items-center gap-2 uppercase tracking-tight"><Info className="w-3 h-3"/> Efficiency Alert: +{actualDuration - service.duration}m Overage</span>
+                              <div className="p-4 bg-amber-500/5 border-2 border-amber-500/10 rounded-2xl animate-in slide-in-from-top-2">
+                                  <span className="text-[10px] font-black text-amber-700 flex items-center gap-2 uppercase tracking-tight"><Info className="w-3.5 h-3.5"/> Foundation Burn: +{actualDuration - service.duration}m Over Goal</span>
                               </div>
                           )}
                         </div>
-                        <Separator />
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <h4 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-2"><PackageOpen className="w-3 h-3"/> Formula Review</h4>
-                            {(client.customFormulas && client.customFormulas.length > 0) && (
-                            <div className="w-full sm:w-auto sm:min-w-[200px]">
-                                <Select onValueChange={handleApplyClientFormula} defaultValue="default">
-                                    <SelectTrigger className="h-8 text-[10px] font-black uppercase border-2">
-                                        <SelectValue placeholder="Load client formula..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="default">Standard Formula</SelectItem>
-                                        {client.customFormulas.map(formula => (
-                                            <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            )}
-                        </div>
-                        <div className="space-y-2">
-                            {editableFormula.map((item) => (
-                            <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-xl border-2 border-transparent gap-2">
-                                <span className="font-bold text-xs flex-1 truncate pr-2 text-left">{item.name}</span>
+
+                        <div className="space-y-4 pt-4 border-t border-dashed">
+                            <div className="flex items-center justify-between px-1">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                    <PackageOpen className="w-3.5 h-3.5 opacity-40" /> Actual Product Formula
+                                </Label>
                                 <div className="flex items-center gap-2">
-                                    <Input
-                                        type="number"
-                                        value={item.quantity}
-                                        onChange={(e) => {
-                                            const newQty = parseFloat(e.target.value) || 0;
-                                            setEditableFormula(prev => prev.map(p => p.id === item.id ? {...p, quantity: newQty} : p))
-                                        }}
-                                        className="w-20 h-8 text-center font-black font-mono"
-                                        step="0.1"
-                                    />
-                                    <span className="text-[9px] font-black uppercase text-muted-foreground w-10 truncate">{item.unit}</span>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => removeProduct(item.id)}>
-                                        <Trash2 className="w-3.5 h-3.5" />
+                                    {(client.customFormulas && client.customFormulas.length > 0) && (
+                                        <Select onValueChange={handleApplyClientFormula} defaultValue="default">
+                                            <SelectTrigger className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm w-40">
+                                                <SelectValue placeholder="Load Formula..." />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                                <SelectItem value="default" className="font-bold text-[9px] uppercase">LIBRARY STANDARD</SelectItem>
+                                                {client.customFormulas.map(formula => (
+                                                    <SelectItem key={formula.id} value={formula.name} className="font-bold text-[9px] uppercase">{formula.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                    <Button variant="ghost" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                                        <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
                                     </Button>
                                 </div>
                             </div>
-                            ))}
-                        </div>
-                        <Button variant="outline" size="sm" type="button" className="w-full border-dashed h-11" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Extra Product</Button>
-                    </CardContent>
-                </Card>
-
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner transition-all">
-                        <div className="space-y-1 text-left">
-                            <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
-                                <BookMarked className="w-4 h-4 text-primary" /> Dossier Integration
-                            </Label>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Save as reusable technical formula</p>
-                        </div>
-                        <Switch id="save-formula-toggle" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125" />
-                    </div>
-
-                    <AnimatePresence>
-                        {saveAsCustomFormula && (
-                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                                <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
-                                    <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
-                                        <Tag className="w-3 h-3" /> Formula Identifier
-                                    </Label>
-                                    <Input 
-                                        id="custom-formula-name" 
-                                        placeholder="e.g., WINTER GLOSS MIX" 
-                                        value={customFormulaName} 
-                                        onChange={e => setCustomFormulaName(e.target.value.toUpperCase())}
-                                        className="h-12 rounded-xl border-2 font-black uppercase text-sm tracking-tight focus-visible:ring-primary/20"
-                                    />
-                                    <div className="flex items-center gap-3 p-3 bg-muted/20 rounded-xl border-2 border-dashed border-border/50">
-                                        <Sparkles className="w-4 h-4 text-primary shrink-0 opacity-40" />
-                                        <p className="text-[9px] font-bold text-slate-500 leading-tight uppercase">This formula will be pinned to the guest's technical archive for future sessions.</p>
+                            
+                            <div className="space-y-2">
+                                {editableFormula.length > 0 ? (
+                                    <div className="grid gap-2">
+                                        {editableFormula.map((item, index) => (
+                                            <div key={item.id} className="flex justify-between items-center p-4 bg-white rounded-2xl border-2 shadow-sm gap-4 group hover:border-primary/20 transition-all">
+                                                <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
+                                                        <Input
+                                                            type="number"
+                                                            value={item.quantity}
+                                                            onChange={(e) => {
+                                                                const newQty = parseFloat(e.target.value) || 0;
+                                                                const next = [...editableFormula];
+                                                                next[index] = { ...item, quantity: newQty };
+                                                                setEditableFormula(next);
+                                                            }}
+                                                            className="w-16 h-9 text-center font-black font-mono border-2 rounded-lg text-xs"
+                                                            step="0.1"
+                                                        />
+                                                        <span className="text-[9px] font-black uppercase text-muted-foreground w-10 opacity-60 truncate text-left">{item.unit}</span>
+                                                    </div>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeProduct(item.id)}>
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                                ) : (
+                                    <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                        <Activity className="w-12 h-12" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest">Recipe Manifest Empty</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <Card>
-                    <CardHeader className="pb-3 text-left">
-                        <CardTitle className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                            <MessageSquare className="w-3 h-3 text-primary" />
-                            Session Debrief Notes
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <Textarea 
-                            placeholder="Formula adjustments, skin reactions, or client requests..." 
-                            value={reviewNotes}
-                            onChange={(e) => setReviewNotes(e.target.value)}
-                            rows={3}
-                            className="bg-muted/10 border-2"
-                        />
-                    </CardContent>
-                </Card>
+                <div className="space-y-8 pt-10 border-t border-dashed">
+                    <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={3} />
+                    <div className="space-y-6 text-left">
+                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner transition-all">
+                            <div className="space-y-1">
+                                <Label htmlFor="save-formula-toggle-review" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                                    <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
+                                </Label>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Register this recipe in guest dossier</p>
+                            </div>
+                            <Switch id="save-formula-toggle-review" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125 data-[state=checked]:bg-primary" />
+                        </div>
+
+                        <AnimatePresence>
+                            {saveAsCustomFormula && (
+                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="overflow-hidden">
+                                    <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
+                                        <Label htmlFor="custom-formula-name-review" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
+                                            <Tag className="w-3.5 h-3.5" /> Formula Identifier
+                                        </Label>
+                                        <Input 
+                                            id="custom-formula-name-review" 
+                                            placeholder="e.g., WINTER GLOSS MIX" 
+                                            value={customFormulaName} 
+                                            onChange={e => setCustomFormulaName(e.target.value.toUpperCase())}
+                                            className="h-12 rounded-xl border-2 font-black uppercase text-sm tracking-tight focus-visible:ring-primary/20 bg-muted/5 shadow-inner"
+                                        />
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                        <div className="space-y-3">
+                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                                <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
+                            </Label>
+                            <Textarea 
+                                id="review-notes"
+                                placeholder="Audit notes regarding treatment outcomes, reactions, or client requests..." 
+                                value={reviewNotes}
+                                onChange={(e) => setReviewNotes(e.target.value)}
+                                rows={4}
+                                className="rounded-[2.5rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed focus-visible:ring-primary/20"
+                            />
+                        </div>
+                    </div>
+                </div>
               </div>
             </ScrollArea>
-            <DialogFooter className={cn(
-                "border-t bg-background flex-shrink-0 shadow-2xl",
-                isMobile ? "p-4" : "p-6 pt-4"
-            )}>
-                <div className={cn(
-                    "w-full gap-3",
-                    isMobile ? "flex flex-col-reverse" : "grid grid-cols-2"
-                )}>
-                    <Button 
-                        variant="outline" 
-                        onClick={() => onOpenChange(false)} 
-                        className="h-12 md:h-14 font-black uppercase tracking-tighter text-[10px] md:text-xs text-slate-400 border-2"
-                    >
-                        Cancel
-                    </Button>
+            <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-6" : "p-8 pt-4")}>
+                <div className="flex flex-col gap-3 w-full">
                     <Button 
                         onClick={handleCompleteMyPart} 
-                        className="h-12 md:h-14 font-black uppercase tracking-tight shadow-xl shadow-primary/20 text-[10px] md:text-xs leading-tight" 
                         disabled={completedServiceIds.length === 0 || (saveAsCustomFormula && !customFormulaName.trim())}
+                        className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all group"
                     >
-                        {buttonLabel}
+                        {buttonLabel} <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2" />
                     </Button>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-tighter text-[10px] text-slate-400">Abort Review</Button>
                 </div>
             </DialogFooter>
         </ContentComponent>

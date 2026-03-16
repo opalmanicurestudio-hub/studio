@@ -329,7 +329,7 @@ export default function ClientDetailPage() {
                         </div>
                         <div className="flex flex-wrap justify-center sm:justify-start gap-x-6 sm:gap-x-10 gap-y-4 pt-2 w-full">
                             {isOwnerOrAdmin ? (
-                                <div className="space-y-1 min-w-0 max-w-full">
+                                <div className="space-y-1 min-w-0 max-w-full text-left">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
                                     <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{client.email}</a>
                                     <p className="text-xs md:text-sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
@@ -449,10 +449,10 @@ export default function ClientDetailPage() {
                                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Birth Milestone</p>
                                             <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
                                         </div>
-                                        {client.address && <div className="space-y-1"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
+                                        {client.address && <div className="space-y-1 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
                                     </div>
                                     <div className="space-y-6">
-                                        {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight">{client.emergencyContact.name}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{client.emergencyContact.relationship}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
+                                        {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight">{client.emergencyContact.name}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{client.emergencyContact.relationship}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -488,8 +488,8 @@ export default function ClientDetailPage() {
                                 {client.customFormulas && client.customFormulas.length > 0 ? (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         {client.customFormulas.map((formula) => (
-                                            <Card key={formula.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group">
-                                                <CardHeader className="bg-muted/5 border-b p-5 flex flex-row items-center justify-between">
+                                            <Card key={formula.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group text-left">
+                                                <CardHeader className="bg-muted/5 border-b p-5 flex flex-row items-center justify-between text-left">
                                                     <div className="space-y-0.5">
                                                         <CardTitle className="text-xs font-black uppercase tracking-tight">{formula.name}</CardTitle>
                                                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Established {format(safeDate(formula.date), 'MMM d, yyyy')}</p>
@@ -533,7 +533,7 @@ export default function ClientDetailPage() {
                                     <div className="grid gap-3">
                                         {client.unpaidFees.map((fee) => (
                                             <div key={fee.feeId} className="flex justify-between items-center p-5 rounded-2xl border-2 border-destructive/20 bg-destructive/[0.02] shadow-sm">
-                                                <div className="space-y-1">
+                                                <div className="space-y-1 text-left">
                                                     <p className="font-black text-sm uppercase tracking-tight text-destructive">{fee.reason}</p>
                                                     <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p>
                                                 </div>
@@ -613,7 +613,7 @@ export default function ClientDetailPage() {
                                             <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10">
                                                 <CreditCard className="w-5 h-5 text-primary" />
                                             </div>
-                                            <div>
+                                            <div className="text-left">
                                                 <p className="text-xs font-black uppercase tracking-tighter text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p>
                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase">Exp: {client.cardOnFile.expiryMonth}/{client.cardOnFile.expiryYear}</p>
                                             </div>
@@ -633,7 +633,7 @@ export default function ClientDetailPage() {
                             {hasDebt && hasCardOnFile && (
                                 <Button 
                                     className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white"
-                                    onClick={handleQuickSettle}
+                                    onClick={() => setIsQuickSettleOpen(true)}
                                 >
                                     <Zap className="mr-2 h-4 w-4" /> Charge Card on File
                                 </Button>
@@ -673,7 +673,7 @@ export default function ClientDetailPage() {
                     <p className="text-5xl font-black text-primary tracking-tighter font-mono">${Number(client.outstandingBalance).toFixed(2)}</p>
                 </div>
                 <div className="space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Distribution Method</p>
                     <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4">
                         <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
                         <div className="text-left">
