@@ -60,6 +60,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useFirebase } from '@/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const bookingSchema = z.object({
   clientName: z.string().min(1, 'Name is required'),
@@ -154,6 +155,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   tenant,
   onConfirm,
 }) => {
+  const isMobile = useIsMobile();
   const [selectedStaffId, setSelectedStaffId] = useState(initialStaffId || 'any');
   const [selectedTierId, setSelectedTierId] = useState<string>('any');
   const [date, setDate] = useState(new Date());
@@ -799,7 +801,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     </CardHeader>
                                     <CardContent className="p-10 space-y-8">
                                         <div className="space-y-4">
-                                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 text-lg font-mono" /></div>
+                                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg" /></div>
                                             <div className="grid grid-cols-2 gap-6"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
                                         </div>
                                         <div className="flex items-center gap-3 p-4 bg-muted/20 rounded-2xl text-xs text-muted-foreground font-medium italic">

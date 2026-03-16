@@ -23,6 +23,7 @@ import { Separator } from '../ui/separator';
 import { ScrollArea } from '../ui/scroll-area';
 import { cn, hexToHSLComponents } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const purchaseSchema = z.object({
   clientName: z.string().min(1, 'Name is required'),
@@ -49,6 +50,7 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
     tenant,
     onConfirm,
 }) => {
+    const isMobile = useIsMobile();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [step, setStep] = useState<'info' | 'payment' | 'success'>('info');
     
@@ -79,22 +81,25 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
         <Sheet open={open} onOpenChange={(val) => { onOpenChange(val); if(!val) setStep('info'); }}>
             <SheetContent 
                 side="right" 
-                className="w-full sm:max-w-2xl p-0 flex flex-col border-l-0 sm:border-l bg-background overflow-hidden"
+                className={cn(
+                    "w-full sm:max-w-2xl p-0 flex flex-col border-l-0 sm:border-l bg-background overflow-hidden shadow-3xl",
+                    isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : ""
+                )}
                 style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}
             >
-                 <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+                 <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Access Unlock</span>
                     </div>
-                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900">
+                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
                         {isMembership ? 'Unlock Membership' : 'Secure Package'}
                     </SheetTitle>
-                    <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Complete your {type} acquisition.</SheetDescription>
+                    <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Complete your {type} acquisition.</SheetDescription>
                 </SheetHeader>
 
                 <ScrollArea className="flex-1">
-                    <div className="p-8 space-y-12 pb-32">
+                    <div className={cn("p-8 space-y-12 pb-32", isMobile && "p-6")}>
                         <AnimatePresence mode="wait">
                             {step === 'success' ? (
                                 <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-12 space-y-8" key="success">
