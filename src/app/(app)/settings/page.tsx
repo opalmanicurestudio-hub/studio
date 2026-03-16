@@ -169,7 +169,7 @@ const SentimentCurationItem = ({ review, onTogglePublic, onToggleFeatured }: { r
     );
 };
 
-function SettingsContent() {
+function SettingsPageImpl() {
   const { toast } = useToast();
   const { firestore } = useFirebase();
   const { tenants, selectedTenant, isLoading: isTenantContextLoading } = useTenant();
@@ -521,17 +521,6 @@ function SettingsContent() {
     { value: "messaging", label: "Messaging", icon: <MessageSquare className="w-4 h-4" /> },
   ];
 
-  if (isLoadingTotal) {
-    return (
-      <div className="flex min-h-screen w-full flex-col">
-        <AppHeader title="Settings" />
-        <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
-            <Loader className="h-8 w-8 animate-spin text-primary" />
-        </main>
-      </div>
-    );
-  }
-  
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <AppHeader title="Business Settings" />
@@ -831,7 +820,7 @@ function SettingsContent() {
                                 </div>
                             </div>
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
-                                <div className="space-y-1">
+                                <div className="space-y-1 text-left">
                                     <Label htmlFor="show-wordmark-toggle" className="text-base font-black uppercase tracking-tight">Display Wordmark</Label>
                                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Show name or wordmark logo on landing page</p>
                                 </div>
@@ -908,7 +897,7 @@ function SettingsContent() {
                                                 className="scale-110"
                                             />
                                         </div>
-                                        <div className="space-y-1.5">
+                                        <div className="space-y-1.5 text-left">
                                             <Label className="text-[8px] uppercase font-black text-muted-foreground tracking-widest ml-1">Module Heading</Label>
                                             <Input 
                                                 value={tenantData.bookingPageSettings?.[section.titleKey as keyof BookingPageSettings] as string || ''} 
@@ -925,7 +914,7 @@ function SettingsContent() {
                                                     <Sparkles className="w-3 h-3" /> Sentiment Curation
                                                 </p>
                                                 <ScrollArea className="h-[200px]">
-                                                    <div className="space-y-2 pr-4">
+                                                    <div className="space-y-2 pr-4 text-left">
                                                         {reviews && reviews.length > 0 ? (
                                                             reviews.sort((a,b) => (a.isFeatured ? -1 : 1)).map(review => (
                                                                 <SentimentCurationItem 
@@ -961,8 +950,8 @@ function SettingsContent() {
                             <div className="space-y-4">
                                 {(tenantData.bookingPageSettings?.faqs || []).map((faq) => (
                                     <div key={faq.id} className="p-6 rounded-[2rem] border-2 bg-muted/10 space-y-6 group relative transition-all hover:bg-muted/20">
-                                        <div className="space-y-4">
-                                            <div className="space-y-1.5">
+                                        <div className="space-y-4 text-left">
+                                            <div className="space-y-1.5 text-left">
                                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Question Protocol</Label>
                                                 <Input 
                                                     value={faq.question} 
@@ -972,7 +961,7 @@ function SettingsContent() {
                                                     className="h-12 rounded-xl border-2 font-black uppercase text-xs bg-white"
                                                 />
                                             </div>
-                                            <div className="space-y-1.5">
+                                            <div className="space-y-1.5 text-left">
                                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Resolution Response</Label>
                                                 <Textarea 
                                                     value={faq.answer} 
@@ -1119,7 +1108,7 @@ function SettingsContent() {
                                             />
                                         </div>
                                         <div className="flex items-center justify-between p-4 bg-white rounded-2xl border shadow-sm">
-                                            <div className="space-y-0.5">
+                                            <div className="space-y-0.5 text-left">
                                                 <Label htmlFor="auto-sub-toggle" className="text-xs font-black uppercase tracking-tight">Autonomous Recurring Processing</Label>
                                                 <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Automatically charge cards on renewal dates</p>
                                             </div>
@@ -1203,7 +1192,7 @@ function SettingsContent() {
 export default function SettingsPage() {
   return (
     <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader className="animate-spin" /></div>}>
-      <SettingsContent />
+      <SettingsPageImpl />
     </Suspense>
   )
 }

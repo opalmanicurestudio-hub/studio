@@ -11,13 +11,14 @@ export const BookingHeader = ({ tenant }: { tenant: Tenant | null }) => {
   const wordmarkUrl = tenant?.bookingPageSettings?.wordmarkUrl;
   const showWordmark = tenant?.bookingPageSettings?.showWordmark !== false;
 
+  // Responsive sizing based on wordmark visibility
   const logoSize = showWordmark 
     ? "w-24 h-24 md:w-32 md:h-32" 
     : "w-40 h-40 md:w-56 md:h-56";
   
   const logoRadius = showWordmark 
     ? "rounded-[2rem]" 
-    : "rounded-[2.5rem] md:rounded-[3.5rem]";
+    : "rounded-[2.5rem] md:rounded-[3rem]";
 
   return (
     <header className="mb-12 text-center flex flex-col items-center">
@@ -55,7 +56,7 @@ export const BookingHeader = ({ tenant }: { tenant: Tenant | null }) => {
                   />
               </div>
           ) : (
-              <h1 className="text-3xl md:text-5xl font-extrabold uppercase tracking-[0.1em] text-slate-900 leading-tight">
+              <h1 className="text-3xl md:text-5xl font-extrabold uppercase tracking-widest text-slate-900 leading-tight">
                 {tenant?.name || 'ClarityFlow Salon'}
               </h1>
           )}

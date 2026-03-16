@@ -2,7 +2,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import Link from 'next/link';
 import {
   Card,
   CardContent,
@@ -96,6 +95,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
+import Link from 'next/link';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -752,7 +752,7 @@ export const MembershipLedger = () => {
                                     <TableBody>
                                         {historicalTransactions.length > 0 ? historicalTransactions.map(t => (
                                             <TableRow key={t.id} className="hover:bg-muted/5 transition-colors">
-                                                <TableCell className="p-6">
+                                                <TableCell className="p-6 text-left">
                                                     <div className="text-left space-y-1">
                                                         <p className="font-black uppercase tracking-tight text-xs text-slate-900">{t.clientOrVendor}</p>
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate max-w-[200px]">{t.description}</p>
@@ -838,7 +838,7 @@ export const MembershipLedger = () => {
                             <span className="text-[9px] font-black uppercase text-muted-foreground">Auto-Process</span>
                             <Badge variant={selectedTenant?.autoProcessMemberships ? "default" : "secondary"} className="h-5 px-2 font-black text-[8px] uppercase">{selectedTenant?.autoProcessMemberships ? "ACTIVE" : "DISABLED"}</Badge>
                         </div>
-                        <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed">
+                        <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">
                             {isGatewayActive ? "Autonomous billing protocol is online. Cards on file will be auto-debited on their renewal dates." : "Connect Stripe or Square in Settings to enable autonomous recurring billing."}
                         </p>
                         <Button variant="outline" asChild className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm">

@@ -58,6 +58,10 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+/**
+ * Recursively removes any keys with undefined values from an object.
+ * Firestore does not support undefined values in payloads.
+ */
 const sanitizeForFirestore = (obj: any): any => {
     if (obj === null || typeof obj !== 'object') return obj;
     if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);

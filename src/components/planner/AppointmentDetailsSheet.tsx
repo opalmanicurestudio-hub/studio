@@ -281,7 +281,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6">
                   <Avatar className={cn("border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2.5rem]", isMobile ? "w-16 h-16" : "w-24 h-24")}><AvatarImage src={client.avatarUrl} className="object-cover" /><AvatarFallback className="text-xl font-black bg-primary/10 text-primary">{(client?.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback></Avatar>
-                  <div className="space-y-1.5 flex-1 min-w-0">
+                  <div className="space-y-1.5 flex-1 min-w-0 text-left">
                     <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate", isMobile ? "text-lg" : "text-3xl")}>{client.name}</h2>
                     <div className="flex flex-wrap justify-center sm:justify-start gap-2 text-left">
                       <Badge variant="outline" className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest border-2"><UserIcon className="w-2.5 h-2.5 mr-1 opacity-40" /> Guest</Badge>
