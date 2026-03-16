@@ -368,7 +368,7 @@ const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfir
                 <DialogFooter className="p-8 pt-4 border-t bg-muted/5 shrink-0">
                     <div className="flex gap-3 w-full">
                         <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
-                        <Button onClick={methods.handleSubmit(onConfirm)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group">
+                        <Button onClick={methods.handleSubmit(onConfirm)} className="flex-[2] h-14 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group">
                             Finalize Settlement <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/>
                         </Button>
                     </div>
@@ -383,8 +383,9 @@ export const MembershipLedger = () => {
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const isMobile = useIsMobile();
-  const { subscriptionInstances, clients, memberships, transactions, redemptions, isLoading } = useInventory();
   const { toast } = useToast();
+
+  const { subscriptionInstances, clients, memberships, transactions, redemptions, isLoading } = useInventory();
 
   const [activeSubTab, setActiveSubTab] = useState<'pending' | 'payments' | 'redemptions'>('pending');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -405,9 +406,9 @@ export const MembershipLedger = () => {
   const historicalTransactions = useMemo(() => {
       if (!transactions) return [];
       return transactions
-        .filter(t => t.category === 'Membership Revenue' || t.description.toLowerCase().includes('membership'))
-        .filter(t => !searchTerm.trim() || t.clientOrVendor.toLowerCase().includes(searchTerm.toLowerCase()) || t.description.toLowerCase().includes(searchTerm.toLowerCase()))
-        .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
+        .filter((t: any) => t.category === 'Membership Revenue' || t.description.toLowerCase().includes('membership'))
+        .filter((t: any) => !searchTerm.trim() || t.clientOrVendor.toLowerCase().includes(searchTerm.toLowerCase()) || t.description.toLowerCase().includes(searchTerm.toLowerCase()))
+        .sort((a: any, b: any) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [transactions, searchTerm]);
 
   const historicalRedemptions = useMemo(() => {

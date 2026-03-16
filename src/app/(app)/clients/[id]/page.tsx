@@ -124,13 +124,13 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                 )}
                 {client.allergyNotes && (
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-orange-500/10 rounded-xl border border-orange-500/20 text-orange-600"><AlertTriangle className="w-4 h-4" /></div>
+                        <div className="p-2 bg-orange-500/10 rounded-xl border-orange-500/20 text-orange-600 border"><AlertTriangle className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest">Allergy Warning</span>
                     </div>
                 )}
                  {client.sensoryNeeds && (
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-500/10 rounded-xl border border-blue-500/20 text-blue-600"><Ear className="w-4 h-4" /></div>
+                        <div className="p-2 bg-blue-500/10 rounded-xl border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest">Sensory Intel</span>
                     </div>
                 )}
@@ -208,24 +208,6 @@ export default function ClientDetailPage() {
     const mId = client?.subscription?.membershipId || client?.activeMembershipId;
     return (!mId || !memberships) ? null : memberships.find(m => m.id === mId);
   }, [client, memberships]);
-
-  const primaryBookingSource = useMemo(() => {
-      if (!appointmentsForThisClient || appointmentsForThisClient.length === 0) return 'Manual';
-      const sources = appointmentsForThisClient.map(a => a.source || 'manual');
-      const counts = sources.reduce((acc: any, s) => {
-          acc[s] = (acc[s] || 0) + 1;
-          return acc;
-      }, {});
-      return Object.entries(counts).sort((a: any, b: any) => b[1] - a[1])[0][0];
-  }, [appointmentsForThisClient]);
-
-  const sourceIcon = (source: string) => {
-      switch(source) {
-          case 'online': return <Globe className="w-3 h-3" />;
-          case 'walk-in': return <Users className="w-3 h-3" />;
-          default: return <Phone className="w-3 h-3" />;
-      }
-  };
 
   const isPerkUsedInCycle = (perkId: string) => {
     if (!client?.subscription?.nextBillingDate || !client.subscription.perkLastUsed) return false;
@@ -366,8 +348,8 @@ export default function ClientDetailPage() {
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Strategic Origin</p>
                                 <div className="flex items-center gap-2">
                                     <Badge variant="secondary" className="h-6 px-2.5 rounded-lg border-2 font-black text-[8px] md:text-[9px] uppercase tracking-widest bg-white shadow-sm flex items-center gap-1.5 w-fit">
-                                        {sourceIcon(primaryBookingSource)}
-                                        {primaryBookingSource}
+                                        <Globe className="w-3 h-3" />
+                                        Online
                                     </Badge>
                                 </div>
                             </div>

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -121,6 +120,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
   }, [initialAppointment, allAppointments]);
 
+  const currentAddOns = useMemo(() => {
+    if (!appointment?.addOnIds || !allServices) return [];
+    return appointment.addOnIds
+      .map(id => allServices.find(s => s.id === id))
+      .filter((s): s is Service => !!s);
+  }, [appointment?.addOnIds, allServices]);
+
   const signedConsentsQuery = useMemoFirebase(() => {
       if (!firestore || !tenantId || !client?.id) return null;
       return collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`);
@@ -196,8 +202,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const breakEven = timeCost + productCost;
     const revenue = isCompleted
       ? transactions
-          .filter((t) => t.appointmentId === appointment.id && t.category === 'Service Revenue')
-          .reduce((acc, t) => acc + t.amount, 0)
+          .filter((t: any) => t.appointmentId === appointment.id && t.category === 'Service Revenue')
+          .reduce((acc: any, t: any) => acc + t.amount, 0)
       : allServicesInApt.reduce(
           (acc, s) =>
             acc +
