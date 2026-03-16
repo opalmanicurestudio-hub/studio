@@ -1,10 +1,9 @@
-
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { collection, doc, query, where } from 'firebase/firestore';
+import { collection, doc, query, where, collectionGroup } from 'firebase/firestore';
 import {
     type InventoryItem, 
     type StockCorrection,
@@ -26,6 +25,7 @@ import {
     type PricingTier,
     type TillSession,
     type SubscriptionInstance,
+    type Redemption,
 } from '@/lib/data';
 import {
     type BillDefinition as Bill,
@@ -75,6 +75,7 @@ interface InventoryContextType {
   pricingTiers: PricingTier[];
   tillSessions: TillSession[];
   subscriptionInstances: SubscriptionInstance[];
+  redemptions: Redemption[];
   scheduleProfiles: any[];
   lifestyleProfiles: any[];
   businessProfiles: any[];
@@ -117,6 +118,9 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: tillSessions, isLoading: tillSessionsLoading } = useCollection<TillSession>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'tillSessions') : null, [firestore, tenantId]));
   const { data: rawSubInstances, isLoading: subInstancesLoading } = useCollection<SubscriptionInstance>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'subscriptionInstances') : null, [firestore, tenantId]));
   
+  // Use collection group to find redemptions across all clients for this tenant
+  const { data: redemptions, isLoading: redemptionsLoading } = useCollection<Redemption>(useMemoFirebase(() => !firestore || !tenantId ? null : collectionGroup(firestore, 'redemptions'), [firestore, tenantId]));
+
   const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
 
   const billDefinitions = useMemo(() => {
@@ -272,7 +276,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     }));
   }, [rawEvents]);
 
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading;
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading;
   
   const value = {
     inventory: inventory || [],
@@ -298,6 +302,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     pricingTiers: pricingTiers || [],
     tillSessions: tillSessions || [],
     subscriptionInstances: subscriptionInstances || [],
+    redemptions: redemptions || [],
     scheduleProfiles: scheduleProfiles || [],
     lifestyleProfiles: lifestyleProfiles || [],
     businessProfiles: businessProfiles || [],

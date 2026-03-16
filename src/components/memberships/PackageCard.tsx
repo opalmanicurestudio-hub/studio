@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box, Clock, Scale, Zap, Shield, CheckCircle } from 'lucide-react';
+import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box, Clock, Scale, Zap, Shield, CheckCircle, CheckCircle2 } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -84,7 +84,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
         else if (member.payStructure === 'hourly' && member.hourlyRate) labor = (tierDuration / 60) * member.hourlyRate;
         else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) labor = ((tierDuration / 60) * member.hourlyRate) + (tierPrice * (member.commissionRate / 100));
 
-        const burdenedLabor = labor * pack.sessions * (1 + (taxBurden / 100));
+        const burdenedLabor = labor * sessions * (1 + (taxBurden / 100));
         const totalBurden = materialCost + timeValue + burdenedLabor;
         const netProfit = pack.price - totalBurden;
         const margin = pack.price > 0 ? (netProfit / pack.price) * 100 : 0;
@@ -183,7 +183,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <AccordionContent className="px-4 pb-4 pt-2 text-left">
                     <div className="space-y-3">
                         <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight text-slate-700 bg-white p-3 rounded-xl border shadow-sm">
-                            <span className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-teal-500"/> {primaryService?.name || 'N/A'}</span>
+                            <span className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-teal-500"/> {primaryService?.name || 'N/A'}</span>
                             <span className="font-black text-slate-900">{pack.sessions} SESSIONS</span>
                         </div>
                         {pack.retailDiscount && pack.retailDiscount > 0 && (

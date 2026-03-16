@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -333,67 +332,6 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             </div>
                         )}
                     </div>
-                </div>
-            </div>
-
-            <Separator className="border-dashed" />
-
-            <div className="space-y-10">
-                <SectionHeader icon={Zap} title="Compensation Engine" step={3} />
-                <div className="space-y-8 text-left">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-3">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Logic</Label>
-                            <Controller name="payStructure" control={control} render={({ field }) => (
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
-                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION SPLIT</SelectItem>
-                                        <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
-                                        <SelectItem value="hourly_plus_commission" className="font-bold uppercase text-[10px] tracking-widest">HOURLY + COMMISSION</SelectItem>
-                                        <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">BASE SALARY</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            )}/>
-                        </div>
-                        {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
-                            <div className="space-y-3">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Cycle</Label>
-                                <Controller name="payoutFrequency" control={control} render={({ field }) => (
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                        <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
-                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            <SelectItem value="weekly" className="font-bold uppercase text-[10px] tracking-widest">WEEKLY</SelectItem>
-                                            <SelectItem value="bi-weekly" className="font-bold uppercase text-[10px] tracking-widest">BI-WEEKLY</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                )}/>
-                            </div>
-                        )}
-                    </div>
-
-                    {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="commissionRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service Ratio (%)</Label>
-                                <div className="relative"><Input id="commissionRate-edit" type="number" {...register('commissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="retailCommission-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail Ratio (%)</Label>
-                                <div className="relative"><Input id="retailCommission-edit" type="number" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner bg-white" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
-                            </div>
-                        </div>
-                    )} 
-                    
-                    {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
-                        <div className="space-y-2 animate-in slide-in-from-top-2">
-                            <Label htmlFor="hourlyRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                <Input id="hourlyRate-edit" type="number" step="0.01" {...register('hourlyRate')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" />
-                            </div>
-                        </div>
-                    )}
                 </div>
             </div>
 
