@@ -44,12 +44,15 @@ import {
     Users,
     TrendingDown,
     Activity,
-    Landmark
+    Landmark,
+    Star,
+    History,
+    CheckCircle
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, subMonths, isAfter } from 'date-fns';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -62,7 +65,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, writeBatch, increment } from 'firebase/firestore';
-import type { Client, Appointment, Service, CustomFormula } from '@/lib/data';
+import type { Client, Appointment, Service, CustomFormula, Membership, Redemption } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 
@@ -184,7 +187,7 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions } = useInventory();
+  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages } = useInventory();
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -221,6 +224,23 @@ export default function ClientDetailPage() {
           case 'walk-in': return <Users className="w-3 h-3" />;
           default: return <Phone className="w-3 h-3" />;
       }
+  };
+
+  const isPerkUsedInCycle = (perkId: string) => {
+    if (!client?.subscription?.nextBillingDate || !client.subscription.perkLastUsed) return false;
+    
+    const lastUsed = safeDate(client.subscription.perkLastUsed);
+    const nextBilling = safeDate(client.subscription.nextBillingDate);
+    const cycleStart = subMonths(nextBilling, 1);
+
+    const isCurrentCycle = isAfter(lastUsed, cycleStart);
+    if (!isCurrentCycle) return false;
+
+    const usageCount = client.subscription.perkUsage?.[perkId] || 0;
+    const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
+                    activeMembership?.includedAddOns?.find(a => a.id === perkId);
+    
+    return usageCount >= (perkDef?.quantity || 1);
   };
 
   const handleQuickSettle = async () => {
@@ -371,6 +391,71 @@ export default function ClientDetailPage() {
                         </ScrollArea>
                         
                         <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500">
+                            {activeMembership && (
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3 text-left">
+                                        <Award className="w-5 h-5" />
+                                        Active Privilege Matrix
+                                    </h3>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {(activeMembership.includedServices || []).map(perk => {
+                                            const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                            const isRedeemed = isPerkUsedInCycle(perk.id);
+                                            const progress = (used / perk.quantity) * 100;
+                                            return (
+                                                <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
+                                                    <CardContent className="p-5 space-y-4">
+                                                        <div className="flex justify-between items-start gap-2">
+                                                            <div className="min-w-0">
+                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
+                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Service Allotment</p>
+                                                            </div>
+                                                            <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
+                                                                {isRedeemed ? <CheckCircle className="w-4 h-4" /> : <Star className="w-4 h-4" />}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                                                <span>Allotment Usage</span>
+                                                                <span>{used} / {perk.quantity}</span>
+                                                            </div>
+                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )
+                                        })}
+                                        {(activeMembership.includedAddOns || []).map(perk => {
+                                            const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                            const isRedeemed = isPerkUsedInCycle(perk.id);
+                                            const progress = (used / perk.quantity) * 100;
+                                            return (
+                                                <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
+                                                    <CardContent className="p-5 space-y-4">
+                                                        <div className="flex justify-between items-start gap-2">
+                                                            <div className="min-w-0">
+                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
+                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Enhancement Allotment</p>
+                                                            </div>
+                                                            <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
+                                                                {isRedeemed ? <CheckCircle className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                                                <span>Allotment Usage</span>
+                                                                <span>{used} / {perk.quantity}</span>
+                                                            </div>
+                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
                             <Card className="border-2 shadow-sm rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-white text-left">
                                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8 pb-4">
                                     <CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><BadgeInfo className="w-4 h-4 text-primary" /> Dossier Details</CardTitle>
@@ -487,7 +572,7 @@ export default function ClientDetailPage() {
                                                 <div className={cn("p-2 rounded-xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
                                                     {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.type === 'membership' ? <Award className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
                                                 </div>
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 text-left">
                                                     <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate">{r.serviceName}</p>
                                                     <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Via {r.offeringName}</p>
                                                 </div>
@@ -498,6 +583,12 @@ export default function ClientDetailPage() {
                                             </div>
                                         </div>
                                     ))}
+                                    {clientRedemptions.length === 0 && (
+                                        <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
+                                            <History className="w-10 h-10" />
+                                            <p className="text-[10px] font-black uppercase tracking-widest">No Redemption History</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </TabsContent>

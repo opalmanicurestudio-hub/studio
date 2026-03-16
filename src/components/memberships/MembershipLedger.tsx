@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Card,
@@ -38,7 +38,6 @@ import {
     CreditCard,
     ArrowRight,
     Info,
-    Smartphone,
     Activity,
     Repeat,
     ArrowLeft,
@@ -53,7 +52,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format, parseISO, isPast, isToday, addMonths, startOfDay, isSameMonth, isBefore } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
-import { useFirebase } from '@/firebase';
+import { useFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { collection, doc, writeBatch, increment, deleteField } from 'firebase/firestore';
@@ -61,16 +60,6 @@ import { type SubscriptionInstance, type Membership, type Staff } from '@/lib/da
 import { type Transaction } from '@/lib/financial-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -89,13 +78,12 @@ import {
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
+import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import SignatureCanvas from 'react-signature-canvas';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -693,7 +681,7 @@ export const MembershipLedger = () => {
                         )}
                     </div>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="p-0 text-left">
                     <ScrollArea className="h-[500px]">
                         {activeSubTab === 'pending' ? (
                             <div className="overflow-x-auto">

@@ -10,12 +10,30 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
-import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle, Zap } from 'lucide-react';
+import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle, Zap, CheckCircle2 } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption } from '@/lib/data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
 
 export default function ClientPortalPage() {
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
@@ -45,15 +63,15 @@ export default function ClientPortalPage() {
     const upcomingAppointments = useMemo(() => {
         if (!appointments) return [];
         return appointments
-            .filter(a => a.status !== 'cancelled' && new Date(a.startTime) > new Date())
-            .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+            .filter(a => a.status !== 'cancelled' && safeDate(a.startTime) > new Date())
+            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
     }, [appointments]);
 
     const pastAppointments = useMemo(() => {
         if (!appointments) return [];
         return appointments
-            .filter(a => a.status === 'completed' || new Date(a.startTime) <= new Date())
-            .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+            .filter(a => a.status === 'completed' || safeDate(a.startTime) <= new Date())
+            .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
     }, [appointments]);
 
     const activeMembership = useMemo(() => {
@@ -65,14 +83,12 @@ export default function ClientPortalPage() {
     const isPerkUsedInCycle = (perkId: string) => {
         if (!client?.subscription?.nextBillingDate || !client.subscription.perkLastUsed) return false;
         
-        const lastUsed = parseISO(client.subscription.perkLastUsed);
-        const nextBilling = parseISO(client.subscription.nextBillingDate);
+        const lastUsed = safeDate(client.subscription.perkLastUsed);
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
         const cycleStart = subMonths(nextBilling, 1);
 
         const isCurrentCycle = isAfter(lastUsed, cycleStart);
         if (!isCurrentCycle) return false;
-
-        if (perkId === 'any') return true;
 
         const usageCount = client.subscription.perkUsage?.[perkId] || 0;
         const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
@@ -84,136 +100,115 @@ export default function ClientPortalPage() {
     if (clientLoading || appointmentsLoading || redemptionsLoading) {
         return (
             <div className="flex h-screen w-full items-center justify-center">
-                <Loader className="animate-spin" />
+                <Loader className="animate-spin text-primary" />
             </div>
         );
     }
 
-    if (!client) return <div>Account not found.</div>;
+    if (!client) return <div className="p-10 text-center font-black uppercase text-slate-400">Account not found.</div>;
 
     return (
-        <div className="space-y-8 pb-20">
-            <header className="flex flex-col md:flex-row items-center gap-6">
-                <div className="relative">
-                    <Avatar className="w-24 h-24 border-4 border-background shadow-lg">
-                        <AvatarImage src={client.avatarUrl} />
-                        <AvatarFallback>{client.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+        <div className="space-y-10 pb-20">
+            <header className="flex flex-col md:flex-row items-center gap-8 text-center md:text-left">
+                <div className="relative group">
+                    <Avatar className="w-32 h-32 border-4 border-white shadow-2xl rounded-[3rem] overflow-hidden transition-all group-hover:scale-105">
+                        <AvatarImage src={client.avatarUrl} className="object-cover" />
+                        <AvatarFallback className="font-black text-2xl bg-primary/10 text-primary">{client.name.substring(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     {activeMembership && (
-                        <Badge className="absolute -top-2 -right-2 bg-indigo-600 text-white border-2 border-background shadow-md">
-                            <Award className="w-3 h-3 mr-1" /> Member
-                        </Badge>
+                        <div className="absolute -top-3 -right-3 bg-indigo-600 text-white p-2 rounded-2xl shadow-xl border-4 border-white">
+                            <Award className="w-6 h-6" />
+                        </div>
                     )}
                 </div>
-                <div className="text-center md:text-left space-y-1">
-                    <h1 className="text-3xl font-bold tracking-tight">Hello, {client.name.split(' ')[0]}!</h1>
-                    <p className="text-muted-foreground">Manage your information and view your benefits at {tenant?.name}.</p>
+                <div className="space-y-2 flex-1 min-w-0">
+                    <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Hello, {client.name.split(' ')[0]}!</h1>
+                    <p className="text-xs md:text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60">Subscriber Portal &middot; {tenant?.name}</p>
                 </div>
-                <div className="md:ml-auto">
-                    <Button asChild variant="outline">
-                        <Link href={`/book/${tenantId}`}>Book New Appointment</Link>
+                <div className="shrink-0">
+                    <Button asChild size="lg" className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group">
+                        <Link href={`/book/${tenantId}`}>
+                            Secure New Session <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                        </Link>
                     </Button>
                 </div>
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="bg-primary/5 border-primary/20 overflow-hidden">
+                <Card className="bg-indigo-500/5 border-indigo-500/20 rounded-[2rem] overflow-hidden shadow-sm relative group">
+                    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Award className="w-20 h-20 text-indigo-600" /></div>
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2"><Award className="w-4 h-4 text-primary" /> Membership</CardTitle>
+                        <CardTitle className="text-[10px] font-black uppercase tracking-widest text-indigo-700 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Club Status</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3">
+                    <CardContent className="space-y-4">
                         {activeMembership ? (
-                            <>
-                                <div className="space-y-1">
-                                    <p className="text-xl font-bold">{activeMembership.name}</p>
-                                    {client.subscription && (
-                                        <Badge variant={client.subscription.status === 'active' ? 'default' : 'destructive'} className="capitalize">
-                                            {client.subscription.status}
-                                        </Badge>
-                                    )}
+                            <div className="space-y-1 text-left">
+                                <p className="text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">{activeMembership.name}</p>
+                                {client.subscription && (
+                                    <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase h-5 px-2 mt-2">{client.subscription.status}</Badge>
+                                )}
+                                <div className="pt-4 border-t border-indigo-500/10 mt-4 space-y-1">
+                                    <p className="text-[8px] font-black text-indigo-600/60 uppercase">Renewal Date</p>
+                                    <p className="text-xs font-black uppercase text-slate-700">{client.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMMM d, yyyy') : 'N/A'}</p>
                                 </div>
-                                <div className="pt-2 border-t space-y-2">
-                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Monthly Perks Allotment</p>
-                                    <div className="space-y-1">
-                                        {activeMembership.includedServices?.map(perk => {
-                                            const used = client.subscription?.perkUsage?.[perk.id] || 0;
-                                            const isRedeemed = isPerkUsedInCycle(perk.id);
-                                            return (
-                                                <div key={perk.id} className="flex justify-between items-center text-xs">
-                                                    <span className="flex items-center gap-1.5">
-                                                        {isRedeemed ? <CheckCircle className="w-3 h-3 text-green-500" /> : <Star className="w-3 h-3 text-indigo-400" />}
-                                                        {perk.name}
-                                                    </span>
-                                                    <span>{used} / {perk.quantity}</span>
-                                                </div>
-                                            )
-                                        })}
-                                        {activeMembership.includedAddOns?.map(perk => {
-                                            const used = client.subscription?.perkUsage?.[perk.id] || 0;
-                                            const isRedeemed = isPerkUsedInCycle(perk.id);
-                                            return (
-                                                <div key={perk.id} className="flex justify-between items-center text-xs">
-                                                    <span className="flex items-center gap-1.5">
-                                                        {isRedeemed ? <CheckCircle className="w-3 h-3 text-green-500" /> : <Zap className="w-3 h-3 text-amber-400" />}
-                                                        {perk.name}
-                                                    </span>
-                                                    <span>{used} / {perk.quantity}</span>
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                </div>
-                                <p className="text-[10px] text-muted-foreground pt-1">Next billing: {client.subscription?.nextBillingDate ? format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
-                            </>
+                            </div>
                         ) : (
-                            <p className="text-sm text-muted-foreground">No active membership.</p>
+                            <div className="py-4 text-center opacity-40 uppercase font-black text-[10px] tracking-widest">No active membership</div>
                         )}
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="rounded-[2rem] border-2 shadow-sm relative group overflow-hidden">
+                    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Wallet className="w-20 h-20 text-slate-900" /></div>
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2"><DollarSign className="w-4 h-4 text-green-500" /> Wallet Credit</CardTitle>
+                        <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><DollarSign className="w-3.5 h-3.5" /> Store Credit</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <p className="text-3xl font-bold">${(client.walletCredit || 0).toFixed(2)}</p>
-                        <p className="text-xs text-muted-foreground">Available store credit.</p>
+                    <CardContent className="text-left">
+                        <p className="text-4xl font-black text-slate-900 tracking-tighter font-mono">${(client.walletCredit || 0).toFixed(2)}</p>
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 mt-1">Available for terminal checkout</p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="rounded-[2rem] border-2 shadow-sm relative group overflow-hidden">
+                    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Gift className="w-20 h-20 text-slate-900" /></div>
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2"><Gift className="w-4 h-4 text-purple-500" /> Refer & Earn</CardTitle>
+                        <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Tag className="w-3.5 h-3.5" /> Referral Protocol</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <p className="text-lg font-bold font-mono bg-muted p-2 rounded text-center">{client.referralCode || 'N/A'}</p>
-                        <p className="text-[10px] text-muted-foreground mt-2 text-center">Share this code to earn rewards!</p>
+                    <CardContent className="text-left">
+                        <div className="p-3 rounded-xl bg-muted/30 border-2 border-dashed flex items-center justify-between group/code cursor-pointer" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: "Code Copied" }); }}>
+                            <p className="text-xl font-black font-mono tracking-widest text-primary uppercase">{client.referralCode || 'N/A'}</p>
+                            <Repeat className="w-4 h-4 text-primary opacity-0 group-hover/code:opacity-40 transition-opacity" />
+                        </div>
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 mt-3 leading-relaxed">Share this signature to earn credit on your profile.</p>
                     </CardContent>
                 </Card>
             </div>
 
-            <Tabs defaultValue="appointments">
-                <TabsList className="w-full justify-start border-b rounded-none bg-transparent h-auto p-0 mb-6">
-                    <TabsTrigger value="appointments" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Appointments</TabsTrigger>
-                    <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Usage Log</TabsTrigger>
-                    <TabsTrigger value="benefits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Benefits & Perks</TabsTrigger>
-                    <TabsTrigger value="profile" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">My Information</TabsTrigger>
-                </TabsList>
+            <Tabs defaultValue="appointments" className="w-full">
+                <ScrollArea className="w-full">
+                    <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-10 w-max mx-auto">
+                        <TabsTrigger value="appointments" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Schedule</TabsTrigger>
+                        <TabsTrigger value="benefits" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Benefit Pulse</TabsTrigger>
+                        <TabsTrigger value="history" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Usage Archive</TabsTrigger>
+                    </TabsList>
+                    <ScrollBar orientation="horizontal" className="hidden" />
+                </ScrollArea>
 
-                <TabsContent value="appointments" className="space-y-6">
+                <TabsContent value="appointments" className="space-y-12 animate-in fade-in duration-500 text-left">
                     <div>
-                        <h3 className="text-lg font-bold mb-4">Upcoming Visits</h3>
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60">Confirmed Window</h3>
                         {upcomingAppointments.length > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 {upcomingAppointments.map(apt => {
-                                    const service = services?.find(s => s.id === apt.serviceId);
+                                    const svc = services?.find(s => s.id === apt.serviceId);
                                     return (
-                                        <Card key={apt.id}>
-                                            <CardContent className="p-4 flex items-center gap-4">
-                                                <div className="bg-primary/10 p-3 rounded-lg text-primary">
-                                                    <Calendar className="w-6 h-6" />
+                                        <Card key={apt.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all">
+                                            <CardContent className="p-6 flex items-center gap-6">
+                                                <div className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 shadow-inner text-primary shrink-0">
+                                                    <Calendar className="w-8 h-8" />
                                                 </div>
-                                                <div className="text-left">
-                                                    <p className="font-bold">{service?.name || 'Service'}</p>
-                                                    <p className="text-sm text-muted-foreground">{format(new Date(apt.startTime), 'EEEE, MMM d @ h:mm a')}</p>
+                                                <div className="min-w-0">
+                                                    <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1">{svc?.name || 'Service'}</p>
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary">{format(safeDate(apt.startTime), 'EEEE, MMM d')}</p>
+                                                    <p className="text-sm font-black text-slate-500 font-mono tracking-tighter">{format(safeDate(apt.startTime), 'h:mm a')}</p>
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -221,22 +216,27 @@ export default function ClientPortalPage() {
                                 })}
                             </div>
                         ) : (
-                            <Card className="border-dashed bg-transparent"><CardContent className="py-10 text-center text-muted-foreground">No upcoming appointments.</CardContent></Card>
+                            <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                <Clock className="w-16 h-16" />
+                                <p className="text-[10px] font-black uppercase tracking-widest">Agenda Empty</p>
+                            </div>
                         )}
                     </div>
 
+                    <Separator className="border-dashed" />
+
                     <div>
-                        <h3 className="text-lg font-bold mb-4">Past Visits</h3>
-                        <div className="space-y-2">
-                            {pastAppointments.map(apt => {
-                                const service = services?.find(s => s.id === apt.serviceId);
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60">Dossier History</h3>
+                        <div className="grid gap-3">
+                            {pastAppointments.slice(0, 10).map(apt => {
+                                const svc = services?.find(s => s.id === apt.serviceId);
                                 return (
-                                    <div key={apt.id} className="flex justify-between items-center p-3 border rounded-lg bg-muted/30">
-                                        <div className="text-left">
-                                            <p className="font-semibold text-sm">{service?.name}</p>
-                                            <p className="text-xs text-muted-foreground">{format(new Date(apt.startTime), 'MMM d, yyyy')}</p>
+                                    <div key={apt.id} className="flex justify-between items-center p-5 border-2 rounded-2xl bg-white hover:bg-muted/5 transition-all">
+                                        <div className="text-left space-y-0.5">
+                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">{svc?.name}</p>
+                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{format(safeDate(apt.startTime), 'MMMM d, yyyy')}</p>
                                         </div>
-                                        <Badge variant="secondary" className="capitalize">{apt.status}</Badge>
+                                        <Badge variant="outline" className="h-6 px-2.5 rounded-lg border-2 font-black text-[8px] uppercase tracking-widest bg-muted/20">{apt.status}</Badge>
                                     </div>
                                 );
                             })}
@@ -244,62 +244,101 @@ export default function ClientPortalPage() {
                     </div>
                 </TabsContent>
 
-                <TabsContent value="history" className="space-y-6">
-                    <div>
-                        <h3 className="text-lg font-bold mb-4">Perk & Session Usage</h3>
-                        <p className="text-sm text-muted-foreground mb-6">A complete history of your non-monetary redemptions and policy adjustments.</p>
-                        {redemptions && redemptions.length > 0 ? (
-                            <div className="grid gap-3">
-                                {redemptions.sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()).map(r => (
-                                    <div key={r.id} className={cn("flex items-center justify-between p-4 border rounded-xl bg-card shadow-sm hover:border-primary/20 transition-all text-left", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
-                                        <div className="flex items-center gap-4">
-                                            <div className={cn("p-2 rounded-lg", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
-                                                {r.isForfeit ? <AlertTriangle className="w-5 h-5" /> : r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-sm">{r.serviceName}</p>
-                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Applied to {r.offeringName}</p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="font-mono font-bold text-xs">{format(parseISO(r.date), 'MMM d, yyyy')}</p>
-                                            <Badge variant={r.isForfeit ? "destructive" : "outline"} className="text-[10px] mt-1 uppercase font-black border-none shadow-sm">
-                                                {r.isForfeit ? "Forfeited" : "Verified"}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                ))}
+                <TabsContent value="benefits" className="space-y-12 animate-in fade-in duration-500 text-left">
+                    {activeMembership && (
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3">
+                                <Star className="w-5 h-5" />
+                                Monthly Allotment Matrix
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {(activeMembership.includedServices || []).map(perk => {
+                                    const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                    const isRedeemed = isPerkUsedInCycle(perk.id);
+                                    const progress = (used / perk.quantity) * 100;
+                                    return (
+                                        <Card key={perk.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all">
+                                            <CardContent className="p-6 space-y-5">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="space-y-1">
+                                                        <p className="font-black text-base uppercase tracking-tight text-slate-900">{perk.name}</p>
+                                                        <p className="text-[9px] font-black text-indigo-600/60 uppercase tracking-widest">Included Treatment</p>
+                                                    </div>
+                                                    <div className={cn("p-2.5 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
+                                                        {isRedeemed ? <CheckCircle2 className="w-5 h-5" /> : <Star className="w-5 h-5" />}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                        <span>Cycle Progress</span>
+                                                        <span>{used} / {perk.quantity} used</span>
+                                                    </div>
+                                                    <Progress value={progress} className={cn("h-2 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    )
+                                })}
+                                {(activeMembership.includedAddOns || []).map(perk => {
+                                    const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                    const isRedeemed = isPerkUsedInCycle(perk.id);
+                                    const progress = (used / perk.quantity) * 100;
+                                    return (
+                                        <Card key={perk.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all">
+                                            <CardContent className="p-6 space-y-5">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="space-y-1">
+                                                        <p className="font-black text-base uppercase tracking-tight text-slate-900">{perk.name}</p>
+                                                        <p className="text-[9px] font-black text-amber-600/60 uppercase tracking-widest">Included Enhancement</p>
+                                                    </div>
+                                                    <div className={cn("p-2.5 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
+                                                        {isRedeemed ? <CheckCircle2 className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                        <span>Cycle Progress</span>
+                                                        <span>{used} / {perk.quantity} used</span>
+                                                    </div>
+                                                    <Progress value={progress} className={cn("h-2 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    )
+                                })}
                             </div>
-                        ) : (
-                            <div className="text-center py-20 border-2 border-dashed rounded-2xl opacity-40">
-                                <History className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                                <p className="text-sm font-bold uppercase tracking-widest">No usage history found</p>
-                            </div>
-                        )}
-                    </div>
-                </TabsContent>
+                        </div>
+                    )}
 
-                <TabsContent value="benefits" className="space-y-6">
                     {client.activePackages && client.activePackages.length > 0 && (
-                        <div>
-                            <h3 className="text-lg font-bold mb-4">Your Service Packages</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-teal-600 flex items-center gap-3">
+                                <Repeat className="w-5 h-5" />
+                                Prepaid Service Bundles
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 {client.activePackages.map((pack, idx) => {
                                     const details = packages?.find(p => p.id === pack.packageId);
-                                    const service = services?.find(s => s.id === details?.serviceId);
+                                    const svc = services?.find(s => s.id === details?.serviceId);
+                                    const progress = (pack.sessionsRemaining / (details?.sessions || 1)) * 100;
                                     return (
-                                        <Card key={idx}>
-                                            <CardHeader className="pb-2">
-                                                <CardTitle className="text-base">{details?.name}</CardTitle>
-                                                <CardDescription>Sessions for {service?.name}</CardDescription>
-                                            </CardHeader>
-                                            <CardContent>
-                                                <div className="flex justify-between items-end">
-                                                    <div className="text-left">
-                                                        <p className="text-3xl font-bold">{pack.sessionsRemaining}</p>
-                                                        <p className="text-xs text-muted-foreground">Left of {details?.sessions}</p>
+                                        <Card key={idx} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-teal-500/20 transition-all">
+                                            <CardContent className="p-6 space-y-5">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="space-y-1">
+                                                        <p className="font-black text-base uppercase tracking-tight text-slate-900">{details?.name}</p>
+                                                        <p className="text-[9px] font-black text-teal-600/60 uppercase tracking-widest">{svc?.name}</p>
                                                     </div>
-                                                    <Repeat className="w-8 h-8 text-teal-500/20" />
+                                                    <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-600 shadow-inner">
+                                                        <Repeat className="w-5 h-5" />
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                        <span>Sessions Remaining</span>
+                                                        <span>{pack.sessionsRemaining} / {details?.sessions}</span>
+                                                    </div>
+                                                    <Progress value={progress} className="h-2 rounded-full bg-muted [&>div]:bg-teal-500" />
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -308,116 +347,45 @@ export default function ClientPortalPage() {
                             </div>
                         </div>
                     )}
-
-                    {activeMembership && (
-                        <div>
-                            <h3 className="text-lg font-bold mb-4">Membership Inclusions</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                {(activeMembership.includedServices || []).map(s => {
-                                    const used = client.subscription?.perkUsage?.[s.id] || 0;
-                                    const isRedeemed = isPerkUsedInCycle(s.id);
-                                    return (
-                                        <Card key={s.id} className="bg-indigo-500/5 border-indigo-500/10">
-                                            <CardContent className="p-4 flex justify-between items-center">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={cn("p-2 rounded-full", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
-                                                        {isRedeemed ? <CheckCircle className="w-5 h-5" /> : <Star className="w-5 h-5" />}
-                                                    </div>
-                                                    <div className="text-left">
-                                                        <p className="font-bold text-sm">{s.quantity}x {s.name}</p>
-                                                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Per Month &middot; {used} used</p>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    {isRedeemed ? (
-                                                        <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Redeemed</Badge>
-                                                    ) : (
-                                                        <Badge variant="default" className="text-[10px] bg-indigo-600">Available</Badge>
-                                                    )}
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    )
-                                })}
-                                {(activeMembership.includedAddOns || []).map(s => {
-                                    const used = client.subscription?.perkUsage?.[s.id] || 0;
-                                    const isRedeemed = isPerkUsedInCycle(s.id);
-                                    return (
-                                        <Card key={s.id} className="bg-amber-500/5 border-amber-500/10">
-                                            <CardContent className="p-4 flex justify-between items-center">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={cn("p-2 rounded-full", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
-                                                        {isRedeemed ? <CheckCircle className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
-                                                    </div>
-                                                    <div className="text-left">
-                                                        <p className="font-bold text-sm">{s.quantity}x {s.name}</p>
-                                                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Per Month &middot; {used} used</p>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    {isRedeemed ? (
-                                                        <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Redeemed</Badge>
-                                                    ) : (
-                                                        <Badge variant="default" className="text-[10px] bg-amber-600 border-none">Available</Badge>
-                                                    )}
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    )
-                                })}
-                                {activeMembership.retailDiscount && (
-                                    <Card className="bg-indigo-500/5 border-indigo-500/10">
-                                        <CardContent className="p-4 flex items-center gap-3">
-                                            <div className="p-2 rounded-full bg-indigo-500/10 text-indigo-600">
-                                                <Percent className="w-5 h-5" />
-                                            </div>
-                                            <div className="text-left">
-                                                <p className="font-bold text-sm">{activeMembership.retailDiscount}% Off Priority Retail</p>
-                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Always Active</p>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                )}
-                            </div>
-                        </div>
-                    )}
                 </TabsContent>
 
-                <TabsContent value="profile" className="max-w-xl">
-                    <Card>
-                        <CardHeader><CardTitle>Your Profile</CardTitle></CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4 text-left">
-                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Name</Label><p className="font-medium">{client.name}</p></div>
-                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Email</Label><p className="font-medium">{client.email}</p></div>
-                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Phone</Label><p className="font-medium">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p></div>
-                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Member Since</Label><p className="font-medium">{pastAppointments.length > 0 ? format(safeDateWrapper(pastAppointments[pastAppointments.length-1].startTime), 'MMMM yyyy') : 'New Guest'}</p></div>
+                <TabsContent value="history" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
+                    <div>
+                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 ml-1 mb-6">
+                            <History className="w-5 h-5" />
+                            Redemption Archive
+                        </h3>
+                        {redemptions && redemptions.length > 0 ? (
+                            <div className="grid gap-3">
+                                {redemptions.sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()).map(r => (
+                                    <div key={r.id} className={cn("flex items-center justify-between p-5 rounded-[1.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
+                                        <div className="flex items-center gap-4">
+                                            <div className={cn("p-3 rounded-2xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
+                                                {r.isForfeit ? <AlertTriangle className="w-5 h-5" /> : r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{r.serviceName}</p>
+                                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Drawn from {r.offeringName}</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right shrink-0 ml-4">
+                                            <p className="font-black font-mono text-[11px] text-slate-900 leading-none">{format(safeDate(r.date), 'MMM d, yy')}</p>
+                                            <Badge variant={r.isForfeit ? "destructive" : "outline"} className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none shadow-sm">
+                                                {r.isForfeit ? "FORFEITED" : "CERTIFIED"}
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                            <Separator />
-                            <div className="space-y-2 text-sm text-muted-foreground text-left">
-                                <p>To update your contact information or health notes, please let us know during your next visit.</p>
+                        ) : (
+                            <div className="text-center py-20 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                <History className="w-12 h-12" />
+                                <p className="text-[10px] font-black uppercase tracking-widest">No redemption history found</p>
                             </div>
-                        </CardContent>
-                    </Card>
+                        )}
+                    </div>
                 </TabsContent>
             </Tabs>
         </div>
     );
-}
-
-function formatPhoneNumber(phoneNumberString: string) {
-  var cleaned = ('' + phoneNumberString).replace(/\D/g, '');
-  var match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
-  if (match) {
-    return '(' + match[1] + ') ' + match[2] + '-' + match[3];
-  }
-  return phoneNumberString;
-}
-
-function safeDateWrapper(val: any): Date {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') return parseISO(val);
-    return new Date(val);
 }
