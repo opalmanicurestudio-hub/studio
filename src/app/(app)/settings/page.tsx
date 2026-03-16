@@ -830,6 +830,19 @@ function SettingsContent() {
                                     <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Replaces business name text in headers.</p>
                                 </div>
                             </div>
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                                <div className="space-y-1">
+                                    <Label htmlFor="show-wordmark-toggle" className="text-base font-black uppercase tracking-tight">Display Wordmark</Label>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Show name or wordmark logo on landing page</p>
+                                </div>
+                                <Switch 
+                                    id="show-wordmark-toggle" 
+                                    checked={tenantData.bookingPageSettings?.showWordmark !== false} 
+                                    onCheckedChange={(val) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, showWordmark: val}}))}
+                                    disabled={!isBookingBuilderEditing}
+                                    className="scale-125 data-[state=checked]:bg-primary" 
+                                />
+                            </div>
                             <div className="space-y-3">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Backdrop</Label>
                                 <ImageUpload 

@@ -168,6 +168,7 @@
             "properties": {
                 "logoUrl": { "type": "string", "format": "uri", "description": "Custom brand logo for public portals." },
                 "wordmarkUrl": { "type": "string", "format": "uri", "description": "Custom wordmark logo to replace text headers." },
+                "showWordmark": { "type": "boolean", "default": true, "description": "Whether to show the wordmark logo or text on the landing page." },
                 "heroImageUrl": { "type": "string" },
                 "heroTitle": { "type": "string" },
                 "heroSubtitle": { "type": "string" },

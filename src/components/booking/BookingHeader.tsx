@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 export const BookingHeader = ({ tenant }: { tenant: Tenant | null }) => {
   const logoUrl = tenant?.bookingPageSettings?.logoUrl;
   const wordmarkUrl = tenant?.bookingPageSettings?.wordmarkUrl;
+  const showWordmark = tenant?.bookingPageSettings?.showWordmark !== false;
 
   return (
     <header className="mb-12 text-center flex flex-col items-center">
@@ -30,19 +31,23 @@ export const BookingHeader = ({ tenant }: { tenant: Tenant | null }) => {
         )}
       </div>
       
-      {wordmarkUrl ? (
-          <div className="relative h-12 md:h-20 w-full max-w-[320px] transition-all duration-500">
-              <Image 
-                src={wordmarkUrl} 
-                alt={tenant?.name || 'Wordmark'} 
-                fill 
-                className="object-contain"
-              />
-          </div>
-      ) : (
-          <h1 className="text-3xl md:text-5xl font-extrabold uppercase tracking-[0.1em] text-slate-900 leading-tight">
-            {tenant?.name || 'ClarityFlow Salon'}
-          </h1>
+      {showWordmark && (
+        <>
+          {wordmarkUrl ? (
+              <div className="relative h-12 md:h-20 w-full max-w-[320px] transition-all duration-500">
+                  <Image 
+                    src={wordmarkUrl} 
+                    alt={tenant?.name || 'Wordmark'} 
+                    fill 
+                    className="object-contain"
+                  />
+              </div>
+          ) : (
+              <h1 className="text-3xl md:text-5xl font-extrabold uppercase tracking-[0.1em] text-slate-900 leading-tight">
+                {tenant?.name || 'ClarityFlow Salon'}
+              </h1>
+          )}
+        </>
       )}
     </header>
   );

@@ -215,7 +215,7 @@ export type SubscriptionInstance = {
     membershipName: string;
     amount: number;
     dueDate: string;
-    status: 'pending' | 'paid' | 'failed' | 'cancelled';
+    status: 'pending' | 'paid' | 'failed' | 'canceled';
     transactionId?: string;
     settledAt?: string;
     paymentMethod?: string;
@@ -614,6 +614,7 @@ export type BookingGalleryItem = {
 export type BookingPageSettings = {
     logoUrl?: string;
     wordmarkUrl?: string;
+    showWordmark?: boolean;
     heroImageUrl?: string;
     heroTitle?: string;
     heroSubtitle?: string;
