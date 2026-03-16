@@ -122,7 +122,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                                 <Input 
                                     type="password" 
                                     placeholder="PIN" 
-                                    maxLength={4}
+                                    maxLength={4} 
                                     value={pin}
                                     onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
                                     className="h-14 rounded-2xl border-2 text-center text-xl font-black tracking-[0.5em] w-32 bg-muted/5 shadow-inner"
@@ -495,7 +495,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -988,4 +988,4 @@ function POSPage() {
     );
 }
 
-export default function POSPageWrapper() { return <Suspense fallback={<div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>}><POSPage /></Suspense> }
+export default function POSPageWrapper() { return <Suspense fallback={<div className="flex h-[100dvh] w-full flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>}><POSPage /></Suspense> }

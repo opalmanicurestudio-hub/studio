@@ -52,7 +52,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format, parseISO, isPast, isToday, addMonths, startOfDay, isSameMonth, isBefore } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
-import { useFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { collection, doc, writeBatch, increment, deleteField, arrayUnion } from 'firebase/firestore';
