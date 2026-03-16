@@ -146,7 +146,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <div className="space-y-8 text-left">
                 <SectionHeader icon={Fingerprint} title="Identity & Security" step={1} />
                 <div className="space-y-8">
-                    <div className="flex flex-col sm:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
+                    <div className="flex flex-col items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
                         <Controller
                             name="avatarUrl"
                             control={control}

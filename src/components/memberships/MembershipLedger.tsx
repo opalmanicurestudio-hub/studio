@@ -58,7 +58,6 @@ import { type SubscriptionInstance, type Membership, type Staff } from '@/lib/da
 import { type Transaction } from '@/lib/financial-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,14 +92,22 @@ import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-const settlementSchema = z.object({
-  amount: z.coerce.number().positive(),
-  date: z.date(),
-  paymentMethod: z.string().min(1),
-  notes: z.string().optional(),
-});
-
-type SettlementFormData = z.infer<typeof settlementSchema>;
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
 
 const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
     <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
@@ -118,6 +125,15 @@ const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: 
         </CardContent>
     </Card>
 );
+
+const settlementSchema = z.object({
+  amount: z.coerce.number().positive(),
+  date: z.date(),
+  paymentMethod: z.string().min(1),
+  notes: z.string().optional(),
+});
+
+type SettlementFormData = z.infer<typeof settlementSchema>;
 
 const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfirm }: any) => {
     const isMobile = useIsMobile();
@@ -782,3 +798,13 @@ export const MembershipLedger = () => {
     </div>
   );
 };
+
+function Avatar({ children, className }: { children: React.ReactNode, className?: string }) {
+    return <div className={cn("relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full", className)}>{children}</div>;
+}
+function AvatarImage({ src, className }: { src?: string, className?: string }) {
+    return <img src={src || 'https://placehold.co/100x100?text=G'} alt="Avatar" className={cn("aspect-square h-full w-full", className)} />;
+}
+function AvatarFallback({ children, className }: { children: React.ReactNode, className?: string }) {
+    return <div className={cn("flex h-full w-full items-center justify-center rounded-full bg-muted", className)}>{children}</div>;
+}
