@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -57,7 +58,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-// Utility to sanitize Firestore data
+// Utility to recursively sanitize data for Firestore (remove undefined)
 const sanitizeForFirestore = (obj: any): any => {
     if (obj === null || typeof obj !== 'object') return obj;
     if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
@@ -498,7 +499,7 @@ function PlannerPageContent() {
 
     const batch = writeBatch(firestore);
     
-    // CRITICAL FIX: Sanitize checkoutState to remove undefined values before updating Firestore
+    // CRITICAL FIX: Recursively sanitize checkoutState to remove ALL undefined values
     const sanitizedCheckoutState = sanitizeForFirestore(checkoutState);
 
     if (checkoutState.saveAsCustomFormula && checkoutState.customFormulaName && apt.clientId) {

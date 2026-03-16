@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
@@ -51,7 +52,8 @@ import {
   Target,
   Smartphone,
   CreditCard,
-  Shield
+  Shield,
+  Layout
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -808,21 +810,32 @@ function SettingsContent() {
                     </CardHeader>
                     <CardContent className="p-6 sm:p-8 space-y-12">
                         <div className="space-y-6">
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><ImageIcon className="w-4 h-4"/> Landing Hook</h3>
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><Layout className="w-4 h-4"/> Brand Identity</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                                 <div className="space-y-3">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Custom Hero Banner</Label>
-                                    <ImageUpload onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroImageUrl: url}}))} initialImage={tenantData.bookingPageSettings?.heroImageUrl} />
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Brand Logo (Kiosk & Portal)</Label>
+                                    <ImageUpload 
+                                        onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, logoUrl: url}}))} 
+                                        initialImage={tenantData.bookingPageSettings?.logoUrl} 
+                                    />
+                                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Replaces default branding on guest portals.</p>
                                 </div>
-                                <div className="space-y-6">
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Headline</Label>
-                                        <Input value={tenantData.bookingPageSettings?.heroTitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroTitle: e.target.value}}))} placeholder="e.g., Welcome to Excellence" className="h-12 rounded-xl border-2 font-black uppercase tracking-tight" disabled={!isBookingBuilderEditing} />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Sub-Headline</Label>
-                                        <Input value={tenantData.bookingPageSettings?.heroSubtitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroSubtitle: e.target.value}}))} placeholder="e.g., Secure your transformation." className="h-12 rounded-xl border-2 font-bold" disabled={!isBookingBuilderEditing} />
-                                    </div>
+                                <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Backdrop</Label>
+                                    <ImageUpload 
+                                        onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroImageUrl: url}}))} 
+                                        initialImage={tenantData.bookingPageSettings?.heroImageUrl} 
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-2 text-left">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Headline</Label>
+                                    <Input value={tenantData.bookingPageSettings?.heroTitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroTitle: e.target.value}}))} placeholder="e.g., Welcome to Excellence" className="h-12 rounded-xl border-2 font-black uppercase tracking-tight shadow-inner" disabled={!isBookingBuilderEditing} />
+                                </div>
+                                <div className="space-y-2 text-left">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Sub-Headline</Label>
+                                    <Input value={tenantData.bookingPageSettings?.heroSubtitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroSubtitle: e.target.value}}))} placeholder="e.g., Secure your transformation." className="h-12 rounded-xl border-2 font-bold shadow-inner" disabled={!isBookingBuilderEditing} />
                                 </div>
                             </div>
                             <div className="space-y-3">

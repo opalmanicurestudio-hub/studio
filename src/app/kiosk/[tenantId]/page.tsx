@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -82,10 +83,16 @@ const isBusinessOpen = (date: Date, schedule: any) => {
     }
 };
 
-const ClosedView = ({ schedule }: { schedule: any }) => (
+const ClosedView = ({ schedule, logoUrl, tenantName }: { schedule: any, logoUrl?: string, tenantName?: string }) => (
     <div className="text-center space-y-6 max-w-md bg-white/40 backdrop-blur-2xl p-10 rounded-[3rem] border border-white/20 shadow-2xl">
-        <div className="inline-block p-6 bg-white/50 rounded-full border border-white/30 mb-4 shadow-inner">
-            <Clock className="w-12 h-12 text-primary" />
+        <div className="inline-block p-6 bg-white/50 rounded-full border border-white/30 mb-4 shadow-inner overflow-hidden">
+            {logoUrl ? (
+                <div className="relative w-16 h-16">
+                    <Image src={logoUrl} alt={tenantName || 'Logo'} fill className="object-contain" />
+                </div>
+            ) : (
+                <Clock className="w-12 h-12 text-primary" />
+            )}
         </div>
         <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900">Closed</h1>
         <p className="text-sm md:text-base text-slate-600 font-medium leading-relaxed">Our kiosk is only available during business hours. Please come back during our scheduled times or book online.</p>
@@ -910,13 +917,14 @@ export default function WalkInPage() {
   };
 
   const isClosed = !isBusinessOpen(new Date(), scheduleProfiles?.[0]).open;
+  const logoUrl = tenant?.bookingPageSettings?.logoUrl;
 
   const activeStaff = useMemo(() => {
     return (staff || []).filter(s => s.active && !s.onBreak);
   }, [staff]);
 
   if (!tenant || !services) return <div className="h-screen flex items-center justify-center bg-background"><Loader className="animate-spin text-primary w-10 h-10" /></div>;
-  if (isClosed) return <div className="h-screen flex items-center justify-center bg-background p-4"><ClosedView schedule={scheduleProfiles?.[0]} /></div>;
+  if (isClosed) return <div className="h-screen flex items-center justify-center bg-background p-4"><ClosedView schedule={scheduleProfiles?.[0]} logoUrl={logoUrl} tenantName={tenant.name} /></div>;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body relative">
@@ -928,7 +936,15 @@ export default function WalkInPage() {
         <AnimatePresence mode="wait">
             {!entered ? (
                 <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group z-10" onClick={() => setEntered(true)}>
-                    <div className="inline-block p-10 md:p-16 bg-white/60 backdrop-blur-3xl rounded-full shadow-[0_20px_50px_rgba(8,_112,_184,_0.1)] mb-12 md:mb-20 border-2 border-white/50 group-hover:border-primary group-hover:shadow-primary/20 transition-all duration-700 active:scale-95"><ClarityFlowLogo className="w-16 h-16 md:w-32 md:h-32" /></div>
+                    <div className="inline-block p-10 md:p-16 bg-white/60 backdrop-blur-3xl rounded-full shadow-[0_20px_50px_rgba(8,_112,_184,_0.1)] mb-12 md:mb-20 border-2 border-white/50 group-hover:border-primary group-hover:shadow-primary/20 transition-all duration-700 active:scale-95 overflow-hidden">
+                        {logoUrl ? (
+                            <div className="relative w-16 h-16 md:w-32 md:h-32">
+                                <Image src={logoUrl} alt={tenant.name} fill className="object-contain" />
+                            </div>
+                        ) : (
+                            <ClarityFlowLogo className="w-16 h-16 md:w-32 md:h-32" />
+                        )}
+                    </div>
                     <h1 className="text-5xl md:text-[10rem] font-black tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none">Welcome</h1>
                     <p className="text-primary text-sm md:text-4xl font-black tracking-[0.3em] uppercase animate-pulse drop-shadow-sm">Tap to Begin</p>
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-16 md:mt-24 flex justify-center">

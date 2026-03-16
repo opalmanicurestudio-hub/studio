@@ -166,6 +166,7 @@
             "type": "object",
             "description": "Customization settings for the public booking page.",
             "properties": {
+                "logoUrl": { "type": "string", "format": "uri", "description": "Custom brand logo for public portals." },
                 "heroImageUrl": { "type": "string" },
                 "heroTitle": { "type": "string" },
                 "heroSubtitle": { "type": "string" },

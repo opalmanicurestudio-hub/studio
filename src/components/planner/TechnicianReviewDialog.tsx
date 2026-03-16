@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -358,7 +359,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <Sparkles className="w-5 h-5 text-primary" />
                     <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical review</span>
                 </div>
-                <DialogTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{titleText}</DialogTitle>
+                <DialogTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>{titleText}</DialogTitle>
                 <DialogDescription className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1">

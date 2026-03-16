@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -314,7 +315,7 @@ const SettleMembershipDialogInternal = ({ open, onOpenChange, instance, client, 
 
     return (
         <DialogComp open={open} onOpenChange={onOpenChange}>
-            <ContentComp side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[92dvh]")}>
+            <ContentComp side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[92dvh]")}>
                 <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left shrink-0">
                     <div className="flex items-center gap-3 mb-2">
                         <DollarSign className="w-5 h-5 text-primary" />
