@@ -1,4 +1,3 @@
-
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -638,6 +637,14 @@ export type BookingPageSettings = {
     gallery?: BookingGalleryItem[];
 };
 
+export type KioskSettings = {
+    logoUrl?: string;
+    wordmarkUrl?: string;
+    showWordmark?: boolean;
+    welcomeMessage?: string;
+    primaryColor?: string;
+};
+
 export type Tenant = {
   id: string;
   name: string;
@@ -671,6 +678,7 @@ export type Tenant = {
   };
   tmhr?: number;
   bookingPageSettings?: BookingPageSettings;
+  kioskSettings?: KioskSettings;
   lateInconveniencePremium?: number;
   employerTaxBurdenPct?: number;
   defaultCancellationMode?: 'matrix' | 'flat';

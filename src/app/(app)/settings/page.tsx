@@ -53,7 +53,8 @@ import {
   CreditCard,
   Shield,
   Layout,
-  Type
+  Type,
+  Fingerprint
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -184,6 +185,7 @@ function SettingsPageImpl() {
   const [isQueueEditing, setIsQueueEditing] = useState(false);
   const [isSmsEditing, setIsSmsEditing] = useState(false);
   const [isBookingBuilderEditing, setIsBookingBuilderEditing] = useState(false);
+  const [isKioskBuilderEditing, setIsKioskBuilderEditing] = useState(false);
   const [isIntegrationsEditing, setIsIntegrationsEditing] = useState(false);
 
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
@@ -358,6 +360,28 @@ function SettingsPageImpl() {
     }
   }
 
+  const handleKioskBuilderEdit = () => {
+    setBackupTenantData(tenantData);
+    setIsKioskBuilderEditing(true);
+  }
+
+  const handleKioskBuilderCancel = () => {
+    setTenantData(backupTenantData);
+    setIsKioskBuilderEditing(false);
+  }
+
+  const handleKioskBuilderSave = async () => {
+    if (!selectedTenant || !firestore) return;
+    try {
+        const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+        updateDocumentNonBlocking(tenantRef, { kioskSettings: tenantData.kioskSettings });
+        toast({ title: 'Kiosk Settings Saved!' });
+        setIsKioskBuilderEditing(false);
+    } catch (error) {
+        toast({ variant: 'destructive', title: 'Save Failed' });
+    }
+  }
+
   const handleIntegrationsEdit = () => {
     setBackupTenantData(tenantData);
     setIsIntegrationsEditing(true);
@@ -488,7 +512,7 @@ function SettingsPageImpl() {
     });
     try {
       const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
-      updateDocumentNonBlocking(tenantRef, dataToUpdate);
+      updateDocumentNonBlocking(tenantRef, { ...dataToUpdate, smsNotificationMessage: tenantData.smsNotificationMessage });
       toast({ title: 'SMS Settings Saved!' });
       setIsSmsEditing(false);
     } catch (error) {
@@ -515,6 +539,7 @@ function SettingsPageImpl() {
     { value: "hours", label: "Hours", icon: <Clock className="w-4 h-4" /> },
     { value: "policies", label: "Policies", icon: <FileText className="w-4 h-4" /> },
     { value: "builder", label: "Page Builder", icon: <Globe className="w-4 h-4" /> },
+    { value: "kiosk", label: "Kiosk Builder", icon: <Fingerprint className="w-4 h-4" /> },
     { value: "integrations", label: "Integrations", icon: <Zap className="w-4 h-4" /> },
     { value: "queue", label: "Queue", icon: <ListChecks className="w-4 h-4" /> },
     { value: "messaging", label: "Messaging", icon: <MessageSquare className="w-4 h-4" /> },
@@ -1029,6 +1054,80 @@ function SettingsPageImpl() {
                                         <ImageUpload onImageUploaded={handleAddGalleryImage} multiple={true} clearOnUpload={true} />
                                     </div>
                                 )}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value="kiosk" className="mt-6 space-y-6 text-left">
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
+                        <div>
+                            <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight">
+                                <Fingerprint className="w-5 h-5 text-primary" />
+                                Kiosk Builder
+                            </CardTitle>
+                            <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Custom logic for walk-in arrivals.</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            {isKioskBuilderEditing ? (
+                                <>
+                                    <Button variant="outline" onClick={handleKioskBuilderCancel} className="h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                                    <Button onClick={handleKioskBuilderSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Design</Button>
+                                </>
+                            ) : (
+                                <Button onClick={handleKioskBuilderEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-3.5 w-3.5"/>Modify</Button>
+                            )}
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6 sm:p-8 space-y-12">
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><Layout className="w-4 h-4"/> Brand Identity</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                                <div className="space-y-3 text-left">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Kiosk Icon (Logo)</Label>
+                                    <ImageUpload 
+                                        onImageUploaded={(url) => setTenantData(p => ({...p, kioskSettings: {...p.kioskSettings, logoUrl: url}}))} 
+                                        initialImage={tenantData.kioskSettings?.logoUrl} 
+                                    />
+                                </div>
+                                <div className="space-y-3 text-left">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Wordmark Logo</Label>
+                                    <ImageUpload 
+                                        onImageUploaded={(url) => setTenantData(p => ({...p, kioskSettings: {...p.kioskSettings, wordmarkUrl: url}}))} 
+                                        initialImage={tenantData.kioskSettings?.wordmarkUrl} 
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                                <div className="space-y-1 text-left">
+                                    <Label htmlFor="kiosk-wordmark-toggle" className="text-base font-black uppercase tracking-tight">Display Wordmark</Label>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Show business label or logo on kiosk splash</p>
+                                </div>
+                                <Switch 
+                                    id="kiosk-wordmark-toggle" 
+                                    checked={tenantData.kioskSettings?.showWordmark !== false} 
+                                    onCheckedChange={(val) => setTenantData(p => ({...p, kioskSettings: {...p.kioskSettings, showWordmark: val}}))}
+                                    disabled={!isKioskBuilderEditing}
+                                    className="scale-125 data-[state=checked]:bg-primary" 
+                                />
+                            </div>
+                        </div>
+
+                        <Separator className="border-dashed" />
+
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><Palette className="w-4 h-4"/> Kiosk Signature</h3>
+                            <div className="space-y-3">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Kiosk Theme Color</Label>
+                                <div className="flex items-center gap-6 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
+                                    <div className="w-20 h-20 rounded-[1.5rem] border-4 border-white shadow-2xl shrink-0" style={{ backgroundColor: tenantData.kioskSettings?.primaryColor || 'hsl(var(--primary))' }} />
+                                    <div className="flex-1 space-y-2">
+                                        <Input value={tenantData.kioskSettings?.primaryColor || ''} onChange={e => setTenantData(p => ({...p, kioskSettings: {...p.kioskSettings, primaryColor: e.target.value}}))} placeholder="HEX or HSL code..." disabled={!isKioskBuilderEditing} className="h-12 rounded-xl border-2 font-mono font-black tracking-widest" />
+                                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Independent theme for kiosk terminal.</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </CardContent>
