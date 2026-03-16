@@ -371,7 +371,7 @@ export default function ClientPortalPage() {
                                         <div className="text-right shrink-0 ml-4">
                                             <p className="font-black font-mono text-[11px] text-slate-900 leading-none">{format(safeDate(r.date), 'MMM d, p')}</p>
                                             <Badge variant={r.isForfeit ? "destructive" : "outline"} className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none shadow-sm">
-                                                {r.isForfeit ? "FORFEITED" : "CERTIFIED"}
+                                                {r.isForfeit ? "FORFEITED" : r.isRollover ? "ROLLED OVER" : "REDEEMED"}
                                             </Badge>
                                         </div>
                                     </div>

@@ -17,7 +17,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Separator } from '@/components/ui/separator';
@@ -87,12 +87,12 @@ type EditableFormulaItem = {
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
     <div className="flex items-center gap-4 mb-6 text-left">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
-            <Icon className="w-5 h-5" />
+        <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl md:rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-4 h-4 md:w-5 md:h-5" />
         </div>
         <div className="space-y-0.5 text-left">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+            <h3 className="text-lg md:text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</h3>
         </div>
     </div>
 );
@@ -356,10 +356,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
                 <div className="flex items-center gap-3 mb-2">
                     <Sparkles className="w-5 h-5 text-primary" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical review</span>
+                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical review</span>
                 </div>
-                <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{titleText}</DialogTitle>
-                <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
+                <DialogTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{titleText}</DialogTitle>
+                <DialogDescription className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1">
               <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
@@ -370,7 +370,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             <AvatarFallback className="font-black bg-primary/10 text-primary text-xl">{(client.name || 'G').substring(0,2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1">
-                            <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
+                            <p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
                             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5">{service.name}</p>
                         </div>
                     </CardContent>
@@ -456,7 +456,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
                     <div className="space-y-8 text-left">
-                        <div className="space-y-3">
+                        <div className="space-y-3 text-left">
                           <Label htmlFor="actual-duration-review" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
                               <Clock className="w-3.5 h-3.5 opacity-40" /> Actual Duration (Minutes)
                           </Label>
@@ -465,7 +465,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                               type="number"
                               value={actualDuration}
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
-                              className="h-16 text-3xl font-black font-mono border-2 rounded-2xl shadow-inner bg-muted/5 text-center focus-visible:ring-primary/20"
+                              className="h-16 text-2xl md:text-3xl font-black font-mono border-2 rounded-2xl shadow-inner bg-muted/5 text-center focus-visible:ring-primary/20"
                           />
                           {actualDuration > service.duration && (
                               <div className="p-4 bg-amber-500/5 border-2 border-amber-500/10 rounded-2xl animate-in slide-in-from-top-2">

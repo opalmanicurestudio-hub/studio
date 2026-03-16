@@ -50,7 +50,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { format, parseISO, isPast, isToday, addMonths, startOfDay, isSameMonth, isBefore } from 'date-fns';
+import { format, parseISO, isPast, isToday, addMonths, startOfDay, isSameMonth, isBefore, startOfMonth, endOfMonth } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
