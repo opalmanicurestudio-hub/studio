@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
 import { doc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, Membership, Package, PricingTier } from '@/lib/data';
-import { Loader, ArrowDown, Users, Sparkles, MapPin, Phone, Instagram } from 'lucide-react';
+import { Loader, ArrowDown, Users, Sparkles, MapPin, Phone, Instagram, ArrowRight } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { isSameDay, parseISO, addMonths, format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
@@ -234,19 +234,19 @@ export default function BookingPage() {
                             <Button 
                                 size="lg" 
                                 onClick={() => setEntered(true)}
-                                className="h-16 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30 group"
+                                className="h-14 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-primary/30 group"
                             >
                                 View Service Menu
-                                <ArrowDown className="ml-2 h-5 w-5 transition-transform group-hover:translate-y-1" />
+                                <ArrowDown className="ml-2 h-4 w-4 transition-transform group-hover:translate-y-1" />
                             </Button>
                             <Button 
                                 size="lg" 
                                 variant="outline" 
                                 asChild
-                                className="h-16 rounded-2xl text-lg font-black uppercase tracking-tight border-2 bg-background/50 backdrop-blur-sm"
+                                className="h-14 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] border-2 bg-background/50 backdrop-blur-sm shadow-sm"
                             >
                                 <Link href={`/kiosk/${tenantId}`}>
-                                    <Users className="mr-2 h-5 w-5" />
+                                    <Users className="mr-2 h-4 w-4" />
                                     Join Queue
                                 </Link>
                             </Button>
@@ -259,8 +259,8 @@ export default function BookingPage() {
                         transition={{ delay: 1.5, duration: 1 }}
                         className="absolute bottom-12 flex flex-col items-center gap-2 text-muted-foreground"
                     >
-                        <p className="text-[10px] font-black uppercase tracking-widest">Discover Excellence</p>
-                        <ArrowDown className="w-5 h-5 animate-bounce" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-40">Discover Excellence</p>
+                        <ArrowDown className="w-4 h-4 animate-bounce" />
                     </motion.div>
                 </motion.div>
             )}
