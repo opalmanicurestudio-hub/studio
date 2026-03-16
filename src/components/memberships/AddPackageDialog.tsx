@@ -114,7 +114,6 @@ const ProfitabilityAnalysis = ({
             const tierPrice = tierConfig ? tierConfig.price : service.price;
             const tierDuration = tierConfig ? tierConfig.durationMinutes : service.duration;
             const totalDuration = (tierDuration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
-            const timeValue = ((totalDuration * pack.sessions) / 60) * tmhr;
             
             let labor = 0;
             if (member.payStructure === 'commission') labor = tierPrice * (member.commissionRate / 100);
@@ -135,8 +134,8 @@ const ProfitabilityAnalysis = ({
                 netProfit,
                 margin,
                 labor: burdenedLabor,
-                timeValue,
-                materialCost
+                baseHouseFloor,
+                price
             };
         });
     }, [service, sessions, staff, taxBurden, baseHouseFloor, price, tmhr]);
@@ -151,7 +150,7 @@ const ProfitabilityAnalysis = ({
                     Individual Payout Matrix
                 </CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60 text-left">
-                    Net Analysis per technician @ {taxBurden}% Tax Burden
+                    Net Analysis per professional @ {taxBurden}% Tax Burden
                 </CardDescription>
             </CardHeader>
             <CardContent className="p-8 pt-6 space-y-6">
@@ -176,7 +175,7 @@ const ProfitabilityAnalysis = ({
                             <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left">
                                 <div className="space-y-0.5">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">House Floor</p>
-                                    <p className="font-mono text-xs font-black text-slate-900">${baseHouseFloor.toFixed(2)}</p>
+                                    <p className="font-mono text-xs font-black text-slate-900">${sa.baseHouseFloor.toFixed(2)}</p>
                                 </div>
                                 <div className="space-y-0.5 text-right">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Labor Load</p>
@@ -396,7 +395,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                 <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
                     </div>
                     <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
                     <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</DialogDescription>

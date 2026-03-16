@@ -5,13 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, MoreHorizontal, ListChecks, Clock, Box, Scale, Zap } from 'lucide-react';
+import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, ListChecks, Clock, Box, Scale, Zap } from 'lucide-react';
 import { type Membership, type Client, Staff, PricingTier } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { useTenant } from '@/context/TenantContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
@@ -148,16 +147,34 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                     </div>
                 </div>
             </div>
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-indigo-500/10 shrink-0 -mt-1 -mr-1"><MoreHorizontal className="h-4 w-4 text-indigo-500" /></Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
-                    <DropdownMenuItem onClick={() => onViewUsers(membership)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Eye className="mr-2 h-3.5 w-3.5 opacity-40" /> View Members</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onEdit(membership)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Edit className="mr-2 h-3.5 w-3.5 opacity-40" /> Refine Tier</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onDelete(membership.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest py-2.5"><Trash2 className="mr-2 h-3.5 w-3.5 opacity-40" /> Terminate</DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex items-center gap-1 -mt-1 -mr-1">
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-indigo-500/10 text-indigo-500" onClick={() => onViewUsers(membership)}>
+                                <Eye className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">View Members</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-indigo-500/10 text-indigo-500" onClick={() => onEdit(membership)}>
+                                <Edit className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Refine Tier</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/10 text-destructive" onClick={() => onDelete(membership.id)}>
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Terminate</TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            </div>
         </div>
       </CardHeader>
       <CardContent className="p-6 sm:p-8 flex-1 flex flex-col space-y-6">
@@ -265,13 +282,13 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                             </div>
                         </div>
                     ))}
-                    <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-40 text-center">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr and burdened labor payouts.</p>
+                    <p className="text-[7px] font-bold text-muted-foreground uppercase text-center opacity-40">Analysis includes dynamic TMHR: ${tmhr.toFixed(2)}/hr and burdened labor payouts.</p>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>
       </CardContent>
       
-      <div className="p-3 border-t bg-muted/5 mt-auto">
+      <div className="p-3 border-t bg-muted/5 mt-auto text-center">
         <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn" onClick={() => onViewUsers(membership)}>
             Examine Active Portfolio <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
         </Button>

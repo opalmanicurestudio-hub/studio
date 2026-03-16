@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface PackageCardProps {
@@ -124,7 +123,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                 <div className="p-3 bg-white rounded-2xl shadow-inner border border-teal-500/10">
                     <Repeat className="w-6 h-6 text-teal-500" />
                 </div>
-                 <div className="min-w-0">
+                 <div className="min-w-0 text-left">
                     <CardTitle className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-none mb-1.5 truncate">{pack.name}</CardTitle>
                     <div className="flex items-center gap-2">
                         <Badge variant="outline" className="h-5 px-2 rounded-full font-black text-[8px] uppercase tracking-widest border-teal-500/20 text-teal-600 bg-white">
@@ -134,16 +133,34 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     </div>
                 </div>
             </div>
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-teal-500/10 shrink-0 -mt-1 -mr-1"><MoreHorizontal className="h-4 w-4 text-teal-500" /></Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
-                    <DropdownMenuItem onClick={() => onViewUsers(pack)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Eye className="mr-2 h-3.5 w-3.5 opacity-40" /> View Holders</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onEdit(pack)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Edit className="mr-2 h-3.5 w-3.5 opacity-40" /> Refine Bundle</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onDelete(pack.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest py-2.5"><Trash2 className="mr-2 h-3.5 w-3.5 opacity-40" /> Terminate</DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex items-center gap-1 -mt-1 -mr-1">
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-teal-500/10 text-teal-500" onClick={() => onViewUsers(pack)}>
+                                <Eye className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">View Holders</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-teal-500/10 text-teal-500" onClick={() => onEdit(pack)}>
+                                <Edit className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Refine Bundle</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/10 text-destructive" onClick={() => onDelete(pack.id)}>
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Terminate</TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            </div>
         </div>
       </CardHeader>
       <CardContent className="p-6 sm:p-8 flex-1 flex flex-col space-y-6">
@@ -244,7 +261,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
         </Accordion>
       </CardContent>
       
-      <div className="p-3 border-t bg-muted/5 mt-auto">
+      <div className="p-3 border-t bg-muted/5 mt-auto text-center">
         <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn" onClick={() => onViewUsers(pack)}>
             Examine Portfolio Load <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover:btn:translate-x-1" />
         </Button>
