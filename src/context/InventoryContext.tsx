@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc, query, where } from 'firebase/firestore';
@@ -32,7 +32,7 @@ import {
     type BillInstance,
     type Transaction,
 } from '@/lib/financial-data';
-import { parseISO, format, isPast, isToday, startOfDay, addMonths, isBefore, startOfMonth, endOfMonth } from 'date-fns';
+import { parseISO, format, isPast, isToday, startOfDay, addMonths, isBefore, startOfMonth, endOfMonth, isSameMonth } from 'date-fns';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -115,7 +115,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'pricingTiers') : null, [firestore, tenantId]));
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'scheduleProfiles') : null, [firestore, tenantId]));
   const { data: tillSessions, isLoading: tillSessionsLoading } = useCollection<TillSession>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'tillSessions') : null, [firestore, tenantId]));
-  const { data: subscriptionInstances, isLoading: subInstancesLoading } = useCollection<SubscriptionInstance>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'subscriptionInstances') : null, [firestore, tenantId]));
+  const { data: rawSubInstances, isLoading: subInstancesLoading } = useCollection<SubscriptionInstance>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'subscriptionInstances') : null, [firestore, tenantId]));
   
   const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
 
@@ -193,6 +193,41 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     
     return [...existingInstances, ...generatedInstances].sort((a,b) => safeDate(b.dueDate).getTime() - safeDate(a.dueDate).getTime());
   }, [rawBillInstances, billDefinitions]);
+
+  const subscriptionInstances = useMemo(() => {
+    const existing = rawSubInstances || [];
+    const now = new Date();
+    const generated: SubscriptionInstance[] = [];
+
+    (clients || []).forEach(client => {
+        const mId = client.activeMembershipId || client.subscription?.membershipId;
+        const membership = memberships?.find(m => m.id === mId);
+        if (!mId || !membership) return;
+
+        const nextBilling = client.subscription?.nextBillingDate ? safeDate(client.subscription.nextBillingDate) : null;
+        if (!nextBilling) return;
+
+        // If billing date is in past or today, and no PAID instance exists for this month
+        const monthStr = format(nextBilling, 'yyyy-MM');
+        const hasPaidInstance = existing.some(e => e.clientId === client.id && e.status === 'paid' && e.dueDate.startsWith(monthStr));
+
+        if (!hasPaidInstance) {
+            const isOverdue = isBefore(nextBilling, startOfDay(now)) && !isToday(nextBilling);
+            generated.push({
+                id: `virtual-sub-${client.id}-${monthStr}`,
+                clientId: client.id,
+                clientName: client.name,
+                membershipId: mId,
+                membershipName: membership.name,
+                amount: membership.price,
+                dueDate: nextBilling.toISOString(),
+                status: isOverdue ? 'failed' : 'pending',
+            } as SubscriptionInstance);
+        }
+    });
+
+    return [...existing, ...generated].sort((a,b) => safeDate(b.dueDate).getTime() - safeDate(a.dueDate).getTime());
+  }, [rawSubInstances, clients, memberships]);
 
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];

@@ -7,6 +7,8 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  CardDescription,
+  CardFooter
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,7 +33,10 @@ import {
     Sparkles,
     Landmark,
     XCircle,
-    CheckCircle2
+    CheckCircle2,
+    DollarSign,
+    CreditCard,
+    ArrowRight
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -56,8 +61,138 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 
-const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
+const settlementSchema = z.object({
+  amount: z.coerce.number().positive(),
+  date: z.date(),
+  paymentMethod: z.string().min(1),
+  notes: z.string().optional(),
+});
+
+type SettlementFormData = z.infer<typeof settlementSchema>;
+
+const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfirm }: any) => {
+    const isMobile = useIsMobile();
+    const methods = useForm<SettlementFormData>({
+        resolver: zodResolver(settlementSchema),
+    });
+
+    useEffect(() => {
+        if (open && instance) {
+            methods.reset({
+                amount: instance.amount,
+                date: new Date(),
+                paymentMethod: client?.cardOnFile?.token ? 'Card on File' : 'Cash',
+                notes: ''
+            });
+        }
+    }, [open, instance, client, methods]);
+
+    const DialogComp = isMobile ? Sheet : Dialog;
+    const ContentComp = isMobile ? SheetContent : DialogContent;
+
+    return (
+        <DialogComp open={open} onOpenChange={onOpenChange}>
+            <ContentComp side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left shrink-0">
+                    <div className="flex items-center gap-3 mb-2">
+                        <DollarSign className="w-5 h-5 text-primary" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Revenue Settlement</span>
+                    </div>
+                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Settle Dues</DialogTitle>
+                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Collecting for: {instance?.clientName}</DialogDescription>
+                </DialogHeader>
+                <ScrollArea className="flex-1">
+                    <div className="p-8 space-y-10">
+                        <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
+                            <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Calculated Dues</p>
+                            <p className="text-5xl font-black text-primary tracking-tighter font-mono">${instance?.amount.toFixed(2)}</p>
+                        </div>
+
+                        <FormProvider {...methods}>
+                            <form className="space-y-8 text-left">
+                                <div className="space-y-6">
+                                    <Controller
+                                        name="date"
+                                        control={methods.control}
+                                        render={({ field }) => (
+                                            <div className="space-y-2">
+                                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Effective Date</Label>
+                                                <Input 
+                                                    type="date" 
+                                                    value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
+                                                    onChange={e => field.onChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : new Date())}
+                                                    className="h-14 rounded-2xl border-2 font-black text-lg"
+                                                />
+                                            </div>
+                                        )}
+                                    />
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payment Method</Label>
+                                        <Controller
+                                            name="paymentMethod"
+                                            control={methods.control}
+                                            render={({ field }) => (
+                                                <Select value={field.value} onValueChange={field.onChange}>
+                                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                                        <SelectItem value="Card on File" className="font-bold">CARD ON FILE</SelectItem>
+                                                        <SelectItem value="Cash" className="font-bold">CASH TENDER</SelectItem>
+                                                        <SelectItem value="Other" className="font-bold">OTHER</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            )}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Audit Notes</Label>
+                                        <Textarea {...methods.register('notes')} placeholder="Logistics or reference details..." className="rounded-2xl border-2 bg-muted/5 min-h-[100px]" />
+                                    </div>
+                                </div>
+                            </form>
+                        </FormProvider>
+                    </div>
+                </ScrollArea>
+                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 shrink-0">
+                    <div className="flex gap-3 w-full">
+                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                        <Button onClick={methods.handleSubmit(onConfirm)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group">
+                            Finalize Settlement <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/>
+                        </Button>
+                    </div>
+                </DialogFooter>
+            </ContentComp>
+        </DialogComp>
+    );
+};
+
+const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
     <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
@@ -74,8 +209,8 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
     </Card>
 );
 
-const SubscriptionRow = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
-    const isOverdue = instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate));
+const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
+    const isOverdue = instance.status === 'failed' || (instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate)));
     const hasCard = !!client?.cardOnFile?.token;
     const isNoCommitment = !!membership?.noCommitment;
 
@@ -169,6 +304,7 @@ export const MembershipLedger = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [terminatingInstance, setTerminatingInstance] = useState<SubscriptionInstance | null>(null);
+  const [settlingInstance, setSettlingInstance] = useState<SubscriptionInstance | null>(null);
 
   const filteredInstances = useMemo(() => {
     if (!subscriptionInstances) return [];
@@ -185,47 +321,74 @@ export const MembershipLedger = () => {
     const paidThisMonth = subscriptionInstances.filter(i => i.status === 'paid' && isSameMonth(parseISO(i.dueDate), today));
     const mrr = paidThisMonth.reduce((acc, i) => acc + i.amount, 0);
     const pending = subscriptionInstances.filter(i => i.status === 'pending' && !isPast(parseISO(i.dueDate))).reduce((acc, i) => acc + i.amount, 0);
-    const arrears = subscriptionInstances.filter(i => i.status === 'pending' && isPast(parseISO(i.dueDate))).reduce((acc, i) => acc + i.amount, 0);
+    const arrears = subscriptionInstances.filter(i => (i.status === 'failed' || i.status === 'pending') && isPast(parseISO(i.dueDate)) && !isToday(parseISO(i.dueDate))).reduce((acc, i) => acc + i.amount, 0);
     return { mrr, pending, arrears };
   }, [subscriptionInstances]);
 
-  const handleSettle = async (instance: SubscriptionInstance) => {
-    if (!firestore || !tenantId) return;
-    const client = clients.find(c => c.id === instance.clientId);
-    const hasCard = !!client?.cardOnFile?.token;
-
+  const handleSettleConfirm = async (data: SettlementFormData) => {
+    if (!settlingInstance || !firestore || !tenantId) return;
+    
+    const isVirtual = settlingInstance.id.startsWith('virtual-');
     const batch = writeBatch(firestore);
-    const now = new Date().toISOString();
+    const settleDate = data.date.toISOString();
 
-    const instanceRef = doc(firestore, `tenants/${tenantId}/subscriptionInstances`, instance.id);
+    const instanceRef = isVirtual 
+        ? doc(collection(firestore, `tenants/${tenantId}/subscriptionInstances`))
+        : doc(firestore, `tenants/${tenantId}/subscriptionInstances`, settlingInstance.id);
+    
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
 
     const txn: Omit<Transaction, 'id'> = {
-        date: now,
-        description: `Membership Payment: ${instance.membershipName}`,
-        clientOrVendor: instance.clientName,
-        clientId: instance.clientId,
+        date: settleDate,
+        description: `Membership Payment: ${settlingInstance.membershipName}`,
+        clientOrVendor: settlingInstance.clientName,
+        clientId: settlingInstance.clientId,
         type: 'income',
         context: 'Business',
         category: 'Membership Revenue',
-        amount: instance.amount,
-        paymentMethod: hasCard ? 'Card on File' : 'Cash/Manual',
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
         hasReceipt: false,
     };
 
-    batch.update(instanceRef, { status: 'paid', settledAt: now, transactionId: txnRef.id, paymentMethod: txn.paymentMethod });
+    if (isVirtual) {
+        batch.set(instanceRef, {
+            id: instanceRef.id,
+            clientId: settlingInstance.clientId,
+            clientName: settlingInstance.clientName,
+            membershipId: settlingInstance.membershipId,
+            membershipName: settlingInstance.membershipName,
+            amount: data.amount,
+            dueDate: settlingInstance.dueDate,
+            status: 'paid',
+            settledAt: settleDate,
+            transactionId: txnRef.id,
+            paymentMethod: data.paymentMethod
+        });
+    } else {
+        batch.update(instanceRef, { 
+            status: 'paid', 
+            settledAt: settleDate, 
+            transactionId: txnRef.id, 
+            paymentMethod: data.paymentMethod 
+        });
+    }
+
     batch.set(txnRef, { ...txn, id: txnRef.id });
 
-    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, instance.clientId);
+    // Update Client Perks Logic
+    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, settlingInstance.clientId);
     batch.update(clientRef, {
         'subscription.status': 'active',
-        'subscription.nextBillingDate': format(addMonths(parseISO(instance.dueDate), 1), "yyyy-MM-dd'T'HH:mm:ss.SSSxxx"),
-        'subscription.perkUsage': {} 
+        'subscription.nextBillingDate': format(addMonths(parseISO(settlingInstance.dueDate), 1), "yyyy-MM-dd'T'HH:mm:ss.SSSxxx"),
+        'subscription.perkUsage': {}, // Reset for new cycle
+        'subscription.perkLastUsed': settleDate
     });
 
     try {
         await batch.commit();
-        toast({ title: "Settlement Certified", description: `Recorded ${hasCard ? 'automated' : 'manual'} payment for ${instance.clientName}.` });
+        toast({ title: "Settlement Certified", description: `Recorded payment for ${settlingInstance.clientName}.` });
+        setSettlingInstance(null);
     } catch (e) {
         console.error(e);
         toast({ variant: 'destructive', title: "Process Error" });
@@ -237,11 +400,12 @@ export const MembershipLedger = () => {
       const batch = writeBatch(firestore);
       const now = new Date().toISOString();
 
-      // Update Instance
-      const instanceRef = doc(firestore, `tenants/${tenantId}/subscriptionInstances`, terminatingInstance.id);
-      batch.update(instanceRef, { status: 'cancelled' });
+      const instanceRef = !terminatingInstance.id.startsWith('virtual-')
+        ? doc(firestore, `tenants/${tenantId}/subscriptionInstances`, terminatingInstance.id)
+        : null;
+      
+      if (instanceRef) batch.update(instanceRef, { status: 'cancelled' });
 
-      // Update Client
       const clientRef = doc(firestore, `tenants/${tenantId}/clients`, terminatingInstance.clientId);
       batch.update(clientRef, {
           'subscription.status': 'canceled',
@@ -261,9 +425,9 @@ export const MembershipLedger = () => {
   return (
     <div className="space-y-8">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-            <KpiCard title="Active MRR" value={`$${stats.mrr.toFixed(0)}`} icon={TrendingUp} description="Collected this cycle" colorClass="text-primary" />
-            <KpiCard title="Projected Dues" value={`$${stats.pending.toFixed(0)}`} icon={Clock} description="Awaiting collection" colorClass="text-indigo-600" />
-            <KpiCard title="Arrears Alert" value={`$${stats.arrears.toFixed(0)}`} icon={AlertTriangle} description="Failed/Past due payments" colorClass="text-destructive" />
+            <KpiCardInternal title="Active MRR" value={`$${stats.mrr.toFixed(0)}`} icon={TrendingUp} description="Collected this cycle" colorClass="text-primary" />
+            <KpiCardInternal title="Projected Dues" value={`$${stats.pending.toFixed(0)}`} icon={Clock} description="Awaiting collection" colorClass="text-indigo-600" />
+            <KpiCardInternal title="Arrears Alert" value={`$${stats.arrears.toFixed(0)}`} icon={AlertTriangle} description="Failed/Past due payments" colorClass="text-destructive" />
         </div>
 
         <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
@@ -313,12 +477,12 @@ export const MembershipLedger = () => {
                             </TableHeader>
                             <TableBody>
                                 {filteredInstances.map(instance => (
-                                    <SubscriptionRow 
+                                    <SubscriptionRowInternal 
                                         key={instance.id} 
                                         instance={instance} 
                                         client={clients.find(c => c.id === instance.clientId)}
                                         membership={memberships.find(m => m.id === instance.membershipId)}
-                                        onSettle={handleSettle}
+                                        onSettle={setSettlingInstance}
                                         onTerminate={setTerminatingInstance}
                                     />
                                 ))}
@@ -334,19 +498,27 @@ export const MembershipLedger = () => {
             </CardContent>
         </Card>
 
+        <SettleMembershipDialog
+            open={!!settlingInstance}
+            onOpenChange={v => !v && setSettlingInstance(null)}
+            instance={settlingInstance}
+            client={clients.find(c => c.id === settlingInstance?.clientId)}
+            onConfirm={handleSettleConfirm}
+        />
+
         <AlertDialog open={!!terminatingInstance} onOpenChange={(v) => !v && setTerminatingInstance(null)}>
             <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-                <AlertDialogHeader className="p-6 pb-0">
-                    <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left leading-none">Terminate Subscription</AlertDialogTitle>
-                    <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-2 text-left">
+                <AlertDialogHeader className="p-6 pb-0 text-left">
+                    <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter leading-none">Terminate Subscription</AlertDialogTitle>
+                    <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-2">
                         Guest: <strong>{terminatingInstance?.clientName}</strong>
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="p-6 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left">
-                    You are stoping the recurring cycle for this member. Due to the <strong>No-Commitment Protocol</strong>, access can be revoked immediately without penalty. Confirm termination?
+                    You are stopping the recurring cycle for this member. Due to the <strong>No-Commitment Protocol</strong>, access can be revoked immediately without penalty. Confirm termination?
                 </div>
                 <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                    <Button onClick={handleTerminateSubscription} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Confirm Termination</Button>
+                    <Button onClick={handleTerminateSubscription} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Confirm Termination</Button>
                     <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
                 </AlertDialogFooter>
             </AlertDialogContent>
