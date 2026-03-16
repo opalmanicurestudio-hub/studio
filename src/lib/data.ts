@@ -612,6 +612,8 @@ export type BookingGalleryItem = {
 };
 
 export type BookingPageSettings = {
+    logoUrl?: string;
+    wordmarkUrl?: string;
     heroImageUrl?: string;
     heroTitle?: string;
     heroSubtitle?: string;

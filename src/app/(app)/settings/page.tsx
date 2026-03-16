@@ -78,7 +78,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { nanoid } from 'nanoid';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format, parseISO, isSameMonth } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { motion, AnimatePresence } from 'framer-motion';

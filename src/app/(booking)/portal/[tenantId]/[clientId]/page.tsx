@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -64,7 +65,7 @@ export default function ClientPortalPage() {
         if (!appointments) return [];
         return appointments
             .filter(a => a.status !== 'cancelled' && safeDate(a.startTime) > new Date())
-            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
+            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(a.startTime).getTime());
     }, [appointments]);
 
     const pastAppointments = useMemo(() => {
