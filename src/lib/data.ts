@@ -109,6 +109,8 @@ export type ActivityLog = {
     durationMinutes?: number;
 };
 
+export type ActivityLogType = ActivityLog['type'];
+
 export type WaivedFee = {
     feeId: string;
     appointmentId: string;
@@ -281,9 +283,8 @@ export type Service = {
   fixedCost?: number;
   costPerAttendee?: number;
   requiredResourceIds?: string[];
-  // Policy Overrides
-  cancellationWindowHours?: number;
   customCancellationFee?: number;
+  cancellationWindowHours?: number;
 };
 
 export type Batch = {
@@ -672,10 +673,8 @@ export type Tenant = {
   bookingPageSettings?: BookingPageSettings;
   lateInconveniencePremium?: number;
   employerTaxBurdenPct?: number;
-  // Global Recovery Policy
   defaultCancellationMode?: 'matrix' | 'flat';
   defaultRescheduleMode?: 'matrix' | 'flat';
-  // Payment Gateway
   paymentGateway?: 'none' | 'stripe' | 'square';
   gatewayApiKey?: string;
   autoProcessMemberships?: boolean;

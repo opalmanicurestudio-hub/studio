@@ -1160,7 +1160,7 @@ function SettingsContent() {
                         <div className="space-y-3 max-w-sm text-left">
                             <Label htmlFor="skip-timer" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Waitlist Skip Timer (Minutes)</Label>
                             <Input id="skip-timer" type="number" value={tenantData.queueSkipTimeMinutes || ''} onChange={(e) => setTenantData(prev => ({...prev, queueSkipTimeMinutes: Number(e.target.value)}))} placeholder="e.g., 5" disabled={!isQueueEditing} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
-                            <p className='text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1'>Grace period before a guest is auto-skipped in the terminal.</p>
+                            <p className='text-[9px] font-bold text-muted-foreground uppercase font-black opacity-60 ml-1'>Grace period before a guest is auto-skipped in the terminal.</p>
                         </div>
                     </CardContent>
                 </Card>

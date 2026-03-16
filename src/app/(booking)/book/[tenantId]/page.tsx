@@ -226,15 +226,15 @@ export default function BookingPage() {
                         initial={{ opacity: 0, scale: 0.9, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         transition={{ delay: 0.2, duration: 1, ease: [0.16, 1, 0.3, 1] }}
-                        className="relative z-10 flex flex-col items-center text-center px-6"
+                        className="relative z-10 flex flex-col items-center text-center px-6 w-full"
                     >
                         <BookingHeader tenant={tenant} />
                         
-                        <div className="mt-12 flex flex-col sm:flex-row gap-4 w-full max-w-sm">
+                        <div className="mt-8 flex flex-col sm:flex-row gap-4 w-full max-w-sm mx-auto">
                             <Button 
                                 size="lg" 
                                 onClick={() => setEntered(true)}
-                                className="h-14 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-primary/30 group"
+                                className="h-14 md:h-16 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-primary/30 group"
                             >
                                 View Service Menu
                                 <ArrowDown className="ml-2 h-4 w-4 transition-transform group-hover:translate-y-1" />
@@ -243,7 +243,7 @@ export default function BookingPage() {
                                 size="lg" 
                                 variant="outline" 
                                 asChild
-                                className="h-14 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] border-2 bg-background/50 backdrop-blur-sm shadow-sm"
+                                className="h-14 md:h-16 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] border-2 bg-background/50 backdrop-blur-sm shadow-sm"
                             >
                                 <Link href={`/kiosk/${tenantId}`}>
                                     <Users className="mr-2 h-4 w-4" />
