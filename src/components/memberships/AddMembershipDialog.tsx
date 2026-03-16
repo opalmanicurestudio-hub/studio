@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
-import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale, Zap } from 'lucide-react';
+import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale, Zap, Shield, CheckCircle2 } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -172,7 +172,7 @@ const ProfitabilityAnalysis = ({
                     Individual Payout Matrix
                 </CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60 text-left">
-                    Net Analysis per professional @ {taxBurden}% Tax Burden
+                    Net Analysis per technician @ {taxBurden}% Tax Burden
                 </CardDescription>
             </CardHeader>
             <CardContent className="p-8 pt-6 space-y-6">

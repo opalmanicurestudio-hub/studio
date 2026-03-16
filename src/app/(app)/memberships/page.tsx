@@ -1,11 +1,10 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Award, Repeat, Sparkles, Activity, Loader, ShieldCheck, Zap, AlertTriangle } from 'lucide-react';
+import { PlusCircle, Award, Repeat, Sparkles, Activity, Loader, ShieldCheck, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MembershipCard } from '@/components/memberships/MembershipCard';
 import { PackageCard } from '@/components/memberships/PackageCard';

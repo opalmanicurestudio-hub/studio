@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { ShieldCheck, AlertTriangle, Users, Clock, Sparkles, Zap, Info } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, Users, Clock, Sparkles, Zap, Info, CheckCircle2 } from 'lucide-react';
 import { type Membership, type Client, type Staff, type Service } from '@/lib/data';
 import { cn } from '@/lib/utils';
 

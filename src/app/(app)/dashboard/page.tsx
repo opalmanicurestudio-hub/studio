@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -33,7 +32,8 @@ import {
   Globe,
   Phone,
   Smartphone,
-  Square
+  Square,
+  CheckCircle2
 } from 'lucide-react';
 import {
   ChartContainer,

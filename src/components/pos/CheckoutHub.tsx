@@ -43,7 +43,8 @@ import {
     Sparkles,
     Info,
     PartyPopper,
-    Box
+    Box,
+    CheckCircle2
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -738,7 +739,7 @@ export const CheckoutHub = ({
                         {appliedDiscountCodes.map((code: string) => (
                             <div key={code} className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between animate-in zoom-in-95">
                                 <div className="flex items-center gap-2 px-1">
-                                    <CheckCircle className="h-4 w-4 text-primary" />
+                                    <CheckCircle2 className="h-4 w-4 text-primary" />
                                     <p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{code}</p>
                                 </div>
                                 <Button variant="ghost" size="icon" className="h-7 i-7 md:h-8 md:w-8 text-primary hover:bg-primary/10 rounded-xl" onClick={() => handleRemoveDiscount(code)}><X className="h-4 w-4" /></Button>
@@ -820,7 +821,7 @@ export const CheckoutHub = ({
                                         <AvatarImage src={member.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[7px] md:text-[8px]">{(member.name || 'S')[0]}</AvatarFallback>
                                     </Avatar>
-                                    <span className="text-[9px] md:text-[10px] font-black uppercase tracking-tight truncate text-slate-700">{member.name.split(' ')[0]}</span>
+                                    <span className="text-[9px] font-black uppercase tracking-tight truncate text-slate-700">{member.name.split(' ')[0]}</span>
                                 </div>
                                 <div className="relative w-24 md:w-32">
                                     <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
