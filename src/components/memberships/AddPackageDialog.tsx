@@ -33,7 +33,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
 import { type Package, type Service, type InventoryItem, type PricingTier, type Staff } from '@/lib/data';
-import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale, Zap, CheckCircle2 } from 'lucide-react';
+import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale, Zap, Shield, CheckCircle2 } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
@@ -193,7 +193,7 @@ const ProfitabilityAnalysis = ({
                         </div>
                     ))}
                 </div>
-                <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
+                <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10 text-left">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
                     <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
                         Yield reflects individual technician pay and current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -154,7 +155,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/10 text-destructive" onClick={() => onDelete(pack.id)}>
-                                <Trash2 className="h-4 w-4" />
+                                <Trash2 className="w-4 h-4" />
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Terminate</TooltipContent>

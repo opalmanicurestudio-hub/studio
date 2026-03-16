@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -36,7 +37,9 @@ import {
     DollarSign,
     CreditCard,
     ArrowRight,
-    Info
+    Info,
+    Smartphone,
+    Activity
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -329,7 +332,6 @@ export const MembershipLedger = () => {
   const handleRunBatch = async () => {
       if (!firestore || !tenantId || isProcessingBatch) return;
       
-      // Select all pending/failed instances that have a card on file
       const autoSettlable = filteredInstances.filter(i => {
           if (i.status === 'paid' || i.status === 'cancelled') return false;
           const client = clients.find(c => c.id === i.clientId);
@@ -459,12 +461,11 @@ export const MembershipLedger = () => {
 
     batch.set(txnRef, { ...txn, id: txnRef.id });
 
-    // Update Client Perks Logic
     const clientRef = doc(firestore, `tenants/${tenantId}/clients`, settlingInstance.clientId);
     batch.update(clientRef, {
         'subscription.status': 'active',
         'subscription.nextBillingDate': format(addMonths(parseISO(settlingInstance.dueDate), 1), "yyyy-MM-dd'T'HH:mm:ss.SSSxxx"),
-        'subscription.perkUsage': {}, // Reset for new cycle
+        'subscription.perkUsage': {},
         'subscription.perkLastUsed': settleDate
     });
 
@@ -505,6 +506,8 @@ export const MembershipLedger = () => {
       }
   };
 
+  const isGatewayActive = selectedTenant?.paymentGateway && selectedTenant.paymentGateway !== 'none';
+
   return (
     <div className="space-y-8">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
@@ -513,83 +516,126 @@ export const MembershipLedger = () => {
             <KpiCardInternal title="Arrears Alert" value={`$${stats.arrears.toFixed(0)}`} icon={AlertTriangle} description="Failed/Past due payments" colorClass="text-destructive" />
         </div>
 
-        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-            <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className={cn("md:col-span-2 border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white")}>
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                        <div className="space-y-1">
+                            <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Accounts Receivable</CardTitle>
+                            <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Monitor recurring revenue pipelines.</CardDescription>
+                        </div>
+                        <Button onClick={handleRunBatch} disabled={isProcessingBatch || isLoading} className="h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20 w-full md:w-auto">
+                            {isProcessingBatch ? <Loader className="animate-spin mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
+                            Run Subscription Batch
+                        </Button>
+                    </div>
+                    <div className="flex flex-col md:flex-row items-center gap-4 pt-4 border-t border-dashed">
+                        <div className="relative flex-1 w-full">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                            <Input 
+                                placeholder="SEARCH BY GUEST OR CLUB NAME..." 
+                                className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <div className="w-full md:w-auto">
+                            <Select value={statusFilter} onValueChange={setStatusFilter}>
+                                <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner">
+                                    <SelectValue placeholder="STATUS" />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                    <SelectItem value="all" className="font-bold">ALL ENTRIES</SelectItem>
+                                    <SelectItem value="pending" className="font-bold">PENDING SETTLEMENT</SelectItem>
+                                    <SelectItem value="paid" className="font-bold text-green-600">CERTIFIED PAID</SelectItem>
+                                    <SelectItem value="failed" className="font-bold text-destructive">FAILED COLLECTION</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                    {isLoading ? (
+                        <div className="flex flex-col items-center justify-center p-24 gap-4">
+                            <Loader className="animate-spin h-8 w-8 text-primary" />
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Ledger...</p>
+                        </div>
+                    ) : filteredInstances.length > 0 ? (
+                        <div className="overflow-x-auto">
+                            <Table>
+                                <TableHeader className="bg-muted/10 border-b-2">
+                                    <TableRow>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Member & Tier</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Value</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Due Date</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">State</TableHead>
+                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredInstances.map(instance => (
+                                        <SubscriptionRowInternal 
+                                            key={instance.id} 
+                                            instance={instance} 
+                                            client={clients.find(c => c.id === instance.clientId)}
+                                            membership={memberships.find(m => m.id === instance.membershipId)}
+                                            onSettle={setSettlingInstance}
+                                            onTerminate={setTerminatingInstance}
+                                        />
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    ) : (
+                        <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
+                            <History className="w-16 h-16" />
+                            <p className="text-sm font-black uppercase tracking-widest">No matching records</p>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <div className="space-y-6">
+                <Card className={cn(
+                    "border-4 rounded-[2.5rem] shadow-2xl overflow-hidden transition-all",
+                    isGatewayActive ? "border-primary/20 bg-primary/5 shadow-primary/10" : "border-border bg-white opacity-60"
+                )}>
+                    <CardHeader className="p-6 pb-2 text-left">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className={cn("p-2 rounded-xl", isGatewayActive ? "bg-primary text-white shadow-lg" : "bg-muted text-muted-foreground")}>
+                                <Landmark className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Gateway Status</span>
+                        </div>
+                        <CardTitle className="text-sm font-black uppercase tracking-widest">
+                            {selectedTenant?.paymentGateway?.toUpperCase() || 'NONE CONNECTED'}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 pt-0 space-y-4 text-left">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black uppercase text-muted-foreground">Auto-Process</span>
+                            <Badge variant={selectedTenant?.autoProcessMemberships ? "default" : "secondary"} className="h-5 px-2 font-black text-[8px] uppercase">{selectedTenant?.autoProcessMemberships ? "ACTIVE" : "DISABLED"}</Badge>
+                        </div>
+                        <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed">
+                            {isGatewayActive ? "Autonomous billing protocol is online. Cards on file will be auto-debited on their renewal dates." : "Connect Stripe or Square in Settings to enable autonomous recurring billing."}
+                        </p>
+                        <Button variant="outline" asChild className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm">
+                            <Link href="/settings?tab=integrations">Configure Gateway</Link>
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <div className="p-6 rounded-[2.5rem] border-2 border-dashed bg-primary/[0.02] flex items-start gap-4 text-left shadow-inner">
+                    <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                     <div className="space-y-1">
-                        <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Accounts Receivable</CardTitle>
-                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Monitor recurring revenue pipelines.</CardDescription>
-                    </div>
-                    <Button onClick={handleRunBatch} disabled={isProcessingBatch || isLoading} className="h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20 w-full md:w-auto">
-                        {isProcessingBatch ? <Loader className="animate-spin mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
-                        Run Subscription Batch
-                    </Button>
-                </div>
-                <div className="flex flex-col md:flex-row items-center gap-4 pt-4 border-t border-dashed">
-                    <div className="relative flex-1 w-full">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
-                        <Input 
-                            placeholder="SEARCH BY GUEST OR CLUB NAME..." 
-                            className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-                    <div className="w-full md:w-auto">
-                        <Select value={statusFilter} onValueChange={setStatusFilter}>
-                            <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner">
-                                <SelectValue placeholder="STATUS" />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                <SelectItem value="all" className="font-bold">ALL ENTRIES</SelectItem>
-                                <SelectItem value="pending" className="font-bold">PENDING SETTLEMENT</SelectItem>
-                                <SelectItem value="paid" className="font-bold text-green-600">CERTIFIED PAID</SelectItem>
-                                <SelectItem value="failed" className="font-bold text-destructive">FAILED COLLECTION</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <p className="text-[10px] font-black uppercase text-primary">Protocol Alert</p>
+                        <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                            Failed payments automatically suspend guest perks in the Terminal. Settle or terminate to maintain ledger balance.
+                        </p>
                     </div>
                 </div>
-            </CardHeader>
-            <CardContent className="p-0">
-                {isLoading ? (
-                    <div className="flex flex-col items-center justify-center p-24 gap-4">
-                        <Loader className="animate-spin h-8 w-8 text-primary" />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Ledger...</p>
-                    </div>
-                ) : filteredInstances.length > 0 ? (
-                    <div className="overflow-x-auto">
-                        <Table>
-                            <TableHeader className="bg-muted/10 border-b-2">
-                                <TableRow>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Member & Tier</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Yield Value</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Settlement Date</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Protocol State</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {filteredInstances.map(instance => (
-                                    <SubscriptionRowInternal 
-                                        key={instance.id} 
-                                        instance={instance} 
-                                        client={clients.find(c => c.id === instance.clientId)}
-                                        membership={memberships.find(m => m.id === instance.membershipId)}
-                                        onSettle={setSettlingInstance}
-                                        onTerminate={setTerminatingInstance}
-                                    />
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </div>
-                ) : (
-                    <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
-                        <History className="w-16 h-16" />
-                        <p className="text-sm font-black uppercase tracking-widest">No matching records</p>
-                    </div>
-                )}
-            </CardContent>
-        </Card>
+            </div>
+        </div>
 
         <SettleMembershipDialog
             open={!!settlingInstance}

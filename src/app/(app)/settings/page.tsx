@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
@@ -49,7 +50,9 @@ import {
   DollarSign,
   ShieldCheck,
   Target,
-  Smartphone
+  Smartphone,
+  CreditCard,
+  Shield
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -180,6 +183,7 @@ function SettingsContent() {
   const [isQueueEditing, setIsQueueEditing] = useState(false);
   const [isSmsEditing, setIsSmsEditing] = useState(false);
   const [isBookingBuilderEditing, setIsBookingBuilderEditing] = useState(false);
+  const [isIntegrationsEditing, setIsIntegrationsEditing] = useState(false);
 
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   const [scheduleProfiles, setScheduleProfiles] = useState<any[]>([]);
@@ -353,6 +357,33 @@ function SettingsContent() {
     }
   }
 
+  const handleIntegrationsEdit = () => {
+    setBackupTenantData(tenantData);
+    setIsIntegrationsEditing(true);
+  }
+
+  const handleIntegrationsCancel = () => {
+    setTenantData(backupTenantData);
+    setIsIntegrationsEditing(false);
+  }
+
+  const handleIntegrationsSave = async () => {
+    if (!selectedTenant || !firestore) return;
+    const integrationFields: (keyof Tenant)[] = ['paymentGateway', 'gatewayApiKey', 'autoProcessMemberships'];
+    const dataToUpdate: Partial<Tenant> = {};
+    integrationFields.forEach(field => {
+      dataToUpdate[field] = tenantData[field] as any;
+    });
+    try {
+        const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+        updateDocumentNonBlocking(tenantRef, dataToUpdate);
+        toast({ title: 'Integration Protocols Updated!' });
+        setIsIntegrationsEditing(false);
+    } catch (error) {
+        toast({ variant: 'destructive', title: 'Save Failed' });
+    }
+  }
+
   const handleAddFaq = () => {
     const newFaq: BookingFAQItem = { id: nanoid(), question: '', answer: '' };
     setTenantData(prev => ({
@@ -483,6 +514,7 @@ function SettingsContent() {
     { value: "hours", label: "Hours", icon: <Clock className="w-4 h-4" /> },
     { value: "policies", label: "Policies", icon: <FileText className="w-4 h-4" /> },
     { value: "builder", label: "Page Builder", icon: <Globe className="w-4 h-4" /> },
+    { value: "integrations", label: "Integrations", icon: <Zap className="w-4 h-4" /> },
     { value: "queue", label: "Queue", icon: <ListChecks className="w-4 h-4" /> },
     { value: "messaging", label: "Messaging", icon: <MessageSquare className="w-4 h-4" /> },
   ];
@@ -662,7 +694,7 @@ function SettingsContent() {
                                         className="grid grid-cols-1 sm:grid-cols-2 gap-3"
                                     >
                                         <label htmlFor="mode-c-matrix" className="cursor-pointer">
-                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all h-full flex flex-col justify-center", tenantData.defaultCancellationMode === 'matrix' || !tenantData.defaultCancellationMode ? "border-primary bg-white shadow-md text-primary" : "border-transparent text-slate-400 opacity-60")}>
+                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all h-full flex flex-col justify-center", (tenantData.defaultCancellationMode === 'matrix' || !tenantData.defaultCancellationMode) ? "border-primary bg-white shadow-md text-primary" : "border-transparent text-slate-400 opacity-60")}>
                                                 <span className="text-[9px] font-black uppercase">Itemized Matrix</span>
                                                 <RadioGroupItem value="matrix" id="mode-c-matrix" className="sr-only" />
                                             </div>
@@ -685,7 +717,7 @@ function SettingsContent() {
                                         className="grid grid-cols-1 sm:grid-cols-2 gap-3"
                                     >
                                         <label htmlFor="mode-r-matrix" className="cursor-pointer">
-                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all h-full flex flex-col justify-center", tenantData.defaultRescheduleMode === 'matrix' || !tenantData.defaultRescheduleMode ? "border-primary bg-white shadow-md text-primary" : "border-transparent text-slate-400 opacity-60")}>
+                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all h-full flex flex-col justify-center", (tenantData.defaultRescheduleMode === 'matrix' || !tenantData.defaultRescheduleMode) ? "border-primary bg-white shadow-md text-primary" : "border-transparent text-slate-400 opacity-60")}>
                                                 <span className="text-[9px] font-black uppercase">Itemized Matrix</span>
                                                 <RadioGroupItem value="matrix" id="mode-r-matrix" className="sr-only" />
                                             </div>
@@ -974,6 +1006,103 @@ function SettingsContent() {
                                         <p className="text-[10px] font-black uppercase text-primary tracking-widest">Ingest Visual Assets</p>
                                         <ImageUpload onImageUploaded={handleAddGalleryImage} multiple={true} clearOnUpload={true} />
                                     </div>
+                                )}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value="integrations" className="mt-6 space-y-6 text-left">
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
+                        <div>
+                            <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight">
+                                <Zap className="w-5 h-5 text-primary" />
+                                Financial Integrations
+                            </CardTitle>
+                            <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Connect your payment and logistics providers.</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            {isIntegrationsEditing ? (
+                                <>
+                                    <Button variant="outline" onClick={handleIntegrationsCancel} className="h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                                    <Button onClick={handleIntegrationsSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Auth</Button>
+                                </>
+                            ) : (
+                                <Button onClick={handleIntegrationsEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-3.5 w-3.5"/>Modify</Button>
+                            )}
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6 sm:p-8 space-y-12">
+                        <div className="space-y-8">
+                            <div className="space-y-1 text-left">
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><CreditCard className="w-4 h-4"/> Payment Gateway</h3>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 ml-6">Power recurring subscriptions and online deposits.</p>
+                            </div>
+                            
+                            <div className="space-y-6">
+                                <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Active Provider</Label>
+                                    <Controller
+                                        name="paymentGateway"
+                                        control={methods.control}
+                                        render={({ field }) => (
+                                            <RadioGroup 
+                                                value={tenantData.paymentGateway || 'none'} 
+                                                onValueChange={v => setTenantData(p => ({...p, paymentGateway: v as any}))}
+                                                disabled={!isIntegrationsEditing}
+                                                className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                                            >
+                                                <label htmlFor="gate-none" className="cursor-pointer">
+                                                    <div className={cn("p-4 rounded-xl border-2 text-center transition-all", (tenantData.paymentGateway === 'none' || !tenantData.paymentGateway) ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                        <span className="text-[10px] font-black uppercase">None</span>
+                                                        <RadioGroupItem value="none" id="gate-none" className="sr-only" />
+                                                    </div>
+                                                </label>
+                                                <label htmlFor="gate-stripe" className="cursor-pointer">
+                                                    <div className={cn("p-4 rounded-xl border-2 text-center transition-all", tenantData.paymentGateway === 'stripe' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                        <span className="text-[10px] font-black uppercase">Stripe</span>
+                                                        <RadioGroupItem value="stripe" id="gate-stripe" className="sr-only" />
+                                                    </div>
+                                                </label>
+                                                <label htmlFor="gate-square" className="cursor-pointer">
+                                                    <div className={cn("p-4 rounded-xl border-2 text-center transition-all", tenantData.paymentGateway === 'square' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                        <span className="text-[10px] font-black uppercase">Square</span>
+                                                        <RadioGroupItem value="square" id="gate-square" className="sr-only" />
+                                                    </div>
+                                                </label>
+                                            </RadioGroup>
+                                        )}
+                                    />
+                                </div>
+
+                                {tenantData.paymentGateway !== 'none' && tenantData.paymentGateway && (
+                                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Live Secret Key</Label>
+                                            <Input 
+                                                type="password" 
+                                                placeholder={`sk_live_... (Your ${tenantData.paymentGateway} key)`} 
+                                                value={tenantData.gatewayApiKey || ''}
+                                                onChange={e => setTenantData(p => ({...p, gatewayApiKey: e.target.value}))}
+                                                disabled={!isIntegrationsEditing}
+                                                className="h-12 rounded-xl border-2 font-mono"
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between p-4 bg-white rounded-2xl border shadow-sm">
+                                            <div className="space-y-0.5">
+                                                <Label htmlFor="auto-sub-toggle" className="text-xs font-black uppercase tracking-tight">Autonomous Recurring Processing</Label>
+                                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Automatically charge cards on renewal dates</p>
+                                            </div>
+                                            <Switch 
+                                                id="auto-sub-toggle" 
+                                                checked={!!tenantData.autoProcessMemberships} 
+                                                onCheckedChange={val => setTenantData(p => ({...p, autoProcessMemberships: val}))}
+                                                disabled={!isIntegrationsEditing}
+                                            />
+                                        </div>
+                                    </motion.div>
                                 )}
                             </div>
                         </div>

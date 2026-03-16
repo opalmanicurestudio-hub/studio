@@ -671,6 +671,10 @@ export type Tenant = {
   // Global Recovery Policy
   defaultCancellationMode?: 'matrix' | 'flat';
   defaultRescheduleMode?: 'matrix' | 'flat';
+  // Payment Gateway
+  paymentGateway?: 'none' | 'stripe' | 'square';
+  gatewayApiKey?: string;
+  autoProcessMemberships?: boolean;
 };
 
 export type Resource = {
