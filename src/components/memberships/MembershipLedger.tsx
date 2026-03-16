@@ -1,7 +1,7 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Card,
   CardContent,
@@ -120,7 +120,7 @@ const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfir
 
     return (
         <DialogComp open={open} onOpenChange={onOpenChange}>
-            <ContentComp side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+            <ContentComp side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[92dvh]")}>
                 <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left shrink-0">
                     <div className="flex items-center gap-3 mb-2">
                         <DollarSign className="w-5 h-5 text-primary" />
@@ -184,7 +184,7 @@ const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfir
                 </ScrollArea>
                 <DialogFooter className="p-8 pt-4 border-t bg-muted/5 shrink-0">
                     <div className="flex gap-3 w-full">
-                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
                         <Button onClick={methods.handleSubmit(onConfirm)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group">
                             Finalize Settlement <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/>
                         </Button>

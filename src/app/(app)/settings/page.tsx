@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
@@ -677,7 +676,7 @@ function SettingsContent() {
                     </CardHeader>
                     <CardContent className="p-6 sm:p-8 space-y-12">
                         <div className="space-y-8">
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-left">
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
                                     <Target className="w-4 h-4" /> Recovery Strategy Defaults
                                 </h3>
@@ -1044,37 +1043,31 @@ function SettingsContent() {
                             <div className="space-y-6">
                                 <div className="space-y-3">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Active Provider</Label>
-                                    <Controller
-                                        name="paymentGateway"
-                                        control={methods.control}
-                                        render={({ field }) => (
-                                            <RadioGroup 
-                                                value={tenantData.paymentGateway || 'none'} 
-                                                onValueChange={v => setTenantData(p => ({...p, paymentGateway: v as any}))}
-                                                disabled={!isIntegrationsEditing}
-                                                className="grid grid-cols-1 sm:grid-cols-3 gap-3"
-                                            >
-                                                <label htmlFor="gate-none" className="cursor-pointer">
-                                                    <div className={cn("p-4 rounded-xl border-2 text-center transition-all", (tenantData.paymentGateway === 'none' || !tenantData.paymentGateway) ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
-                                                        <span className="text-[10px] font-black uppercase">None</span>
-                                                        <RadioGroupItem value="none" id="gate-none" className="sr-only" />
-                                                    </div>
-                                                </label>
-                                                <label htmlFor="gate-stripe" className="cursor-pointer">
-                                                    <div className={cn("p-4 rounded-xl border-2 text-center transition-all", tenantData.paymentGateway === 'stripe' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
-                                                        <span className="text-[10px] font-black uppercase">Stripe</span>
-                                                        <RadioGroupItem value="stripe" id="gate-stripe" className="sr-only" />
-                                                    </div>
-                                                </label>
-                                                <label htmlFor="gate-square" className="cursor-pointer">
-                                                    <div className={cn("p-4 rounded-xl border-2 text-center transition-all", tenantData.paymentGateway === 'square' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
-                                                        <span className="text-[10px] font-black uppercase">Square</span>
-                                                        <RadioGroupItem value="square" id="gate-square" className="sr-only" />
-                                                    </div>
-                                                </label>
-                                            </RadioGroup>
-                                        )}
-                                    />
+                                    <RadioGroup 
+                                        value={tenantData.paymentGateway || 'none'} 
+                                        onValueChange={v => setTenantData(p => ({...p, paymentGateway: v as any}))}
+                                        disabled={!isIntegrationsEditing}
+                                        className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                                    >
+                                        <label htmlFor="gate-none" className="cursor-pointer">
+                                            <div className={cn("p-4 rounded-xl border-2 text-center transition-all", (tenantData.paymentGateway === 'none' || !tenantData.paymentGateway) ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                <span className="text-[10px] font-black uppercase">None</span>
+                                                <RadioGroupItem value="none" id="gate-none" className="sr-only" />
+                                            </div>
+                                        </label>
+                                        <label htmlFor="gate-stripe" className="cursor-pointer">
+                                            <div className={cn("p-4 rounded-xl border-2 text-center transition-all", tenantData.paymentGateway === 'stripe' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                <span className="text-[10px] font-black uppercase">Stripe</span>
+                                                <RadioGroupItem value="stripe" id="gate-stripe" className="sr-only" />
+                                            </div>
+                                        </label>
+                                        <label htmlFor="gate-square" className="cursor-pointer">
+                                            <div className={cn("p-4 rounded-xl border-2 text-center transition-all", tenantData.paymentGateway === 'square' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                                <span className="text-[10px] font-black uppercase">Square</span>
+                                                <RadioGroupItem value="square" id="gate-square" className="sr-only" />
+                                            </div>
+                                        </label>
+                                    </RadioGroup>
                                 </div>
 
                                 {tenantData.paymentGateway !== 'none' && tenantData.paymentGateway && (
