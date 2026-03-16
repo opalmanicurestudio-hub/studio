@@ -51,7 +51,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { format, parseISO, isPast, isToday, addMonths, startOfDay, isSameMonth } from 'date-fns';
+import { format, parseISO, isPast, isToday, addMonths, startOfDay, isSameMonth, isBefore } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -89,7 +89,7 @@ import {
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useForm, Controller, FormProvider } from 'react-hook-form';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -849,9 +849,9 @@ export const MembershipLedger = () => {
                 <div className="p-6 rounded-[2rem] border-2 border-dashed bg-primary/[0.02] flex items-start gap-4 text-left shadow-inner">
                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                     <div className="space-y-1">
-                        <p className="text-[10px] font-black uppercase text-primary">Operational Intelligence</p>
+                        <p className="text-[10px] font-black uppercase text-primary">Operational Protocol</p>
                         <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
-                            The **Redemption Log** tracks how memberships are actually used. High **Forfeit** rates identify guests who may need a protocol adjustment.
+                            Settling a payment advances the billing date and **resets perk usage** for the new cycle, instantly authorizing guest access in the terminal.
                         </p>
                     </div>
                 </div>
