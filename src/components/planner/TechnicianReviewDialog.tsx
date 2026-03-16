@@ -1,4 +1,4 @@
-'use server';
+'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
 import {
@@ -42,7 +42,8 @@ import {
     ArrowRight,
     ListChecks,
     Activity,
-    Users
+    Users,
+    FileSignature
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -81,6 +82,18 @@ type EditableFormulaItem = {
     costPerUnit: number;
     isCustom?: boolean;
 };
+
+const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
+    <div className="flex items-center gap-4 mb-6 text-left">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
 
 interface TechnicianReviewDialogProps {
   open: boolean;
@@ -347,7 +360,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1">
-              <div className={cn("pb-32 space-y-10", isMobile ? "p-6" : "p-8")}>
+              <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden">
                     <CardContent className="p-6 flex items-center gap-6 text-left">
                         <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2rem] shrink-0">
@@ -361,7 +374,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardContent>
                 </Card>
 
-                <div className="space-y-8">
+                <div className="space-y-10 mt-10">
                   <SectionHeader icon={ListChecks} title="Flow Control" step={1} />
                   <div className="space-y-4">
                         <div className="space-y-3">

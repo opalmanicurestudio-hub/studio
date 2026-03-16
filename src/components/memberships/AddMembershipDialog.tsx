@@ -392,7 +392,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
           <SectionHeader icon={Star} title="Privilege Manifest" step={2} />
           <div className="space-y-8 text-left">
               <div className="space-y-4">
-                <div className='flex items-center justify-between px-1'>
+                <div className='flex items-center justify-between px-1 text-left'>
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Included Services</Label>
                     <Button variant="ghost" size="sm" onClick={() => setIsServiceSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                         <PlusCircle className="w-3 h-3 mr-1.5" /> Select Library
@@ -427,7 +427,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
               </div>
 
               <div className="space-y-4">
-                <div className='flex items-center justify-between px-1'>
+                <div className='flex items-center justify-between px-1 text-left'>
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Included Add-ons</Label>
                     <Button variant="ghost" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                         <PlusCircle className="w-3 h-3 mr-1.5" /> Select Add-ons
@@ -462,7 +462,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
               </div>
 
               <div className="space-y-4">
-                <div className='flex items-center justify-between px-1'>
+                <div className='flex items-center justify-between px-1 text-left'>
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail Perks (LTV)</Label>
                     <Button variant="ghost" size="sm" onClick={() => setIsProductPerkSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                         <PlusCircle className="w-3 h-3 mr-1.5" /> Select Products
@@ -517,7 +517,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
 
                 {retailDiscount > 0 && (
                     <div className="space-y-4 pt-2">
-                        <div className='flex items-center justify-between px-1'>
+                        <div className='flex items-center justify-between px-1 text-left'>
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Eligible Products</Label>
                             <Button variant="ghost" size="sm" onClick={() => setIsApplicableProductsSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Select Scope

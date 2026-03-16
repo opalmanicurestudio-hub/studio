@@ -378,7 +378,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     <Alert variant="destructive" className="border-2 rounded-xl bg-amber-500/5 text-amber-700 border-amber-200"><AlertTriangle className="h-4 w-4" /><AlertTitle className="text-[9px] font-black uppercase text-left">Allergy Warning</AlertTitle><AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left">{client.allergyNotes}</AlertDescription></Alert>
                   )}
                   <Card className="rounded-[1.5rem] border-2 bg-muted/5">
-                    <CardHeader className="p-4 pb-1"><CardTitle className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><FileText className="w-3 h-3" /> Discovery Notes</CardTitle></CardHeader>
+                    <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><FileText className="w-3 h-3" /> Discovery Notes</CardTitle></CardHeader>
                     <CardContent className="p-4 pt-0"><p className="text-[11px] font-medium text-slate-600 leading-relaxed italic text-left">"{client.notes?.general || 'No session notes provided.'}"</p></CardContent>
                   </Card>
                 </div>

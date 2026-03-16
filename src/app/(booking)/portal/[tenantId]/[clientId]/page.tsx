@@ -360,8 +360,8 @@ export default function ClientPortalPage() {
                                 {redemptions.sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()).map(r => (
                                     <div key={r.id} className={cn("flex items-center justify-between p-5 rounded-[1.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
                                         <div className="flex items-center gap-4">
-                                            <div className={cn("p-3 rounded-2xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
-                                                {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
+                                            <div className={cn("p-3 rounded-2xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.isRollover ? "bg-blue-500/10 text-blue-600" : "bg-indigo-500/10 text-indigo-600")}>
+                                                {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.isRollover ? <RefreshCw className="w-4 h-4" /> : <Star className="w-4 h-4" />}
                                             </div>
                                             <div className="min-w-0">
                                                 <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{r.serviceName}</p>
