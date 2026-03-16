@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -263,7 +262,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
 
   const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
-  const [isProductPerkSelectorOpen, setIsProductPerkSelectorOpen] = useState(false);
+  const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
   const [isApplicableProductsSelectorOpen, setIsApplicableProductsSelectorOpen] = useState(false);
 
   useEffect(() => {
@@ -465,7 +464,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
               <div className="space-y-4">
                 <div className='flex items-center justify-between px-1 text-left'>
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail Perks (LTV)</Label>
-                    <Button variant="ghost" size="sm" onClick={() => setIsProductPerkSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                    <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                         <PlusCircle className="w-3 h-3 mr-1.5" /> Select Products
                     </Button>
                 </div>

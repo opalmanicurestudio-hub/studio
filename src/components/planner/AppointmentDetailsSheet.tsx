@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -253,7 +252,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-xl', 'flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden')}>
+        <SheetContent side="right" className={cn(isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-xl', 'flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden')}>
           <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-5" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
               <Sparkles className="w-5 h-5 text-primary" />
@@ -283,7 +282,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <Avatar className={cn("border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2.5rem]", isMobile ? "w-16 h-16" : "w-24 h-24")}><AvatarImage src={client.avatarUrl} className="object-cover" /><AvatarFallback className="text-xl font-black bg-primary/10 text-primary">{(client?.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback></Avatar>
                   <div className="space-y-1.5 flex-1 min-w-0">
                     <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate", isMobile ? "text-lg" : "text-3xl")}>{client.name}</h2>
-                    <div className="flex flex-wrap justify-center sm:justify-start gap-2">
+                    <div className="flex flex-wrap justify-center sm:justify-start gap-2 text-left">
                       <Badge variant="outline" className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest border-2"><UserIcon className="w-2.5 h-2.5 mr-1 opacity-40" /> Guest</Badge>
                       {client.activeMembershipId && <Badge className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest bg-indigo-600 text-white border-none shadow-md"><Award className="w-2.5 h-2.5 mr-1" /> Member</Badge>}
                     </div>
@@ -334,11 +333,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               <Separator className="bg-muted/50" />
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between"><h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Details</h3><Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"><PlusCircle className="w-3 h-3 mr-1" />Add Part</Button></div>
+                <div className="flex items-center justify-between"><h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Treatment Details</h3><Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"><PlusCircle className="w-3 h-3 mr-1" />Add Part</Button></div>
                 <Card className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
                   <CardContent className={isMobile ? "p-4 space-y-4" : "p-5 space-y-4"}>
                     <div className="flex justify-between items-start gap-4">
-                      <div className="space-y-1 min-w-0 text-left"><p className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p><div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest"><Clock className="w-2.5 h-2.5" /> {service.duration}m</div><div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-primary/10"><Avatar className="h-5 w-5 border shadow-sm"><AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback></Avatar><span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span></div></div>
+                      <div className="space-y-1 min-w-0 text-left"><p className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p><div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest"><Clock className="w-2.5 h-2.5" /> {service.duration}m</div><div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-primary/10 text-left"><Avatar className="h-5 w-5 border shadow-sm"><AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback></Avatar><span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span></div></div>
                       <p className="text-sm md:text-xl font-black text-primary tracking-tighter font-mono shrink-0">${financialData?.revenue.toFixed(2)}</p>
                     </div>
                     {(appointment.addOnIds || []).length > 0 && (
@@ -350,7 +349,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                           const addonStaffId = appointment.checkoutState?.serviceStaffOverrides?.[id] || appointment.staffId;
                           const addonStaff = staff.find(st => st.id === addonStaffId);
                           return (
-                            <div key={id} className="space-y-1.5 p-2 rounded-xl bg-background border shadow-sm"><div className="flex justify-between text-[9px] font-black uppercase tracking-tight text-slate-600"><span className="truncate mr-2">+ {s.name}</span><span className="font-mono shrink-0">${s.price.toFixed(2)}</span></div><div className="flex items-center gap-1.5 opacity-60"><Avatar className="h-4 w-4 border shadow-inner"><AvatarImage src={addonStaff?.avatarUrl} className="object-cover" /><AvatarFallback className="text-[6px] font-black">{(addonStaff?.name || 'S')[0]}</AvatarFallback></Avatar><span className="text-[8px] font-black uppercase tracking-widest">{addonStaff?.name?.split(' ')[0] || 'Unassigned'}</span></div></div>
+                            <div key={id} className="space-y-1.5 p-2 rounded-xl bg-background border shadow-sm text-left"><div className="flex justify-between text-[9px] font-black uppercase tracking-tight text-slate-600"><span className="truncate mr-2">+ {s.name}</span><span className="font-mono shrink-0">${s.price.toFixed(2)}</span></div><div className="flex items-center gap-1.5 opacity-60 text-left"><Avatar className="h-4 w-4 border shadow-inner"><AvatarImage src={addonStaff?.avatarUrl} className="object-cover" /><AvatarFallback className="text-[6px] font-black">{(addonStaff?.name || 'S')[0]}</AvatarFallback></Avatar><span className="text-[8px] font-black uppercase tracking-widest">{addonStaff?.name?.split(' ')[0] || 'Unassigned'}</span></div></div>
                           );
                         })}
                       </div>

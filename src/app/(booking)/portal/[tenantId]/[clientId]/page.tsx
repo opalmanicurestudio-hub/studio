@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -206,7 +205,7 @@ export default function ClientPortalPage() {
                                                 <div className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 shadow-inner text-primary shrink-0">
                                                     <Calendar className="w-8 h-8" />
                                                 </div>
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 text-left">
                                                     <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1">{svc?.name || 'Service'}</p>
                                                     <p className="text-[10px] font-black uppercase tracking-widest text-primary">{format(safeDate(apt.startTime), 'EEEE, MMM d')}</p>
                                                     <p className="text-sm font-black text-slate-500 font-mono tracking-tighter">{format(safeDate(apt.startTime), 'h:mm a')}</p>
@@ -261,7 +260,7 @@ export default function ClientPortalPage() {
                                         <Card key={perk.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all">
                                             <CardContent className="p-6 space-y-5">
                                                 <div className="flex justify-between items-start">
-                                                    <div className="space-y-1">
+                                                    <div className="space-y-1 text-left">
                                                         <p className="font-black text-base uppercase tracking-tight text-slate-900">{perk.name}</p>
                                                         <p className="text-[9px] font-black text-indigo-600/60 uppercase tracking-widest">Included Treatment</p>
                                                     </div>
@@ -288,7 +287,7 @@ export default function ClientPortalPage() {
                                         <Card key={perk.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all">
                                             <CardContent className="p-6 space-y-5">
                                                 <div className="flex justify-between items-start">
-                                                    <div className="space-y-1">
+                                                    <div className="space-y-1 text-left">
                                                         <p className="font-black text-base uppercase tracking-tight text-slate-900">{perk.name}</p>
                                                         <p className="text-[9px] font-black text-amber-600/60 uppercase tracking-widest">Included Enhancement</p>
                                                     </div>
@@ -326,7 +325,7 @@ export default function ClientPortalPage() {
                                         <Card key={idx} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-teal-500/20 transition-all">
                                             <CardContent className="p-6 space-y-5">
                                                 <div className="flex justify-between items-start">
-                                                    <div className="space-y-1">
+                                                    <div className="space-y-1 text-left">
                                                         <p className="font-black text-base uppercase tracking-tight text-slate-900">{details?.name}</p>
                                                         <p className="text-[9px] font-black text-teal-600/60 uppercase tracking-widest">{svc?.name}</p>
                                                     </div>
@@ -364,9 +363,9 @@ export default function ClientPortalPage() {
                                             <div className={cn("p-3 rounded-2xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.isRollover ? "bg-blue-500/10 text-blue-600" : "bg-indigo-500/10 text-indigo-600")}>
                                                 {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.isRollover ? <RefreshCw className="w-4 h-4" /> : <Star className="w-4 h-4" />}
                                             </div>
-                                            <div className="min-w-0">
+                                            <div className="min-w-0 text-left">
                                                 <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{r.serviceName}</p>
-                                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Drawn from {r.offeringName}</p>
+                                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Drawn from {r.offeringName}</p>
                                             </div>
                                         </div>
                                         <div className="text-right shrink-0 ml-4">

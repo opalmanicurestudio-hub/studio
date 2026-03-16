@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -19,7 +18,7 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { 
@@ -364,8 +363,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </DialogHeader>
             <ScrollArea className="flex-1">
               <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
-                <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden">
-                    <CardContent className="p-6 flex items-center gap-6 text-left">
+                <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden text-left">
+                    <CardContent className="p-6 flex items-center gap-6">
                         <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2rem] shrink-0">
                             <AvatarImage src={client.avatarUrl} className="object-cover" />
                             <AvatarFallback className="font-black bg-primary/10 text-primary text-xl">{(client.name || 'G').substring(0,2).toUpperCase()}</AvatarFallback>
@@ -454,7 +453,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                   </div>
                 </div>
 
-                <div className="space-y-8 pt-10 border-t border-dashed">
+                <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
                     <div className="space-y-8 text-left">
                         <div className="space-y-3">
@@ -541,11 +540,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </div>
                 </div>
 
-                <div className="space-y-8 pt-10 border-t border-dashed">
+                <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={3} />
                     <div className="space-y-6 text-left">
                         <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner transition-all">
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-left">
                                 <Label htmlFor="save-formula-toggle-review" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
                                     <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
                                 </Label>
@@ -558,7 +557,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             {saveAsCustomFormula && (
                                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="overflow-hidden">
                                     <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
-                                        <Label htmlFor="custom-formula-name-review" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
+                                        <Label htmlFor="custom-formula-name-review" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
                                             <Tag className="w-3.5 h-3.5" /> Formula Identifier
                                         </Label>
                                         <Input 
@@ -573,7 +572,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             )}
                         </AnimatePresence>
 
-                        <div className="space-y-3">
+                        <div className="space-y-3 text-left">
                             <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                                 <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
                             </Label>
