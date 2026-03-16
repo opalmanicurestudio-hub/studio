@@ -1,4 +1,3 @@
-
 'use client';
 
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
@@ -12,13 +11,14 @@ export const BookingHeader = ({ tenant }: { tenant: Tenant | null }) => {
   const showWordmark = tenant?.bookingPageSettings?.showWordmark !== false;
 
   // Responsive sizing based on wordmark visibility
+  // When wordmark is hidden, scale up the logo to fill the hero space
   const logoSize = showWordmark 
     ? "w-24 h-24 md:w-32 md:h-32" 
-    : "w-40 h-40 md:w-56 md:h-56";
+    : "w-48 h-48 md:w-64 md:h-64";
   
   const logoRadius = showWordmark 
     ? "rounded-[2rem]" 
-    : "rounded-[2.5rem] md:rounded-[3rem]";
+    : "rounded-[3rem] md:rounded-[4rem]";
 
   return (
     <header className="mb-12 text-center flex flex-col items-center">
@@ -27,7 +27,7 @@ export const BookingHeader = ({ tenant }: { tenant: Tenant | null }) => {
           logoSize,
           logoRadius,
           logoUrl 
-            ? "shadow-2xl border-4 border-white" 
+            ? "shadow-3xl border-4 border-white" 
             : "inline-block p-4 bg-white shadow-xl border-2 border-primary/10"
       )}>
         {logoUrl ? (
@@ -39,7 +39,7 @@ export const BookingHeader = ({ tenant }: { tenant: Tenant | null }) => {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <ClarityFlowLogo className={cn(showWordmark ? "w-12 h-12 md:w-16 md:h-16" : "w-20 h-20 md:w-28 md:h-28")} />
+            <ClarityFlowLogo className={cn(showWordmark ? "w-12 h-12 md:w-16 md:h-16" : "w-24 h-24 md:w-32 md:h-32")} />
           </div>
         )}
       </div>

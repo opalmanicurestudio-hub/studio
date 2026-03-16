@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { type Membership, type Package } from '@/lib/data';
+import { type Membership, type Package, type Tenant } from '@/lib/data';
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { PhoneInput } from '../ui/phone-input';
@@ -21,7 +21,7 @@ import { Card, CardContent } from '../ui/card';
 import { Award, Repeat, DollarSign, CreditCard, Loader, Sparkles, ShieldCheck, Lock, ArrowRight, CheckCircle2, User } from 'lucide-react';
 import { Separator } from '../ui/separator';
 import { ScrollArea } from '../ui/scroll-area';
-import { cn } from '@/lib/utils';
+import { cn, hexToHSLComponents } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const purchaseSchema = z.object({
@@ -37,6 +37,7 @@ interface PurchaseSheetProps {
     onOpenChange: (open: boolean) => void;
     item: Membership | Package;
     type: 'membership' | 'package';
+    tenant?: Tenant | null;
     onConfirm: (formData: PurchaseFormData, item: Membership | Package, type: 'membership' | 'package') => Promise<void>;
 }
 
@@ -45,6 +46,7 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
     onOpenChange,
     item,
     type,
+    tenant,
     onConfirm,
 }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,9 +70,18 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
         setStep('success');
     };
 
+    const customPrimaryColor = tenant?.bookingPageSettings?.primaryColor;
+    const primaryColorHSL = customPrimaryColor && customPrimaryColor.startsWith('#') 
+      ? hexToHSLComponents(customPrimaryColor) 
+      : customPrimaryColor;
+
     return (
         <Sheet open={open} onOpenChange={(val) => { onOpenChange(val); if(!val) setStep('info'); }}>
-            <SheetContent side="right" className="w-full sm:max-w-2xl p-0 flex flex-col border-l-0 sm:border-l bg-background overflow-hidden">
+            <SheetContent 
+                side="right" 
+                className="w-full sm:max-w-2xl p-0 flex flex-col border-l-0 sm:border-l bg-background overflow-hidden"
+                style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}
+            >
                  <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
@@ -156,7 +167,7 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
                                             <Card className="border-4 rounded-[3rem] shadow-2xl overflow-hidden border-primary/10">
                                                 <CardContent className="p-10 space-y-8">
                                                     <div className="space-y-4">
-                                                        <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 text-lg font-mono" /></div>
+                                                        <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg" /></div>
                                                         <div className="grid grid-cols-2 gap-6"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
                                                     </div>
                                                     <div className="flex items-center gap-3 p-4 bg-muted/20 rounded-2xl text-xs text-muted-foreground font-medium italic">

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -27,7 +26,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { format, getDay, parseISO, parse, isSameDay, isSameMonth } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, hexToHSLComponents } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
 import {
@@ -924,70 +923,81 @@ export default function WalkInPage() {
     return (staff || []).filter(s => s.active && !s.onBreak);
   }, [staff]);
 
-  if (!tenant || !services) return <div className="h-screen flex items-center justify-center bg-background"><Loader className="animate-spin text-primary w-10 h-10" /></div>;
-  if (isClosed) return <div className="h-screen flex items-center justify-center bg-background p-4"><ClosedView schedule={scheduleProfiles?.[0]} logoUrl={logoUrl} tenantName={tenant.name} /></div>;
+  const customPrimaryColor = tenant?.bookingPageSettings?.primaryColor;
+  const primaryColorHSL = customPrimaryColor && customPrimaryColor.startsWith('#') 
+    ? hexToHSLComponents(customPrimaryColor) 
+    : customPrimaryColor;
 
+  if (!tenant || !services) return <div className="h-screen flex items-center justify-center bg-background"><Loader className="animate-spin text-primary w-10 h-10" /></div>;
+  
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body relative">
+    <div 
+        className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body relative"
+        style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}
+    >
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/20 blur-[120px] rounded-full animate-pulse" />
-            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-200/20 blur-[120px] rounded-full animate-pulse" />
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full animate-pulse" />
         </div>
 
-        <AnimatePresence mode="wait">
-            {!entered ? (
-                <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group z-10" onClick={() => setEntered(true)}>
-                    <div className="inline-block p-10 md:p-16 bg-white/60 backdrop-blur-3xl rounded-full shadow-[0_20px_50px_rgba(8,_112,_184,_0.1)] mb-12 md:mb-20 border-2 border-white/50 group-hover:border-primary group-hover:shadow-primary/20 transition-all duration-700 active:scale-95 overflow-hidden">
-                        {logoUrl ? (
-                            <div className="relative w-16 h-16 md:w-32 md:h-32">
-                                <Image src={logoUrl} alt={tenant.name} fill className="object-contain" />
+        {isClosed ? (
+            <div className="h-screen flex items-center justify-center bg-background p-4"><ClosedView schedule={scheduleProfiles?.[0]} logoUrl={logoUrl} tenantName={tenant.name} /></div>
+        ) : (
+            <AnimatePresence mode="wait">
+                {!entered ? (
+                    <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group z-10" onClick={() => setEntered(true)}>
+                        <div className="inline-block p-10 md:p-16 bg-white/60 backdrop-blur-3xl rounded-full shadow-[0_20px_50px_rgba(8,_112,_184,_0.1)] mb-12 md:mb-20 border-2 border-white/50 group-hover:border-primary group-hover:shadow-primary/20 transition-all duration-700 active:scale-95 overflow-hidden">
+                            {logoUrl ? (
+                                <div className="relative w-16 h-16 md:w-32 md:h-32">
+                                    <Image src={logoUrl} alt={tenant.name} fill className="object-cover" />
+                                </div>
+                            ) : (
+                                <ClarityFlowLogo className="w-16 h-16 md:w-32 md:h-32" />
+                            )}
+                        </div>
+                        {wordmarkUrl ? (
+                            <div className="relative h-20 md:h-40 w-full max-w-[600px] mx-auto mb-8">
+                                <Image src={wordmarkUrl} alt={tenant.name} fill className="object-contain" />
                             </div>
                         ) : (
-                            <ClarityFlowLogo className="w-16 h-16 md:w-32 md:h-32" />
+                            <h1 className="text-5xl md:text-[10rem] font-black tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none">{tenant.name || 'Welcome'}</h1>
                         )}
-                    </div>
-                    {wordmarkUrl ? (
-                        <div className="relative h-20 md:h-40 w-full max-w-[600px] mx-auto mb-8">
-                            <Image src={wordmarkUrl} alt={tenant.name} fill className="object-contain" />
-                        </div>
-                    ) : (
-                        <h1 className="text-5xl md:text-[10rem] font-black tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none">{tenant.name || 'Welcome'}</h1>
-                    )}
-                    <p className="text-primary text-sm md:text-4xl font-black tracking-[0.3em] uppercase animate-pulse drop-shadow-sm">Tap to Begin</p>
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-16 md:mt-24 flex justify-center">
-                        <ArrowDown className="w-8 h-8 md:w-12 md:h-12 animate-bounce text-slate-400" />
+                        <p className="text-primary text-sm md:text-4xl font-black tracking-[0.3em] uppercase animate-pulse drop-shadow-sm">Tap to Begin</p>
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-16 md:mt-24 flex justify-center">
+                            <ArrowDown className="w-8 h-8 md:w-12 md:h-12 animate-bounce text-slate-400" />
+                        </motion.div>
                     </motion.div>
-                </motion.div>
-            ) : (
-                <motion.div key="content" className="w-full max-w-5xl mx-auto bg-white/60 border-4 border-white/50 rounded-[3rem] md:rounded-[5rem] shadow-[0_32px_64px_rgba(0,0,0,0.1)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10">
-                    {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
-                    {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
-                        <MemberSetup 
-                            member={{...partyMembers[currentMemberIndex], index: currentMemberIndex}}
-                            partyMembers={partyMembers}
-                            onUpdate={handleMemberUpdate}
-                            memberSubStep={memberSubStep}
-                            services={services} 
-                            staff={activeStaff} 
-                            pricingTiers={pricingTiers || []}
-                            consentForms={consentForms || []}
-                            formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
-                            setFormAnswers={(a: any) => setFormAnswers(p => ({...p, [partyMembers[currentMemberIndex].id]: a}))}
-                            onNext={handleNextSubStep} onBack={handleBack}
-                            isGroup={isGroup} isLastMember={currentMemberIndex === partyMembers.length - 1}
-                            onAddAnother={() => { setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); setCurrentMemberIndex(partyMembers.length); setMemberSubStep('details'); }}
-                            onSubmit={handleSubmit} isSubmitting={isSubmitting}
-                            bannedClient={bannedClient}
-                            existingClientWithBalance={existingClientWithBalance}
-                            isResolvingIdentity={isResolvingIdentity}
-                            matchedAppointment={matchedAppointment}
-                            onAppointmentCheckIn={handleAppointmentCheckIn}
-                        />
-                    )}
-                    {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); }} />}
-                </motion.div>
-            )}
-        </AnimatePresence>
+                ) : (
+                    <motion.div key="content" className="w-full max-w-5xl mx-auto bg-white/60 border-4 border-white/50 rounded-[3rem] md:rounded-[5rem] shadow-[0_32px_64px_rgba(0,0,0,0.1)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10">
+                        {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
+                        {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
+                            <MemberSetup 
+                                member={{...partyMembers[currentMemberIndex], index: currentMemberIndex}}
+                                partyMembers={partyMembers}
+                                onUpdate={handleMemberUpdate}
+                                memberSubStep={memberSubStep}
+                                services={services} 
+                                staff={activeStaff} 
+                                pricingTiers={pricingTiers || []}
+                                consentForms={consentForms || []}
+                                formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
+                                setFormAnswers={(a: any) => setFormAnswers(p => ({...p, [partyMembers[currentMemberIndex].id]: a}))}
+                                onNext={handleNextSubStep} onBack={handleBack}
+                                isGroup={isGroup} isLastMember={currentMemberIndex === partyMembers.length - 1}
+                                onAddAnother={() => { setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); setCurrentMemberIndex(partyMembers.length); setMemberSubStep('details'); }}
+                                onSubmit={handleSubmit} isSubmitting={isSubmitting}
+                                bannedClient={bannedClient}
+                                existingClientWithBalance={existingClientWithBalance}
+                                isResolvingIdentity={isResolvingIdentity}
+                                matchedAppointment={matchedAppointment}
+                                onAppointmentCheckIn={handleAppointmentCheckIn}
+                            />
+                        )}
+                        {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); }} />}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        )}
 
         <AnimatePresence>
             {showBirthdayCelebration && (

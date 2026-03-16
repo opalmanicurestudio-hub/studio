@@ -29,7 +29,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import { cn, hexToHSLComponents } from '@/lib/utils';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card';
 import {
   startOfWeek,
@@ -444,10 +444,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const bookedStaff = useMemo(() => staff.find(s => s.id === bookedStaffId), [staff, bookedStaffId]);
   const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
 
+  const customPrimaryColor = tenant?.bookingPageSettings?.primaryColor;
+  const primaryColorHSL = customPrimaryColor && customPrimaryColor.startsWith('#') 
+    ? hexToHSLComponents(customPrimaryColor) 
+    : customPrimaryColor;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl p-0 flex flex-col border-l-0 sm:border-l bg-background overflow-hidden">
-        <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+      <SheetContent 
+        side="right" 
+        className={cn(isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-2xl', 'flex flex-col p-0 border-l-0 sm:border-l bg-background overflow-hidden')}
+        style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}
+      >
+        <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-8" : "p-8 pb-6")}>
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Booking Experience</span>
