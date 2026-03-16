@@ -101,6 +101,23 @@ const settlementSchema = z.object({
 
 type SettlementFormData = z.infer<typeof settlementSchema>;
 
+const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
+    <Card className="border-2 shadow-sm min-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
+            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                {title}
+            </CardTitle>
+            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+                {value}
+            </div>
+            <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>
+        </CardContent>
+    </Card>
+);
+
 const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfirm }: any) => {
     const isMobile = useIsMobile();
     const methods = useForm<SettlementFormData>({

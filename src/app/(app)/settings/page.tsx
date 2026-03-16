@@ -547,7 +547,7 @@ function SettingsContent() {
                 <SelectTrigger className="w-full h-12 rounded-xl border-2">
                     <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
-                <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                <SelectContent className="rounded-xl border-2 shadow-2xl">
                   {tabs.map(tab => (
                     <SelectItem key={tab.value} value={tab.value} className="font-bold uppercase text-[10px] tracking-widest">
                         <div className="flex items-center gap-2">

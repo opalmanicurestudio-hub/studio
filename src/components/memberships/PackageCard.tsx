@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -84,7 +84,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
         else if (member.payStructure === 'hourly' && member.hourlyRate) labor = (tierDuration / 60) * member.hourlyRate;
         else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) labor = ((tierDuration / 60) * member.hourlyRate) + (tierPrice * (member.commissionRate / 100));
 
-        const burdenedLabor = labor * sessions * (1 + (taxBurden / 100));
+        const burdenedLabor = labor * pack.sessions * (1 + (taxBurden / 100));
         const totalBurden = materialCost + timeValue + burdenedLabor;
         const netProfit = pack.price - totalBurden;
         const margin = pack.price > 0 ? (netProfit / pack.price) * 100 : 0;
