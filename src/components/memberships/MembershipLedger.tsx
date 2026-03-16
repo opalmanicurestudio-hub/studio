@@ -29,7 +29,9 @@ import {
     Wallet,
     Calendar,
     Sparkles,
-    Landmark
+    Landmark,
+    XCircle,
+    CheckCircle2
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -39,11 +41,21 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { collection, doc, writeBatch, increment } from 'firebase/firestore';
-import { type SubscriptionInstance } from '@/lib/data';
+import { type SubscriptionInstance, type Membership } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
     <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
@@ -62,9 +74,10 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
     </Card>
 );
 
-const SubscriptionRow = ({ instance, client, onSettle }: { instance: SubscriptionInstance, client?: any, onSettle: (inst: SubscriptionInstance) => void }) => {
+const SubscriptionRow = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
     const isOverdue = instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate));
     const hasCard = !!client?.cardOnFile?.token;
+    const isNoCommitment = !!membership?.noCommitment;
 
     return (
         <TableRow className="group hover:bg-primary/[0.02] cursor-pointer">
@@ -83,7 +96,10 @@ const SubscriptionRow = ({ instance, client, onSettle }: { instance: Subscriptio
                     </div>
                     <div className="min-w-0">
                         <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{instance.clientName}</p>
-                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{instance.membershipName}</p>
+                        <div className='flex items-center gap-2'>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{instance.membershipName}</p>
+                            {isNoCommitment && <Badge variant="outline" className="h-3.5 px-1 text-[6px] font-black uppercase border-green-500/20 text-green-600 bg-green-50">Flex</Badge>}
+                        </div>
                     </div>
                 </div>
             </TableCell>
@@ -126,6 +142,11 @@ const SubscriptionRow = ({ instance, client, onSettle }: { instance: Subscriptio
                             {hasCard ? <><Zap className="w-3 h-3 mr-1.5" /> Quick Settle</> : "Log Payment"}
                         </Button>
                     )}
+                    {isNoCommitment && instance.status !== 'paid' && (
+                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-destructive hover:bg-destructive/5" onClick={() => onTerminate(instance)}>
+                            <XCircle className="w-4 h-4" />
+                        </Button>
+                    )}
                     {instance.status === 'paid' && instance.settledAt && (
                         <div className="text-right">
                             <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">Settled</p>
@@ -142,11 +163,12 @@ export const MembershipLedger = () => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
-  const { subscriptionInstances, clients, isLoading } = useInventory();
+  const { subscriptionInstances, clients, memberships, isLoading } = useInventory();
   const { toast } = useToast();
 
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [terminatingInstance, setTerminatingInstance] = useState<SubscriptionInstance | null>(null);
 
   const filteredInstances = useMemo(() => {
     if (!subscriptionInstances) return [];
@@ -210,6 +232,32 @@ export const MembershipLedger = () => {
     }
   };
 
+  const handleTerminateSubscription = async () => {
+      if (!terminatingInstance || !firestore || !tenantId) return;
+      const batch = writeBatch(firestore);
+      const now = new Date().toISOString();
+
+      // Update Instance
+      const instanceRef = doc(firestore, `tenants/${tenantId}/subscriptionInstances`, terminatingInstance.id);
+      batch.update(instanceRef, { status: 'cancelled' });
+
+      // Update Client
+      const clientRef = doc(firestore, `tenants/${tenantId}/clients`, terminatingInstance.clientId);
+      batch.update(clientRef, {
+          'subscription.status': 'canceled',
+          activeMembershipId: null
+      });
+
+      try {
+          await batch.commit();
+          toast({ title: "Subscription Terminated", description: `Access revoked for ${terminatingInstance.clientName} as per no-commitment protocol.` });
+          setTerminatingInstance(null);
+      } catch (e) {
+          console.error(e);
+          toast({ variant: 'destructive', title: "Termination Failed" });
+      }
+  };
+
   return (
     <div className="space-y-8">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
@@ -269,7 +317,9 @@ export const MembershipLedger = () => {
                                         key={instance.id} 
                                         instance={instance} 
                                         client={clients.find(c => c.id === instance.clientId)}
+                                        membership={memberships.find(m => m.id === instance.membershipId)}
                                         onSettle={handleSettle}
+                                        onTerminate={setTerminatingInstance}
                                     />
                                 ))}
                             </TableBody>
@@ -283,6 +333,24 @@ export const MembershipLedger = () => {
                 )}
             </CardContent>
         </Card>
+
+        <AlertDialog open={!!terminatingInstance} onOpenChange={(v) => !v && setTerminatingInstance(null)}>
+            <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+                <AlertDialogHeader className="p-6 pb-0">
+                    <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left leading-none">Terminate Subscription</AlertDialogTitle>
+                    <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-2 text-left">
+                        Guest: <strong>{terminatingInstance?.clientName}</strong>
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="p-6 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left">
+                    You are stoping the recurring cycle for this member. Due to the <strong>No-Commitment Protocol</strong>, access can be revoked immediately without penalty. Confirm termination?
+                </div>
+                <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                    <Button onClick={handleTerminateSubscription} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Confirm Termination</Button>
+                    <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </div>
   );
 };

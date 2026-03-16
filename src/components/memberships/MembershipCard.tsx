@@ -1,11 +1,12 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, ListChecks, Clock, Box, Scale, Zap } from 'lucide-react';
+import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent, Sparkles, ArrowRight, Eye, ListChecks, Clock, Box, Scale, Zap, Shield } from 'lucide-react';
 import { type Membership, type Client, Staff, PricingTier } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -139,10 +140,11 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                 </div>
                  <div className="min-w-0">
                     <CardTitle className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-none mb-1.5 truncate">{membership.name}</CardTitle>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <Badge variant="outline" className="h-5 px-2 rounded-full font-black text-[8px] uppercase tracking-widest border-indigo-500/20 text-indigo-600 bg-white">
                             ${membership.price.toFixed(0)}/{membership.interval === 'monthly' ? 'MO' : 'YR'}
                         </Badge>
+                        {membership.noCommitment && <Badge className="h-5 px-2 rounded-full font-black text-[8px] uppercase bg-green-500 text-white border-none shadow-sm">No Commitment</Badge>}
                         {membership.isPrivate && <Badge className="h-5 px-2 rounded-full font-black text-[8px] uppercase bg-slate-900 text-white border-none">Private</Badge>}
                     </div>
                 </div>
@@ -290,7 +292,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
       
       <div className="p-3 border-t bg-muted/5 mt-auto text-center">
         <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn" onClick={() => onViewUsers(membership)}>
-            Examine Active Portfolio <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
+            Examine Active Portfolio <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover:btn:translate-x-1" />
         </Button>
       </div>
     </Card>

@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
 import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale, Zap, Shield, CheckCircle2 } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -148,7 +148,7 @@ const ProfitabilityAnalysis = ({
             const burdenedLabor = labor * (1 + (taxBurden / 100));
             const totalBurden = materialCost + timeValue + burdenedLabor;
             const netProfit = price - totalBurden;
-            const margin = price > 0 ? (studioNet / price) * 100 : 0;
+            const margin = price > 0 ? (netProfit / price) * 100 : 0;
 
             return {
                 id: member.id,
@@ -248,6 +248,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   const [price, setPrice] = useState<number>(0);
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [noCommitment, setNoCommitment] = useState(false);
   
   const [includedServices, setIncludedServices] = useState<MembershipPerk[]>([]);
   const [includedAddOns, setIncludedAddOns] = useState<MembershipPerk[]>([]);
@@ -272,6 +273,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setPrice(membershipToEdit.price);
       setInterval(membershipToEdit.interval);
       setIsPrivate(membershipToEdit.isPrivate);
+      setNoCommitment(!!membershipToEdit.noCommitment);
       setIncludedServices(membershipToEdit.includedServices || []);
       setIncludedAddOns(membershipToEdit.includedAddOns || []);
       setIncludedProducts(membershipToEdit.includedProducts || []);
@@ -287,6 +289,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setPrice(0);
       setInterval('monthly');
       setIsPrivate(false);
+      setNoCommitment(false);
       setIncludedServices([]);
       setIncludedAddOns([]);
       setIncludedProducts([]);
@@ -307,6 +310,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       price,
       interval,
       isPrivate,
+      noCommitment,
       includedServices,
       includedAddOns,
       includedProducts,
@@ -366,12 +370,21 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                     </Select>
                 </div>
             </div>
-             <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 mt-4 shadow-inner">
-                <div className="space-y-1 text-left">
-                    <Label htmlFor="mem-private" className="text-lg font-black uppercase tracking-tight">Private Access</Label>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Hide from the public booking directory</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
+                    <div className="space-y-1 text-left">
+                        <Label htmlFor="mem-private" className="text-base font-black uppercase tracking-tight">Private Access</Label>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Hide from directory</p>
+                    </div>
+                    <Switch id="mem-private" checked={isPrivate} onCheckedChange={setIsPrivate} className="scale-125" />
                 </div>
-                <Switch id="mem-private" checked={isPrivate} onCheckedChange={setIsPrivate} className="scale-125" />
+                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
+                    <div className="space-y-1 text-left">
+                        <Label htmlFor="mem-commitment" className="text-base font-black uppercase tracking-tight">No Commitment</Label>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Cancel anytime protocol</p>
+                    </div>
+                    <Switch id="mem-commitment" checked={noCommitment} onCheckedChange={setNoCommitment} className="scale-125" />
+                </div>
             </div>
         </div>
       </div>

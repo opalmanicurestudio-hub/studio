@@ -1,15 +1,16 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box, Clock, Scale, CheckCircle2 } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { cn } from '@/lib/utils';
 import { type Package, type Service, type Client, Staff, PricingTier } from '@/lib/data';
-import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -114,7 +115,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
 
   return (
     <Card className={cn(
-        "transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col border-teal-500/20 bg-white hover:border-teal-500/50 hover:shadow-2xl hover:shadow-teal-500/10",
+        "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col border-teal-500/20 bg-white hover:border-teal-500/50 hover:shadow-2xl hover:shadow-teal-500/10",
         !pack.isPrivate && "shadow-sm"
     )}>
       <CardHeader className="bg-teal-500/5 border-b p-6 sm:p-8">
@@ -153,7 +154,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     </Tooltip>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/10 text-destructive" onClick={() => onDelete(membership.id)}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/10 text-destructive" onClick={() => onDelete(pack.id)}>
                                 <Trash2 className="h-4 w-4" />
                             </Button>
                         </TooltipTrigger>

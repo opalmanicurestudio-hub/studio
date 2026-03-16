@@ -546,6 +546,7 @@ export type Membership = {
   price: number;
   interval: 'monthly' | 'yearly';
   isPrivate: boolean;
+  noCommitment?: boolean;
   includedServices?: MembershipPerk[];
   includedAddOns?: MembershipPerk[];
   includedProducts?: MembershipPerk[];
