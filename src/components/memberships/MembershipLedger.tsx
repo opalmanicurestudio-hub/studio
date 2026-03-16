@@ -35,7 +35,8 @@ import {
     CheckCircle2,
     DollarSign,
     CreditCard,
-    ArrowRight
+    ArrowRight,
+    Info
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -45,7 +46,7 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { collection, doc, writeBatch, increment } from 'firebase/firestore';
-import { type SubscriptionInstance, type Membership } from '@/lib/data';
+import { type SubscriptionInstance, type Membership, type Staff, type Client } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -304,6 +305,7 @@ export const MembershipLedger = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [terminatingInstance, setTerminatingInstance] = useState<SubscriptionInstance | null>(null);
   const [settlingInstance, setSettlingInstance] = useState<SubscriptionInstance | null>(null);
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
 
   const filteredInstances = useMemo(() => {
     if (!subscriptionInstances) return [];
@@ -323,6 +325,88 @@ export const MembershipLedger = () => {
     const arrears = subscriptionInstances.filter(i => (i.status === 'failed' || i.status === 'pending') && isPast(parseISO(i.dueDate)) && !isToday(parseISO(i.dueDate))).reduce((acc, i) => acc + i.amount, 0);
     return { mrr, pending, arrears };
   }, [subscriptionInstances]);
+
+  const handleRunBatch = async () => {
+      if (!firestore || !tenantId || isProcessingBatch) return;
+      
+      // Select all pending/failed instances that have a card on file
+      const autoSettlable = filteredInstances.filter(i => {
+          if (i.status === 'paid' || i.status === 'cancelled') return false;
+          const client = clients.find(c => c.id === i.clientId);
+          return !!client?.cardOnFile?.token;
+      });
+
+      if (autoSettlable.length === 0) {
+          toast({ title: "No Actions Required", description: "All eligible subscriptions are settled or pending manual payment." });
+          return;
+      }
+
+      setIsProcessingBatch(true);
+      const batch = writeBatch(firestore);
+      const now = new Date().toISOString();
+
+      autoSettlable.forEach(instance => {
+          const isVirtual = instance.id.startsWith('virtual-');
+          const instanceRef = isVirtual 
+              ? doc(collection(firestore, `tenants/${tenantId}/subscriptionInstances`))
+              : doc(firestore, `tenants/${tenantId}/subscriptionInstances`, instance.id);
+          
+          const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+          const client = clients.find(c => c.id === instance.clientId);
+
+          const txn: Omit<Transaction, 'id'> = {
+              date: now,
+              description: `Automated Membership Payment: ${instance.membershipName}`,
+              clientOrVendor: instance.clientName,
+              clientId: instance.clientId,
+              type: 'income',
+              context: 'Business',
+              category: 'Membership Revenue',
+              amount: instance.amount,
+              paymentMethod: 'Card on File',
+              paymentMethodIdentifier: `Vault: ${client?.cardOnFile?.brand} ****${client?.cardOnFile?.last4}`,
+              hasReceipt: false,
+          };
+
+          if (isVirtual) {
+              batch.set(instanceRef, {
+                  id: instanceRef.id,
+                  clientId: instance.clientId,
+                  clientName: instance.clientName,
+                  membershipId: instance.membershipId,
+                  membershipName: instance.membershipName,
+                  amount: instance.amount,
+                  dueDate: instance.dueDate,
+                  status: 'paid',
+                  settledAt: now,
+                  transactionId: txnRef.id,
+                  paymentMethod: 'Card on File'
+              });
+          } else {
+              batch.update(instanceRef, { status: 'paid', settledAt: now, transactionId: txnRef.id, paymentMethod: 'Card on File' });
+          }
+
+          batch.set(txnRef, { ...txn, id: txnRef.id });
+
+          const clientRef = doc(firestore, `tenants/${tenantId}/clients`, instance.clientId);
+          batch.update(clientRef, {
+              'subscription.status': 'active',
+              'subscription.nextBillingDate': format(addMonths(parseISO(instance.dueDate), 1), "yyyy-MM-dd'T'HH:mm:ss.SSSxxx"),
+              'subscription.perkUsage': {},
+              'subscription.perkLastUsed': now
+          });
+      });
+
+      try {
+          await batch.commit();
+          toast({ title: "Automated Batch Complete", description: `Processed ${autoSettlable.length} recurring distributions.` });
+      } catch (e) {
+          console.error(e);
+          toast({ variant: 'destructive', title: "Batch Error" });
+      } finally {
+          setIsProcessingBatch(false);
+      }
+  };
 
   const handleSettleConfirm = async (data: SettlementFormData) => {
     if (!settlingInstance || !firestore || !tenantId) return;
@@ -431,12 +515,22 @@ export const MembershipLedger = () => {
 
         <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
             <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
-                <div className="flex flex-col md:flex-row items-center gap-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div className="space-y-1">
+                        <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Accounts Receivable</CardTitle>
+                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Monitor recurring revenue pipelines.</CardDescription>
+                    </div>
+                    <Button onClick={handleRunBatch} disabled={isProcessingBatch || isLoading} className="h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20 w-full md:w-auto">
+                        {isProcessingBatch ? <Loader className="animate-spin mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
+                        Run Subscription Batch
+                    </Button>
+                </div>
+                <div className="flex flex-col md:flex-row items-center gap-4 pt-4 border-t border-dashed">
                     <div className="relative flex-1 w-full">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                         <Input 
                             placeholder="SEARCH BY GUEST OR CLUB NAME..." 
-                            className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                            className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -467,10 +561,10 @@ export const MembershipLedger = () => {
                         <Table>
                             <TableHeader className="bg-muted/10 border-b-2">
                                 <TableRow>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900">Member & Tier</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Yield Value</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Settlement Date</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Protocol State</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Member & Tier</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Yield Value</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Settlement Date</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Protocol State</TableHead>
                                     <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>

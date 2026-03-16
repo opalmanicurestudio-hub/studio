@@ -238,7 +238,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
                         <div className='space-y-1 text-left'>
                             <Label htmlFor="public-toggle-edit" className="text-base font-black uppercase tracking-tight">Public Registry</Label>
-                            <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Show on the guest booking page</p>
+                            <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Show on the guest booking page</p>
                         </div>
                         <Controller name="showOnPublicPage" control={control} render={({ field }) => ( <Switch id="public-toggle-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
                     </div>
@@ -409,7 +409,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
                                 <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[9px] tracking-widest bg-muted/5 shadow-inner"><SelectValue placeholder="SELECT..." /></SelectTrigger>
+                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[9px] tracking-widest bg-muted/5"><SelectValue placeholder="SELECT..." /></SelectTrigger>
                                         <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             {['Spouse', 'Partner', 'Parent', 'Guardian', 'Sibling', 'Child', 'Friend', 'Other'].map(r => ( <SelectItem key={r} value={r} className="font-bold uppercase text-[9px] tracking-widest">{r.toUpperCase()}</SelectItem> ))}
                                         </SelectContent>

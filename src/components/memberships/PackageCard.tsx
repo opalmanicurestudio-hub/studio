@@ -233,7 +233,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                                         <AvatarImage src={sa.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[7px]">{(sa.name || 'S')[0]}</AvatarFallback>
                                     </Avatar>
-                                    <div className="min-w-0 text-left">
+                                    <div className="min-w-0">
                                         <p className="text-[10px] font-black uppercase text-slate-900 leading-none mb-0.5">{sa.name.split(' ')[0]}</p>
                                         <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p>
                                     </div>
