@@ -58,7 +58,6 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-// Utility to recursively sanitize data for Firestore (remove undefined)
 const sanitizeForFirestore = (obj: any): any => {
     if (obj === null || typeof obj !== 'object') return obj;
     if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
@@ -296,7 +295,6 @@ function PlannerPageContent() {
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
 
-    // 1. Core Cancellation Update
     batch.update(appointmentRef, { 
         status: 'cancelled', 
         cancellationReason: data.reason, 
@@ -308,7 +306,6 @@ function PlannerPageContent() {
         batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), { status: 'cancelled', cancellationReason: data.reason, tenantId });
     }
 
-    // 2. Financial Logging
     if (data.chargeFee && data.feeAmount > 0) {
         if (data.paymentMethod === 'card_on_file') {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { 
@@ -322,11 +319,9 @@ function PlannerPageContent() {
         }
     }
 
-    // 3. Forfeit Logic (Memberships & Packages)
     if (currentClient && (data.reason === 'late' || data.reason === 'no-show' || data.reason === 'client_request')) {
         const isLateOrNoShow = data.reason === 'late' || data.reason === 'no-show';
         
-        // Handle Membership Forfeit
         if (currentClient.activeMembershipId) {
             const membership = memberships.find(m => m.id === currentClient.activeMembershipId);
             const shouldForfeit = (data.reason === 'no-show' && membership?.forfeitOnNoShow) || (data.reason === 'late' && membership?.forfeitOnLateCancel);
@@ -345,7 +340,6 @@ function PlannerPageContent() {
             }
         }
 
-        // Handle Package Forfeit
         const activePack = currentClient.activePackages?.find(p => {
             const pkgDef = packages.find(pkg => pkg.id === p.packageId);
             return pkgDef?.serviceId === selectedAppointment.serviceId;
@@ -498,8 +492,6 @@ function PlannerPageContent() {
     const allComplete = completedIds.length >= allPartIds.length;
 
     const batch = writeBatch(firestore);
-    
-    // CRITICAL FIX: Recursively sanitize checkoutState to remove ALL undefined values
     const sanitizedCheckoutState = sanitizeForFirestore(checkoutState);
 
     if (checkoutState.saveAsCustomFormula && checkoutState.customFormulaName && apt.clientId) {

@@ -53,7 +53,8 @@ import {
   Smartphone,
   CreditCard,
   Shield,
-  Layout
+  Layout,
+  Type
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -77,7 +78,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { nanoid } from 'nanoid';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { format, parseISO, isSameMonth } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -813,7 +814,7 @@ function SettingsContent() {
                             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><Layout className="w-4 h-4"/> Brand Identity</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                                 <div className="space-y-3">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Brand Logo (Kiosk & Portal)</Label>
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Brand Icon (Logo)</Label>
                                     <ImageUpload 
                                         onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, logoUrl: url}}))} 
                                         initialImage={tenantData.bookingPageSettings?.logoUrl} 
@@ -821,12 +822,20 @@ function SettingsContent() {
                                     <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Replaces default branding on guest portals.</p>
                                 </div>
                                 <div className="space-y-3">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Backdrop</Label>
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Wordmark Logo</Label>
                                     <ImageUpload 
-                                        onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroImageUrl: url}}))} 
-                                        initialImage={tenantData.bookingPageSettings?.heroImageUrl} 
+                                        onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, wordmarkUrl: url}}))} 
+                                        initialImage={tenantData.bookingPageSettings?.wordmarkUrl} 
                                     />
+                                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Replaces business name text in headers.</p>
                                 </div>
+                            </div>
+                            <div className="space-y-3">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Backdrop</Label>
+                                <ImageUpload 
+                                    onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroImageUrl: url}}))} 
+                                    initialImage={tenantData.bookingPageSettings?.heroImageUrl} 
+                                />
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 <div className="space-y-2 text-left">

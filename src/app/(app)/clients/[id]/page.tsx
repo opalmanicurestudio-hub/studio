@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -105,31 +106,31 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
             <div className={cn("absolute top-0 left-0 w-1.5 h-full", client.status === 'banned' ? "bg-destructive" : "bg-primary")} />
             <CardContent className="p-5 md:p-6 flex flex-wrap gap-x-8 gap-y-4 text-left">
                 {client.status === 'banned' && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Ban className="w-4 h-4 text-white" /></div>
                         <span className="text-[10px] md:text-xs font-black text-destructive uppercase tracking-widest">Banned Guest</span>
                     </div>
                 )}
                 {client.intel?.hasIncidents && (
-                     <div className="flex items-center gap-3">
+                     <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-purple-50/10 rounded-xl border border-purple-500/20 text-purple-600"><ShieldAlert className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-purple-600">Incident History</span>
                     </div>
                 )}
                 {client.medicalNotes && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-red-500/10 rounded-xl border border-red-500/20 text-red-600"><ShieldPlus className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-red-600 uppercase tracking-widest">Medical Alert</span>
                     </div>
                 )}
                 {client.allergyNotes && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-orange-500/10 rounded-xl border-orange-500/20 text-orange-600 border"><AlertTriangle className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest">Allergy Warning</span>
                     </div>
                 )}
                  {client.sensoryNeeds && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-blue-500/10 rounded-xl border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest">Sensory Intel</span>
                     </div>
@@ -148,7 +149,7 @@ const AppointmentHistoryCard = ({
 }) => {
   const total = Number((appointment.revenue || appointment.service?.price || 0)) + Number(appointment.tipAmount || 0);
   return (
-    <Card className="flex flex-col border-2 rounded-[1.5rem] shadow-sm overflow-hidden group hover:border-primary/20 transition-all bg-white">
+    <Card className="flex flex-col border-2 rounded-[1.5rem] shadow-sm overflow-hidden group hover:border-primary/20 transition-all bg-white text-left">
       <CardContent className="p-5 space-y-4 flex-1">
         <div className="flex justify-between items-start">
             <div className="min-w-0 flex-1 text-left">
@@ -327,24 +328,24 @@ export default function ClientDetailPage() {
                                 {client.status === 'banned' && <Badge variant="destructive" className="animate-pulse font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Hard Restriction</Badge>}
                             </div>
                         </div>
-                        <div className="flex flex-wrap justify-center sm:justify-start gap-x-6 sm:gap-x-10 gap-y-4 pt-2 w-full">
+                        <div className="flex flex-wrap justify-center sm:justify-start gap-x-6 sm:gap-x-10 gap-y-4 pt-2 w-full text-left">
                             {isOwnerOrAdmin ? (
-                                <div className="space-y-1 min-w-0 max-w-full text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
-                                    <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{client.email}</a>
-                                    <p className="text-xs md:text-sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
+                                <div className="space-y-1 min-w-0 max-w-full text-left text-left">
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Verified Contact</p>
+                                    <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full text-left">{client.email}</a>
+                                    <p className="text-xs md:text-sm font-black tracking-tight text-slate-700 text-left">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
                                 </div>
                             ) : (
-                                <div className="space-y-1">
+                                <div className="space-y-1 text-left">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
                                     <p className="text-xs md:text-sm font-black uppercase tracking-tight text-muted-foreground italic">Contact Restricted</p>
                                 </div>
                             )}
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-left">
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Discovery Source</p>
                                 <p className="text-xs md:text-sm font-black uppercase tracking-tight text-slate-700">{client.intel?.referralSource || 'Unknown'}</p>
                             </div>
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-left">
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Strategic Origin</p>
                                 <div className="flex items-center gap-2">
                                     <Badge variant="secondary" className="h-6 px-2.5 rounded-lg border-2 font-black text-[8px] md:text-[9px] uppercase tracking-widest bg-white shadow-sm flex items-center gap-1.5 w-fit">
@@ -387,7 +388,7 @@ export default function ClientDetailPage() {
                                             const progress = (used / perk.quantity) * 100;
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
-                                                    <CardContent className="p-5 space-y-4">
+                                                    <CardContent className="p-5 space-y-4 text-left">
                                                         <div className="flex justify-between items-start gap-2">
                                                             <div className="min-w-0">
                                                                 <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
@@ -398,7 +399,7 @@ export default function ClientDetailPage() {
                                                             </div>
                                                         </div>
                                                         <div className="space-y-2">
-                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Allotment Usage</span>
                                                                 <span>{used} / {perk.quantity}</span>
                                                             </div>
@@ -425,7 +426,7 @@ export default function ClientDetailPage() {
                                                             </div>
                                                         </div>
                                                         <div className="space-y-2">
-                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Allotment Usage</span>
                                                                 <span>{used} / {perk.quantity}</span>
                                                             </div>
@@ -440,25 +441,25 @@ export default function ClientDetailPage() {
                             )}
 
                             <Card className="border-2 shadow-sm rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-white text-left">
-                                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 pb-4">
+                                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 pb-4 text-left">
                                     <CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><BadgeInfo className="w-4 h-4 text-primary" /> Dossier Details</CardTitle>
                                 </CardHeader>
-                                <CardContent className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10">
+                                <CardContent className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 text-left">
                                     <div className="space-y-6">
-                                        <div className="space-y-1">
+                                        <div className="space-y-1 text-left">
                                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Birth Milestone</p>
                                             <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
                                         </div>
-                                        {client.address && <div className="space-y-1 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
+                                        {client.address && <div className="space-y-1 text-left text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
                                     </div>
-                                    <div className="space-y-6">
+                                    <div className="space-y-6 text-left">
                                         {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight">{client.emergencyContact.name}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{client.emergencyContact.relationship}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
                                     </div>
                                 </CardContent>
                             </Card>
                         </TabsContent>
 
-                        <TabsContent value="history" className="m-0 space-y-8 md:space-y-10 animate-in fade-in duration-500">
+                        <TabsContent value="history" className="m-0 space-y-8 md:space-y-10 animate-in fade-in duration-500 text-left">
                             <div className="space-y-4">
                                 <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 text-left">Scheduled Events</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -486,13 +487,13 @@ export default function ClientDetailPage() {
                                 </div>
                                 
                                 {client.customFormulas && client.customFormulas.length > 0 ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
                                         {client.customFormulas.map((formula) => (
                                             <Card key={formula.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group text-left">
                                                 <CardHeader className="bg-muted/5 border-b p-5 flex flex-row items-center justify-between text-left">
-                                                    <div className="space-y-0.5">
+                                                    <div className="space-y-0.5 text-left">
                                                         <CardTitle className="text-xs font-black uppercase tracking-tight">{formula.name}</CardTitle>
-                                                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Established {format(safeDate(formula.date), 'MMM d, yyyy')}</p>
+                                                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Established {format(safeDate(formula.date), 'MMM d, yyyy')}</p>
                                                     </div>
                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeleteFormula(formula.id)}>
                                                         <Trash2 className="w-3.5 h-3.5" />
@@ -508,7 +509,7 @@ export default function ClientDetailPage() {
                                                         ))}
                                                     </div>
                                                     {formula.notes && (
-                                                        <div className="pt-2">
+                                                        <div className="pt-2 text-left">
                                                             <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1">Audit Notes</p>
                                                             <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3">"{formula.notes}"</p>
                                                         </div>
@@ -546,7 +547,7 @@ export default function ClientDetailPage() {
 
                             <Separator className="border-dashed" />
 
-                            <div className="space-y-4">
+                            <div className="space-y-4 text-left">
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Certified Redemptions & Waivers</h3>
                                 <div className="grid gap-3">
                                     {clientRedemptions.map(r => (
@@ -578,7 +579,7 @@ export default function ClientDetailPage() {
                     </Tabs>
                 </div>
 
-                <div className="lg:col-span-1 space-y-8">
+                <div className="lg:col-span-1 space-y-8 text-left">
                     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white text-left">
                         <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
                             <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Financial Vault</CardTitle>
@@ -674,9 +675,9 @@ export default function ClientDetailPage() {
                 </div>
                 <div className="space-y-4 text-left">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Distribution Method</p>
-                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left">
+                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left text-left">
                         <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
-                        <div className="text-left">
+                        <div className="text-left text-left">
                             <p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile?.brand} •••• {client.cardOnFile?.last4}</p>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase">Authorized Vault Access</p>
                         </div>

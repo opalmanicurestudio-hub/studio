@@ -822,8 +822,8 @@ export default function WalkInPage() {
           };
           setConfirmedParty([ticketData]);
 
-          if (isBirthdayToday(matchedClient?.birthday)) {
-              setBirthdayName(matchedClient?.name || 'Guest');
+          if (matchedClient && isBirthdayToday(matchedClient.birthday)) {
+              setBirthdayName(matchedClient.name || 'Guest');
               setShowBirthdayCelebration(true);
           } else {
               setStep('confirmation');
@@ -855,8 +855,8 @@ export default function WalkInPage() {
             let matchedClient = clients?.find(c => (member.email && c.email.toLowerCase() === member.email.toLowerCase()) || (member.phone && c.phone === member.phone));
             let clientId = matchedClient?.id;
 
-            if (isBirthdayToday(matchedClient?.birthday)) {
-                birthdayMemberName = matchedClient?.name || member.name;
+            if (matchedClient && isBirthdayToday(matchedClient.birthday)) {
+                birthdayMemberName = matchedClient.name || member.name;
             }
 
             if (!clientId) {
@@ -918,6 +918,7 @@ export default function WalkInPage() {
 
   const isClosed = !isBusinessOpen(new Date(), scheduleProfiles?.[0]).open;
   const logoUrl = tenant?.bookingPageSettings?.logoUrl;
+  const wordmarkUrl = tenant?.bookingPageSettings?.wordmarkUrl;
 
   const activeStaff = useMemo(() => {
     return (staff || []).filter(s => s.active && !s.onBreak);
@@ -945,7 +946,13 @@ export default function WalkInPage() {
                             <ClarityFlowLogo className="w-16 h-16 md:w-32 md:h-32" />
                         )}
                     </div>
-                    <h1 className="text-5xl md:text-[10rem] font-black tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none">Welcome</h1>
+                    {wordmarkUrl ? (
+                        <div className="relative h-20 md:h-40 w-full max-w-[600px] mx-auto mb-8">
+                            <Image src={wordmarkUrl} alt={tenant.name} fill className="object-contain" />
+                        </div>
+                    ) : (
+                        <h1 className="text-5xl md:text-[10rem] font-black tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none">{tenant.name || 'Welcome'}</h1>
+                    )}
                     <p className="text-primary text-sm md:text-4xl font-black tracking-[0.3em] uppercase animate-pulse drop-shadow-sm">Tap to Begin</p>
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-16 md:mt-24 flex justify-center">
                         <ArrowDown className="w-8 h-8 md:w-12 md:h-12 animate-bounce text-slate-400" />

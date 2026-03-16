@@ -829,7 +829,7 @@ export const MembershipLedger = () => {
                             </div>
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Gateway Status</span>
                         </div>
-                        <CardTitle className="text-sm font-black uppercase tracking-widest">
+                        <CardTitle className="text-sm font-black uppercase tracking-widest text-left">
                             {selectedTenant?.paymentGateway?.toUpperCase() || 'NONE CONNECTED'}
                         </CardTitle>
                     </CardHeader>

@@ -296,7 +296,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   </div>
                 </div>
 
-                <div className="space-y-4 pt-4 border-t border-dashed">
+                <div className="space-y-4 pt-4 border-t border-dashed text-left">
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Compliance & Digital Intake</h3>
                     <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-4 shadow-inner">
                         <div className="flex items-center justify-between">
@@ -325,7 +325,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[1.5rem] p-4 shadow-xl"><Wallet className="h-5 w-5" /><AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Accounting Alert</AlertTitle><AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">Client owes <strong>${Number(client.outstandingBalance).toFixed(2)}</strong>. Settle at checkout.</AlertDescription></Alert></motion.div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 text-left">
                   <Button variant="outline" className="h-10 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest" asChild><Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-3.5 w-3.5" /> Profile</Link></Button>
                   <Button variant="outline" className="h-10 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onCancel(appointment.id); }}><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel</Button>
                 </div>
@@ -334,8 +334,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               <Separator className="bg-muted/50" />
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between"><h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Treatment Details</h3><Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"><PlusCircle className="w-3 h-3 mr-1" />Add Part</Button></div>
-                <Card className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
+                <div className="flex items-center justify-between text-left"><h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Details</h3><Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"><PlusCircle className="w-3 h-3 mr-1" />Add Part</Button></div>
+                <Card className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden text-left">
                   <CardContent className={isMobile ? "p-4 space-y-4" : "p-5 space-y-4"}>
                     <div className="flex justify-between items-start gap-4">
                       <div className="space-y-1 min-w-0 text-left"><p className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p><div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest"><Clock className="w-2.5 h-2.5" /> {service.duration}m</div><div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-primary/10 text-left"><Avatar className="h-5 w-5 border shadow-sm"><AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback></Avatar><span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span></div></div>
@@ -380,7 +380,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   )}
                   <Card className="rounded-[1.5rem] border-2 bg-muted/5">
                     <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><FileText className="w-3 h-3" /> Discovery Notes</CardTitle></CardHeader>
-                    <CardContent className="p-4 pt-0"><p className="text-[11px] font-medium text-slate-600 leading-relaxed italic text-left">"{client.notes?.general || 'No session notes provided.'}"</p></CardContent>
+                    <CardContent className="p-4 pt-0 text-left"><p className="text-[11px] font-medium text-slate-600 leading-relaxed italic">"{client.notes?.general || 'No session notes provided.'}"</p></CardContent>
                   </Card>
                 </div>
               </div>
