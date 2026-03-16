@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -105,12 +106,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const { toast } = useToast();
   const { firestore } = useFirebase();
 
-  const isOwnerOrAdmin = role === 'owner' || role === 'admin';
-  const [elapsedTime, setElapsedTime] = useState<string | null>(null);
-  const [isRunningOver, setIsRunningOver] = useState(false);
-  
-  const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
-
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -215,6 +210,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return { revenue, breakEven, profit: revenue - breakEven };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
+  const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
+  const [elapsedTime, setElapsedTime] = useState<string | null>(null);
+  const [isRunningOver, setIsRunningOver] = useState(false);
+  
+  const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
+
   if (!mounted || !open) return null;
 
   const handleCopyCheckInLink = () => {
@@ -286,7 +287,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <Badge variant="outline" className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest border-2"><UserIcon className="w-2.5 h-2.5 mr-1 opacity-40" /> Guest</Badge>
                       {client.activeMembershipId && <Badge className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest bg-indigo-600 text-white border-none shadow-md"><Award className="w-2.5 h-2.5 mr-1" /> Member</Badge>}
                     </div>
-                    {isOwnerOrAdmin && (
+                    {isOwnerOrAdminUser && (
                         <div className="flex flex-col gap-1 pt-2">
                             {client.email && <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center justify-center sm:justify-start gap-2"><Mail className="w-3 h-3 opacity-40" /> {client.email}</p>}
                             {client.phone && <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center justify-center sm:justify-start gap-2"><Phone className="w-3 h-3 opacity-40" /> {formatPhoneNumber(client.phone)}</p>}
@@ -358,7 +359,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </Card>
               </div>
 
-              {isOwnerOrAdmin && financialData && (
+              {isOwnerOrAdminUser && financialData && (
                 <div className="space-y-4">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Yield Analysis</h3>
                   <div className="grid grid-cols-2 gap-3">

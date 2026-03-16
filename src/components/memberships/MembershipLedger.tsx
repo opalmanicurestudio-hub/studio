@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -627,7 +628,7 @@ export const MembershipLedger = () => {
 
   return (
     <div className="space-y-10">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 text-left">
             <KpiCardInternal title="Active MRR" value={`$${stats.mrr.toFixed(0)}`} icon={TrendingUp} description="Collected this cycle" colorClass="text-primary" />
             <KpiCardInternal title="Projected Dues" value={`$${stats.pending.toFixed(0)}`} icon={Clock} description="Awaiting collection" colorClass="text-indigo-600" />
             <KpiCardInternal title="Arrears Alert" value={`$${stats.arrears.toFixed(0)}`} icon={AlertTriangle} description="Failed/Past due payments" colorClass="text-destructive" />

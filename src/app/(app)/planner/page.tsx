@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -227,7 +228,7 @@ function PlannerPageContent() {
 
                 const nextApt = (appointments || [])
                     .filter(a => a.staffId === staffId && a.id !== apt.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > safeDate(apt.startTime))
-                    .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
+                    .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())[0];
 
                 if (nextApt) {
                     const nextService = services?.find(s => s.id === nextApt.serviceId);
@@ -487,6 +488,9 @@ function PlannerPageContent() {
 
     const batch = writeBatch(firestore);
     
+    // CRITICAL: Sanitize checkoutState to remove undefined values before updating Firestore
+    const sanitizedCheckoutState = JSON.parse(JSON.stringify(checkoutState));
+
     if (checkoutState.saveAsCustomFormula && checkoutState.customFormulaName && apt.clientId) {
         const clientRef = doc(firestore, 'tenants', tenantId, 'clients', apt.clientId);
         const newFormula: CustomFormula = {
@@ -504,7 +508,7 @@ function PlannerPageContent() {
     if (allComplete) {
         batch.update(appointmentRef, {
             status: 'ready_for_checkout',
-            checkoutState,
+            checkoutState: sanitizedCheckoutState,
             actualEndTime: new Date().toISOString(),
         });
         if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
@@ -518,7 +522,7 @@ function PlannerPageContent() {
         }
         involvedIds.forEach(sid => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }); });
     } else {
-        batch.update(appointmentRef, { checkoutState });
+        batch.update(appointmentRef, { checkoutState: sanitizedCheckoutState });
         
         const overrides = checkoutState.serviceStaffOverrides || {};
         const involvedStaffIdsSet = new Set<string>();

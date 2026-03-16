@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -631,8 +632,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
             initialSelected={services.filter(s => includedAddOns.some(p => p.id === s.id))}
         />
         <BrowseProductsDialog
-            open={isProductPerkSelectorOpen}
-            onOpenChange={setIsProductPerkSelectorOpen}
+            open={isProductBrowserOpen}
+            onOpenChange={setIsProductBrowserOpen}
             onSelect={(selected) => setIncludedProducts(selected.map(p => {
                 const existing = includedProducts.find(pk => pk.id === p.id);
                 return { id: p.id, name: p.name, quantity: existing?.quantity || 1 };
