@@ -131,6 +131,7 @@ export type Redemption = {
     date: string; 
     staffId?: string;
     isForfeit?: boolean;
+    isRollover?: boolean;
 };
 
 export type CardOnFile = {

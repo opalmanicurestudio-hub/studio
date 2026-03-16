@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -42,7 +43,9 @@ import {
     Activity,
     Repeat,
     ArrowLeft,
-    Undo2
+    Undo2,
+    RefreshCw,
+    Star
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -51,7 +54,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
-import { collection, doc, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, deleteField } from 'firebase/firestore';
 import { type SubscriptionInstance, type Membership, type Staff, type Client, type Redemption } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -304,7 +307,7 @@ export const MembershipLedger = () => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
-  const { subscriptionInstances, clients, memberships, transactions, redemptions, isLoading } = useInventory();
+  const { subscriptionInstances, clients, memberships, transactions, redemptions, isLoading, staff } = useInventory();
   const { toast } = useToast();
 
   const [activeSubTab, setActiveSubTab] = useState<'pending' | 'payments' | 'redemptions'>('pending');
@@ -519,7 +522,7 @@ export const MembershipLedger = () => {
       const clientRef = doc(firestore, `tenants/${tenantId}/clients`, terminatingInstance.clientId);
       batch.update(clientRef, {
           'subscription.status': 'canceled',
-          activeMembershipId: deleteField()
+          activeMembershipId: deleteField() as any
       });
 
       try {
@@ -565,7 +568,7 @@ export const MembershipLedger = () => {
                                 {activeSubTab === 'pending' ? 'Accounts Receivable' : activeSubTab === 'payments' ? 'Subscription Receipts' : 'Benefit Utilization Audit'}
                             </CardTitle>
                             <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
-                                {activeSubTab === 'pending' ? 'Monitor recurring revenue pipelines.' : activeSubTab === 'payments' ? 'History of settled recurring dues.' : 'Audit log of perk redemptions and usage.'}
+                                {activeSubTab === 'pending' ? 'Monitor recurring revenue pipelines.' : activeSubTab === 'payments' ? 'History of settled recurring dues.' : 'Audit log of perk redemptions, rollovers, and forfeits.'}
                             </CardDescription>
                         </div>
                         {activeSubTab === 'pending' && (
@@ -669,9 +672,9 @@ export const MembershipLedger = () => {
                                 <Table>
                                     <TableHeader className="bg-muted/10 border-b-2">
                                         <TableRow>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Perk Redeemed</TableHead>
+                                            <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Perk Event</TableHead>
                                             <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Member Account</TableHead>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Origin Tier</TableHead>
+                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Protocol Status</TableHead>
                                             <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Timestamp</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -680,17 +683,22 @@ export const MembershipLedger = () => {
                                             const rClient = clients.find(c => c.id === r.clientId);
                                             return (
                                                 <TableRow key={r.id} className="hover:bg-muted/5 transition-colors">
-                                                    <TableCell className="p-6">
-                                                        <div className="text-left flex items-center gap-3">
-                                                            <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-600 shadow-inner">
-                                                                <Star className="w-4 h-4" />
+                                                    <TableCell className="p-6 text-left">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={cn("p-2 rounded-xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.isRollover ? "bg-blue-500/10 text-blue-600" : "bg-indigo-500/10 text-indigo-600")}>
+                                                                {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.isRollover ? <RefreshCw className="w-4 h-4" /> : <Star className="w-4 h-4" />}
                                                             </div>
                                                             <p className="font-black uppercase tracking-tight text-xs text-slate-900">{r.serviceName}</p>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-left font-black uppercase text-[10px] text-slate-600">{rClient?.name || 'Guest'}</TableCell>
                                                     <TableCell className="text-left">
-                                                        <Badge variant="outline" className="h-5 px-2 border-2 border-indigo-500/20 bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase">{r.offeringName}</Badge>
+                                                        <Badge 
+                                                            variant={r.isForfeit ? "destructive" : r.isRollover ? "outline" : "secondary"} 
+                                                            className={cn("h-5 px-2 font-black text-[8px] uppercase", r.isRollover && "border-blue-500/20 text-blue-600 bg-blue-50")}
+                                                        >
+                                                            {r.isForfeit ? "FORFEITED" : r.isRollover ? "ROLLED OVER" : "REDEEMED"}
+                                                        </Badge>
                                                     </TableCell>
                                                     <TableCell className="text-right pr-10 font-black font-mono text-xs text-slate-400">{format(new Date(r.date), 'MMM d, p')}</TableCell>
                                                 </TableRow>
@@ -733,15 +741,15 @@ export const MembershipLedger = () => {
                         <Button variant="outline" asChild className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm">
                             <Link href="/settings?tab=integrations">Configure Gateway</Link>
                         </Button>
-                    </CardContent>
+                    </CardHeader>
                 </Card>
 
                 <div className="p-6 rounded-[2.5rem] border-2 border-dashed bg-primary/[0.02] flex items-start gap-4 text-left shadow-inner">
                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                     <div className="space-y-1">
-                        <p className="text-[10px] font-black uppercase text-primary">Protocol Insight</p>
+                        <p className="text-[10px] font-black uppercase text-primary">Operational Intelligence</p>
                         <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
-                            The **Redemption Log** identifies how frequently guests utilize their monthly inclusions. High redemption rates confirm tier value, while low rates identify at-risk members.
+                            The **Redemption Log** tracks how memberships are actually used. High **Forfeit** rates identify guests who may need a protocol adjustment (e.g. less frequent billing), while high **Rollover** suggests high loyalty but low current bandwidth.
                         </p>
                     </div>
                 </div>
