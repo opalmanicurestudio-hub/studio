@@ -19,26 +19,19 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { motion, AnimatePresence } from 'framer-motion';
-import { type Appointment, type Tenant, type Service, type Membership, type Package, type Staff } from '@/lib/data';
+import { type Appointment, type Tenant, type Service, type Staff } from '@/lib/data';
 import { 
-  CreditCard, 
-  Landmark, 
-  Loader, 
-  TrendingDown, 
-  Award,
-  Repeat,
   AlertTriangle,
-  ShieldAlert,
-  Info,
   Ban,
   ArrowRight,
   DollarSign,
   ShieldCheck,
   Lock,
-  CheckCircle2,
   Users,
-  Clock,
-  Check
+  Landmark,
+  Zap,
+  Loader,
+  Clock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { differenceInHours, parseISO } from 'date-fns';
@@ -73,14 +66,13 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   tenant,
   onConfirm,
 }) => {
-  const { services, clients, memberships, packages, staff, inventory } = useInventory();
+  const { services, clients, staff, inventory } = useInventory();
   const [reason, setReason] = useState('client_request');
   const [chargeFee, setChargeFee] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
   const [customReason, setCustomReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Selective Recovery State
   const [selectedHouseRecoveryIds, setSelectedHouseRecoveryIds] = useState<Set<string>>(new Set());
   const [selectedLaborRecoveryIds, setSelectedLaborRecoveryIds] = useState<Set<string>>(new Set());
   const [useOverrideFee, setUseOverrideFee] = useState(false);
@@ -149,12 +141,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           }
       }
   }, [open, sessionItems, recoveryMatrix, tenant]);
-
-  const isLateCancellation = useMemo(() => {
-    const hoursUntil = differenceInHours(safeDate(appointment.startTime), new Date());
-    // If any service in the session has a window violation, it's late.
-    return recoveryMatrix.some(m => hoursUntil < m.window);
-  }, [appointment, recoveryMatrix]);
 
   const totalMatrixFee = useMemo(() => {
       let total = 0;

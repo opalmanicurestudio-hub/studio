@@ -94,6 +94,7 @@ import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Progress } from '../ui/progress';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -231,7 +232,7 @@ const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTe
                         </div>
                         <div className="min-w-0">
                             <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{instance.clientName}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate">{instance.membershipName}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{instance.membershipName}</p>
                         </div>
                     </div>
                     <div className="text-right shrink-0">
