@@ -118,7 +118,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
         !pack.isPrivate && "shadow-sm"
     )}>
       <CardHeader className="bg-teal-500/5 border-b p-6 sm:p-8">
-        <div className="flex justify-between items-start">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
             <div className='flex items-center gap-4 text-left'>
                 <div className="p-3 bg-white rounded-2xl shadow-inner border border-teal-500/10">
                     <Repeat className="w-6 h-6 text-teal-500" />
@@ -133,7 +133,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     </div>
                 </div>
             </div>
-            <div className="flex items-center gap-1 -mt-1 -mr-1">
+            <div className="flex items-center gap-1">
                 <TooltipProvider>
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -164,12 +164,12 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
         </div>
       </CardHeader>
       <CardContent className="p-6 sm:p-8 flex-1 flex flex-col space-y-6">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-teal-500/10 transition-all text-left">
                 <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Active Load</p>
                 <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{activePackages}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">Bundles</span></p>
             </div>
-            <div className="p-4 rounded-2xl bg-teal-500/[0.03] border-2 border-transparent group-hover:border-teal-500/10 transition-all text-right">
+            <div className="p-4 rounded-2xl bg-teal-500/[0.03] border-2 border-transparent group-hover:border-teal-500/10 transition-all text-left sm:text-right">
                 <p className="text-[9px] font-black uppercase text-teal-600/60 tracking-widest mb-1 opacity-60">Net Yield Range</p>
                 <p className="text-xl font-black font-mono tracking-tighter text-teal-600">${yieldRange.min.toFixed(0)} - ${yieldRange.max.toFixed(0)}</p>
             </div>

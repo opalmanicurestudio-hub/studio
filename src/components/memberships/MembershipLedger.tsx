@@ -44,7 +44,9 @@ import {
     ArrowLeft,
     Undo2,
     RefreshCw,
-    Star
+    Star,
+    User,
+    Check
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -91,6 +93,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -232,88 +235,80 @@ const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfir
     );
 };
 
-const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
+const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
     const isOverdue = instance.status === 'failed' || (instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate)));
     const hasCard = !!client?.cardOnFile?.token;
     const isNoCommitment = !!membership?.noCommitment;
 
     return (
-        <TableRow className="group hover:bg-primary/[0.02] cursor-pointer">
-            <TableCell className="py-5 text-left">
-                <div className="flex items-center gap-4 text-left">
-                    <div className="relative shrink-0">
-                        <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
-                            <AvatarImage src={client?.avatarUrl} className="object-cover" />
-                            <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(instance.clientName || 'G')[0]}</AvatarFallback>
-                        </Avatar>
-                        {hasCard && (
-                            <div className="absolute -top-1 -right-1 bg-green-500 text-white p-0.5 rounded-full shadow-sm border border-background">
-                                <ShieldCheck className="w-2 h-2" />
-                            </div>
-                        )}
-                    </div>
-                    <div className="min-w-0">
-                        <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{instance.clientName}</p>
-                        <div className='flex items-center gap-2'>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{instance.membershipName}</p>
-                            {isNoCommitment && <Badge variant="outline" className="h-3.5 px-1 text-[6px] font-black uppercase border-green-500/20 text-green-600 bg-green-50">Flex</Badge>}
+        <Card className={cn(
+            "border-2 rounded-[1.5rem] shadow-sm overflow-hidden text-left",
+            isOverdue ? "border-destructive/20 bg-destructive/[0.01]" : "bg-white"
+        )}>
+            <CardContent className="p-4 space-y-4">
+                <div className="flex justify-between items-start gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative shrink-0">
+                            <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
+                                <AvatarImage src={client?.avatarUrl} className="object-cover" />
+                                <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(instance.clientName || 'G')[0]}</AvatarFallback>
+                            </Avatar>
+                            {hasCard && (
+                                <div className="absolute -top-1 -right-1 bg-green-500 text-white p-0.5 rounded-full shadow-sm border border-background">
+                                    <ShieldCheck className="w-2 h-2" />
+                                </div>
+                            )}
+                        </div>
+                        <div className="min-w-0">
+                            <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{instance.clientName}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate">{instance.membershipName}</p>
                         </div>
                     </div>
+                    <div className="text-right shrink-0">
+                        <p className="font-black font-mono text-sm text-slate-900">${instance.amount.toFixed(2)}</p>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40">Monthly</p>
+                    </div>
                 </div>
-            </TableCell>
-            <TableCell className="text-left">
-                <div className="text-left">
-                    <p className="font-black text-sm text-slate-900 font-mono tracking-tighter">${instance.amount.toFixed(2)}</p>
-                    <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-40">Monthly Due</p>
+
+                <div className="flex items-center justify-between py-3 border-y border-dashed">
+                    <div className="space-y-0.5">
+                        <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">Due Date</p>
+                        <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                        <Badge 
+                            variant={instance.status === 'paid' ? 'default' : 'outline'} 
+                            className={cn(
+                                "h-4 px-1.5 font-black text-[7px] uppercase border-2",
+                                instance.status === 'paid' ? "bg-green-500 text-white border-none" : "bg-white"
+                            )}
+                        >
+                            {instance.status}
+                        </Badge>
+                        {isOverdue && <span className="text-[7px] font-black text-destructive uppercase animate-pulse">Action Required</span>}
+                    </div>
                 </div>
-            </TableCell>
-            <TableCell className="text-left">
-                <div className="text-left space-y-1">
-                    <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
-                    {isOverdue && <Badge variant="destructive" className="h-4 text-[7px] font-black uppercase animate-pulse border-none">Overdue</Badge>}
-                </div>
-            </TableCell>
-            <TableCell className="text-left">
-                <Badge 
-                    variant={instance.status === 'paid' ? 'default' : 'outline'} 
-                    className={cn(
-                        "h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2",
-                        instance.status === 'paid' ? "bg-green-500 border-none text-white shadow-sm" : 
-                        instance.status === 'failed' ? "text-destructive border-destructive/20" : 
-                        "bg-white"
-                    )}
-                >
-                    {instance.status}
-                </Badge>
-            </TableCell>
-            <TableCell className="text-right pr-8">
-                <div className="flex items-center justify-end gap-2">
+
+                <div className="flex items-center gap-2">
                     {instance.status !== 'paid' && (
                         <Button 
-                            size="sm" 
                             className={cn(
-                                "h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg transition-all active:scale-95",
+                                "flex-1 h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg",
                                 hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-slate-600 shadow-none border-2"
                             )}
                             onClick={() => onSettle(instance)}
                         >
-                            {hasCard ? <><Zap className="w-3 h-3 mr-1.5" /> Quick Settle</> : "Log Payment"}
+                            {hasCard ? <><Zap className="w-3 h-3 mr-1.5" /> Settle</> : "Log Payment"}
                         </Button>
                     )}
                     {isNoCommitment && instance.status !== 'paid' && (
-                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-destructive hover:bg-destructive/5" onClick={() => onTerminate(instance)}>
+                        <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl text-destructive border-2 border-destructive/10" onClick={() => onTerminate(instance)}>
                             <XCircle className="w-4 h-4" />
                         </Button>
                     )}
-                    {instance.status === 'paid' && instance.settledAt && (
-                        <div className="text-right">
-                            <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">Settled</p>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase">{format(parseISO(instance.settledAt), 'MMM d')}</p>
-                        </div>
-                    )}
                 </div>
-            </TableCell>
-        </TableRow>
+            </CardContent>
+        </Card>
     );
 };
 
@@ -321,6 +316,7 @@ export const MembershipLedger = () => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
+  const isMobile = useIsMobile();
   const { subscriptionInstances, clients, memberships, transactions, redemptions, isLoading } = useInventory();
   const { toast } = useToast();
 
@@ -337,7 +333,7 @@ export const MembershipLedger = () => {
         const searchMatch = !searchTerm.trim() || i.clientName.toLowerCase().includes(searchTerm.toLowerCase()) || i.membershipName.toLowerCase().includes(searchTerm.toLowerCase());
         const statusMatch = statusFilter === 'all' || i.status === statusFilter;
         return searchMatch && statusMatch;
-    }).sort((a,b) => parseISO(b.dueDate).getTime() - parseISO(a.dueDate).getTime());
+    }).sort((a,b) => safeDate(b.dueDate).getTime() - safeDate(a.dueDate).getTime());
   }, [subscriptionInstances, statusFilter, searchTerm]);
 
   const historicalTransactions = useMemo(() => {
@@ -552,7 +548,7 @@ export const MembershipLedger = () => {
   const isGatewayActive = selectedTenant?.paymentGateway && selectedTenant.paymentGateway !== 'none';
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 md:space-y-10">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
             <KpiCardInternal title="Active MRR" value={`$${stats.mrr.toFixed(0)}`} icon={TrendingUp} description="Collected this cycle" colorClass="text-primary" />
             <KpiCardInternal title="Projected Dues" value={`$${stats.pending.toFixed(0)}`} icon={Clock} description="Awaiting collection" colorClass="text-indigo-600" />
@@ -560,43 +556,43 @@ export const MembershipLedger = () => {
         </div>
 
         <div className="flex justify-center">
-            <div className="p-1.5 bg-muted/30 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 w-fit">
-                <Button variant={activeSubTab === 'pending' ? 'default' : 'ghost'} onClick={() => setActiveSubTab('pending')} className="h-9 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
-                    <Clock className="w-3.5 h-3.5 mr-2" /> Pending Dues
+            <div className="p-1 md:p-1.5 bg-muted/30 rounded-2xl border-2 border-muted shadow-inner flex gap-1 md:gap-1.5 w-full sm:w-fit overflow-x-auto scrollbar-hide">
+                <Button variant={activeSubTab === 'pending' ? 'default' : 'ghost'} onClick={() => setActiveSubTab('pending')} className="flex-1 h-9 px-4 sm:px-6 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all">
+                    <Clock className="w-3.5 h-3.5 mr-2" /> Dues
                 </Button>
-                <Button variant={activeSubTab === 'payments' ? 'default' : 'ghost'} onClick={() => setActiveSubTab('payments')} className="h-9 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
-                    <History className="w-3.5 h-3.5 mr-2" /> Payment History
+                <Button variant={activeSubTab === 'payments' ? 'default' : 'ghost'} onClick={() => setActiveSubTab('payments')} className="flex-1 h-9 px-4 sm:px-6 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all">
+                    <History className="w-3.5 h-3.5 mr-2" /> Receipts
                 </Button>
-                <Button variant={activeSubTab === 'redemptions' ? 'default' : 'ghost'} onClick={() => setActiveSubTab('redemptions')} className="h-9 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
-                    <Activity className="w-3.5 h-3.5 mr-2" /> Redemption Log
+                <Button variant={activeSubTab === 'redemptions' ? 'default' : 'ghost'} onClick={() => setActiveSubTab('redemptions')} className="flex-1 h-9 px-4 sm:px-6 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all">
+                    <Activity className="w-3.5 h-3.5 mr-2" /> Perks
                 </Button>
             </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <Card className={cn("lg:col-span-2 border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white")}>
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-6 md:space-y-8 text-left">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                         <div className="space-y-1">
                             <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">
                                 {activeSubTab === 'pending' ? 'Accounts Receivable' : activeSubTab === 'payments' ? 'Subscription Receipts' : 'Benefit Utilization Audit'}
                             </CardTitle>
                             <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
-                                {activeSubTab === 'pending' ? 'Monitor recurring revenue pipelines.' : activeSubTab === 'payments' ? 'History of settled recurring dues.' : 'Audit log of perk redemptions, rollovers, and forfeits.'}
+                                {activeSubTab === 'pending' ? 'Monitor recurring revenue pipelines.' : activeSubTab === 'payments' ? 'History of settled recurring dues.' : 'Audit log of perk redemptions and usage.'}
                             </CardDescription>
                         </div>
                         {activeSubTab === 'pending' && (
                             <Button onClick={handleRunBatch} disabled={isProcessingBatch || isLoading} className="h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20 w-full md:w-auto">
                                 {isProcessingBatch ? <Loader className="animate-spin mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
-                                Run Subscription Batch
+                                Run Batch
                             </Button>
                         )}
                     </div>
                     <div className="flex flex-col md:flex-row items-center gap-4 pt-4 border-t border-dashed">
                         <div className="relative flex-1 w-full">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                             <Input 
-                                placeholder="SEARCH BY GUEST OR CLUB NAME..." 
+                                placeholder="SEARCH GUESTS..." 
                                 className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -610,9 +606,9 @@ export const MembershipLedger = () => {
                                     </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         <SelectItem value="all" className="font-bold">ALL ENTRIES</SelectItem>
-                                        <SelectItem value="pending" className="font-bold">PENDING SETTLEMENT</SelectItem>
-                                        <SelectItem value="paid" className="font-bold text-green-600">CERTIFIED PAID</SelectItem>
-                                        <SelectItem value="failed" className="font-bold text-destructive">FAILED COLLECTION</SelectItem>
+                                        <SelectItem value="pending" className="font-bold">PENDING</SelectItem>
+                                        <SelectItem value="paid" className="font-bold text-green-600">PAID</SelectItem>
+                                        <SelectItem value="failed" className="font-bold text-destructive">FAILED</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -623,31 +619,45 @@ export const MembershipLedger = () => {
                     <ScrollArea className="h-[500px]">
                         {activeSubTab === 'pending' ? (
                             <div className="overflow-x-auto">
-                                <Table>
-                                    <TableHeader className="bg-muted/10 border-b-2">
-                                        <TableRow>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Member & Tier</TableHead>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Value</TableHead>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Due Date</TableHead>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">State</TableHead>
-                                            <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {filteredInstances.length > 0 ? filteredInstances.map(instance => (
-                                            <SubscriptionRowInternal 
-                                                key={instance.id} 
-                                                instance={instance} 
-                                                client={clients.find(c => c.id === instance.clientId)}
-                                                membership={memberships.find(m => m.id === instance.membershipId)}
-                                                onSettle={setSettlingInstance}
-                                                onTerminate={setTerminatingInstance}
-                                            />
-                                        )) : (
-                                            <TableRow><TableCell colSpan={5} className="py-20 text-center opacity-30 uppercase font-black tracking-widest text-xs">No pending dues</TableCell></TableRow>
-                                        )}
-                                    </TableBody>
-                                </Table>
+                                <div className="hidden md:block">
+                                    <Table>
+                                        <TableHeader className="bg-muted/10 border-b-2">
+                                            <TableRow>
+                                                <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Member & Tier</TableHead>
+                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Value</TableHead>
+                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Due Date</TableHead>
+                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">State</TableHead>
+                                                <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {filteredInstances.length > 0 ? filteredInstances.map(instance => (
+                                                <SubscriptionRowInternal 
+                                                    key={instance.id} 
+                                                    instance={instance} 
+                                                    client={clients.find(c => c.id === instance.clientId)}
+                                                    membership={memberships.find(m => m.id === instance.membershipId)}
+                                                    onSettle={setSettlingInstance}
+                                                    onTerminate={setTerminatingInstance}
+                                                />
+                                            )) : (
+                                                <TableRow><TableCell colSpan={5} className="py-20 text-center opacity-30 uppercase font-black tracking-widest text-xs">No pending dues</TableCell></TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                                <div className="md:hidden space-y-4 p-4">
+                                    {filteredInstances.map(instance => (
+                                        <SubscriptionCardInternal
+                                            key={instance.id}
+                                            instance={instance}
+                                            client={clients.find(c => c.id === instance.clientId)}
+                                            membership={memberships.find(m => m.id === instance.membershipId)}
+                                            onSettle={setSettlingInstance}
+                                            onTerminate={setTerminatingInstance}
+                                        />
+                                    ))}
+                                </div>
                             </div>
                         ) : activeSubTab === 'payments' ? (
                             <div className="overflow-x-auto">
@@ -763,7 +773,7 @@ export const MembershipLedger = () => {
                     <div className="space-y-1">
                         <p className="text-[10px] font-black uppercase text-primary">Operational Intelligence</p>
                         <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
-                            The **Redemption Log** tracks how memberships are actually used. High **Forfeit** rates identify guests who may need a protocol adjustment, while high **Rollover** suggests high loyalty but low current bandwidth.
+                            The **Redemption Log** tracks how memberships are actually used. High **Forfeit** rates identify guests who may need a protocol adjustment.
                         </p>
                     </div>
                 </div>
@@ -787,7 +797,7 @@ export const MembershipLedger = () => {
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="p-6 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left">
-                    You are stopping the recurring cycle for this member. Due to the <strong>No-Commitment Protocol</strong>, access can be revoked immediately without penalty. Confirm termination?
+                    You are stopping the recurring cycle for this member. Access will be revoked immediately. Confirm termination?
                 </div>
                 <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                     <Button onClick={handleTerminateSubscription} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Confirm Termination</Button>
@@ -798,13 +808,3 @@ export const MembershipLedger = () => {
     </div>
   );
 };
-
-function Avatar({ children, className }: { children: React.ReactNode, className?: string }) {
-    return <div className={cn("relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full", className)}>{children}</div>;
-}
-function AvatarImage({ src, className }: { src?: string, className?: string }) {
-    return <img src={src || 'https://placehold.co/100x100?text=G'} alt="Avatar" className={cn("aspect-square h-full w-full", className)} />;
-}
-function AvatarFallback({ children, className }: { children: React.ReactNode, className?: string }) {
-    return <div className={cn("flex h-full w-full items-center justify-center rounded-full bg-muted", className)}>{children}</div>;
-}
