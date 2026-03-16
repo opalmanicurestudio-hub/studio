@@ -326,7 +326,7 @@ function SettingsContent() {
           return {
               name: s.name,
               houseFloor,
-              totalTarget
+              totalTarget: houseFloor + burdenedLabor
           };
       });
   }, [services, selectedTenant, staff, pricingTiers]);

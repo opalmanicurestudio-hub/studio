@@ -75,7 +75,6 @@ import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '../ui/scroll-area';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';

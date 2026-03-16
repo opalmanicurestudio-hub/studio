@@ -114,6 +114,7 @@ const ProfitabilityAnalysis = ({
             const tierPrice = tierConfig ? tierConfig.price : service.price;
             const tierDuration = tierConfig ? tierConfig.durationMinutes : service.duration;
             const totalDuration = (tierDuration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
+            const timeValue = ((totalDuration * pack.sessions) / 60) * tmhr;
             
             let labor = 0;
             if (member.payStructure === 'commission') labor = tierPrice * (member.commissionRate / 100);
@@ -133,7 +134,9 @@ const ProfitabilityAnalysis = ({
                 totalBurden,
                 netProfit,
                 margin,
-                labor: burdenedLabor
+                labor: burdenedLabor,
+                timeValue,
+                materialCost
             };
         });
     }, [service, sessions, staff, taxBurden, baseHouseFloor, price, tmhr]);

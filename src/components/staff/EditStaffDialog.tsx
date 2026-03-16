@@ -62,7 +62,8 @@ import {
     Smartphone,
     Zap,
     DollarSign,
-    Edit
+    Edit,
+    Landmark
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -145,7 +146,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <div className="space-y-8">
                 <SectionHeader icon={Fingerprint} title="Identity & Security" step={1} />
                 <div className="space-y-8">
-                    <div className="flex flex-col sm:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
+                    <div className="flex flex-col items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
                         <Controller
                             name="avatarUrl"
                             control={control}
@@ -211,7 +212,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         <div className="space-y-3">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Role</Label>
                             <Controller name="role" control={control} render={({ field }) => (
-                                <Select onValueChange={field.onChange} value={field.value}>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
                                     <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         <SelectItem value="staff" className="font-bold uppercase text-[10px] tracking-widest">STAFF PROVIDER</SelectItem>
@@ -280,7 +281,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         </div>
                     </div>
 
-                    <div className="space-y-4 pt-4 border-t border-dashed">
+                    <div className="space-y-4 pt-4 border-t border-dashed text-left">
                         <div className="flex items-center justify-between px-1">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                 <List className="w-3.5 h-3.5 opacity-40" /> Active Catalog
