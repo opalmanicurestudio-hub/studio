@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -55,11 +54,11 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { collection, doc, writeBatch, increment, deleteField } from 'firebase/firestore';
-import { type SubscriptionInstance, type Membership, type Staff, type Client, type Redemption } from '@/lib/data';
+import { type SubscriptionInstance, type Membership, type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,12 +87,11 @@ import {
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
+import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 
 const settlementSchema = z.object({
   amount: z.coerce.number().positive(),
@@ -105,7 +103,7 @@ const settlementSchema = z.object({
 type SettlementFormData = z.infer<typeof settlementSchema>;
 
 const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
-    <Card className="border-2 shadow-sm min-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
+    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                 {title}
@@ -225,7 +223,7 @@ const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTer
 
     return (
         <TableRow className="group hover:bg-primary/[0.02] cursor-pointer">
-            <TableCell className="py-5">
+            <TableCell className="py-5 text-left">
                 <div className="flex items-center gap-4 text-left">
                     <div className="relative shrink-0">
                         <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
@@ -247,19 +245,19 @@ const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTer
                     </div>
                 </div>
             </TableCell>
-            <TableCell>
+            <TableCell className="text-left">
                 <div className="text-left">
                     <p className="font-black text-sm text-slate-900 font-mono tracking-tighter">${instance.amount.toFixed(2)}</p>
                     <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-40">Monthly Due</p>
                 </div>
             </TableCell>
-            <TableCell>
+            <TableCell className="text-left">
                 <div className="text-left space-y-1">
                     <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
                     {isOverdue && <Badge variant="destructive" className="h-4 text-[7px] font-black uppercase animate-pulse border-none">Overdue</Badge>}
                 </div>
             </TableCell>
-            <TableCell>
+            <TableCell className="text-left">
                 <Badge 
                     variant={instance.status === 'paid' ? 'default' : 'outline'} 
                     className={cn(
@@ -307,7 +305,7 @@ export const MembershipLedger = () => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
-  const { subscriptionInstances, clients, memberships, transactions, redemptions, isLoading, staff } = useInventory();
+  const { subscriptionInstances, clients, memberships, transactions, redemptions, isLoading } = useInventory();
   const { toast } = useToast();
 
   const [activeSubTab, setActiveSubTab] = useState<'pending' | 'payments' | 'redemptions'>('pending');
@@ -331,7 +329,7 @@ export const MembershipLedger = () => {
       return transactions
         .filter(t => t.category === 'Membership Revenue' || t.description.toLowerCase().includes('membership'))
         .filter(t => !searchTerm.trim() || t.clientOrVendor.toLowerCase().includes(searchTerm.toLowerCase()) || t.description.toLowerCase().includes(searchTerm.toLowerCase()))
-        .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [transactions, searchTerm]);
 
   const historicalRedemptions = useMemo(() => {
@@ -345,7 +343,7 @@ export const MembershipLedger = () => {
                    r.offeringName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                    r.serviceName.toLowerCase().includes(searchTerm.toLowerCase());
         })
-        .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [redemptions, searchTerm, clients]);
 
   const stats = useMemo(() => {
@@ -700,7 +698,7 @@ export const MembershipLedger = () => {
                                                             {r.isForfeit ? "FORFEITED" : r.isRollover ? "ROLLED OVER" : "REDEEMED"}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell className="text-right pr-10 font-black font-mono text-xs text-slate-400">{format(new Date(r.date), 'MMM d, p')}</TableCell>
+                                                    <TableCell className="text-right pr-10 font-black font-mono text-xs text-slate-400">{format(safeDate(r.date), 'MMM d, p')}</TableCell>
                                                 </TableRow>
                                             )
                                         }) : (
@@ -741,15 +739,15 @@ export const MembershipLedger = () => {
                         <Button variant="outline" asChild className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm">
                             <Link href="/settings?tab=integrations">Configure Gateway</Link>
                         </Button>
-                    </CardHeader>
+                    </CardContent>
                 </Card>
 
-                <div className="p-6 rounded-[2.5rem] border-2 border-dashed bg-primary/[0.02] flex items-start gap-4 text-left shadow-inner">
+                <div className="p-6 rounded-[2rem] border-2 border-dashed bg-primary/[0.02] flex items-start gap-4 text-left shadow-inner">
                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                     <div className="space-y-1">
                         <p className="text-[10px] font-black uppercase text-primary">Operational Intelligence</p>
                         <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
-                            The **Redemption Log** tracks how memberships are actually used. High **Forfeit** rates identify guests who may need a protocol adjustment (e.g. less frequent billing), while high **Rollover** suggests high loyalty but low current bandwidth.
+                            The **Redemption Log** tracks how memberships are actually used. High **Forfeit** rates identify guests who may need a protocol adjustment, while high **Rollover** suggests high loyalty but low current bandwidth.
                         </p>
                     </div>
                 </div>

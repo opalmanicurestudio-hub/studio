@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box, Clock, Scale, Zap, Shield, CheckCircle, CheckCircle2 } from 'lucide-react';
+import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box, Clock, Scale, Zap, Shield, CheckCircle, CheckCircle2, Star } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -154,7 +154,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/10 text-destructive" onClick={() => onDelete(pack.id)}>
-                                <Trash2 className="h-4 w-4" />
+                                <Trash2 className="w-4 h-4" />
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Terminate</TooltipContent>

@@ -118,7 +118,7 @@ const editStaffSchema = z.object({
 type EditStaffFormData = z.infer<typeof editStaffSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
-    <div className="flex items-center gap-4 mb-6">
+    <div className="flex items-center gap-4 mb-6 text-left">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
@@ -163,12 +163,12 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             )}
                         />
                         <div className="flex-1 space-y-4 w-full text-left">
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 text-left">
                                 <Label htmlFor="name-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Legal Name</Label>
                                 <Input id="name-edit" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base shadow-inner bg-white" />
                                 {errors.name && <p className="text-[9px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                             </div>
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 text-left">
                                 <Label htmlFor="email-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Professional Email</Label>
                                 <Input id="email-edit" type="email" {...register('email')} className="h-12 rounded-xl border-2 font-bold text-sm bg-muted/20" disabled />
                             </div>
@@ -222,7 +222,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 </Select>
                             )}/>
                         </div>
-                        <div className="space-y-3">
+                        <div className="space-y-3 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expertise Tier</Label>
                             <Controller name="pricingTierId" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
@@ -250,12 +250,12 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
             <div className="space-y-10">
                 <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
                 <div className="space-y-8 text-left">
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label htmlFor="bio-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Narrative (Public)</Label>
                         <Textarea id="bio-edit" placeholder="Draft a compelling profile for guests..." {...register('bio')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 font-medium" />
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label htmlFor="specialties-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Signature Specialties</Label>
                         <Input id="specialties-edit" placeholder="e.g., BALAYAGE, PRECISION CUTS" {...register('specialties')} className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner bg-white" />
                     </div>
@@ -273,7 +273,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                                 { id: 'youtubeUrl', icon: Youtube, label: 'YouTube' },
                                 { id: 'portfolioUrl', icon: LinkIcon, label: 'Portfolio' }
                             ].map(social => (
-                                <div key={social.id} className="relative group">
+                                <div key={social.id} className="relative group text-left">
                                     <social.icon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40 group-focus-within:text-primary transition-colors" />
                                     <Input placeholder={`${social.label} URL...`} {...register(social.id as any)} className="h-11 pl-10 rounded-xl border-2 font-medium text-[10px] shadow-sm bg-white" />
                                 </div>
@@ -291,7 +291,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             </Button>
                         </div>
                         {selectedServices.length > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
                                 {selectedServices.map(service => (
                                     <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                                         <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{service.name}</span>
@@ -307,8 +307,8 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         )}
                     </div>
 
-                    <div className="space-y-4 pt-4 border-t border-dashed">
-                        <div className="flex items-center justify-between px-1">
+                    <div className="space-y-4 pt-4 border-t border-dashed text-left">
+                        <div className="flex items-center justify-between px-1 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                 <FileText className="w-3.5 h-3.5 opacity-40" /> Compliance Forms
                             </Label>
@@ -317,7 +317,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                             </Button>
                         </div>
                         {assignedForms.length > 0 ? (
-                            <div className="grid grid-cols-1 gap-2">
+                            <div className="grid grid-cols-1 gap-2 text-left">
                                 {assignedForms.map(form => (
                                     <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                                         <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
@@ -365,7 +365,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     <div className="space-y-4 pt-4 border-t border-dashed text-left">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldCheck className="w-3 h-3" /> Licensing Ledger</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-white shadow-inner" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-white shadow-inner" /></div>
                             <div className="space-y-1.5 text-left">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Registry Expiry</Label>
                                 <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => (
