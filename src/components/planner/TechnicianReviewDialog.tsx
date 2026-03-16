@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { 
     FlaskConical, 
@@ -43,7 +43,9 @@ import {
     ListChecks,
     Activity,
     Users,
-    FileSignature
+    FileSignature,
+    Calculator,
+    Pipette
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -473,7 +475,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </div>
 
                         <div className="space-y-4 pt-4 border-t border-dashed">
-                            <div className="flex items-center justify-between px-1">
+                            <div className="flex items-center justify-between px-1 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                     <PackageOpen className="w-3.5 h-3.5 opacity-40" /> Actual Product Formula
                                 </Label>

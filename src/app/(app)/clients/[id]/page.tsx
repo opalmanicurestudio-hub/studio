@@ -320,7 +320,7 @@ export default function ClientDetailPage() {
                         {activeMembership && <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-indigo-600 text-white p-1.5 md:p-2 rounded-2xl shadow-xl border-4 border-white"><Award className="w-4 h-4 md:w-6 md:h-6" /></div>}
                     </div>
                     <div className="space-y-4 flex-1 min-w-0 w-full">
-                        <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4">
+                        <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start sm:items-baseline gap-3 md:gap-4">
                             <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate leading-none w-full sm:w-auto", client.name.length > 15 ? "text-xl md:text-4xl" : "text-2xl md:text-5xl")}>{client.name}</h2>
                             <div className="flex gap-2 shrink-0">
                                 {activeMembership && <Badge className="bg-indigo-500/10 text-indigo-700 border-none font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Master Member</Badge>}
@@ -380,7 +380,7 @@ export default function ClientDetailPage() {
                                         <Award className="w-5 h-5" />
                                         Active Privilege Matrix
                                     </h3>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                                         {(activeMembership.includedServices || []).map(perk => {
                                             const used = client.subscription?.perkUsage?.[perk.id] || 0;
                                             const isRedeemed = isPerkUsedInCycle(perk.id);
@@ -603,7 +603,7 @@ export default function ClientDetailPage() {
 
                             <Separator className="border-dashed" />
 
-                            <div className="space-y-4">
+                            <div className="space-y-4 text-left">
                                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2">
                                     <Lock className="w-3 h-3" /> Secure Card on File
                                 </p>
@@ -672,9 +672,9 @@ export default function ClientDetailPage() {
                     <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Arrears Balance</p>
                     <p className="text-5xl font-black text-primary tracking-tighter font-mono">${Number(client.outstandingBalance).toFixed(2)}</p>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-4 text-left">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Distribution Method</p>
-                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4">
+                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left">
                         <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
                         <div className="text-left">
                             <p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile?.brand} •••• {client.cardOnFile?.last4}</p>

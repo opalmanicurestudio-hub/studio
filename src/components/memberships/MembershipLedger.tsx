@@ -292,7 +292,7 @@ const settlementSchema = z.object({
 
 type SettlementFormData = z.infer<typeof settlementSchema>;
 
-const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfirm }: any) => {
+const SettleMembershipDialogInternal = ({ open, onOpenChange, instance, client, onConfirm }: any) => {
     const isMobile = useIsMobile();
     const methods = useForm<SettlementFormData>({
         resolver: zodResolver(settlementSchema),
@@ -626,7 +626,7 @@ export const MembershipLedger = () => {
   const isGatewayActive = selectedTenant?.paymentGateway && selectedTenant.paymentGateway !== 'none';
 
   return (
-    <div className="space-y-8 md:space-y-10">
+    <div className="space-y-10">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
             <KpiCardInternal title="Active MRR" value={`$${stats.mrr.toFixed(0)}`} icon={TrendingUp} description="Collected this cycle" colorClass="text-primary" />
             <KpiCardInternal title="Projected Dues" value={`$${stats.pending.toFixed(0)}`} icon={Clock} description="Awaiting collection" colorClass="text-indigo-600" />
@@ -858,7 +858,7 @@ export const MembershipLedger = () => {
             </div>
         </div>
 
-        <SettleMembershipDialog
+        <SettleMembershipDialogInternal
             open={!!settlingInstance}
             onOpenChange={(v: boolean) => !v && setSettlingInstance(null)}
             instance={settlingInstance}

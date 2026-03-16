@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
-import { format, parseISO, subMonths, isAfter } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, isSameMonth } from 'date-fns';
 import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle, Zap, CheckCircle2, ArrowRight, Tag, Sparkles, Wallet } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption } from '@/lib/data';
 import Link from 'next/link';
@@ -105,10 +105,10 @@ export default function ClientPortalPage() {
         );
     }
 
-    if (!client) return <div className="p-10 text-center font-black uppercase text-slate-400">Account not found.</div>;
+    if (!client) return <div className="p-10 text-center font-black uppercase text-slate-400 text-left">Account not found.</div>;
 
     return (
-        <div className="space-y-10 pb-20">
+        <div className="space-y-10 pb-20 text-left">
             <header className="flex flex-col md:flex-row items-center gap-8 text-center md:text-left">
                 <div className="relative group">
                     <Avatar className="w-32 h-32 border-4 border-white shadow-2xl rounded-[3rem] overflow-hidden transition-all group-hover:scale-105">
