@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   Card,
@@ -46,7 +46,8 @@ import {
     RefreshCw,
     Star,
     User,
-    Check
+    Check,
+    MoreHorizontal
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -94,6 +95,7 @@ import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import SignatureCanvas from 'react-signature-canvas';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -128,6 +130,159 @@ const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: 
         </CardContent>
     </Card>
 );
+
+const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
+    const isOverdue = instance.status === 'failed' || (instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate)));
+    const hasCard = !!client?.cardOnFile?.token;
+    const isNoCommitment = !!membership?.noCommitment;
+
+    return (
+        <TableRow className="group hover:bg-primary/[0.02] cursor-pointer">
+            <TableCell className="p-6">
+                <div className="flex items-center gap-4 text-left">
+                    <div className="relative shrink-0">
+                        <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
+                            <AvatarImage src={client?.avatarUrl} className="object-cover" />
+                            <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(instance.clientName || 'G')[0]}</AvatarFallback>
+                        </Avatar>
+                        {hasCard && (
+                            <div className="absolute -top-1 -right-1 bg-green-500 text-white p-0.5 rounded-full shadow-sm border border-background">
+                                <ShieldCheck className="w-2 h-2" />
+                            </div>
+                        )}
+                    </div>
+                    <div className="min-w-0">
+                        <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{instance.clientName}</p>
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{instance.membershipName}</p>
+                    </div>
+                </div>
+            </TableCell>
+            <TableCell>
+                <div className="text-left">
+                    <p className="font-black text-sm text-slate-900 font-mono tracking-tighter">${instance.amount.toFixed(2)}</p>
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-40">Monthly Due</p>
+                </div>
+            </TableCell>
+            <TableCell>
+                <div className="text-left space-y-1">
+                    <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
+                    {isOverdue && <Badge variant="destructive" className="h-4 text-[7px] font-black uppercase animate-pulse border-none">Overdue</Badge>}
+                </div>
+            </TableCell>
+            <TableCell>
+                <Badge 
+                    variant={instance.status === 'paid' ? 'default' : 'outline'} 
+                    className={cn(
+                        "h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2",
+                        instance.status === 'paid' ? "bg-green-500 border-none text-white shadow-sm" : 
+                        instance.status === 'failed' ? "text-destructive border-destructive/20" : 
+                        "bg-white"
+                    )}
+                >
+                    {instance.status}
+                </Badge>
+            </TableCell>
+            <TableCell className="text-right pr-10">
+                <div className="flex items-center justify-end gap-2">
+                    {instance.status !== 'paid' && (
+                        <Button 
+                            size="sm" 
+                            className={cn(
+                                "h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg transition-all active:scale-95",
+                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-slate-600 shadow-none border-2"
+                            )}
+                            onClick={() => onSettle(instance)}
+                        >
+                            {hasCard ? <><Zap className="w-3 h-3 mr-1.5" /> Quick Settle</> : "Log Payment"}
+                        </Button>
+                    )}
+                    {isNoCommitment && instance.status !== 'paid' && (
+                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-destructive hover:bg-destructive/5" onClick={() => onTerminate(instance)}>
+                            <XCircle className="w-4 h-4" />
+                        </Button>
+                    )}
+                </div>
+            </TableCell>
+        </TableRow>
+    );
+};
+
+const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
+    const isOverdue = instance.status === 'failed' || (instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate)));
+    const hasCard = !!client?.cardOnFile?.token;
+    const isNoCommitment = !!membership?.noCommitment;
+
+    return (
+        <Card className={cn(
+            "border-2 rounded-[1.5rem] shadow-sm overflow-hidden text-left",
+            isOverdue ? "border-destructive/20 bg-destructive/[0.01]" : "bg-white"
+        )}>
+            <CardContent className="p-4 space-y-4">
+                <div className="flex justify-between items-start gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative shrink-0">
+                            <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
+                                <AvatarImage src={client?.avatarUrl} className="object-cover" />
+                                <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(instance.clientName || 'G')[0]}</AvatarFallback>
+                            </Avatar>
+                            {hasCard && (
+                                <div className="absolute -top-1 -right-1 bg-green-500 text-white p-0.5 rounded-full shadow-sm border border-background">
+                                    <ShieldCheck className="w-2 h-2" />
+                                </div>
+                            )}
+                        </div>
+                        <div className="min-w-0">
+                            <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{instance.clientName}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate">{instance.membershipName}</p>
+                        </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                        <p className="font-black font-mono text-sm text-slate-900">${instance.amount.toFixed(2)}</p>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40">Monthly</p>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between py-3 border-y border-dashed">
+                    <div className="space-y-0.5">
+                        <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">Due Date</p>
+                        <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                        <Badge 
+                            variant={instance.status === 'paid' ? 'default' : 'outline'} 
+                            className={cn(
+                                "h-4 px-1.5 font-black text-[7px] uppercase border-2",
+                                instance.status === 'paid' ? "bg-green-500 text-white border-none" : "bg-white"
+                            )}
+                        >
+                            {instance.status}
+                        </Badge>
+                        {isOverdue && <span className="text-[7px] font-black text-destructive uppercase animate-pulse">Action Required</span>}
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    {instance.status !== 'paid' && (
+                        <Button 
+                            className={cn(
+                                "flex-1 h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg",
+                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-slate-600 shadow-none border-2"
+                            )}
+                            onClick={() => onSettle(instance)}
+                        >
+                            {hasCard ? <><Zap className="w-3 h-3 mr-1.5" /> Settle</> : "Log Payment"}
+                        </Button>
+                    )}
+                    {isNoCommitment && instance.status !== 'paid' && (
+                        <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl text-destructive border-2 border-destructive/10" onClick={() => onTerminate(instance)}>
+                            <XCircle className="w-4 h-4" />
+                        </Button>
+                    )}
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
 
 const settlementSchema = z.object({
   amount: z.coerce.number().positive(),
@@ -232,83 +387,6 @@ const SettleMembershipDialog = ({ open, onOpenChange, instance, client, onConfir
                 </DialogFooter>
             </ContentComp>
         </DialogComp>
-    );
-};
-
-const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTerminate }: { instance: SubscriptionInstance, client?: any, membership?: Membership, onSettle: (inst: SubscriptionInstance) => void, onTerminate: (inst: SubscriptionInstance) => void }) => {
-    const isOverdue = instance.status === 'failed' || (instance.status === 'pending' && isPast(parseISO(instance.dueDate)) && !isToday(parseISO(instance.dueDate)));
-    const hasCard = !!client?.cardOnFile?.token;
-    const isNoCommitment = !!membership?.noCommitment;
-
-    return (
-        <Card className={cn(
-            "border-2 rounded-[1.5rem] shadow-sm overflow-hidden text-left",
-            isOverdue ? "border-destructive/20 bg-destructive/[0.01]" : "bg-white"
-        )}>
-            <CardContent className="p-4 space-y-4">
-                <div className="flex justify-between items-start gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div className="relative shrink-0">
-                            <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
-                                <AvatarImage src={client?.avatarUrl} className="object-cover" />
-                                <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(instance.clientName || 'G')[0]}</AvatarFallback>
-                            </Avatar>
-                            {hasCard && (
-                                <div className="absolute -top-1 -right-1 bg-green-500 text-white p-0.5 rounded-full shadow-sm border border-background">
-                                    <ShieldCheck className="w-2 h-2" />
-                                </div>
-                            )}
-                        </div>
-                        <div className="min-w-0">
-                            <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{instance.clientName}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate">{instance.membershipName}</p>
-                        </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                        <p className="font-black font-mono text-sm text-slate-900">${instance.amount.toFixed(2)}</p>
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40">Monthly</p>
-                    </div>
-                </div>
-
-                <div className="flex items-center justify-between py-3 border-y border-dashed">
-                    <div className="space-y-0.5">
-                        <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">Due Date</p>
-                        <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                        <Badge 
-                            variant={instance.status === 'paid' ? 'default' : 'outline'} 
-                            className={cn(
-                                "h-4 px-1.5 font-black text-[7px] uppercase border-2",
-                                instance.status === 'paid' ? "bg-green-500 text-white border-none" : "bg-white"
-                            )}
-                        >
-                            {instance.status}
-                        </Badge>
-                        {isOverdue && <span className="text-[7px] font-black text-destructive uppercase animate-pulse">Action Required</span>}
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    {instance.status !== 'paid' && (
-                        <Button 
-                            className={cn(
-                                "flex-1 h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg",
-                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-slate-600 shadow-none border-2"
-                            )}
-                            onClick={() => onSettle(instance)}
-                        >
-                            {hasCard ? <><Zap className="w-3 h-3 mr-1.5" /> Settle</> : "Log Payment"}
-                        </Button>
-                    )}
-                    {isNoCommitment && instance.status !== 'paid' && (
-                        <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl text-destructive border-2 border-destructive/10" onClick={() => onTerminate(instance)}>
-                            <XCircle className="w-4 h-4" />
-                        </Button>
-                    )}
-                </div>
-            </CardContent>
-        </Card>
     );
 };
 
