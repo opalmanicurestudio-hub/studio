@@ -1,12 +1,11 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box, Clock, Scale, CheckCircle2 } from 'lucide-react';
+import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2, BarChart, ArrowRight, Eye, MoreHorizontal, ListChecks, Percent, Box, Clock, Scale, Zap, Shield, CheckCircle2 } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -234,7 +233,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
                                         <AvatarImage src={sa.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[7px]">{(sa.name || 'S')[0]}</AvatarFallback>
                                     </Avatar>
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 text-left">
                                         <p className="text-[10px] font-black uppercase text-slate-900 leading-none mb-0.5">{sa.name.split(' ')[0]}</p>
                                         <p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p>
                                     </div>

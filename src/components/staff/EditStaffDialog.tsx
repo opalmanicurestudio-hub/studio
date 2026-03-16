@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -70,7 +69,7 @@ import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { SelectServicesDialog } from './SelectServicesDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Switch } from '@/components/ui/switch';
+import { Switch } from '../ui/switch';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
@@ -144,10 +143,10 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
 
     return (
         <div className="space-y-12">
-            <div className="space-y-8">
+            <div className="space-y-8 text-left">
                 <SectionHeader icon={Fingerprint} title="Identity & Security" step={1} />
                 <div className="space-y-8">
-                    <div className="flex flex-col items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
+                    <div className="flex flex-col sm:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
                         <Controller
                             name="avatarUrl"
                             control={control}
@@ -399,7 +398,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
 
             <Separator className="border-dashed" />
 
-            <div className="space-y-10">
+            <div className="space-y-10 text-left">
                 <SectionHeader icon={Landmark} title="Governance & Compliance" step={4} />
                 <div className="space-y-10 text-left">
                     <div className="space-y-4">
@@ -428,7 +427,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldCheck className="w-3 h-3" /> Licensing Ledger</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-white shadow-inner" /></div>
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 text-left">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Registry Expiry</Label>
                                 <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => (
                                     <Popover>

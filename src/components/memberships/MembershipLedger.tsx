@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Card,
   CardContent,
@@ -500,7 +499,7 @@ export const MembershipLedger = () => {
 
         <SettleMembershipDialog
             open={!!settlingInstance}
-            onOpenChange={v => !v && setSettlingInstance(null)}
+            onOpenChange={(v: boolean) => !v && setSettlingInstance(null)}
             instance={settlingInstance}
             client={clients.find(c => c.id === settlingInstance?.clientId)}
             onConfirm={handleSettleConfirm}

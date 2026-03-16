@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -219,9 +218,9 @@ const ProfitabilityAnalysis = ({
                         </div>
                     ))}
                 </div>
-                <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
+                <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10 text-left">
                     <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
-                    <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
+                    <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight text-left">
                         Yield reflects individual technician pay structures and your current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.
                     </p>
                 </div>
