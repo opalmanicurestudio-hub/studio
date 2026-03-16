@@ -123,7 +123,7 @@ export default function ClientPortalPage() {
                 </div>
                 <div className="space-y-2 flex-1 min-w-0">
                     <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Hello, {client.name.split(' ')[0]}!</h1>
-                    <p className="text-xs md:text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60">Subscriber Portal &middot; {tenant?.name}</p>
+                    <p className="text-xs md:sm font-bold text-muted-foreground uppercase tracking-widest opacity-60">Subscriber Portal &middot; {tenant?.name}</p>
                 </div>
                 <div className="shrink-0">
                     <Button asChild size="lg" className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group">
@@ -173,7 +173,7 @@ export default function ClientPortalPage() {
                         <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Tag className="w-3.5 h-3.5" /> Referral Protocol</CardTitle>
                     </CardHeader>
                     <CardContent className="text-left">
-                        <div className="p-3 rounded-xl bg-muted/30 border-2 border-dashed flex items-center justify-between group/code cursor-pointer" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: "Code Copied" }); }}>
+                        <div className="p-3 rounded-xl bg-muted/30 border-2 border-dashed flex items-center justify-between group/code cursor-pointer" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); }}>
                             <p className="text-xl font-black font-mono tracking-widest text-primary uppercase">{client.referralCode || 'N/A'}</p>
                             <Repeat className="w-4 h-4 text-primary opacity-0 group-hover/code:opacity-40 transition-opacity" />
                         </div>

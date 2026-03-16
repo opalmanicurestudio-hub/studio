@@ -55,8 +55,8 @@ import { useInventory } from '@/context/InventoryContext';
 import { useFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
-import { collection, doc, writeBatch, increment, deleteField } from 'firebase/firestore';
-import { type SubscriptionInstance, type Membership, type Staff } from '@/lib/data';
+import { collection, doc, writeBatch, increment, deleteField, arrayUnion } from 'firebase/firestore';
+import { type SubscriptionInstance, type Membership, type Staff, type Service } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -76,6 +76,16 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
@@ -240,7 +250,7 @@ const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTe
                             variant={instance.status === 'paid' ? 'default' : 'outline'} 
                             className={cn(
                                 "h-4 px-1.5 font-black text-[7px] uppercase border-2",
-                                instance.status === 'paid' ? "bg-green-500 text-white border-none" : "bg-white"
+                                instance.status === 'paid' ? "bg-green-50 text-white border-none" : "bg-white"
                             )}
                         >
                             {instance.status}
@@ -406,9 +416,9 @@ export const MembershipLedger = () => {
   const historicalTransactions = useMemo(() => {
       if (!transactions) return [];
       return transactions
-        .filter((t: any) => t.category === 'Membership Revenue' || t.description.toLowerCase().includes('membership'))
-        .filter((t: any) => !searchTerm.trim() || t.clientOrVendor.toLowerCase().includes(searchTerm.toLowerCase()) || t.description.toLowerCase().includes(searchTerm.toLowerCase()))
-        .sort((a: any, b: any) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
+        .filter(t => t.category === 'Membership Revenue' || t.description.toLowerCase().includes('membership'))
+        .filter(t => !searchTerm.trim() || t.clientOrVendor.toLowerCase().includes(searchTerm.toLowerCase()) || t.description.toLowerCase().includes(searchTerm.toLowerCase()))
+        .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [transactions, searchTerm]);
 
   const historicalRedemptions = useMemo(() => {
@@ -866,9 +876,9 @@ export const MembershipLedger = () => {
                 <div className="p-6 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left">
                     You are stopping the recurring cycle for this member. Access will be revoked immediately. Confirm termination?
                 </div>
-                <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                    <Button onClick={handleTerminateSubscription} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Confirm Termination</Button>
-                    <AlertDialogCancel className="w-full h-12 font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
+                <AlertDialogFooter className="p-6 sm:p-8 pt-4 bg-muted/5 border-t gap-3 flex flex-col">
+                    <Button onClick={handleTerminateSubscription} className="w-full h-14 sm:h-16 rounded-2xl font-black uppercase text-base sm:text-lg tracking-tight shadow-2xl shadow-primary/30">Confirm Termination</Button>
+                    <AlertDialogCancel className="w-full h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

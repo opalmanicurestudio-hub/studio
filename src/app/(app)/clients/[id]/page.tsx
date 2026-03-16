@@ -633,7 +633,7 @@ export default function ClientDetailPage() {
                             {hasDebt && hasCardOnFile && (
                                 <Button 
                                     className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white"
-                                    onClick={() => setIsQuickSettleOpen(true)}
+                                    onClick={handleQuickSettle}
                                 >
                                     <Zap className="mr-2 h-4 w-4" /> Charge Card on File
                                 </Button>

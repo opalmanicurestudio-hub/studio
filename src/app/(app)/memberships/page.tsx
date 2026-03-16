@@ -31,7 +31,7 @@ const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: ()
         </div>
         <div className="space-y-2 text-center">
             <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900">Archive Idle</h3>
-            <p className="text-[11px] md:text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
+            <p className="text-[11px] md:text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
                 {type === 'membership' 
                     ? 'Build predictable, recurring revenue by offering exclusive perks to loyal clients.' 
                     : 'Boost cash flow and encourage client commitment with prepaid service bundles.'}

@@ -321,7 +321,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </div>
 
                 {client.outstandingBalance && client.outstandingBalance > 0 && (
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[1.5rem] p-4 shadow-xl"><Wallet className="h-5 w-5" /><AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Accounting Alert</AlertTitle><AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">Client owes <strong>${Number(client.outstandingBalance).toFixed(2)}</strong>. Settle at checkout.</AlertDescription></Alert></motion.div>
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[1.5rem] p-4 shadow-xl"><Wallet className="h-5 w-5" /><AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Accounting Alert</AlertTitle><AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">Client owes <strong>${Number(client.outstandingBalance).toFixed(2)}</strong>. Settle at checkout.</AlertDescription></Alert></motion.div>
                 )}
 
                 <div className="grid grid-cols-2 gap-3">
