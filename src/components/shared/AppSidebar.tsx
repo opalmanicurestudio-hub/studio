@@ -1,3 +1,4 @@
+
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -41,6 +42,7 @@ import {
   Globe,
   Fingerprint,
   Zap,
+  Repeat,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -91,6 +93,7 @@ const yieldAssets = [
   { href: '/services', icon: BookOpen, label: 'Service Menu' },
   { href: '/inventory', icon: Box, label: 'Manifest (Inventory)' },
   { href: '/memberships', icon: Award, label: 'Clubs' },
+  { href: '/memberships/ledger', icon: BookText, label: 'Membership Ledger' },
   { href: '/discounts', icon: Percent, label: 'Incentives' },
   { href: '/resources', icon: HardHat, label: 'Resources' },
   { href: '/consents', icon: FileSignature, label: 'Agreements' },

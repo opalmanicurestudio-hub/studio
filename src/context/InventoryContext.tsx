@@ -25,6 +25,7 @@ import {
     type Review,
     type PricingTier,
     type TillSession,
+    type SubscriptionInstance,
 } from '@/lib/data';
 import {
     type BillDefinition as Bill,
@@ -73,6 +74,7 @@ interface InventoryContextType {
   reviews: Review[];
   pricingTiers: PricingTier[];
   tillSessions: TillSession[];
+  subscriptionInstances: SubscriptionInstance[];
   scheduleProfiles: any[];
   lifestyleProfiles: any[];
   businessProfiles: any[];
@@ -113,6 +115,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'pricingTiers') : null, [firestore, tenantId]));
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'scheduleProfiles') : null, [firestore, tenantId]));
   const { data: tillSessions, isLoading: tillSessionsLoading } = useCollection<TillSession>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'tillSessions') : null, [firestore, tenantId]));
+  const { data: subscriptionInstances, isLoading: subInstancesLoading } = useCollection<SubscriptionInstance>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'subscriptionInstances') : null, [firestore, tenantId]));
   
   const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
 
@@ -121,7 +124,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const activeL = (lifestyleProfiles || []).find((p: any) => p.isActive);
     const activeB = (businessProfiles || []).find((p: any) => p.isActive);
     
-    // CRITICAL: Sanitize IDs to strip slashes and special characters that break Firestore paths
     const sanitizeId = (title: string) => title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
 
     const profileBills = [
@@ -235,7 +237,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     }));
   }, [rawEvents]);
 
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading;
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading;
   
   const value = {
     inventory: inventory || [],
@@ -260,6 +262,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     reviews: reviews || [],
     pricingTiers: pricingTiers || [],
     tillSessions: tillSessions || [],
+    subscriptionInstances: subscriptionInstances || [],
     scheduleProfiles: scheduleProfiles || [],
     lifestyleProfiles: lifestyleProfiles || [],
     businessProfiles: businessProfiles || [],

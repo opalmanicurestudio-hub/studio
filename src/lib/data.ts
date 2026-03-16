@@ -1,3 +1,4 @@
+
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -203,6 +204,20 @@ export type Client = {
     phone: string;
   }
   birthday?: string;
+};
+
+export type SubscriptionInstance = {
+    id: string;
+    clientId: string;
+    clientName: string;
+    membershipId: string;
+    membershipName: string;
+    amount: number;
+    dueDate: string;
+    status: 'pending' | 'paid' | 'failed' | 'cancelled';
+    transactionId?: string;
+    settledAt?: string;
+    paymentMethod?: string;
 };
 
 export type LocationType = {

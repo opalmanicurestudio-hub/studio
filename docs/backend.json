@@ -205,6 +205,25 @@
         "subscriptionTier"
       ]
     },
+    "SubscriptionInstance": {
+        "title": "Subscription Instance",
+        "type": "object",
+        "description": "Represents a single billing cycle payment for a client membership.",
+        "properties": {
+            "id": { "type": "string" },
+            "clientId": { "type": "string" },
+            "clientName": { "type": "string" },
+            "membershipId": { "type": "string" },
+            "membershipName": { "type": "string" },
+            "amount": { "type": "number" },
+            "dueDate": { "type": "string", "format": "date-time" },
+            "status": { "type": "string", "enum": ["pending", "paid", "failed", "cancelled"] },
+            "transactionId": { "type": "string" },
+            "settledAt": { "type": "string", "format": "date-time" },
+            "paymentMethod": { "type": "string" }
+        },
+        "required": ["id", "clientId", "membershipId", "amount", "dueDate", "status"]
+    },
     "DayHours": {
         "title": "Day Hours",
         "type": "object",
@@ -1186,6 +1205,10 @@
         "$ref": "#/entities/Transaction"
       },
       "description": "Financial transaction log for a specific tenant."
+    },
+    "/tenants/{tenantId}/subscriptionInstances/{instanceId}": {
+        "schema": { "$ref": "#/entities/SubscriptionInstance" },
+        "description": "Tracks recurring membership billing cycles for clients."
     },
     "/tenants/{tenantId}/stockCorrections/{correctionId}": {
       "schema": {
