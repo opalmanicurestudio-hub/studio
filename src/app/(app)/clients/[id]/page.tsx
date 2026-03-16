@@ -55,6 +55,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
@@ -432,7 +433,7 @@ export default function ClientDetailPage() {
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4">
-                                                        <div className="flex justify-between items-start gap-2">
+                                                        <div className="flex justify-between items-start">
                                                             <div className="min-w-0">
                                                                 <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Enhancement Allotment</p>
