@@ -1,10 +1,11 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Award, Repeat, Sparkles, Activity, Loader, ShieldCheck, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { PlusCircle, Award, Repeat, Sparkles, Activity, Loader, ShieldCheck, Zap, AlertTriangle, CheckCircle2, History } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MembershipCard } from '@/components/memberships/MembershipCard';
 import { PackageCard } from '@/components/memberships/PackageCard';
@@ -14,12 +15,13 @@ import { AddMembershipDialog } from '@/components/memberships/AddMembershipDialo
 import { AddPackageDialog } from '@/components/memberships/AddPackageDialog';
 import { ActiveUsersDialog } from '@/components/memberships/ActiveUsersDialog';
 import { useInventory } from '@/context/InventoryContext';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { MembershipLedger } from '@/components/memberships/MembershipLedger';
 
 const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: () => void }) => {
   const Icon = type === 'membership' ? Award : Repeat;
@@ -36,7 +38,7 @@ const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: ()
                     : 'Boost cash flow and encourage client commitment with prepaid service bundles.'}
             </p>
         </div>
-        <Button size="lg" onClick={onAdd} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+        <Button size="lg" onPointerDown={onAdd} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
             <PlusCircle className="mr-2 h-5 w-5" />
             Create First {type === 'membership' ? 'Tier' : 'Bundle'}
         </Button>
@@ -139,9 +141,11 @@ export default function MembershipsPage() {
               Retention engine & recurring yield
             </p>
           </div>
-          <Button onClick={handleAddNew} className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto">
-            <PlusCircle className="mr-2 h-4 w-4" /> Add New {activeTab === 'memberships' ? 'Tier' : 'Bundle'}
-          </Button>
+          {activeTab !== 'ledger' && (
+            <Button onClick={handleAddNew} className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto">
+                <PlusCircle className="mr-2 h-4 w-4" /> Add New {activeTab === 'memberships' ? 'Tier' : 'Bundle'}
+            </Button>
+          )}
         </div>
 
         {activeTab === 'memberships' && (
@@ -159,6 +163,7 @@ export default function MembershipsPage() {
           <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-fit mx-auto sm:mx-0">
             <TabsTrigger value="memberships" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Tiers (MRR)</TabsTrigger>
             <TabsTrigger value="packages" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Bundles (LTV)</TabsTrigger>
+            <TabsTrigger value="ledger" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Collections</TabsTrigger>
           </TabsList>
           
           <TabsContent value="memberships" className="mt-0">
@@ -208,6 +213,10 @@ export default function MembershipsPage() {
             ) : (
                 <EmptyState type="package" onAdd={handleAddNew} />
             )}
+          </TabsContent>
+
+          <TabsContent value="ledger" className="mt-0">
+             <MembershipLedger />
           </TabsContent>
         </Tabs>
       </main>
