@@ -273,7 +273,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
       
       <div className="p-3 border-t bg-muted/5 mt-auto">
         <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn" onClick={() => onViewUsers(membership)}>
-            Examine Active Portfolio <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover:btn:translate-x-1" />
+            Examine Active Portfolio <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
         </Button>
       </div>
     </Card>
