@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption, type TillSession } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption, type TillSession, type Membership } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -24,7 +24,7 @@ import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, Play, XCircle, Fi
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import { cn, hexToHSLComponents } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
@@ -161,7 +161,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
     );
 };
 
-function POSPage() {
+export default function POSPage() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
@@ -383,7 +383,6 @@ function POSPage() {
 
         let bestDiscountPct = 0;
         let eligibleProductIds: string[] = [];
-        let hasLimit = false;
 
         if (mId) {
             const membership = memberships.find(m => m.id === mId);
@@ -392,7 +391,6 @@ function POSPage() {
                 if (!exhausted) {
                     bestDiscountPct = membership.retailDiscount;
                     eligibleProductIds = membership.applicableProductIds || [];
-                    hasLimit = !!membership.retailDiscountLimit;
                 }
             }
         }
@@ -403,14 +401,13 @@ function POSPage() {
                 if (pkgDef?.retailDiscount && pkgDef.retailDiscount > bestDiscountPct) {
                     bestDiscountPct = pkgDef.retailDiscount;
                     eligibleProductIds = pkgDef.applicableProductIds || [];
-                    hasLimit = false; 
                 }
             });
         }
 
         if (bestDiscountPct === 0) return 0;
 
-        return cart.reduce((acc, item) => {
+        return retailItems.reduce((acc, item) => {
             const product = inventory.find(p => p.id === item.id);
             if (product?.type !== 'retail') return acc;
             
@@ -421,7 +418,7 @@ function POSPage() {
             }
             return acc;
         }, 0);
-    }, [selectedClientId, clients, memberships, packages, cart, inventory]);
+    }, [selectedClientId, clients, memberships, packages, retailItems, inventory]);
 
     const handleSkip = (walkInId: string) => {
         if (!firestore || !tenantId) return;
@@ -557,7 +554,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -883,15 +880,16 @@ function POSPage() {
             }
         });
         
+        const finalTax = 0; // Simplified
         if (discount > 0) {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
         }
 
         if (paymentData.paymentMethod === 'cash' && activeTill) {
-            const finalCashInput = totalCashIncrease + tax + cashTipsTotal;
+            const finalCashInput = totalCashIncrease + finalTax + cashTipsTotal;
             batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), { 
                 expectedCash: increment(finalCashInput),
-                totalCashSales: increment(totalCashIncrease + tax),
+                totalCashSales: increment(totalCashIncrease + finalTax),
                 totalCashTips: increment(cashTipsTotal),
                 ...cashTipsByStaffUpdate
             });
@@ -951,6 +949,9 @@ function POSPage() {
     };
 
     const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
+
+    const tax = subtotal * 0.07;
+    const total = subtotal + tax + tipAmount - discount - membershipDiscount;
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
