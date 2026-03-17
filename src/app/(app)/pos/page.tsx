@@ -15,7 +15,7 @@ import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, whe
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay, endOfDay, format, subMinutes, differenceInDays } from 'date-fns';
+import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay, endOfDay, format, subMinutes, differenceInDays, subMonths, isAfter, subYears } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -356,20 +356,72 @@ function POSPage() {
         }, 0);
     }, [appliedDiscountCodes, discounts, subtotal]);
 
+    const isRetailDiscountExhausted = (client: Client, membership: Membership) => {
+        if (!membership.retailDiscountLimit || membership.retailDiscountLimit === 0) return false;
+        if (!client.subscription?.nextBillingDate) return false;
+        if (client.subscription.status !== 'active') return true;
+
+        const lastUsedStr = client.subscription.perkLastUsed;
+        if (!lastUsedStr) return false;
+
+        const lastUsed = parseISO(lastUsedStr);
+        const nextBilling = parseISO(client.subscription.nextBillingDate);
+        const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+        
+        if (!isAfter(lastUsed, cycleStart)) return false;
+
+        const usageCount = client.subscription.perkUsage?.['retail_discount'] || 0;
+        return usageCount >= membership.retailDiscountLimit;
+    };
+
     const membershipDiscount = useMemo(() => {
-        if (!selectedClientId || !clients || !memberships) return 0;
+        if (!selectedClientId || !clients || !memberships || !packages) return 0;
         const client = clients.find(c => c.id === selectedClientId);
         const mId = client?.activeMembershipId || client?.subscription?.membershipId;
-        if (!mId) return 0;
-        const membership = memberships.find(m => m.id === mId);
-        if (!membership?.retailDiscount) return 0;
         
-        const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        return retailSub * (membership.retailDiscount / 100);
-    }, [selectedClientId, clients, memberships, retailItems]);
+        if (client?.subscription?.status && client.subscription.status !== 'active') return 0;
 
-    const tax = useMemo(() => (subtotal - discount - membershipDiscount) * 0.07, [subtotal, discount, membershipDiscount]);
-    const total = useMemo(() => Math.max(0, subtotal - discount - membershipDiscount + tax + tipAmount), [subtotal, discount, membershipDiscount, tax, tipAmount]);
+        let bestDiscountPct = 0;
+        let eligibleProductIds: string[] = [];
+        let hasLimit = false;
+
+        if (mId) {
+            const membership = memberships.find(m => m.id === mId);
+            if (membership?.retailDiscount) {
+                const exhausted = isRetailDiscountExhausted(client!, membership);
+                if (!exhausted) {
+                    bestDiscountPct = membership.retailDiscount;
+                    eligibleProductIds = membership.applicableProductIds || [];
+                    hasLimit = !!membership.retailDiscountLimit;
+                }
+            }
+        }
+
+        if (client?.activePackages) {
+            client.activePackages.forEach(p => {
+                const pkgDef = packages.find(pkg => pkg.id === p.packageId);
+                if (pkgDef?.retailDiscount && pkgDef.retailDiscount > bestDiscountPct) {
+                    bestDiscountPct = pkgDef.retailDiscount;
+                    eligibleProductIds = pkgDef.applicableProductIds || [];
+                    hasLimit = false; 
+                }
+            });
+        }
+
+        if (bestDiscountPct === 0) return 0;
+
+        return cart.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            if (product?.type !== 'retail') return acc;
+            
+            const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
+            if (isEligible) {
+                const price = product?.msrp || product?.costPerUnit || 0;
+                return acc + (price * item.quantity * (bestDiscountPct / 100));
+            }
+            return acc;
+        }, 0);
+    }, [selectedClientId, clients, memberships, packages, cart, inventory]);
 
     const handleSkip = (walkInId: string) => {
         if (!firestore || !tenantId) return;
@@ -505,7 +557,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -570,7 +622,7 @@ function POSPage() {
     const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
         if (!firestore || !tenantId || !selectedTenant) return;
         const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
-        const tmhr = selectedTenant.tmhr || 50;
+        const tmhrValue = selectedTenant.tmhr || 50;
         const premium = selectedTenant.lateInconveniencePremium || 0;
 
         if (status === 'running_late' && lateMinutes && !isWalkIn) {
@@ -597,7 +649,7 @@ function POSPage() {
                     }
                 }
                 if (lateMinutes > grace || clash) {
-                    const timeLostCost = (lateMinutes / 60) * tmhr;
+                    const timeLostCost = (lateMinutes / 60) * tmhrValue;
                     const fee = Math.ceil(timeLostCost + premium);
                     setPolicyEnforcementData({ id, isWalkIn, fee, reason: clash ? 'clash' : 'late', minutes: lateMinutes, appointment: apt, service: primarySvc, fullSessionBlock });
                     return;
@@ -674,7 +726,6 @@ function POSPage() {
         const allComplete = completedIds.length >= allPartIds.length;
         const batch = writeBatch(firestore);
         
-        // CRITICAL FIX: Sanitize the checkoutState object to remove undefined values before calling update
         const sanitizedCheckoutState = sanitizeForFirestore(checkoutState);
 
         if (allComplete) {
@@ -808,6 +859,17 @@ function POSPage() {
                 if (redeemedOffer.type === 'package') updates.activePackages = (selectedClient.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
                 else { updates['subscription.perkUsage.' + redeemedOffer.itemId] = increment(1); updates['subscription.perkLastUsed'] = now; }
             }
+
+            // Track Retail Discount usage if applied
+            if (membershipDiscount > 0) {
+                const mId = selectedClient.activeMembershipId || selectedClient.subscription?.membershipId;
+                const membership = memberships?.find(m => m.id === mId);
+                if (membership?.retailDiscountLimit) {
+                    updates['subscription.perkUsage.retail_discount'] = increment(1);
+                    updates['subscription.perkLastUsed'] = now;
+                }
+            }
+
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
         }
         

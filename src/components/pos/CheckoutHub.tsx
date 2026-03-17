@@ -46,7 +46,7 @@ import {
     Box,
     CheckCircle2
 } from 'lucide-react';
-import { type Appointment, type Service, type Client, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Label } from '../ui/label';
@@ -60,7 +60,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays } from 'date-fns';
+import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, subYears } from 'date-fns';
 import { 
     Dialog, 
     DialogContent, 
@@ -161,7 +161,7 @@ export const CheckoutHub = ({
     appliedDiscountCodes,
     setAppliedDiscountCodes,
     discount,
-    membershipDiscount: _, // We calculate this internally now for precision
+    membershipDiscount: _passedMembershipDiscount,
     isSubmitting,
     paymentTab,
     setPaymentTab,
@@ -302,17 +302,38 @@ export const CheckoutHub = ({
 
     const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
         if (!client.subscription?.nextBillingDate) return false;
+        if (client.subscription.status !== 'active') return true;
+
         const lastUsedStr = client.subscription.perkLastUsed;
         if (!lastUsedStr) return false;
         
         const lastUsed = parseISO(lastUsedStr);
         const nextBilling = parseISO(client.subscription.nextBillingDate);
-        const cycleStart = subMonths(nextBilling, 1);
+        const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+        
         if (!isAfter(lastUsed, cycleStart)) return false;
 
         const usageCount = client.subscription.perkUsage?.[perkId] || 0;
         const perkDef = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
         return usageCount >= (perkDef?.quantity || 1);
+    };
+
+    const isRetailDiscountExhausted = (client: Client, membership: Membership) => {
+        if (!membership.retailDiscountLimit || membership.retailDiscountLimit === 0) return false;
+        if (!client.subscription?.nextBillingDate) return false;
+        if (client.subscription.status !== 'active') return true;
+
+        const lastUsedStr = client.subscription.perkLastUsed;
+        if (!lastUsedStr) return false;
+
+        const lastUsed = parseISO(lastUsedStr);
+        const nextBilling = parseISO(client.subscription.nextBillingDate);
+        const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+        
+        if (!isAfter(lastUsed, cycleStart)) return false;
+
+        const usageCount = client.subscription.perkUsage?.['retail_discount'] || 0;
+        return usageCount >= membership.retailDiscountLimit;
     };
 
     const availableEntitlements = useMemo(() => {
@@ -400,14 +421,19 @@ export const CheckoutHub = ({
         const client = clients.find(c => c.id === selectedClientId);
         const mId = client?.activeMembershipId || client?.subscription?.membershipId;
         
+        if (client?.subscription?.status && client.subscription.status !== 'active') return 0;
+
         let bestDiscountPct = 0;
         let eligibleProductIds: string[] = [];
 
         if (mId) {
             const membership = memberships.find(m => m.id === mId);
             if (membership?.retailDiscount) {
-                bestDiscountPct = membership.retailDiscount;
-                eligibleProductIds = membership.applicableProductIds || [];
+                const exhausted = isRetailDiscountExhausted(client!, membership);
+                if (!exhausted) {
+                    bestDiscountPct = membership.retailDiscount;
+                    eligibleProductIds = membership.applicableProductIds || [];
+                }
             }
         }
 
@@ -798,7 +824,7 @@ export const CheckoutHub = ({
                 </div>
                 
                 <div className="flex justify-between items-center py-1 md:py-2">
-                    <p className="font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
+                    <p className="font-black uppercase text-token font-bold uppercase text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
                     <div className="relative w-32 md:w-36">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
                         <Input 
@@ -816,7 +842,7 @@ export const CheckoutHub = ({
                         <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 x-3" /> Distribution Matrix</p>
                         {allInvolvedStaff.map((member: any) => (
                             <div key={member.id} className="flex items-center gap-3">
-                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
                                     <Avatar className="h-5 w-5 md:h-6 md:w-6 border-2 border-white shadow-sm rounded-lg">
                                         <AvatarImage src={member.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-[7px] md:text-[8px]">{(member.name || 'S')[0]}</AvatarFallback>
@@ -941,7 +967,7 @@ export const CheckoutHub = ({
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
+            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsAutoCancelledAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
         </div>
     );
 };
