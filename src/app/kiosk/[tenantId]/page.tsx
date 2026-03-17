@@ -108,25 +108,36 @@ const ClosedView = ({ schedule, logoUrl, tenantName }: { schedule: any, logoUrl?
 );
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full" key="party-type-selection">
-        <h2 className="text-3xl md:text-5xl font-bold tracking-tighter text-center mb-8 px-4 uppercase text-slate-900 drop-shadow-sm">Select Enrollment</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 p-4 md:p-10">
-            <div className="rounded-[2.5rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary/30 cursor-pointer group" onClick={() => onSelect('individual')}>
-                <div className="p-10 md:p-16 flex flex-col items-center justify-center text-center">
-                    <div className="p-6 bg-primary/5 rounded-full mb-6 group-hover:bg-primary/10 transition-colors shadow-inner">
-                        <User className="w-12 h-12 md:w-16 md:h-16 text-primary group-hover:scale-110 transition-transform" />
-                    </div>
-                    <h3 className="text-xl md:text-3xl font-bold tracking-tight uppercase text-slate-800">Solo</h3>
-                    <p className="text-slate-500 mt-2 text-xs md:text-sm font-bold uppercase tracking-[0.2em] opacity-60">Just Me</p>
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full space-y-12 py-12" key="party-type-selection">
+        <div className="space-y-2 text-center">
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tighter text-slate-900">Welcome</h2>
+            <p className="text-slate-500 text-sm md:text-lg font-medium uppercase tracking-[0.2em] opacity-60">Who are we checking in today?</p>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 px-6 md:px-16">
+            <div 
+                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-2xl p-10 md:p-16 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
+                onClick={() => onSelect('individual')}
+            >
+                <div className="p-6 bg-primary/5 rounded-full mb-8 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
+                    <User className="w-16 h-16 md:w-24 md:h-24 text-primary group-hover:scale-110 transition-transform duration-700" strokeWidth={1.5} />
+                </div>
+                <div className="space-y-2">
+                    <h3 className="text-2xl md:text-4xl font-bold tracking-tight uppercase text-slate-800 leading-none">Solo</h3>
+                    <p className="text-slate-500 text-xs md:text-sm font-bold uppercase tracking-[0.3em] opacity-40">Checking in for myself</p>
                 </div>
             </div>
-             <div className="rounded-[2.5rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary/30 cursor-pointer group" onClick={() => onSelect('group')}>
-                <div className="p-10 md:p-16 flex flex-col items-center justify-center text-center">
-                    <div className="p-6 bg-primary/5 rounded-full mb-6 group-hover:bg-primary/10 transition-colors shadow-inner">
-                        <Users className="w-12 h-12 md:w-16 md:h-16 text-primary group-hover:scale-110 transition-transform" />
-                    </div>
-                    <h3 className="text-xl md:text-3xl font-bold tracking-tight uppercase text-slate-800">My Party</h3>
-                    <p className="text-slate-500 mt-2 text-xs md:text-sm font-bold uppercase tracking-[0.2em] opacity-60">Group Check-in</p>
+
+             <div 
+                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-2xl p-10 md:p-16 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
+                onClick={() => onSelect('group')}
+            >
+                <div className="p-6 bg-primary/5 rounded-full mb-8 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
+                    <Users className="w-16 h-16 md:w-24 md:h-24 text-primary group-hover:scale-110 transition-transform duration-700" strokeWidth={1.5} />
+                </div>
+                <div className="space-y-2">
+                    <h3 className="text-2xl md:text-4xl font-bold tracking-tight uppercase text-slate-800 leading-none">My Party</h3>
+                    <p className="text-slate-500 text-xs md:text-sm font-bold uppercase tracking-[0.3em] opacity-40">Checking in a group</p>
                 </div>
             </div>
         </div>
@@ -147,7 +158,7 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
             {confirmedParty.map(ticket => (
                 <Card key={ticket.id} className="bg-white/80 backdrop-blur-md border-2 border-white/50 rounded-[2rem] text-left shadow-xl group overflow-hidden">
                     <CardContent className="p-6 md:p-8 flex justify-between items-center">
-                        <div className="space-y-1">
+                        <div className="space-y-1 text-left">
                             <p className="text-[10px] text-primary font-black uppercase tracking-[0.2em] opacity-60 mb-1">Queue Spot</p>
                             <p className="font-bold text-2xl md:text-4xl uppercase tracking-tighter text-slate-900">#{ticket.queuePosition}</p>
                             <p className="text-xs md:sm font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px]">{ticket.name}</p>
@@ -345,7 +356,7 @@ const StepDetails = ({
                 </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 text-left">
                 <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                     <User className="w-3 h-3 text-primary opacity-60"/>
                     <span>Full Name</span>
@@ -359,7 +370,7 @@ const StepDetails = ({
                 </Button> 
             )}
 
-            <div className="space-y-2">
+            <div className="space-y-2 text-left">
                 <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                     <Mail className="w-3 h-3 text-primary opacity-60"/>
                     <span>Email Address</span>
@@ -430,8 +441,8 @@ const StepDetails = ({
                     <motion.div key="banned" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
                         <Alert variant="destructive" className="bg-destructive/5 border-destructive shadow-xl border-2 rounded-2xl p-6 text-left">
                             <Ban className="h-5 w-5" />
-                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1">Check-in Restricted</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
+                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1 text-left">Check-in Restricted</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
                                 Account restricted. Please see the desk for assistance.
                             </AlertDescription>
                         </Alert>
@@ -441,8 +452,8 @@ const StepDetails = ({
                     <motion.div key="balance" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
                         <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-2xl p-6 shadow-xl text-left">
                             <Wallet className="h-5 w-5" />
-                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1">Balance Alert</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
+                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1 text-left">Balance Alert</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
                                 Balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Settle at desk to join queue.
                             </AlertDescription>
                         </Alert>
@@ -503,7 +514,7 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
 );
 
 const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
-    <div className="space-y-6 md:space-y-10" key="consent-step">
+    <div className="space-y-6 md:space-y-10" key="consent-step text-left">
         {requiredForms.map(form => (
             <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-10 rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-2xl shadow-xl text-left">
                 <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 uppercase tracking-tighter text-slate-900"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-60" /> {form.title}</h3>
@@ -898,12 +909,12 @@ export default function WalkInPage() {
                                         <Image src={wordmarkUrl} alt={tenant.name} fill className="object-contain" />
                                     </div>
                                 ) : (
-                                    <h1 className="text-4xl md:text-7xl font-bold tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none">{tenant.name || 'Welcome'}</h1>
+                                    <h1 className="text-4xl md:text-7xl font-bold tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none text-center">{tenant.name || 'Welcome'}</h1>
                                 )}
                             </div>
                         )}
 
-                        <p className="text-primary text-xs md:text-xl font-bold tracking-[0.4em] uppercase animate-pulse drop-shadow-sm mt-4 opacity-60">Tap to Begin</p>
+                        <p className="text-primary text-xs md:text-xl font-bold tracking-[0.4em] uppercase animate-pulse drop-shadow-sm mt-4 opacity-60 text-center">Tap to Begin</p>
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-12 md:mt-16 flex justify-center">
                             <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce text-slate-400 opacity-30" />
                         </motion.div>
@@ -953,7 +964,7 @@ export default function WalkInPage() {
         </AnimatePresence>
 
         <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-            <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></DialogContent>
+            <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></DialogContent>
         </Dialog>
     </div>
   );
