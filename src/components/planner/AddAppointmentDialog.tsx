@@ -69,6 +69,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -609,7 +610,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 </div>
                                 <div className="grid grid-cols-7 gap-2">
                                     {weekDays.map(day => (
-                                        <button key={day.toISOString()} onClick={() => setValue('date', day)} className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, watchDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30")}>
+                                        <button key={day.toISOString()} onClick={() => setValue('date', day)} className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, watchDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed")} type="button">
                                             <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
                                             <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
                                         </button>

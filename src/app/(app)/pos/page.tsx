@@ -256,7 +256,7 @@ function POSPage() {
         if (selectedAppointmentIds.size === 0) return clients || [];
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
-          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+          const apt = readyForCheckoutAppointments.find(a => a.id === id);
           if (apt?.client?.id) {
             clientIds.add(apt.client.id);
           }
