@@ -345,9 +345,7 @@ const MemberSetup = ({
     isSubmitting,
     bannedClient,
     existingClientWithBalance,
-    isResolvingIdentity,
-    matchedAppointment,
-    onAppointmentCheckIn
+    isResolvingIdentity
 }: any) => {
     const subStepTitles = {
         details: { title: 'Personal Info', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
@@ -390,7 +388,6 @@ const MemberSetup = ({
                     <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                         {memberSubStep === 'details' && (
                             <StepDetails 
-                                key="step-details"
                                 member={member} 
                                 onUpdate={onUpdate} 
                                 isGroup={isGroup} 
@@ -398,15 +395,11 @@ const MemberSetup = ({
                                 bannedClient={bannedClient}
                                 existingClientWithBalance={existingClientWithBalance}
                                 isResolvingIdentity={isResolvingIdentity}
-                                matchedAppointment={matchedAppointment}
-                                onAppointmentCheckIn={onAppointmentCheckIn}
-                                services={services}
-                                staff={staff}
                             />
                         )}
-                        {memberSubStep === 'services' && <StepServices key="step-services" member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
-                        {memberSubStep === 'consents' && <StepConsents key="step-consents" member={member} requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} />}
-                        {memberSubStep === 'staff' && <StepStaff key="step-staff" member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />}
+                        {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
+                        {memberSubStep === 'consents' && <StepConsents member={member} requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} />}
+                        {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />}
                     </motion.div>
                 </AnimatePresence>
             </div>
@@ -458,19 +451,10 @@ const StepDetails = ({
     isGroup, 
     bannedClient, 
     existingClientWithBalance,
-    isResolvingIdentity,
-    matchedAppointment,
-    onAppointmentCheckIn,
-    services,
-    staff
+    isResolvingIdentity
 }: any) => {
     const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
     
-    const assignedStaff = useMemo(() => {
-        if (!matchedAppointment || !staff) return null;
-        return staff.find((s: any) => s.id === matchedAppointment.staffId);
-    }, [matchedAppointment, staff]);
-
     return (
         <div className="space-y-6 text-left">
             <div className="space-y-2 text-left">
@@ -520,58 +504,6 @@ const StepDetails = ({
                     </motion.div>
                 )}
                 
-                {matchedAppointment && !bannedClient && !existingClientWithBalance && (
-                    <motion.div initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} className="p-6 md:p-8 rounded-[2rem] border-2 border-primary/10 bg-white/80 backdrop-blur-xl shadow-2xl relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
-                            <Sparkles className="w-20 h-20 text-primary" />
-                        </div>
-                        
-                        <div className="flex flex-col items-center text-center space-y-6 relative z-10">
-                            <div className="space-y-2">
-                                <div className="inline-flex items-center gap-2 bg-primary/5 px-4 py-1 rounded-full border border-primary/10 mb-2">
-                                    <CheckCircle2 className="w-3 h-3 text-primary" />
-                                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Identity Confirmed</span>
-                                </div>
-                                <h4 className="text-xl md:text-3xl font-bold uppercase tracking-tighter text-slate-900 leading-none">
-                                    Welcome, {member.name.split(' ')[0]}
-                                </h4>
-                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">Your session is ready for check-in.</p>
-                            </div>
-
-                            <Card className="w-full bg-muted/10 border-2 rounded-2xl shadow-inner overflow-hidden">
-                                <CardContent className="p-5 flex flex-col items-center gap-4">
-                                    <div className="flex items-center gap-4 w-full">
-                                        <div className="relative shrink-0">
-                                            <Avatar className="w-12 h-12 border-2 border-white shadow-lg rounded-xl">
-                                                <AvatarImage src={assignedStaff?.avatarUrl} className="object-cover" />
-                                                <AvatarFallback className="font-bold bg-primary/5 text-primary uppercase text-[10px]">{(assignedStaff?.name || 'S').charAt(0)}</AvatarFallback>
-                                            </Avatar>
-                                        </div>
-                                        <div className="text-left min-w-0">
-                                            <p className="text-[9px] font-bold uppercase text-primary/60 tracking-widest mb-0.5">With {assignedStaff?.name.split(' ')[0] || 'Pro'}</p>
-                                            <p className="font-bold text-sm md:text-base uppercase tracking-tight text-slate-900 truncate">
-                                                {services.find((s: any) => s.id === matchedAppointment.serviceId)?.name}
-                                            </p>
-                                            <div className="flex items-center gap-2 mt-1 text-[9px] font-bold uppercase text-muted-foreground opacity-60">
-                                                <Clock className="w-2.5 h-2.5" />
-                                                {format(safeDate(matchedAppointment.startTime), 'h:mm a')}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            <Button 
-                                className="w-full h-14 md:h-16 text-sm md:text-lg font-black uppercase shadow-xl shadow-primary/20 rounded-2xl active:scale-95 transition-all group tracking-[0.1em]" 
-                                onClick={() => onAppointmentCheckIn(matchedAppointment)}
-                            >
-                                Confirm Check-In
-                                <ArrowRight className="ml-2 w-4 h-4 md:w-5 md:h-5 transition-transform group-hover:translate-x-1" />
-                            </Button>
-                        </div>
-                    </motion.div>
-                )}
-
                 {bannedClient && (
                     <motion.div key="banned" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
                         <Alert variant="destructive" className="bg-destructive/5 border-destructive shadow-xl border-2 rounded-2xl p-6 text-left">
@@ -830,12 +762,17 @@ export default function WalkInPage() {
       setStep('identityConfirm');
   };
 
-  const handleIdentityConfirm = () => {
+  const handleIdentityConfirm = async () => {
       if (matchedClient) {
           handleMemberUpdate({ name: matchedClient.name, email: matchedClient.email, phone: matchedClient.phone });
-          setStep('welcomeBack');
+          if (matchedAppointment) {
+              await handleAppointmentCheckIn(matchedAppointment);
+          } else {
+              setMemberSubStep('services');
+              setStep('welcomeBack');
+          }
       }
-  }
+  };
 
   const handleMemberUpdate = (updates: Partial<PartyMember>) => {
     setPartyMembers(prev => prev.map((m, idx) => idx === currentMemberIndex ? { ...m, ...updates } : m));
