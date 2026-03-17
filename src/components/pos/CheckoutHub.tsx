@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -260,6 +259,12 @@ export const CheckoutHub = ({
         });
         return staff.filter((s: Staff) => staffIds.has(s.id));
     }, [appointmentsData, staff]);
+
+    useEffect(() => {
+        if (allInvolvedStaff.length === 1 && tipAmount > 0) {
+            setTipAllocations({ [allInvolvedStaff[0].id]: tipAmount });
+        }
+    }, [tipAmount, allInvolvedStaff]);
 
     const handleTotalTipChange = (value: number) => {
         const roundedValue = Number(value.toFixed(2));
@@ -664,7 +669,7 @@ export const CheckoutHub = ({
                                     </div>
                                     <p className="font-black font-mono text-sm tracking-tighter w-14 md:w-16 text-right text-slate-900">${(item.price * item.quantity).toFixed(2)}</p>
                                 </div>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="h-4 w-4"/></Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4"/></Button>
                             </div>
                         ))}
 
