@@ -33,8 +33,6 @@ import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentD
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Textarea } from '../ui/textarea';
-import { Switch } from '../ui/switch';
 import { TillManagement } from '@/components/pos/TillManagement';
 
 const safeDate = (val: any): Date => {
@@ -162,7 +160,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
 };
 
 function POSPage() {
-    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -241,9 +239,6 @@ function POSPage() {
         const waitTimes = completedWalkIns.map(w => differenceInMinutes(safeDate(w.serviceStartTime), safeDate(w.checkInTime)));
         const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
 
-        const convertedCount = walkInsToday.filter(w => ['servicing', 'completed', 'ready_for_checkout'].includes(w.status)).length;
-        const walkInConversionRate = walkInsToday.length > 0 ? (convertedCount / walkInsToday.length) * 100 : 0;
-
         const dailyTransactions = (transactions || []).filter(t => {
             const d = safeDate(t.date);
             return d >= todayStart && d <= todayEnd && t.type === 'income';
@@ -252,7 +247,6 @@ function POSPage() {
 
         return {
             avgWaitTime,
-            walkInConversionRate,
             totalWalkIns: walkInsToday.length,
             totalDailyGrossRevenue
         };
@@ -356,6 +350,71 @@ function POSPage() {
         }, 0);
     }, [appliedDiscountCodes, discounts, subtotal]);
 
+    const isRetailDiscountExhausted = useCallback((client: Client, membership: Membership) => {
+        if (!membership.retailDiscountLimit || membership.retailDiscountLimit === 0) return false;
+        if (!client.subscription?.nextBillingDate) return false;
+        if (client.subscription.status !== 'active') return true;
+
+        const lastUsedStr = client.subscription.perkLastUsed;
+        if (!lastUsedStr) return false;
+
+        const lastUsed = safeDate(lastUsedStr);
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
+        const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+        
+        if (!isAfter(lastUsed, cycleStart)) return false;
+
+        const usageCount = client.subscription.perkUsage?.['retail_discount'] || 0;
+        return usageCount >= membership.retailDiscountLimit;
+    }, []);
+
+    const membershipDiscount = useMemo(() => {
+        if (!selectedClientId || !clients || !memberships || !packages) return 0;
+        const client = clients.find(c => c.id === selectedClientId);
+        if (!client) return 0;
+        
+        const mId = client.activeMembershipId || client?.subscription?.membershipId;
+        if (client?.subscription?.status && client.subscription.status !== 'active') return 0;
+
+        let bestDiscountPct = 0;
+        let eligibleProductIds: string[] = [];
+
+        if (mId) {
+            const membership = memberships.find(m => m.id === mId);
+            if (membership?.retailDiscount) {
+                const exhausted = isRetailDiscountExhausted(client, membership);
+                if (!exhausted) {
+                    bestDiscountPct = membership.retailDiscount;
+                    eligibleProductIds = membership.applicableProductIds || [];
+                }
+            }
+        }
+
+        if (client.activePackages) {
+            client.activePackages.forEach(p => {
+                const pkgDef = packages.find(pkg => pkg.id === p.packageId);
+                if (pkgDef?.retailDiscount && pkgDef.retailDiscount > bestDiscountPct) {
+                    bestDiscountPct = pkgDef.retailDiscount;
+                    eligibleProductIds = pkgDef.applicableProductIds || [];
+                }
+            });
+        }
+
+        if (bestDiscountPct === 0) return 0;
+
+        return retailItems.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            if (product?.type !== 'retail') return acc;
+            
+            const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
+            if (isEligible) {
+                const price = product?.msrp || product?.costPerUnit || 0;
+                return acc + (price * item.quantity * (bestDiscountPct / 100));
+            }
+            return acc;
+        }, 0);
+    }, [selectedClientId, clients, memberships, packages, retailItems, inventory, isRetailDiscountExhausted]);
+
     const handleSkip = (walkInId: string) => {
         if (!firestore || !tenantId) return;
         const walkIn = walkIns?.find(w => w.id === walkInId);
@@ -365,7 +424,7 @@ function POSPage() {
             const staffRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
             batch.set(staffRef, { status: 'idle' }, { merge: true });
             const aptRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`);
-            batch.update(aptRef, { status: 'cancelled', cancellationReason: 'no-show' });
+            batch.update(aptRef, { status: 'cancelled', cancellationReason: 'late' });
         }
         batch.commit().then(() => toast({ title: "Guest Skipped" }));
     };
@@ -379,7 +438,7 @@ function POSPage() {
             const staffRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
             batch.set(staffRef, { status: 'idle' }, { merge: true });
             const aptRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`);
-            batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`));
+            batch.delete(aptRef);
         }
         batch.commit().then(() => toast({ title: "Returned to Queue" }));
     };
@@ -420,16 +479,6 @@ function POSPage() {
       if (appointment.staffId) {
           batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
       }
-
-      const concurrentIds = appointment.checkoutState?.concurrentServiceIds || [];
-      const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
-      concurrentIds.forEach(svcId => {
-          const assignedStaffId = overrides[svcId];
-          if (assignedStaffId) {
-              const assistantRef = doc(firestore, 'tenants', tenantId, 'staff', assignedStaffId);
-              batch.set(assistantRef, { status: 'busy' }, { merge: true });
-          }
-      });
 
       if (appointment.isWalkIn) {
           const walkInId = appointment.id.replace('apt-walkin-', '');
@@ -473,7 +522,7 @@ function POSPage() {
         if (!selectedAppointment || !firestore || !tenantId) return;
         const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
         const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
-        const currentClient = clients?.find(c => c.id === selectedAppointment.clientId);
+        const currentClient = (clients || []).find(c => c.id === selectedAppointment.clientId);
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
 
@@ -815,16 +864,15 @@ function POSPage() {
             }
         });
         
-        const finalTax = 0; // Simplified
         if (discount > 0) {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
         }
 
         if (paymentData.paymentMethod === 'cash' && activeTill) {
-            const finalCashInput = totalCashIncrease + finalTax + cashTipsTotal;
+            const finalCashInput = totalCashIncrease + cashTipsTotal;
             batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), { 
                 expectedCash: increment(finalCashInput),
-                totalCashSales: increment(totalCashIncrease + finalTax),
+                totalCashSales: increment(totalCashIncrease),
                 totalCashTips: increment(cashTipsTotal),
                 ...cashTipsByStaffUpdate
             });
@@ -941,7 +989,6 @@ function POSPage() {
                     <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-2 text-left">
                         <div className="grid gap-4 md:gap-6 grid-cols-2 lg:grid-cols-4 flex-1 w-full">
                             <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
-                            <KpiCard title="Success Rate" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500" />} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-in conversion." />
                             <KpiCard title="Arrival Count" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500" />} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total guests today." />
                             <KpiCard title="Daily Gross" value={`$${kpiData.totalDailyGrossRevenue.toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
                         </div>

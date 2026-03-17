@@ -161,7 +161,7 @@ export const CheckoutHub = ({
     appliedDiscountCodes,
     setAppliedDiscountCodes,
     discount,
-    membershipDiscount: _passedMembershipDiscount,
+    membershipDiscount,
     isSubmitting,
     paymentTab,
     setPaymentTab,
@@ -319,24 +319,6 @@ export const CheckoutHub = ({
         return usageCount >= (perkDef?.quantity || 1);
     };
 
-    const isRetailDiscountExhausted = (client: Client, membership: Membership) => {
-        if (!membership.retailDiscountLimit || membership.retailDiscountLimit === 0) return false;
-        if (!client.subscription?.nextBillingDate) return false;
-        if (client.subscription.status !== 'active') return true;
-
-        const lastUsedStr = client.subscription.perkLastUsed;
-        if (!lastUsedStr) return false;
-
-        const lastUsed = safeDate(lastUsedStr);
-        const nextBilling = safeDate(client.subscription.nextBillingDate);
-        const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
-        
-        if (!isAfter(lastUsed, cycleStart)) return false;
-
-        const usageCount = client.subscription.perkUsage?.['retail_discount'] || 0;
-        return usageCount >= membership.retailDiscountLimit;
-    };
-
     const availableEntitlements = useMemo(() => {
         if (!selectedClient) return [];
         const items = [];
@@ -416,52 +398,6 @@ export const CheckoutHub = ({
     };
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
-
-    const membershipDiscount = useMemo(() => {
-        if (!selectedClientId || !clients || !memberships || !packages) return 0;
-        const client = clients.find(c => c.id === selectedClientId);
-        const mId = client?.activeMembershipId || client?.subscription?.membershipId;
-        
-        if (client?.subscription?.status && client.subscription.status !== 'active') return 0;
-
-        let bestDiscountPct = 0;
-        let eligibleProductIds: string[] = [];
-
-        if (mId) {
-            const membership = memberships.find(m => m.id === mId);
-            if (membership?.retailDiscount) {
-                const exhausted = isRetailDiscountExhausted(client!, membership);
-                if (!exhausted) {
-                    bestDiscountPct = membership.retailDiscount;
-                    eligibleProductIds = membership.applicableProductIds || [];
-                }
-            }
-        }
-
-        if (client?.activePackages) {
-            client.activePackages.forEach(p => {
-                const pkgDef = packages.find(pkg => pkg.id === p.packageId);
-                if (pkgDef?.retailDiscount && pkgDef.retailDiscount > bestDiscountPct) {
-                    bestDiscountPct = pkgDef.retailDiscount;
-                    eligibleProductIds = pkgDef.applicableProductIds || [];
-                }
-            });
-        }
-
-        if (bestDiscountPct === 0) return 0;
-
-        return cart.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            if (product?.type !== 'retail') return acc;
-            
-            const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
-            if (isEligible) {
-                const price = product?.msrp || product?.costPerUnit || 0;
-                return acc + (price * item.quantity * (bestDiscountPct / 100));
-            }
-            return acc;
-        }, 0);
-    }, [selectedClientId, clients, memberships, packages, cart, inventory]);
 
     return (
         <div className="flex flex-col space-y-6 md:space-y-10">
