@@ -20,7 +20,7 @@ import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBloc
 import { collection, getDocs, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap, Cake, PartyPopper, Gift, Delete, Eraser, Undo2 } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap, Cake, PartyPopper, Gift, Delete, Eraser, Undo2, Workflow } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -84,7 +84,7 @@ const isBusinessOpen = (date: Date, schedule: any) => {
 };
 
 const ClosedView = ({ schedule, logoUrl, tenantName }: { schedule: any, logoUrl?: string, tenantName?: string }) => (
-    <div className="text-center space-y-6 max-w-md bg-white/40 backdrop-blur-2xl p-10 rounded-[3rem] border border-white/20 shadow-2xl">
+    <div className="text-center space-y-6 max-w-md bg-white/40 backdrop-blur-xl p-10 rounded-[3rem] border border-white/20 shadow-2xl">
         <div className="inline-block p-6 bg-white/50 rounded-full border border-white/30 mb-4 shadow-inner overflow-hidden">
             {logoUrl ? (
                 <div className="relative w-16 h-16">
@@ -117,7 +117,7 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 px-6 md:px-16">
             <div 
-                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-2xl p-10 md:p-16 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
+                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl p-10 md:p-16 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
                 onClick={() => onSelect('individual')}
             >
                 <div className="p-6 bg-primary/5 rounded-full mb-8 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
@@ -130,7 +130,7 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
             </div>
 
              <div 
-                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-2xl p-10 md:p-16 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
+                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl p-10 md:p-16 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
                 onClick={() => onSelect('group')}
             >
                 <div className="p-6 bg-primary/5 rounded-full mb-8 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
@@ -154,7 +154,7 @@ const IdentityChoiceView = ({ onSelect, onBack }: { onSelect: (type: 'new' | 're
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 px-6 md:px-16">
             <div 
-                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-2xl p-10 md:p-12 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
+                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl p-10 md:p-12 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
                 onClick={() => onSelect('returning')}
             >
                 <div className="p-6 bg-primary/5 rounded-full mb-6 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
@@ -167,7 +167,7 @@ const IdentityChoiceView = ({ onSelect, onBack }: { onSelect: (type: 'new' | 're
             </div>
 
              <div 
-                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-2xl p-10 md:p-12 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
+                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl p-10 md:p-12 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
                 onClick={() => onSelect('new')}
             >
                 <div className="p-6 bg-primary/5 rounded-full mb-6 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
@@ -304,7 +304,7 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8 max-w-4xl mx-auto">
             {confirmedParty.map(ticket => (
-                <Card key={ticket.id} className="bg-white/80 backdrop-blur-md border-2 border-white/50 rounded-[2rem] text-left shadow-xl group overflow-hidden">
+                <Card key={ticket.id} className="bg-white/80 backdrop-blur-xl border-2 border-white/50 rounded-[2rem] text-left shadow-xl group overflow-hidden">
                     <CardContent className="p-6 md:p-8 flex justify-between items-center">
                         <div className="space-y-1 text-left">
                             <p className="text-[10px] text-primary font-black uppercase tracking-[0.2em] opacity-60 mb-1">Queue Spot</p>
@@ -323,6 +323,279 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
             <Button size="lg" onClick={onDone} className="h-14 md:h-20 px-12 md:px-20 text-lg md:text-2xl font-bold rounded-2xl md:rounded-3xl uppercase tracking-widest shadow-xl shadow-primary/20 transition-all hover:scale-105 active:scale-95">Complete</Button>
         </div>
     </motion.div>
+);
+
+const StepDetails = ({ 
+    member, 
+    onUpdate, 
+    primaryMember, 
+    isGroup, 
+    bannedClient, 
+    existingClientWithBalance,
+    isResolvingIdentity
+}: any) => {
+    const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
+    
+    return (
+        <div className="space-y-6 text-left">
+            <div className="space-y-2 text-left">
+                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1 text-left">
+                    <Phone className="w-3 h-3 text-primary opacity-60"/>
+                    <span>Phone Number</span>
+                </Label>
+                <div className="kiosk-phone-input">
+                    <PhoneInput
+                        international
+                        defaultCountry="US"
+                        value={member.phone || ''}
+                        onChange={(value) => onUpdate({ phone: value || '' })}
+                        inputComponent={Input as any}
+                        placeholder="(555) 000-0000"
+                        className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-xl font-bold focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 [&_input]:bg-transparent shadow-inner text-slate-900"
+                    />
+                </div>
+            </div>
+
+            <div className="space-y-2 text-left">
+                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
+                    <User className="w-3 h-3 text-primary opacity-60"/>
+                    <span>Full Name</span>
+                </Label>
+                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your name" : "Guest's name"} className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-within:ring-primary/10 focus-visible:border-primary transition-all shadow-inner text-slate-900 placeholder:text-slate-300 uppercase tracking-tight"/>
+            </div>
+
+            {isGroup && !member.isPrimary && ( 
+                <Button variant="ghost" size="sm" onClick={usePrimaryContact} className="w-full rounded-xl h-10 bg-white/40 backdrop-blur-xl text-slate-500 font-bold uppercase tracking-widest text-[9px]">
+                    Use same contact as {primaryMember?.name.split(' ')[0] || '1st guest'}
+                </Button> 
+            )}
+
+            <div className="space-y-2 text-left">
+                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
+                    <Mail className="w-3 h-3 text-primary opacity-60"/>
+                    <span>Email Address</span>
+                </Label>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="alex@example.com" className="h-12 md:h-14 text-lg font-bold rounded-2xl border-2 border-white/50 bg-white/80 focus-visible:ring-primary shadow-inner text-slate-900"/>
+            </div>
+
+            <AnimatePresence>
+                {isResolvingIdentity && (
+                    <motion.div key="resolving" className="flex items-center justify-center gap-2 text-[9px] uppercase font-black tracking-widest text-primary animate-pulse py-2 opacity-60">
+                        <Loader className="w-3 h-3 animate-spin" /> Verifying Profile...
+                    </motion.div>
+                )}
+                
+                {bannedClient && (
+                    <motion.div key="banned" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
+                        <Alert variant="destructive" className="bg-destructive/5 border-destructive shadow-xl border-2 rounded-2xl p-6 text-left">
+                            <Ban className="h-5 w-5" />
+                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1 text-left">Check-in Restricted</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
+                                Account restricted. Please see the desk for assistance.
+                            </AlertDescription>
+                        </Alert>
+                    </motion.div>
+                )}
+                {existingClientWithBalance && !bannedClient && (
+                    <motion.div key="balance" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
+                        <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-2xl p-6 shadow-xl text-left">
+                            <Wallet className="h-5 w-5" />
+                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1 text-left">Balance Alert</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
+                                Balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Settle at desk to join queue.
+                            </AlertDescription>
+                        </Alert>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
+const ServiceSelectionCard = ({ service, isSelected, onToggle, pricingTiers }: { service: Service, isSelected: boolean, onToggle: () => void, pricingTiers: PricingTier[] }) => {
+    const minPrice = useMemo(() => {
+        if (!service.serviceTiers || service.serviceTiers.length === 0) return service.price;
+        return Math.min(...service.serviceTiers.map(t => t.price));
+    }, [service]);
+
+    return (
+        <button onClick={onToggle} className={cn("relative p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex flex-col items-center justify-center gap-3 h-full group", isSelected ? "border-primary bg-primary/5 shadow-xl ring-4 ring-primary/10" : "bg-white/60 border-white/40 hover:border-primary/20 shadow-sm")}>
+            <div className={cn("p-3 rounded-2xl bg-primary/5 transition-all group-hover:scale-110", isSelected && "bg-primary text-white shadow-lg")}>
+                <Sparkles className={cn("w-6 h-6 md:w-8 md:h-8", isSelected ? "text-white" : "text-primary opacity-40")} />
+            </div>
+            <div className="text-center space-y-1">
+                <p className="font-bold uppercase tracking-tight text-xs md:text-sm text-slate-900 leading-tight">{service.name}</p>
+                <p className="text-[10px] md:text-xs font-black text-primary tracking-tighter font-mono">${minPrice.toFixed(0)}+</p>
+            </div>
+            {isSelected && <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5 shadow-lg"><Check className="w-3 h-3" /></div>}
+        </button>
+    );
+};
+
+const StepServices = ({ member, onUpdate, services, pricingTiers, consentForms }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; consentForms: ConsentForm[]; }) => {
+    const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
+    const selectedMainId = useMemo(() => member.serviceIds.find(id => mainServices.some(s => s.id === id)), [member.serviceIds, mainServices]);
+    
+    const [view, setView] = useState<'category' | 'main' | 'addon'>(selectedMainId ? 'addon' : 'category');
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+    const selectedMainService = useMemo(() => services.find(s => s.id === selectedMainId), [services, selectedMainId]);
+
+    const compatibleAddOns = useMemo(() => {
+        if (!selectedMainService) return [];
+        return services.filter(s => s.type === 'addon' && (selectedMainService.compatibleAddOnIds || []).includes(s.id));
+    }, [services, selectedMainService]);
+
+    const categories = useMemo(() => Array.from(new Set(mainServices.map(s => s.category || 'Standard'))).sort(), [mainServices]);
+
+    const handleCategorySelect = (cat: string) => {
+        setSelectedCategory(cat);
+        setView('main');
+    };
+
+    const handleMainSelect = (id: string) => {
+        onUpdate({ serviceIds: [id] });
+        setView('addon');
+    };
+
+    const toggleAddOn = (id: string) => {
+        const isSelected = member.serviceIds.includes(id);
+        const next = isSelected 
+            ? member.serviceIds.filter(sid => sid !== id)
+            : [...member.serviceIds, id];
+        onUpdate({ serviceIds: next });
+    };
+
+    return (
+        <AnimatePresence mode="wait">
+            {view === 'category' && (
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="grid grid-cols-1 gap-3 md:gap-4" key="cat-sel">
+                    <div className="space-y-2 text-left mb-4">
+                        <h3 className="text-xl md:text-2xl font-bold uppercase tracking-tight text-slate-900">Choose Department</h3>
+                        <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60">Select a category to browse treatments</p>
+                    </div>
+                    {categories.map(category => (
+                        <button 
+                            key={category} 
+                            className="w-full p-6 md:p-10 text-xl md:text-3xl font-bold rounded-2xl md:rounded-[2rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl hover:border-primary/20 hover:bg-primary/5 transition-all shadow-xl uppercase tracking-tight text-slate-800 text-left flex justify-between items-center group" 
+                            onClick={() => handleCategorySelect(category)}
+                        >
+                            {category}
+                            <ArrowRight className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-0 group-hover:opacity-40 transition-all -translate-x-4 group-hover:translate-x-0" />
+                        </button>
+                    ))}
+                </motion.div>
+            )}
+
+            {view === 'main' && (
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6 text-left" key="main-sel">
+                    <button onClick={() => setView('category')} className="mb-2 -ml-2 text-primary font-bold uppercase tracking-widest p-2 transition-all hover:bg-primary/5 rounded-xl flex items-center gap-2 text-[10px] md:text-xs">
+                        <ArrowLeft className="h-4 w-4"/> Change Category
+                    </button>
+                    <div className="space-y-2 text-left mb-6">
+                        <h3 className="text-xl md:text-2xl font-bold uppercase tracking-tight text-slate-900">{selectedCategory} Menu</h3>
+                        <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60">Select your primary treatment</p>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
+                        {mainServices.filter(s => (s.category || 'Standard') === selectedCategory).map(service => (
+                            <ServiceSelectionCard 
+                                key={service.id} 
+                                service={service} 
+                                isSelected={member.serviceIds.includes(service.id)} 
+                                onToggle={() => handleMainSelect(service.id)} 
+                                pricingTiers={pricingTiers} 
+                            />
+                        ))}
+                    </div>
+                </motion.div>
+            )}
+
+            {view === 'addon' && (
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 text-left" key="addon-sel">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <button onClick={() => setView('main')} className="text-primary font-bold uppercase tracking-widest p-2 -ml-2 transition-all hover:bg-primary/5 rounded-xl flex items-center gap-2 text-[10px] md:text-xs w-fit">
+                            <ArrowLeft className="h-4 w-4"/> Change Primary Treatment
+                        </button>
+                        <Badge variant="outline" className="h-8 px-4 rounded-xl border-primary/20 text-primary bg-primary/5 font-black uppercase text-[10px] tracking-tight truncate max-w-xs">
+                            <Sparkles className="w-3 h-3 mr-2 opacity-40"/>
+                            Target: {selectedMainService?.name}
+                        </Badge>
+                    </div>
+                    
+                    <div className="space-y-2">
+                        <h3 className="text-xl md:text-2xl font-bold uppercase tracking-tighter text-slate-900">Enhance your session?</h3>
+                        <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60 leading-relaxed">
+                            Optional add-ons compatible with your selection. Select any that apply.
+                        </p>
+                    </div>
+
+                    {compatibleAddOns.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
+                            {compatibleAddOns.map(addon => (
+                                <ServiceSelectionCard 
+                                    key={addon.id} 
+                                    service={addon} 
+                                    isSelected={member.serviceIds.includes(addon.id)} 
+                                    onToggle={() => toggleAddOn(addon.id)} 
+                                    pricingTiers={pricingTiers} 
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                            <Sparkles className="w-12 h-12" />
+                            <div className="space-y-1">
+                                <p className="text-[10px] font-black uppercase tracking-widest">No Compatible Add-ons</p>
+                                <p className="text-[8px] font-bold uppercase tracking-tight">Tap 'Continue' below to finalize</p>
+                            </div>
+                        </div>
+                    )}
+                </motion.div>
+            )}
+        </AnimatePresence>
+    );
+};
+
+const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
+    <div className="space-y-6 text-left" key="staff-selection-step">
+        <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
+            <StaffSelectionCard staff={{ id: 'any', name: 'First Available', avatarUrl: '' }} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === 'any' || !member.preferredStaffId} />
+            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === s.id} />)}
+        </RadioGroup>
+        {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
+            <div className="flex items-center justify-between rounded-2xl border-2 border-white/50 bg-white/40 backdrop-blur-xl p-5 mt-6 shadow-inner">
+                <div className="space-y-0.5 text-left">
+                    <Label htmlFor={`wait-${member.id}`} className="font-bold text-base md:text-lg text-slate-800 uppercase tracking-tight">Wait for Pro?</Label>
+                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest opacity-60">Estimated wait time may increase</p>
+                </div>
+                <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} className="scale-125 data-[state=checked]:bg-primary" />
+            </div>
+        )}
+    </div>
+);
+
+const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
+    <div className="space-y-6 md:space-y-10 text-left" key="consent-step">
+        {requiredForms.map(form => (
+            <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-10 rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-xl shadow-xl text-left">
+                <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 uppercase tracking-tighter text-slate-900"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-60" /> {form.title}</h3>
+                <div className="space-y-6 md:space-y-10 text-left">
+                    {form.fields?.map(field => (
+                        <div key={field.id} className="kiosk-form-field">
+                            <FormFieldRenderer 
+                                field={field} 
+                                value={formAnswers[form.id]?.[field.id]}
+                                onChange={(val) => setFormAnswers({
+                                    ...formAnswers,
+                                    [form.id]: { ...(formAnswers[form.id] || {}), [field.id]: val }
+                                })}
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        ))}
+    </div>
 );
 
 const MemberSetup = ({
@@ -377,7 +650,7 @@ const MemberSetup = ({
                     <h2 className="text-2xl md:text-4xl font-bold tracking-tighter uppercase text-slate-900">{isGroup ? `Guest ${member.index + 1}` : 'Guest Check-in'}</h2>
                     {isGroup && <Badge className="bg-primary/10 text-primary border-none font-black px-3 py-1 rounded-xl text-xs md:text-sm shadow-sm">{member.index + 1} / {partyMembers.length}</Badge>}
                 </div>
-                <div className="flex items-center gap-3 text-primary font-bold uppercase tracking-[0.2em] text-[10px] md:text-sm">
+                <div className="flex items-center gap-3 text-primary font-bold uppercase tracking-[0.2em] text-[10px] md:sm">
                     {subStepTitles[memberSubStep as MemberSubStep].icon} {subStepTitles[memberSubStep as MemberSubStep].title}
                 </div>
                 <div className="pt-6 md:pt-8"><Progress value={progress} className="h-1.5 md:h-2 rounded-full bg-white/20" /></div>
@@ -397,7 +670,7 @@ const MemberSetup = ({
                                 isResolvingIdentity={isResolvingIdentity}
                             />
                         )}
-                        {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
+                        {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers} consentForms={consentForms}/>}
                         {memberSubStep === 'consents' && <StepConsents member={member} requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} />}
                         {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />}
                     </motion.div>
@@ -411,7 +684,7 @@ const MemberSetup = ({
                     <Button 
                         size="lg" 
                         onClick={() => onNext(subSteps[currentSubStepIndex + 1])} 
-                        disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
+                        disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity)) || (memberSubStep === 'services' && member.serviceIds.length === 0)} 
                         className="h-14 md:h-16 px-10 md:px-16 text-sm md:text-xl font-bold rounded-2xl shadow-xl shadow-primary/20 group uppercase tracking-widest"
                     >
                         Continue <ArrowRight className="ml-2 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-1"/>
@@ -423,7 +696,7 @@ const MemberSetup = ({
                                 size="lg" 
                                 variant="outline" 
                                 onClick={onAddAnother} 
-                                disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
+                                disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity)) || (memberSubStep === 'services' && member.serviceIds.length === 0)} 
                                 className="h-14 md:h-16 px-10 md:px-12 text-sm md:text-xl font-bold rounded-2xl border-2 border-primary text-primary hover:bg-primary/5 uppercase tracking-widest"
                             >
                                 Next Guest
@@ -432,7 +705,7 @@ const MemberSetup = ({
                         <Button 
                             size="lg" 
                             onClick={onSubmit} 
-                            disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
+                            disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity)) || (memberSubStep === 'services' && member.serviceIds.length === 0)} 
                             className="h-14 md:h-16 px-10 md:px-20 text-sm md:text-xl font-bold rounded-2xl shadow-xl shadow-primary/30 uppercase tracking-widest"
                         >
                             {isSubmitting ? <Loader className="animate-spin" /> : 'Complete'}
@@ -441,186 +714,6 @@ const MemberSetup = ({
                 )}
             </div>
         </motion.div>
-    );
-};
-
-const StepDetails = ({ 
-    member, 
-    onUpdate, 
-    primaryMember, 
-    isGroup, 
-    bannedClient, 
-    existingClientWithBalance,
-    isResolvingIdentity
-}: any) => {
-    const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
-    
-    return (
-        <div className="space-y-6 text-left">
-            <div className="space-y-2 text-left">
-                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1 text-left">
-                    <Phone className="w-3 h-3 text-primary opacity-60"/>
-                    <span>Phone Number</span>
-                </Label>
-                <div className="kiosk-phone-input">
-                    <PhoneInput
-                        international
-                        defaultCountry="US"
-                        value={member.phone || ''}
-                        onChange={(value) => onUpdate({ phone: value || '' })}
-                        inputComponent={Input as any}
-                        placeholder="(555) 000-0000"
-                        className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-xl font-bold focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 [&_input]:bg-transparent shadow-inner text-slate-900"
-                    />
-                </div>
-            </div>
-
-            <div className="space-y-2 text-left">
-                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
-                    <User className="w-3 h-3 text-primary opacity-60"/>
-                    <span>Full Name</span>
-                </Label>
-                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your name" : "Guest's name"} className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-within:ring-primary/10 focus-visible:border-primary transition-all shadow-inner text-slate-900 placeholder:text-slate-300 uppercase tracking-tight"/>
-            </div>
-
-            {isGroup && !member.isPrimary && ( 
-                <Button variant="ghost" size="sm" onClick={usePrimaryContact} className="w-full rounded-xl h-10 bg-white/40 backdrop-blur-sm text-slate-500 font-bold uppercase tracking-widest text-[9px]">
-                    Use same contact as {primaryMember?.name.split(' ')[0] || '1st guest'}
-                </Button> 
-            )}
-
-            <div className="space-y-2 text-left">
-                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
-                    <Mail className="w-3 h-3 text-primary opacity-60"/>
-                    <span>Email Address</span>
-                </Label>
-                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="alex@example.com" className="h-12 md:h-14 text-lg font-bold rounded-2xl border-2 border-white/50 bg-white/80 focus-visible:ring-primary shadow-inner text-slate-900"/>
-            </div>
-
-            <AnimatePresence>
-                {isResolvingIdentity && (
-                    <motion.div key="resolving" className="flex items-center justify-center gap-2 text-[9px] uppercase font-black tracking-widest text-primary animate-pulse py-2 opacity-60">
-                        <Loader className="w-3 h-3 animate-spin" /> Verifying Profile...
-                    </motion.div>
-                )}
-                
-                {bannedClient && (
-                    <motion.div key="banned" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-                        <Alert variant="destructive" className="bg-destructive/5 border-destructive shadow-xl border-2 rounded-2xl p-6 text-left">
-                            <Ban className="h-5 w-5" />
-                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1 text-left">Check-in Restricted</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
-                                Account restricted. Please see the desk for assistance.
-                            </AlertDescription>
-                        </Alert>
-                    </motion.div>
-                )}
-                {existingClientWithBalance && !bannedClient && (
-                    <motion.div key="balance" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-                        <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-2xl p-6 shadow-xl text-left">
-                            <Wallet className="h-5 w-5" />
-                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1 text-left">Balance Alert</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
-                                Balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Settle at desk to join queue.
-                            </AlertDescription>
-                        </Alert>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </div>
-    );
-};
-
-const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
-    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-    const handleServiceToggle = (serviceId: string) => { 
-        onUpdate({ serviceIds: [serviceId] }); 
-    };
-    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Standard'))).sort(), [services]);
-    
-    if (!selectedCategory) {
-        return ( <div className="grid grid-cols-1 gap-3 md:gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-6 md:p-10 text-xl md:text-3xl font-bold rounded-2xl md:rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-xl hover:border-primary hover:bg-primary/5 transition-all shadow-lg uppercase tracking-tight text-slate-800" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
-    }
-    
-    return (
-        <div className="space-y-6 text-left" key="service-selection-list">
-            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-primary font-bold uppercase tracking-widest p-2 transition-all hover:bg-primary/5 rounded-xl flex items-center gap-2 text-[10px] md:text-xs">
-                <ArrowLeft className="h-4 w-4"/> Change Category
-            </button>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
-                {services.filter(s => (s.category || 'Standard') === selectedCategory).map(service => ( 
-                    <ServiceSelectionCard 
-                        key={service.id} 
-                        service={service} 
-                        isSelected={member.serviceIds.includes(service.id)} 
-                        onToggle={() => handleServiceToggle(service.id)} 
-                        pricingTiers={pricingTiers}
-                    /> 
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
-    <div className="space-y-6 text-left" key="staff-selection-step">
-        <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-            <StaffSelectionCard staff={{ id: 'any', name: 'First Available', avatarUrl: '' }} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === 'any' || !member.preferredStaffId} />
-            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === s.id} />)}
-        </RadioGroup>
-        {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
-            <div className="flex items-center justify-between rounded-2xl border-2 border-white/50 bg-white/40 backdrop-blur-xl p-5 mt-6 shadow-inner">
-                <div className="space-y-0.5 text-left">
-                    <Label htmlFor={`wait-${member.id}`} className="font-bold text-base md:text-lg text-slate-800 uppercase tracking-tight">Wait for Pro?</Label>
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest opacity-60">Estimated wait time may increase</p>
-                </div>
-                <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} className="scale-125 data-[state=checked]:bg-primary" />
-            </div>
-        )}
-    </div>
-);
-
-const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
-    <div className="space-y-6 md:space-y-10 text-left" key="consent-step text-left">
-        {requiredForms.map(form => (
-            <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-10 rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-2xl shadow-xl text-left">
-                <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 uppercase tracking-tighter text-slate-900"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-60" /> {form.title}</h3>
-                <div className="space-y-6 md:space-y-10 text-left">
-                    {form.fields?.map(field => (
-                        <div key={field.id} className="kiosk-form-field">
-                            <FormFieldRenderer 
-                                field={field} 
-                                value={formAnswers[form.id]?.[field.id]}
-                                onChange={(val) => setFormAnswers({
-                                    ...formAnswers,
-                                    [form.id]: { ...(formAnswers[form.id] || {}), [field.id]: val }
-                                })}
-                            />
-                        </div>
-                    ))}
-                </div>
-            </div>
-        ))}
-    </div>
-);
-
-const ServiceSelectionCard = ({ service, isSelected, onToggle, pricingTiers }: { service: Service, isSelected: boolean, onToggle: () => void, pricingTiers: PricingTier[] }) => {
-    const minPrice = useMemo(() => {
-        if (!service.serviceTiers || service.serviceTiers.length === 0) return service.price;
-        return Math.min(...service.serviceTiers.map(t => t.price));
-    }, [service]);
-
-    return (
-        <button onClick={onToggle} className={cn("relative p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex flex-col items-center justify-center gap-3 h-full group", isSelected ? "border-primary bg-primary/5 shadow-xl ring-4 ring-primary/10" : "bg-white/60 border-white/40 hover:border-primary/20 shadow-sm")}>
-            <div className={cn("p-3 rounded-2xl bg-primary/5 transition-all group-hover:scale-110", isSelected && "bg-primary text-white shadow-lg")}>
-                <Sparkles className={cn("w-6 h-6 md:w-8 md:h-8", isSelected ? "text-white" : "text-primary opacity-40")} />
-            </div>
-            <div className="text-center space-y-1">
-                <p className="font-bold uppercase tracking-tight text-xs md:text-sm text-slate-900 leading-tight">{service.name}</p>
-                <p className="text-[10px] md:text-xs font-black text-primary tracking-tighter font-mono">${minPrice.toFixed(0)}+</p>
-            </div>
-            {isSelected && <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5 shadow-lg"><Check className="w-3 h-3" /></div>}
-        </button>
     );
 };
 
