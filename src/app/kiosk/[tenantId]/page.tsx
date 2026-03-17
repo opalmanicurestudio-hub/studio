@@ -136,7 +136,7 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-10 md:p-24 text-center space-y-10 md:space-y-16" key="confirmation-screen">
         <div className="w-24 h-24 md:w-32 md:h-32 bg-green-500/5 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl shadow-green-500/5 rotate-6">
-            <CheckCircle className="w-12 h-12 md:w-16 md:h-16 text-green-500 -rotate-6" />
+            <CheckCircle className="w-12 h-12 text-green-500 -rotate-6" />
         </div>
         <div className="space-y-4">
             <h2 className="text-4xl md:text-6xl font-bold tracking-tighter uppercase text-slate-900 drop-shadow-sm">You're in!</h2>
@@ -150,11 +150,11 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
                         <div className="space-y-1">
                             <p className="text-[10px] text-primary font-black uppercase tracking-[0.2em] opacity-60 mb-1">Queue Spot</p>
                             <p className="font-bold text-2xl md:text-4xl uppercase tracking-tighter text-slate-900">#{ticket.queuePosition}</p>
-                            <p className="text-xs md:text-sm font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px]">{ticket.name}</p>
+                            <p className="text-xs md:sm font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px]">{ticket.name}</p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10 rounded-2xl h-12 w-12 md:h-16 md:w-16 transition-all active:scale-90 bg-white/50 border border-white shadow-sm">
+                        <button onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10 rounded-2xl h-12 w-12 md:h-16 md:w-16 transition-all active:scale-90 bg-white/50 border border-white shadow-sm flex items-center justify-center">
                             <Printer className="w-6 h-6 md:w-8 md:h-8" />
-                        </Button>
+                        </button>
                     </CardContent>
                 </Card>
             ))}
@@ -254,7 +254,7 @@ const MemberSetup = ({
             </div>
 
             <div className="p-8 md:p-12 pt-0 flex flex-col sm:flex-row gap-4 md:gap-6 mt-4">
-                <Button variant="ghost" size="lg" onClick={handleBack} disabled={isSubmitting} className="text-slate-400 hover:text-slate-600 hover:bg-white/40 h-14 md:h-16 text-sm md:text-lg font-bold rounded-2xl uppercase tracking-widest">Back</Button>
+                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 hover:text-slate-600 hover:bg-white/40 h-14 md:h-16 text-sm md:text-lg font-bold rounded-2xl uppercase tracking-widest">Back</Button>
                 <div className="hidden sm:block flex-1" />
                 {hasNextSubStep ? (
                     <Button 
