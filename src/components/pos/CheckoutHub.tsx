@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -540,7 +541,8 @@ export const CheckoutHub = ({
                                 onClick={() => handleRedeem(ent)}
                                 className={cn(
                                     "h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all",
-                                    redeemedOffer?.itemId === ent.itemId ? "bg-green-500/10 border-green-500/20 text-green-700" : "bg-white border-indigo-500/10 hover:border-primary/30"
+                                    redeemedOffer?.itemId === ent.itemId ? "bg-green-500/10 border-green-500/20 text-green-700" : 
+                                    ent.exhausted ? "opacity-50 bg-muted/30 grayscale border-dashed" : "bg-white border-indigo-500/10 hover:border-primary/30"
                                 )}
                             >
                                 <div className="text-left min-w-0 flex-1">
@@ -550,6 +552,8 @@ export const CheckoutHub = ({
                                 <div className="text-right ml-4 shrink-0">
                                     {redeemedOffer?.itemId === ent.itemId ? (
                                         <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge>
+                                    ) : ent.exhausted ? (
+                                        <Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge>
                                     ) : (
                                         <div className="space-y-0.5">
                                             <Badge variant="outline" className={cn("h-5 px-2 font-black text-[8px] uppercase border-2", ent.exhausted ? "text-destructive border-destructive/20" : "text-indigo-600 border-indigo-500/20")}>{ent.usage}</Badge>
