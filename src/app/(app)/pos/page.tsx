@@ -252,11 +252,76 @@ function POSPage() {
         };
     }, [walkIns, transactions]);
 
+    const isRetailDiscountExhausted = useCallback((client: Client, membership: Membership) => {
+        if (!membership.retailDiscountLimit || membership.retailDiscountLimit === 0) return false;
+        if (!client.subscription?.nextBillingDate) return false;
+        if (client.subscription.status !== 'active') return true;
+
+        const lastUsedStr = client.subscription.perkLastUsed;
+        if (!lastUsedStr) return false;
+
+        const lastUsed = safeDate(lastUsedStr);
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
+        const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+        
+        if (!isAfter(lastUsed, cycleStart)) return false;
+
+        const usageCount = client.subscription.perkUsage?.['retail_discount'] || 0;
+        return usageCount >= membership.retailDiscountLimit;
+    }, []);
+
+    const membershipDiscount = useMemo(() => {
+        if (!selectedClientId || !clients || !memberships || !packages) return 0;
+        const client = clients.find(c => c.id === selectedClientId);
+        if (!client) return 0;
+        
+        const mId = client.activeMembershipId || client?.subscription?.membershipId;
+        if (client?.subscription?.status && client.subscription.status !== 'active') return 0;
+
+        let bestDiscountPct = 0;
+        let eligibleProductIds: string[] = [];
+
+        if (mId) {
+            const membership = memberships.find(m => m.id === mId);
+            if (membership?.retailDiscount) {
+                const exhausted = isRetailDiscountExhausted(client, membership);
+                if (!exhausted) {
+                    bestDiscountPct = membership.retailDiscount;
+                    eligibleProductIds = membership.applicableProductIds || [];
+                }
+            }
+        }
+
+        if (client.activePackages) {
+            client.activePackages.forEach(p => {
+                const pkgDef = packages.find(pkg => pkg.id === p.packageId);
+                if (pkgDef?.retailDiscount && pkgDef.retailDiscount > bestDiscountPct) {
+                    bestDiscountPct = pkgDef.retailDiscount;
+                    eligibleProductIds = pkgDef.applicableProductIds || [];
+                }
+            });
+        }
+
+        if (bestDiscountPct === 0) return 0;
+
+        return retailItems.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            if (product?.type !== 'retail') return acc;
+            
+            const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
+            if (isEligible) {
+                const price = product?.msrp || product?.costPerUnit || 0;
+                return acc + (price * item.quantity * (bestDiscountPct / 100));
+            }
+            return acc;
+        }, 0);
+    }, [selectedClientId, clients, memberships, packages, retailItems, inventory, isRetailDiscountExhausted]);
+
     const payerOptions = useMemo(() => {
         if (selectedAppointmentIds.size === 0) return clients || [];
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
-          const apt = readyForCheckoutAppointments.find(a => a.id === id);
+          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
           if (apt?.client?.id) {
             clientIds.add(apt.client.id);
           }
@@ -349,71 +414,6 @@ function POSPage() {
             return acc + (d.type === 'percentage' ? subtotal * (d.value / 100) : d.value);
         }, 0);
     }, [appliedDiscountCodes, discounts, subtotal]);
-
-    const isRetailDiscountExhausted = useCallback((client: Client, membership: Membership) => {
-        if (!membership.retailDiscountLimit || membership.retailDiscountLimit === 0) return false;
-        if (!client.subscription?.nextBillingDate) return false;
-        if (client.subscription.status !== 'active') return true;
-
-        const lastUsedStr = client.subscription.perkLastUsed;
-        if (!lastUsedStr) return false;
-
-        const lastUsed = safeDate(lastUsedStr);
-        const nextBilling = safeDate(client.subscription.nextBillingDate);
-        const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
-        
-        if (!isAfter(lastUsed, cycleStart)) return false;
-
-        const usageCount = client.subscription.perkUsage?.['retail_discount'] || 0;
-        return usageCount >= membership.retailDiscountLimit;
-    }, []);
-
-    const membershipDiscount = useMemo(() => {
-        if (!selectedClientId || !clients || !memberships || !packages) return 0;
-        const client = clients.find(c => c.id === selectedClientId);
-        if (!client) return 0;
-        
-        const mId = client.activeMembershipId || client?.subscription?.membershipId;
-        if (client?.subscription?.status && client.subscription.status !== 'active') return 0;
-
-        let bestDiscountPct = 0;
-        let eligibleProductIds: string[] = [];
-
-        if (mId) {
-            const membership = memberships.find(m => m.id === mId);
-            if (membership?.retailDiscount) {
-                const exhausted = isRetailDiscountExhausted(client, membership);
-                if (!exhausted) {
-                    bestDiscountPct = membership.retailDiscount;
-                    eligibleProductIds = membership.applicableProductIds || [];
-                }
-            }
-        }
-
-        if (client.activePackages) {
-            client.activePackages.forEach(p => {
-                const pkgDef = packages.find(pkg => pkg.id === p.packageId);
-                if (pkgDef?.retailDiscount && pkgDef.retailDiscount > bestDiscountPct) {
-                    bestDiscountPct = pkgDef.retailDiscount;
-                    eligibleProductIds = pkgDef.applicableProductIds || [];
-                }
-            });
-        }
-
-        if (bestDiscountPct === 0) return 0;
-
-        return retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            if (product?.type !== 'retail') return acc;
-            
-            const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
-            if (isEligible) {
-                const price = product?.msrp || product?.costPerUnit || 0;
-                return acc + (price * item.quantity * (bestDiscountPct / 100));
-            }
-            return acc;
-        }, 0);
-    }, [selectedClientId, clients, memberships, packages, retailItems, inventory, isRetailDiscountExhausted]);
 
     const handleSkip = (walkInId: string) => {
         if (!firestore || !tenantId) return;
@@ -931,7 +931,7 @@ function POSPage() {
         toast({ title: "Till Reconciled" });
     };
 
-    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
+    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Set(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
 
     const tax = subtotal * 0.07;
     const total = subtotal + tax + tipAmount - discount - membershipDiscount;

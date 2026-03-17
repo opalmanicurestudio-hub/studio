@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -106,7 +105,7 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
             <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
         </div>
         <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
-        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
+        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
 );
 
@@ -357,7 +356,7 @@ const DepositPaymentView = ({ amount, onComplete }: { amount: number, onComplete
                 </div>
                 <div className="space-y-6 text-left">
                     <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
-                    <div className="grid grid-cols-2 gap-6"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
+                    <div className="grid grid-cols-2 gap-6"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
                 </div>
                 <div className="flex items-center justify-center gap-3 opacity-40"><Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted SSL Secure Tunnel</span></div>
             </CardContent>
@@ -608,11 +607,3 @@ export default function CheckInPage() {
         </ViewContainer>
     );
 }
-
-const ReviewSubmittedView = ({ onDone }: { onDone: () => void }) => (
-    <ViewContainer>
-        <ViewHeader title="Feedback Received" subtitle="Reputation Confirmed" icon={Star} />
-        <CardContent className="p-10 text-center space-y-8"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><CheckCircle2 className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Thank You!</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your story helps us maintain excellence across the studio. We value your input.</p></div></CardContent>
-        <CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30">Close Portal</Button></CardFooter>
-    </ViewContainer>
-);

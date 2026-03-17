@@ -774,7 +774,7 @@ export const CheckoutHub = ({
                         <Input 
                             type="number" 
                             value={tipAmount || ''} 
-                            onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} 
+                            onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} 
                             className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-base md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
                             placeholder="0.00" 
                         />
