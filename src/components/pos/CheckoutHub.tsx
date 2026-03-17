@@ -647,7 +647,6 @@ export const CheckoutHub = ({
                     <div className="space-y-3">
                         {appointmentsData.map((data: any) => {
                             const isRedeemed = redeemedOffer?.itemId === data.service.id;
-                            const isWaived = waivedAppointmentFees.has(data.appointment.id);
                             const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
                             
                             const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
@@ -702,8 +701,8 @@ export const CheckoutHub = ({
                                             <div className="pt-3 border-t border-dashed flex justify-between items-center">
                                                 <span className="text-[10px] font-black uppercase text-muted-foreground">Audit Overage</span>
                                                 <div className="flex items-center gap-3">
-                                                    <span className={cn("font-black font-mono text-xs", isWaiveAuthOpen ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
-                                                    {isOwnerOrAdmin && (isWaiveAuthOpen ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
+                                                    <span className={cn("font-black font-mono text-xs", waivedAppointmentFees.has(data.appointment.id) ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
+                                                    {isOwnerOrAdmin && (waivedAppointmentFees.has(data.appointment.id) ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
                                                 </div>
                                             </div>
                                         )}
