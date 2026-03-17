@@ -191,7 +191,6 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
     const formattedDisplay = useMemo(() => {
         if (!value) return '( _ _ _ )  _ _ _ - _ _ _ _';
         const cleaned = value.replace(/\D/g, '');
-        let match = null;
         if (cleaned.length <= 3) return `( ${cleaned}${'_'.repeat(3 - cleaned.length)} )  _ _ _ - _ _ _ _`;
         if (cleaned.length <= 6) return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3)}${'_'.repeat(6 - cleaned.length)} - _ _ _ _`;
         return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3, 6)} - ${cleaned.slice(6)}${'_'.repeat(10 - cleaned.length)}`;
@@ -236,11 +235,11 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                 })}
             </div>
 
-            <div className="space-y-4 pt-4">
+            <div className="space-y-4 pt-4 text-center">
                 <Button 
                     size="lg" 
                     onClick={onConfirm} 
-                    disabled={phonePadValue.length < 10 || isVerifying}
+                    disabled={value.length < 10 || isVerifying}
                     className="w-full h-16 md:h-20 rounded-2xl text-lg md:text-2xl font-bold uppercase tracking-widest shadow-2xl shadow-primary/30 group"
                 >
                     {isVerifying ? <Loader className="animate-spin" /> : <>Identify Me <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></>}
@@ -431,7 +430,7 @@ const StepDetails = ({
     }, [matchedAppointment, staff]);
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 text-left">
             <div className="space-y-2">
                 <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                     <Phone className="w-3 h-3 text-primary opacity-60"/>
@@ -570,7 +569,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
     }
     
     return (
-        <div className="space-y-6" key="service-selection-list">
+        <div className="space-y-6 text-left" key="service-selection-list">
             <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-primary font-bold uppercase tracking-widest p-2 transition-all hover:bg-primary/5 rounded-xl flex items-center gap-2 text-[10px] md:text-xs">
                 <ArrowLeft className="h-4 w-4"/> Change Category
             </button>
@@ -590,7 +589,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
 };
 
 const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
-    <div className="space-y-6" key="staff-selection-step">
+    <div className="space-y-6 text-left" key="staff-selection-step">
         <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
             <StaffSelectionCard staff={{ id: 'any', name: 'First Available', avatarUrl: '' }} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === 'any' || !member.preferredStaffId} />
             {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === s.id} />)}
@@ -608,11 +607,11 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
 );
 
 const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
-    <div className="space-y-6 md:space-y-10" key="consent-step text-left">
+    <div className="space-y-6 md:space-y-10 text-left" key="consent-step text-left">
         {requiredForms.map(form => (
             <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-10 rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-2xl shadow-xl text-left">
                 <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 uppercase tracking-tighter text-slate-900"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-60" /> {form.title}</h3>
-                <div className="space-y-6 md:space-y-10">
+                <div className="space-y-6 md:space-y-10 text-left">
                     {form.fields?.map(field => (
                         <div key={field.id} className="kiosk-form-field">
                             <FormFieldRenderer 
