@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -20,7 +19,40 @@ import { useFirebase, useDoc, useCollection, useMemoFirebase, updateDocumentNonB
 import { collection, getDocs, query, where, doc, writeBatch, increment } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, Loader, Clock, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, MapPin, ShieldCheck, Fingerprint, Star, Zap, Cake, PartyPopper, Gift, Delete, Workflow, Trash2 } from 'lucide-react';
+import { 
+    Sparkles, 
+    User, 
+    Phone, 
+    List, 
+    ArrowRight, 
+    ArrowLeft, 
+    Users, 
+    Mail, 
+    Loader, 
+    Clock, 
+    PlusCircle, 
+    Check, 
+    Printer, 
+    DollarSign, 
+    Activity, 
+    FileSignature, 
+    ListChecks, 
+    XCircle, 
+    Ban, 
+    Wallet, 
+    MapPin, 
+    ShieldCheck, 
+    Fingerprint, 
+    Star, 
+    Zap, 
+    Cake, 
+    PartyPopper, 
+    Gift, 
+    Delete, 
+    Workflow, 
+    Trash2,
+    ArrowDown
+} from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
@@ -43,6 +75,8 @@ import { Badge } from '@/components/ui/badge';
 import { StaffSelectionCard } from '@/components/shared/StaffSelectionCard';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
+import { PhoneInput } from '@/components/ui/phone-input';
+import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -116,7 +150,7 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
                 <div className="p-6 bg-primary/5 rounded-full mb-8 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
                     <User className="w-16 h-16 md:w-24 md:h-24 text-primary group-hover:scale-110 transition-transform duration-700" strokeWidth={1.5} />
                 </div>
-                <div className="space-y-2 text-left">
+                <div className="space-y-2">
                     <h3 className="text-2xl md:text-4xl font-bold tracking-tight uppercase text-slate-800 leading-none">Solo</h3>
                     <p className="text-slate-500 text-xs md:text-sm font-bold uppercase tracking-[0.3em] opacity-40">Checking in for myself</p>
                 </div>
@@ -129,7 +163,7 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
                 <div className="p-6 bg-primary/5 rounded-full mb-8 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
                     <Users className="w-16 h-16 md:w-24 md:h-24 text-primary group-hover:scale-110 transition-transform duration-700" strokeWidth={1.5} />
                 </div>
-                <div className="space-y-2 text-left">
+                <div className="space-y-2">
                     <h3 className="text-2xl md:text-4xl font-bold tracking-tight uppercase text-slate-800 leading-none">My Party</h3>
                     <p className="text-slate-500 text-xs md:text-sm font-bold uppercase tracking-[0.3em] opacity-40">Checking in a group</p>
                 </div>
@@ -153,7 +187,7 @@ const IdentityChoiceView = ({ onSelect, onBack }: { onSelect: (type: 'new' | 're
                 <div className="p-6 bg-primary/5 rounded-full mb-6 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
                     <Star className="w-12 h-12 md:w-16 md:h-16 text-primary group-hover:scale-110 transition-transform duration-700" strokeWidth={1.5} />
                 </div>
-                <div className="space-y-2 text-left">
+                <div className="space-y-2">
                     <h3 className="text-xl md:text-2xl font-bold tracking-tight uppercase text-slate-800 leading-none">Return Guest</h3>
                     <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.3em] opacity-40">I've visited before</p>
                 </div>
@@ -166,7 +200,7 @@ const IdentityChoiceView = ({ onSelect, onBack }: { onSelect: (type: 'new' | 're
                 <div className="p-6 bg-primary/5 rounded-full mb-6 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
                     <PlusCircle className="w-12 h-12 md:w-16 md:h-16 text-primary group-hover:scale-110 transition-transform duration-700" strokeWidth={1.5} />
                 </div>
-                <div className="space-y-2 text-left">
+                <div className="space-y-2">
                     <h3 className="text-xl md:text-2xl font-bold tracking-tight uppercase text-slate-800 leading-none">First Visit</h3>
                     <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.3em] opacity-40">I'm a new guest</p>
                 </div>
@@ -290,7 +324,7 @@ const WelcomeBackView = ({ name, onContinue }: { name: string, onContinue: () =>
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-10 md:p-24 text-center space-y-10 md:space-y-16" key="confirmation-screen">
         <div className="w-24 h-24 md:w-32 md:h-32 bg-green-500/5 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl shadow-green-500/5 rotate-6">
-            <CheckCircle className="w-12 h-12 text-green-500 -rotate-6" />
+            <CheckCircle2 className="w-12 h-12 text-green-500 -rotate-6" />
         </div>
         <div className="space-y-4">
             <h2 className="text-4xl md:text-6xl font-bold tracking-tighter uppercase text-slate-900 drop-shadow-sm">You're in!</h2>
@@ -301,7 +335,7 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
             {confirmedParty.map(ticket => (
                 <Card key={ticket.id} className="bg-white/80 backdrop-blur-xl border-2 border-white/50 rounded-[2rem] text-left shadow-xl group overflow-hidden">
                     <CardContent className="p-6 md:p-8 flex justify-between items-center">
-                        <div className="space-y-1 text-left">
+                        <div className="space-y-1">
                             <p className="text-[10px] text-primary font-black uppercase tracking-[0.2em] opacity-60 mb-1">Queue Spot</p>
                             <p className="font-bold text-2xl md:text-4xl uppercase tracking-tighter text-slate-900">#{ticket.queuePosition}</p>
                             <p className="text-xs md:sm font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px]">{ticket.name}</p>
@@ -333,8 +367,8 @@ const StepDetails = ({
     
     return (
         <div className="space-y-6 text-left">
-            <div className="space-y-2 text-left">
-                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1 text-left">
+            <div className="space-y-2">
+                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                     <Phone className="w-3 h-3 text-primary opacity-60"/>
                     <span>Phone Number</span>
                 </Label>
@@ -351,7 +385,7 @@ const StepDetails = ({
                 </div>
             </div>
 
-            <div className="space-y-2 text-left">
+            <div className="space-y-2">
                 <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                     <User className="w-3 h-3 text-primary opacity-60"/>
                     <span>Full Name</span>
@@ -365,7 +399,7 @@ const StepDetails = ({
                 </Button> 
             )}
 
-            <div className="space-y-2 text-left">
+            <div className="space-y-2">
                 <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                     <Mail className="w-3 h-3 text-primary opacity-60"/>
                     <span>Email Address</span>
@@ -382,10 +416,10 @@ const StepDetails = ({
                 
                 {bannedClient && (
                     <motion.div key="banned" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-                        <Alert variant="destructive" className="bg-destructive/5 border-destructive shadow-xl border-2 rounded-2xl p-6 text-left">
+                        <Alert variant="destructive" className="bg-destructive/5 border-destructive shadow-xl border-2 rounded-2xl p-6">
                             <Ban className="h-5 w-5" />
-                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1 text-left">Check-in Restricted</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
+                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1">Check-in Restricted</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
                                 Account restricted. Please see the desk for assistance.
                             </AlertDescription>
                         </Alert>
@@ -393,10 +427,10 @@ const StepDetails = ({
                 )}
                 {existingClientWithBalance && !bannedClient && (
                     <motion.div key="balance" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-                        <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-2xl p-6 shadow-xl text-left">
+                        <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-2xl p-6 shadow-xl">
                             <Wallet className="h-5 w-5" />
-                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1 text-left">Balance Alert</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
+                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1">Balance Alert</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
                                 Balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Settle at desk to join queue.
                             </AlertDescription>
                         </Alert>
@@ -456,8 +490,6 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
         const nextAddOns = services.filter(s => s.type === 'addon' && (selectedMain?.compatibleAddOnIds || []).includes(s.id));
         if (nextAddOns.length > 0) {
             setView('addon');
-        } else {
-            // Logic to move to next main step handled by parent
         }
     };
 
@@ -528,7 +560,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
                     <div className="space-y-2">
                         <h3 className="text-xl md:text-2xl font-bold uppercase tracking-tighter text-slate-900">Enhance your session?</h3>
                         <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60 leading-relaxed">
-                            Optional add-ons compatible with your selection. Select any that apply.
+                            Optional add-ons compatible with your selection.
                         </p>
                     </div>
 
@@ -557,7 +589,7 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
         </RadioGroup>
         {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
             <div className="flex items-center justify-between rounded-2xl border-2 border-white/50 bg-white/40 backdrop-blur-xl p-5 mt-6 shadow-inner">
-                <div className="space-y-0.5 text-left">
+                <div className="space-y-0.5">
                     <Label htmlFor={`wait-${member.id}`} className="font-bold text-base md:text-lg text-slate-800 uppercase tracking-tight">Wait for Pro?</Label>
                     <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest opacity-60">Estimated wait time may increase</p>
                 </div>
@@ -570,9 +602,9 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
 const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
     <div className="space-y-6 md:space-y-10 text-left" key="consent-step">
         {requiredForms.map(form => (
-            <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-10 rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-xl shadow-xl text-left">
+            <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-10 rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-xl shadow-xl">
                 <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 uppercase tracking-tighter text-slate-900"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-60" /> {form.title}</h3>
-                <div className="space-y-6 md:space-y-10 text-left">
+                <div className="space-y-6 md:space-y-10">
                     {form.fields?.map(field => (
                         <div key={field.id} className="kiosk-form-field">
                             <FormFieldRenderer 
@@ -640,8 +672,8 @@ const MemberSetup = ({
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} key={`member-setup-wrapper-${member.id}`}>
-            <div className="p-8 md:p-12 pb-4 text-left">
-                <div className="flex items-center justify-between gap-4 mb-2 text-left">
+            <div className="p-8 md:p-12 pb-4">
+                <div className="flex items-center justify-between gap-4 mb-2">
                     <h2 className="text-2xl md:text-4xl font-bold tracking-tighter uppercase text-slate-900">{isGroup ? `Guest ${member.index + 1}` : 'Guest Check-in'}</h2>
                     {isGroup && <Badge className="bg-primary/10 text-primary border-none font-black px-3 py-1 rounded-xl text-xs md:text-sm shadow-sm">{member.index + 1} / {partyMembers.length}</Badge>}
                 </div>
@@ -651,21 +683,21 @@ const MemberSetup = ({
                 <div className="pt-6 md:pt-8"><Progress value={progress} className="h-1.5 md:h-2 rounded-full bg-white/20" /></div>
             </div>
 
-            <div className="p-8 md:p-12 pt-4 md:pt-6 text-left">
+            <div className="p-8 md:p-12 pt-4 md:pt-6">
                 <AnimatePresence mode="wait">
                     <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                         {memberSubStep === 'details' && (
                             <div className="space-y-8">
                                 {matchedAppointment && (
                                     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2.5rem] border-4 border-primary bg-primary/5 shadow-2xl space-y-6">
-                                        <div className="flex items-center gap-4 text-left">
+                                        <div className="flex items-center gap-4">
                                             <div className="p-3 bg-primary rounded-2xl shadow-xl"><CalendarCheck className="w-8 h-8 text-white" /></div>
-                                            <div className="space-y-1">
+                                            <div className="space-y-1 text-left">
                                                 <p className="text-[10px] font-black uppercase text-primary tracking-widest">Appointment Match</p>
                                                 <h3 className="text-xl font-black uppercase text-slate-900">{services.find(s => s.id === matchedAppointment.serviceId)?.name}</h3>
                                             </div>
                                         </div>
-                                        <p className="text-xs font-bold text-slate-600 uppercase leading-relaxed tracking-tight">You have a reserved slot at <strong>{format(safeDate(matchedAppointment.startTime), 'h:mm a')}</strong>. Would you like to check in immediately?</p>
+                                        <p className="text-xs font-bold text-slate-600 uppercase leading-relaxed tracking-tight text-left">You have a reserved slot at <strong>{format(safeDate(matchedAppointment.startTime), 'h:mm a')}</strong>. Would you like to check in immediately?</p>
                                         <Button size="lg" className="w-full h-14 rounded-2xl text-base font-black uppercase shadow-xl" onClick={() => onAppointmentCheckIn(matchedAppointment)}>Direct Check-In</Button>
                                         <Separator className="bg-primary/10 border-dashed" />
                                         <p className="text-[9px] text-center font-black uppercase text-primary opacity-40">Or continue to change services</p>
@@ -1184,3 +1216,4 @@ export default function WalkInPage() {
     </div>
   );
 }
+
