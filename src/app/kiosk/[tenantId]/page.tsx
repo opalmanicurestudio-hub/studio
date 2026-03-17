@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,17 +16,15 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, getDocs, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
-import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier, type Appointment } from '@/lib/data';
+import { useFirebase, useDoc, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { collection, getDocs, query, where, doc, writeBatch, increment } from 'firebase/firestore';
+import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap, Cake, PartyPopper, Gift, Delete, Eraser, Undo2, Workflow } from 'lucide-react';
+import { Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, Loader, Clock, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, MapPin, ShieldCheck, Fingerprint, Star, Zap, Cake, PartyPopper, Gift, Delete, Workflow, Trash2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { format, getDay, parseISO, parse, isSameDay, isSameMonth } from 'date-fns';
+import { format, parseISO, parse, isSameDay, addMinutes, startOfDay } from 'date-fns';
 import { cn, hexToHSLComponents } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
@@ -44,12 +42,7 @@ import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { StaffSelectionCard } from '@/components/shared/StaffSelectionCard';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
-import PhoneInput from 'react-phone-number-input';
-import 'react-phone-number-input/style.css';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -214,23 +207,25 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                     if (d === '') return <div key={i} />;
                     if (d === 'delete') {
                         return (
-                            <button 
+                            <motion.button 
                                 key={i} 
+                                whileTap={{ scale: 0.9, backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
                                 onClick={onDelete}
-                                className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive hover:bg-destructive/5 transition-all active:scale-90"
+                                className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive transition-all"
                             >
                                 <Delete className="w-6 h-6 md:w-8 md:h-8" strokeWidth={1.5} />
-                            </button>
+                            </motion.button>
                         );
                     }
                     return (
-                        <button 
+                        <motion.button 
                             key={i} 
+                            whileTap={{ scale: 0.9, boxShadow: '0 0 20px rgba(var(--primary), 0.3)' }}
                             onClick={() => onDigit(d)}
-                            className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-white/80 border-2 border-white/50 text-2xl md:text-3xl font-bold text-slate-800 shadow-sm hover:border-primary hover:text-primary transition-all active:scale-90"
+                            className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-white/10 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center"
                         >
                             {d}
-                        </button>
+                        </motion.button>
                     );
                 })}
             </div>
@@ -432,7 +427,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, pricingTiers }: {
     );
 };
 
-const StepServices = ({ member, onUpdate, services, pricingTiers, consentForms }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; consentForms: ConsentForm[]; }) => {
+const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
     const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
     const selectedMainId = useMemo(() => member.serviceIds.find(id => mainServices.some(s => s.id === id)), [member.serviceIds, mainServices]);
     
@@ -454,8 +449,16 @@ const StepServices = ({ member, onUpdate, services, pricingTiers, consentForms }
     };
 
     const handleMainSelect = (id: string) => {
-        onUpdate({ serviceIds: [id] });
-        setView('addon');
+        const nextServiceIds = [id];
+        const selectedMain = services.find(s => s.id === id);
+        onUpdate({ serviceIds: nextServiceIds });
+        
+        const nextAddOns = services.filter(s => s.type === 'addon' && (selectedMain?.compatibleAddOnIds || []).includes(s.id));
+        if (nextAddOns.length > 0) {
+            setView('addon');
+        } else {
+            // Logic to move to next main step handled by parent
+        }
     };
 
     const toggleAddOn = (id: string) => {
@@ -529,27 +532,17 @@ const StepServices = ({ member, onUpdate, services, pricingTiers, consentForms }
                         </p>
                     </div>
 
-                    {compatibleAddOns.length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
-                            {compatibleAddOns.map(addon => (
-                                <ServiceSelectionCard 
-                                    key={addon.id} 
-                                    service={addon} 
-                                    isSelected={member.serviceIds.includes(addon.id)} 
-                                    onToggle={() => toggleAddOn(addon.id)} 
-                                    pricingTiers={pricingTiers} 
-                                />
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                            <Sparkles className="w-12 h-12" />
-                            <div className="space-y-1">
-                                <p className="text-[10px] font-black uppercase tracking-widest">No Compatible Add-ons</p>
-                                <p className="text-[8px] font-bold uppercase tracking-tight">Tap 'Continue' below to finalize</p>
-                            </div>
-                        </div>
-                    )}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
+                        {compatibleAddOns.map(addon => (
+                            <ServiceSelectionCard 
+                                key={addon.id} 
+                                service={addon} 
+                                isSelected={member.serviceIds.includes(addon.id)} 
+                                onToggle={() => toggleAddOn(addon.id)} 
+                                pricingTiers={pricingTiers} 
+                            />
+                        ))}
+                    </div>
                 </motion.div>
             )}
         </AnimatePresence>
@@ -618,7 +611,9 @@ const MemberSetup = ({
     isSubmitting,
     bannedClient,
     existingClientWithBalance,
-    isResolvingIdentity
+    isResolvingIdentity,
+    matchedAppointment,
+    onAppointmentCheckIn
 }: any) => {
     const subStepTitles = {
         details: { title: 'Personal Info', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
@@ -660,17 +655,34 @@ const MemberSetup = ({
                 <AnimatePresence mode="wait">
                     <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                         {memberSubStep === 'details' && (
-                            <StepDetails 
-                                member={member} 
-                                onUpdate={onUpdate} 
-                                isGroup={isGroup} 
-                                primaryMember={partyMembers?.[0]} 
-                                bannedClient={bannedClient}
-                                existingClientWithBalance={existingClientWithBalance}
-                                isResolvingIdentity={isResolvingIdentity}
-                            />
+                            <div className="space-y-8">
+                                {matchedAppointment && (
+                                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2.5rem] border-4 border-primary bg-primary/5 shadow-2xl space-y-6">
+                                        <div className="flex items-center gap-4 text-left">
+                                            <div className="p-3 bg-primary rounded-2xl shadow-xl"><CalendarCheck className="w-8 h-8 text-white" /></div>
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] font-black uppercase text-primary tracking-widest">Appointment Match</p>
+                                                <h3 className="text-xl font-black uppercase text-slate-900">{services.find(s => s.id === matchedAppointment.serviceId)?.name}</h3>
+                                            </div>
+                                        </div>
+                                        <p className="text-xs font-bold text-slate-600 uppercase leading-relaxed tracking-tight">You have a reserved slot at <strong>{format(safeDate(matchedAppointment.startTime), 'h:mm a')}</strong>. Would you like to check in immediately?</p>
+                                        <Button size="lg" className="w-full h-14 rounded-2xl text-base font-black uppercase shadow-xl" onClick={() => onAppointmentCheckIn(matchedAppointment)}>Direct Check-In</Button>
+                                        <Separator className="bg-primary/10 border-dashed" />
+                                        <p className="text-[9px] text-center font-black uppercase text-primary opacity-40">Or continue to change services</p>
+                                    </motion.div>
+                                )}
+                                <StepDetails 
+                                    member={member} 
+                                    onUpdate={onUpdate} 
+                                    isGroup={isGroup} 
+                                    primaryMember={partyMembers?.[0]} 
+                                    bannedClient={bannedClient}
+                                    existingClientWithBalance={existingClientWithBalance}
+                                    isResolvingIdentity={isResolvingIdentity}
+                                />
+                            </div>
                         )}
-                        {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers} consentForms={consentForms}/>}
+                        {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} pricingTiers={pricingTiers} />}
                         {memberSubStep === 'consents' && <StepConsents member={member} requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} />}
                         {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />}
                     </motion.div>
