@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -19,7 +20,7 @@ import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBloc
 import { collection, getDocs, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap, Cake, PartyPopper, Gift } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap, Cake, PartyPopper, Gift, Delete, Eraser, Backspace } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -109,7 +110,7 @@ const ClosedView = ({ schedule, logoUrl, tenantName }: { schedule: any, logoUrl?
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full space-y-12 py-12" key="party-type-selection">
-        <div className="space-y-2 text-center">
+        <div className="space-y-2 text-center px-6">
             <h2 className="text-3xl md:text-5xl font-bold tracking-tighter text-slate-900">Welcome</h2>
             <p className="text-slate-500 text-sm md:text-lg font-medium uppercase tracking-[0.2em] opacity-60">Who are we checking in today?</p>
         </div>
@@ -143,6 +144,112 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
         </div>
     </motion.div>
 );
+
+const IdentityChoiceView = ({ onSelect, onBack }: { onSelect: (type: 'new' | 'returning') => void, onBack: () => void }) => (
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full space-y-12 py-12" key="identity-choice">
+        <div className="space-y-2 text-center px-6">
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tighter text-slate-900">Good to see you</h2>
+            <p className="text-slate-500 text-sm md:text-lg font-medium uppercase tracking-[0.2em] opacity-60">Is this your first time with us?</p>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 px-6 md:px-16">
+            <div 
+                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-2xl p-10 md:p-12 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
+                onClick={() => onSelect('returning')}
+            >
+                <div className="p-6 bg-primary/5 rounded-full mb-6 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
+                    <Star className="w-12 h-12 md:w-16 md:h-16 text-primary group-hover:scale-110 transition-transform duration-700" strokeWidth={1.5} />
+                </div>
+                <div className="space-y-2">
+                    <h3 className="text-xl md:text-2xl font-bold tracking-tight uppercase text-slate-800 leading-none">Return Guest</h3>
+                    <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.3em] opacity-40">I've visited before</p>
+                </div>
+            </div>
+
+             <div 
+                className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-2xl p-10 md:p-12 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
+                onClick={() => onSelect('new')}
+            >
+                <div className="p-6 bg-primary/5 rounded-full mb-6 group-hover:bg-primary/10 transition-all duration-500 shadow-inner">
+                    <PlusCircle className="w-12 h-12 md:w-16 md:h-16 text-primary group-hover:scale-110 transition-transform duration-700" strokeWidth={1.5} />
+                </div>
+                <div className="space-y-2">
+                    <h3 className="text-xl md:text-2xl font-bold tracking-tight uppercase text-slate-800 leading-none">First Visit</h3>
+                    <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.3em] opacity-40">I'm a new guest</p>
+                </div>
+            </div>
+        </div>
+        <div className="text-center px-6">
+            <Button variant="ghost" onClick={onBack} className="text-slate-400 font-bold uppercase tracking-widest text-[10px] md:text-xs hover:text-slate-600">Back to Start</Button>
+        </div>
+    </motion.div>
+);
+
+const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying }: { value: string, onDigit: (d: string) => void, onDelete: () => void, onConfirm: () => void, onBack: () => void, isVerifying: boolean }) => {
+    const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'delete'];
+    
+    const formattedDisplay = useMemo(() => {
+        if (!value) return '( _ _ _ )  _ _ _ - _ _ _ _';
+        const cleaned = value.replace(/\D/g, '');
+        let match = null;
+        if (cleaned.length <= 3) return `( ${cleaned}${'_'.repeat(3 - cleaned.length)} )  _ _ _ - _ _ _ _`;
+        if (cleaned.length <= 6) return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3)}${'_'.repeat(6 - cleaned.length)} - _ _ _ _`;
+        return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3, 6)} - ${cleaned.slice(6)}${'_'.repeat(10 - cleaned.length)}`;
+    }, [value]);
+
+    return (
+        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md mx-auto space-y-10 py-12 px-6" key="phone-pad">
+            <div className="space-y-2 text-center">
+                <h2 className="text-3xl md:text-4xl font-bold tracking-tighter uppercase text-slate-900 leading-none">Identity Key</h2>
+                <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.2em] opacity-60">Enter your professional phone signature</p>
+            </div>
+
+            <div className="p-8 rounded-[2rem] bg-white/60 backdrop-blur-xl border-2 border-white/50 shadow-inner text-center">
+                <p className="text-xl md:text-3xl font-black font-mono tracking-widest text-primary leading-none">
+                    {formattedDisplay}
+                </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 max-w-[320px] mx-auto">
+                {digits.map((d, i) => {
+                    if (d === '') return <div key={i} />;
+                    if (d === 'delete') {
+                        return (
+                            <button 
+                                key={i} 
+                                onClick={onDelete}
+                                className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive hover:bg-destructive/5 transition-all active:scale-90"
+                            >
+                                <Backspace className="w-6 h-6 md:w-8 md:h-8" strokeWidth={1.5} />
+                            </button>
+                        );
+                    }
+                    return (
+                        <button 
+                            key={i} 
+                            onClick={() => onDigit(d)}
+                            className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-white/80 border-2 border-white/50 text-2xl md:text-3xl font-bold text-slate-800 shadow-sm hover:border-primary hover:text-primary transition-all active:scale-90"
+                        >
+                            {d}
+                        </button>
+                    );
+                })}
+            </div>
+
+            <div className="space-y-4 pt-4">
+                <Button 
+                    size="lg" 
+                    onClick={onConfirm} 
+                    disabled={value.length < 10 || isVerifying}
+                    className="w-full h-16 md:h-20 rounded-2xl text-lg md:text-2xl font-bold uppercase tracking-widest shadow-2xl shadow-primary/30 group"
+                >
+                    {isVerifying ? <Loader className="animate-spin" /> : <>Identify Me <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></>}
+                </Button>
+                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400 font-bold uppercase tracking-widest text-[10px]">Go Back</Button>
+            </div>
+        </motion.div>
+    );
+};
 
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-10 md:p-24 text-center space-y-10 md:space-y-16" key="confirmation-screen">
@@ -204,7 +311,6 @@ const MemberSetup = ({
     const subStepTitles = {
         details: { title: 'Personal Info', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
         services: { title: 'Treatment', icon: <Sparkles className="w-4 h-4 md:w-5 md:h-5" /> },
-        addons: { title: 'Add-ons', icon: <PlusCircle className="w-4 h-4 md:w-5 md:h-5" /> },
         consents: { title: 'Agreements', icon: <FileSignature className="w-4 h-4 md:w-5 md:h-5" /> },
         staff: { title: 'Preferences', icon: <Users className="w-4 h-4 md:w-5 md:h-5" /> },
     };
@@ -316,24 +422,12 @@ const StepDetails = ({
     onAppointmentCheckIn,
     services,
     staff
-}: { 
-    member: PartyMember; 
-    onUpdate: (updates: Partial<PartyMember>) => void; 
-    primaryMember?: PartyMember; 
-    isGroup: boolean; 
-    bannedClient: Client | null; 
-    existingClientWithBalance: Client | null;
-    isResolvingIdentity: boolean;
-    matchedAppointment: Appointment | null;
-    onAppointmentCheckIn: (apt: Appointment) => void;
-    services: Service[];
-    staff: Staff[];
-}) => {
+}: any) => {
     const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
     
     const assignedStaff = useMemo(() => {
         if (!matchedAppointment || !staff) return null;
-        return staff.find(s => s.id === matchedAppointment.staffId);
+        return staff.find((s: any) => s.id === matchedAppointment.staffId);
     }, [matchedAppointment, staff]);
 
     return (
@@ -395,7 +489,7 @@ const StepDetails = ({
                             <div className="space-y-2">
                                 <div className="inline-flex items-center gap-2 bg-primary/5 px-4 py-1 rounded-full border border-primary/10 mb-2">
                                     <CheckCircle2 className="w-3 h-3 text-primary" />
-                                    <span className="text-[9px] font-black uppercase tracking-[0.25em] text-primary">Identity Confirmed</span>
+                                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Identity Confirmed</span>
                                 </div>
                                 <h4 className="text-xl md:text-3xl font-bold uppercase tracking-tighter text-slate-900 leading-none">
                                     Welcome, {member.name.split(' ')[0]}
@@ -415,7 +509,7 @@ const StepDetails = ({
                                         <div className="text-left min-w-0">
                                             <p className="text-[9px] font-bold uppercase text-primary/60 tracking-widest mb-0.5">With {assignedStaff?.name.split(' ')[0] || 'Pro'}</p>
                                             <p className="font-bold text-sm md:text-base uppercase tracking-tight text-slate-900 truncate">
-                                                {services.find(s => s.id === matchedAppointment.serviceId)?.name}
+                                                {services.find((s: any) => s.id === matchedAppointment.serviceId)?.name}
                                             </p>
                                             <div className="flex items-center gap-2 mt-1 text-[9px] font-bold uppercase text-muted-foreground opacity-60">
                                                 <Clock className="w-2.5 h-2.5" />
@@ -557,7 +651,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, pricingTiers }: {
     );
 };
 
-type Step = 'partyType' | 'memberSetup' | 'confirmation';
+type Step = 'partyType' | 'identityChoice' | 'phonePad' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'consents' | 'staff';
 
 export default function WalkInPage() {
@@ -600,6 +694,9 @@ export default function WalkInPage() {
   const [matchedAppointment, setMatchedAppointment] = useState<Appointment | null>(null);
   const [showBirthdayCelebration, setShowBirthdayCelebration] = useState(false);
   const [birthdayName, setBirthdayName] = useState('');
+  
+  const [clientType, setClientType] = useState<'new' | 'returning' | null>(null);
+  const [phonePadValue, setPhonePadValue] = useState('');
 
   const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
     if (!firestore || !tenantId || (!email && !phone)) return;
@@ -639,35 +736,58 @@ export default function WalkInPage() {
                     .find(a => isSameDay(safeDate(a.startTime), new Date()));
                 
                 setMatchedAppointment(todayApt || null);
+                
+                // If we are in returning flow, pre-populate name and email
+                if (clientType === 'returning') {
+                    handleMemberUpdate({ name: matchedClient.name, email: matchedClient.email, phone: matchedClient.phone });
+                }
             }
         } else {
             setBannedClient(null);
             setExistingClientWithBalance(null);
             setMatchedAppointment(null);
+            if (clientType === 'returning' && step === 'phonePad') {
+                toast({ variant: 'destructive', title: 'Profile Not Found', description: "We couldn't find a record with that number. Proceeding as a first visit." });
+                setClientType('new');
+                setStep('memberSetup');
+            }
         }
     } catch (e) {
         console.error("Identity resolution failed", e);
     } finally {
         setIsResolvingIdentity(false);
     }
-  }, [firestore, tenantId]);
-
-  useEffect(() => {
-    const currentMember = partyMembers[currentMemberIndex];
-    if (!currentMember) return;
-
-    const timer = setTimeout(() => {
-        if ((currentMember.email && currentMember.email.includes('@')) || (currentMember.phone && currentMember.phone.length > 5)) {
-            resolveIdentity(currentMember.email, currentMember.phone);
-        }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [partyMembers, currentMemberIndex, resolveIdentity]);
+  }, [firestore, tenantId, clientType, step]);
 
   const handlePartyTypeSelect = (type: 'individual' | 'group') => {
     setIsGroup(type === 'group');
     setPartyMembers([{ id: nanoid(5), name: '', serviceIds: [], isPrimary: true, preferredStaffId: 'any', waitForPreferredStaff: false }]);
-    setStep('memberSetup');
+    if (type === 'group') setStep('memberSetup');
+    else setStep('identityChoice');
+  };
+
+  const handleIdentitySelect = (type: 'new' | 'returning') => {
+      setClientType(type);
+      if (type === 'returning') {
+          setStep('phonePad');
+          setPhonePadValue('');
+      } else {
+          setStep('memberSetup');
+      }
+  };
+
+  const handlePhonePadDigit = (digit: string) => {
+      if (phonePadValue.length < 10) setPhonePadValue(prev => prev + digit);
+  };
+
+  const handlePhonePadDelete = () => {
+      setPhonePadValue(prev => prev.slice(0, -1));
+  };
+
+  const handlePhonePadConfirm = async () => {
+      if (phonePadValue.length < 10) return;
+      await resolveIdentity(undefined, `+1${phonePadValue}`); // Assume US for numpad
+      setStep('memberSetup');
   };
 
   const handleMemberUpdate = (updates: Partial<PartyMember>) => {
@@ -700,7 +820,8 @@ export default function WalkInPage() {
             setCurrentMemberIndex(currentMemberIndex - 1);
             setMemberSubStep('staff'); 
         } else {
-            setStep('partyType');
+            if (isGroup) setStep('partyType');
+            else setStep('identityChoice');
         }
     } else {
         const subSteps: MemberSubStep[] = ['details', 'services'];
@@ -734,6 +855,7 @@ export default function WalkInPage() {
           if (apt.staffId) {
               const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
               batch.set(notificationRef, {
+                  id: nanoid(),
                   userId: apt.staffId,
                   type: 'client_movement',
                   message: `${apt.clientName || 'Your guest'} has checked in at the kiosk.`,
@@ -922,6 +1044,8 @@ export default function WalkInPage() {
                 ) : (
                     <motion.div key="content" className="w-full max-w-4xl mx-auto bg-white/40 border-2 border-white/50 rounded-[2.5rem] md:rounded-[4rem] shadow-[0_32px_64px_rgba(0,0,0,0.05)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10">
                         {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
+                        {step === 'identityChoice' && <IdentityChoiceView onSelect={handleIdentitySelect} onBack={() => setStep('partyType')} />}
+                        {step === 'phonePad' && <PhonePadView value={phonePadValue} onDigit={handlePhonePadDigit} onDelete={handlePhonePadDelete} onConfirm={handlePhonePadConfirm} onBack={() => setStep('identityChoice')} isVerifying={isResolvingIdentity} />}
                         {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
                             <MemberSetup 
                                 member={{...partyMembers[currentMemberIndex], index: currentMemberIndex}}
@@ -945,7 +1069,7 @@ export default function WalkInPage() {
                                 onAppointmentCheckIn={handleAppointmentCheckIn}
                             />
                         )}
-                        {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); }} />}
+                        {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); setPhonePadValue(''); setClientType(null); }} />}
                     </motion.div>
                 )}
             </AnimatePresence>
