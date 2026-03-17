@@ -34,7 +34,7 @@ import { OverrideCancellationDialog } from '@/components/planner/OverrideCancell
 import { Html5Qrcode } from 'html5-qrcode';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
+import { Switch } from '../ui/switch';
 import { TillManagement } from '@/components/pos/TillManagement';
 
 const safeDate = (val: any): Date => {
@@ -43,6 +43,16 @@ const safeDate = (val: any): Date => {
     if (typeof val === 'string') return parseISO(val);
     if (typeof val?.toDate === 'function') return val.toDate();
     return new Date(val);
+};
+
+const sanitizeForFirestore = (obj: any): any => {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+    return Object.fromEntries(
+        Object.entries(obj)
+            .filter(([_, v]) => v !== undefined)
+            .map(([k, v]) => [k, sanitizeForFirestore(v)])
+    );
 };
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
@@ -495,7 +505,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -663,15 +673,19 @@ function POSPage() {
         const completedIds = checkoutState.completedServiceIds || [];
         const allComplete = completedIds.length >= allPartIds.length;
         const batch = writeBatch(firestore);
+        
+        // CRITICAL FIX: Sanitize the checkoutState object to remove undefined values before calling update
+        const sanitizedCheckoutState = sanitizeForFirestore(checkoutState);
+
         if (allComplete) {
-            batch.update(appointmentRef, { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
+            batch.update(appointmentRef, { status: 'ready_for_checkout', checkoutState: sanitizedCheckoutState, actualEndTime: new Date().toISOString() });
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
             const involvedIds = new Set<string>();
             if (apt.staffId) involvedIds.add(apt.staffId);
             if (checkoutState.serviceStaffOverrides) Object.values(checkoutState.serviceStaffOverrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
             involvedIds.forEach(sid => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }); });
         } else {
-            batch.update(appointmentRef, { checkoutState });
+            batch.update(appointmentRef, { checkoutState: sanitizedCheckoutState });
             const overrides = checkoutState.serviceStaffOverrides || {};
             const involvedStaffIdsSet = new Set<string>();
             if (apt.staffId) involvedStaffIdsSet.add(apt.staffId);
@@ -841,7 +855,7 @@ function POSPage() {
             totalCashSales: 0,
             totalCashTips: 0,
             cashTipsByStaff: {},
-            ...data
+            ...sanitizeForFirestore(data)
         };
         await setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, sessionId), session, {});
         toast({ title: "Till Opened", description: `Session initialized with $${data.openingFloat.toFixed(2)}.` });
@@ -852,7 +866,7 @@ function POSPage() {
         const updates: Partial<TillSession> = {
             status: 'closed',
             closedAt: new Date().toISOString(),
-            ...data
+            ...sanitizeForFirestore(data)
         };
         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), updates);
         
