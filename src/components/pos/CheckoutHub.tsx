@@ -128,8 +128,8 @@ const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm }: any) => {
                         />
                     </div>
                     <div className="space-y-2 w-full px-6 text-left">
-                        <Label htmlFor="waive-reason-pos" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Waiver Reason</Label>
-                        <Textarea id="waive-reason-pos" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g., Client verified emergency..." className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
+                        <Label htmlFor="waive-reason-hub" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Waiver Reason</Label>
+                        <Textarea id="waive-reason-hub" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g., Client verified emergency..." className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
                     </div>
                 </div>
                 <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
@@ -180,14 +180,15 @@ export const CheckoutHub = ({
     tipAllocations,
     setTipAllocations,
     isGroupCheckout,
-    activeTill
+    activeTill,
+    staff,
+    role
 }: any) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
     const [isPayerDialogOpen, setIsPayerDialogOpen] = useState(false);
-    const { appointments: allAppointments, staff, services, inventory } = useInventory();
-    const { role } = useTenant();
+    const { appointments: allAppointments, services, inventory } = useInventory();
     const { toast } = useToast();
 
     const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
@@ -967,7 +968,10 @@ export const CheckoutHub = ({
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsAutoCancelledAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
+            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
         </div>
     );
 };
+
+export const WaiveFeeDialogExport = WaiveFeeDialog;
+export const CheckoutHubExport = CheckoutHub;
