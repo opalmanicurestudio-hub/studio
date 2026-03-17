@@ -20,7 +20,7 @@ import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBloc
 import { collection, getDocs, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap, Cake, PartyPopper, Gift, Delete, Eraser, Backspace } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap, Cake, PartyPopper, Gift, Delete, Eraser } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -220,7 +220,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                                 onClick={onDelete}
                                 className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive hover:bg-destructive/5 transition-all active:scale-90"
                             >
-                                <Backspace className="w-6 h-6 md:w-8 md:h-8" strokeWidth={1.5} />
+                                <Delete className="w-6 h-6 md:w-8 md:h-8" strokeWidth={1.5} />
                             </button>
                         );
                     }
@@ -240,7 +240,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                 <Button 
                     size="lg" 
                     onClick={onConfirm} 
-                    disabled={value.length < 10 || isVerifying}
+                    disabled={phonePadValue.length < 10 || isVerifying}
                     className="w-full h-16 md:h-20 rounded-2xl text-lg md:text-2xl font-bold uppercase tracking-widest shadow-2xl shadow-primary/30 group"
                 >
                     {isVerifying ? <Loader className="animate-spin" /> : <>Identify Me <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></>}
@@ -737,7 +737,6 @@ export default function WalkInPage() {
                 
                 setMatchedAppointment(todayApt || null);
                 
-                // If we are in returning flow, pre-populate name and email
                 if (clientType === 'returning') {
                     handleMemberUpdate({ name: matchedClient.name, email: matchedClient.email, phone: matchedClient.phone });
                 }
@@ -786,7 +785,7 @@ export default function WalkInPage() {
 
   const handlePhonePadConfirm = async () => {
       if (phonePadValue.length < 10) return;
-      await resolveIdentity(undefined, `+1${phonePadValue}`); // Assume US for numpad
+      await resolveIdentity(undefined, `+1${phonePadValue}`); 
       setStep('memberSetup');
   };
 
