@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -16,14 +17,13 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, getDocs, query, where, doc, writeBatch, increment } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, writeBatch, deleteField } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import { 
     Sparkles, 
     User, 
     Phone, 
-    List, 
     ArrowRight, 
     ArrowLeft, 
     Users, 
@@ -39,7 +39,6 @@ import {
     ListChecks, 
     XCircle, 
     Ban, 
-    Wallet, 
     MapPin, 
     ShieldCheck, 
     Fingerprint, 
@@ -50,9 +49,8 @@ import {
     Gift, 
     Delete, 
     Workflow, 
-    Trash2,
-    ArrowDown,
-    CalendarCheck
+    CalendarCheck,
+    CheckCircle2
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -66,8 +64,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
@@ -79,6 +75,15 @@ import Link from 'next/link';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Separator } from '@/components/ui/separator';
+import { useForm, FormProvider } from 'react-hook-form';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val?.toDate === 'function') return val.toDate();
+    return new Date(val);
+};
 
 const isBusinessOpen = (date: Date, schedule: any) => {
     if (!schedule || !schedule.week) return { open: true };
@@ -104,40 +109,26 @@ const isBusinessOpen = (date: Date, schedule: any) => {
     }
 };
 
-const ClosedView = ({ schedule, logoUrl, tenantName }: { schedule: any, logoUrl?: string, tenantName?: string }) => (
-    <div className="text-center space-y-6 max-w-md bg-white/40 backdrop-blur-xl p-10 rounded-[3rem] border border-white/20 shadow-2xl">
-        <div className="inline-block p-6 bg-white/50 rounded-full border border-white/30 mb-4 shadow-inner overflow-hidden">
-            {logoUrl ? (
-                <div className="relative w-16 h-16">
-                    <Image src={logoUrl} alt={tenantName || 'Logo'} fill className="object-cover" />
-                </div>
-            ) : (
-                <Clock className="w-12 h-12 text-primary" />
-            )}
-        </div>
-        <h1 className="text-2xl md:text-4xl font-bold uppercase tracking-tighter text-slate-900">Closed</h1>
-        <p className="text-sm md:text-base text-slate-600 font-medium leading-relaxed uppercase tracking-tight">Our kiosk is only available during business hours. Please come back during our scheduled times or book online.</p>
-        {schedule && (
-            <div className="p-4 rounded-2xl bg-white/60 border border-white/40 text-sm shadow-sm">
-                <p className="font-bold text-primary mb-2 uppercase tracking-widest text-[10px]">Today's Hours</p>
-                <p className="text-lg font-bold text-slate-900 uppercase tracking-tight">{isBusinessOpen(new Date(), schedule).hours || 'Closed'}</p>
-            </div>
-        )}
-        <Button asChild className="w-full h-14 rounded-2xl shadow-xl text-lg font-bold uppercase tracking-widest">
-            <Link href="/">Return Home</Link>
-        </Button>
-    </div>
+const ViewContainer = ({ children }: { children: React.ReactNode }) => (
+    <motion.div 
+        initial={{ opacity: 0, scale: 0.98 }} 
+        animate={{ opacity: 1, scale: 1 }} 
+        className="w-full max-w-4xl mx-auto bg-white/40 border-2 border-white/50 rounded-[2.5rem] md:rounded-[4rem] shadow-[0_32px_64px_rgba(0,0,0,0.05)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10 text-center"
+    >
+        {children}
+    </motion.div>
 );
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full space-y-12 py-12" key="party-type-selection">
+    <div className="w-full space-y-12 py-12">
         <div className="space-y-2 text-center px-6">
             <h2 className="text-3xl md:text-5xl font-bold tracking-tighter text-slate-900 leading-none uppercase">Welcome</h2>
             <p className="text-slate-500 text-sm md:text-lg font-medium uppercase tracking-[0.2em] opacity-60">Who are we checking in today?</p>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 px-6 md:px-16">
-            <div 
+            <motion.div 
+                whileTap={{ scale: 0.95 }}
                 className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl p-10 md:p-16 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
                 onClick={() => onSelect('individual')}
             >
@@ -148,9 +139,10 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
                     <h3 className="text-2xl md:text-4xl font-bold tracking-tight uppercase text-slate-800 leading-none">Solo</h3>
                     <p className="text-slate-500 text-xs md:text-sm font-bold uppercase tracking-[0.3em] opacity-40">Checking in for myself</p>
                 </div>
-            </div>
+            </motion.div>
 
-             <div 
+             <motion.div 
+                whileTap={{ scale: 0.95 }}
                 className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl p-10 md:p-16 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
                 onClick={() => onSelect('group')}
             >
@@ -161,20 +153,21 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
                     <h3 className="text-2xl md:text-4xl font-bold tracking-tight uppercase text-slate-800 leading-none">My Party</h3>
                     <p className="text-slate-500 text-xs md:text-sm font-bold uppercase tracking-[0.3em] opacity-40">Checking in a group</p>
                 </div>
-            </div>
+            </motion.div>
         </div>
-    </motion.div>
+    </div>
 );
 
 const IdentityChoiceView = ({ onSelect, onBack }: { onSelect: (type: 'new' | 'returning') => void, onBack: () => void }) => (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full space-y-12 py-12" key="identity-choice">
+    <div className="w-full space-y-12 py-12">
         <div className="space-y-2 text-center px-6">
             <h2 className="text-3xl md:text-5xl font-bold tracking-tighter text-slate-900 leading-none uppercase">Identify</h2>
             <p className="text-slate-500 text-sm md:text-lg font-medium uppercase tracking-[0.2em] opacity-60">Is this your first time with us?</p>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 px-6 md:px-16">
-            <div 
+            <motion.div 
+                whileTap={{ scale: 0.95 }}
                 className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl p-10 md:p-12 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
                 onClick={() => onSelect('returning')}
             >
@@ -185,9 +178,10 @@ const IdentityChoiceView = ({ onSelect, onBack }: { onSelect: (type: 'new' | 're
                     <h3 className="text-xl md:text-2xl font-bold tracking-tight uppercase text-slate-800 leading-none">Return Guest</h3>
                     <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.3em] opacity-40">I've visited before</p>
                 </div>
-            </div>
+            </motion.div>
 
-             <div 
+             <motion.div 
+                whileTap={{ scale: 0.95 }}
                 className="group relative rounded-[3rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl p-10 md:p-12 flex flex-col items-center justify-center text-center transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2 hover:border-primary/30 cursor-pointer shadow-xl"
                 onClick={() => onSelect('new')}
             >
@@ -198,12 +192,12 @@ const IdentityChoiceView = ({ onSelect, onBack }: { onSelect: (type: 'new' | 're
                     <h3 className="text-xl md:text-2xl font-bold tracking-tight uppercase text-slate-800 leading-none">First Visit</h3>
                     <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.3em] opacity-40">I'm a new guest</p>
                 </div>
-            </div>
+            </motion.div>
         </div>
         <div className="text-center px-6">
             <Button variant="ghost" onClick={onBack} className="text-slate-400 font-bold uppercase tracking-widest text-[10px] md:text-xs hover:text-slate-600">Back to Start</Button>
         </div>
-    </motion.div>
+    </div>
 );
 
 const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying }: { value: string, onDigit: (d: string) => void, onDelete: () => void, onConfirm: () => void, onBack: () => void, isVerifying: boolean }) => {
@@ -218,7 +212,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
     }, [value]);
 
     return (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md mx-auto space-y-10 py-12 px-6" key="phone-pad">
+        <div className="w-full max-w-md mx-auto space-y-10 py-12 px-6">
             <div className="space-y-2 text-center">
                 <h2 className="text-3xl md:text-4xl font-bold tracking-tighter uppercase text-slate-900 leading-none">Identity Key</h2>
                 <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.2em] opacity-60">Enter your professional phone signature</p>
@@ -248,7 +242,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                     return (
                         <motion.button 
                             key={i} 
-                            whileTap={{ scale: 0.95, backgroundColor: 'rgba(var(--primary), 0.1)' }}
+                            whileTap={{ scale: 0.95, boxShadow: '0 0 20px rgba(var(--primary), 0.2)' }}
                             onClick={() => onDigit(d)}
                             className="h-16 w-16 md:h-20 md:w-20 rounded-2xl bg-white/40 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center"
                         >
@@ -269,18 +263,18 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                 </Button>
                 <Button variant="ghost" onClick={onBack} className="w-full text-slate-400 font-bold uppercase tracking-widest text-[10px]">Go Back</Button>
             </div>
-        </motion.div>
+        </div>
     );
 };
 
 const IdentityConfirmView = ({ client, onConfirm, onBack }: { client: Client, onConfirm: () => void, onBack: () => void }) => (
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md mx-auto space-y-12 py-12 px-6 text-center" key="identity-confirm">
+    <div className="w-full max-w-md mx-auto space-y-12 py-12 px-6 text-center">
         <div className="space-y-2">
             <h2 className="text-3xl md:text-4xl font-bold tracking-tighter uppercase text-slate-900 leading-none">Is this you?</h2>
             <p className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-[0.2em] opacity-60">Confirming Guest Dossier</p>
         </div>
 
-        <div className="p-8 md:p-10 rounded-[3rem] border-4 border-primary/10 bg-white/80 backdrop-blur-xl shadow-2xl space-y-6 flex flex-col items-center">
+        <div className="p-8 md:p-10 rounded-[3rem] border-4 border-primary/10 bg-white/80 backdrop-blur-xl shadow-2xl space-y-6 flex flex-col items-center text-center">
             <Avatar className="w-32 h-32 border-4 border-background shadow-xl rounded-[2.5rem]">
                 <AvatarImage src={client.avatarUrl} className="object-cover" />
                 <AvatarFallback className="text-2xl font-black bg-primary/10 text-primary">{(client.name || 'G').charAt(0)}</AvatarFallback>
@@ -297,11 +291,11 @@ const IdentityConfirmView = ({ client, onConfirm, onBack }: { client: Client, on
             </Button>
             <Button variant="ghost" onClick={onBack} className="w-full text-slate-400 font-bold uppercase tracking-widest text-[10px]">No, This isn't me</Button>
         </div>
-    </motion.div>
+    </div>
 );
 
 const WelcomeBackView = ({ name, onContinue }: { name: string, onContinue: () => void }) => (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md mx-auto space-y-12 py-16 px-6 text-center" key="welcome-back">
+    <div className="w-full max-w-md mx-auto space-y-12 py-16 px-6 text-center">
         <div className="w-24 h-24 md:w-32 md:h-32 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
             <Sparkles className="w-12 h-12 md:w-16 md:h-16 text-primary -rotate-6" />
         </div>
@@ -312,24 +306,24 @@ const WelcomeBackView = ({ name, onContinue }: { name: string, onContinue: () =>
         <Button size="lg" onClick={onContinue} className="w-full h-16 md:h-20 rounded-[2.5rem] text-lg md:text-2xl font-bold uppercase tracking-widest shadow-3xl shadow-primary/30 group">
             Proceed <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
         </Button>
-    </motion.div>
+    </div>
 );
 
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-10 md:p-24 text-center space-y-10 md:space-y-16" key="confirmation-screen">
+    <div className="p-10 md:p-24 text-center space-y-10 md:space-y-16">
         <div className="w-24 h-24 md:w-32 md:h-32 bg-green-500/5 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl shadow-green-500/5 rotate-6">
             <CheckCircle2 className="w-12 h-12 text-green-500 -rotate-6" />
         </div>
         <div className="space-y-4">
-            <h2 className="text-4xl md:text-6xl font-bold tracking-tighter uppercase text-slate-900 drop-shadow-sm">You're in!</h2>
+            <h2 className="text-4xl md:text-6xl font-bold tracking-tighter uppercase text-slate-900 drop-shadow-sm text-center">You're in!</h2>
             <p className="text-slate-500 text-sm md:text-xl font-bold uppercase tracking-[0.2em] opacity-70 text-center">Watch for our text notification.</p>
         </div>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8 max-w-4xl mx-auto">
             {confirmedParty.map(ticket => (
                 <Card key={ticket.id} className="bg-white/80 backdrop-blur-xl border-2 border-white/50 rounded-[2rem] text-left shadow-xl group overflow-hidden">
-                    <CardContent className="p-6 md:p-8 flex justify-between items-center">
-                        <div className="space-y-1">
+                    <CardContent className="p-6 md:p-8 flex justify-between items-center text-left">
+                        <div className="space-y-1 text-left">
                             <p className="text-[10px] text-primary font-black uppercase tracking-[0.2em] opacity-60 mb-1">Queue Spot</p>
                             <p className="font-bold text-2xl md:text-4xl uppercase tracking-tighter text-slate-900">#{ticket.queuePosition}</p>
                             <p className="text-xs md:sm font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px]">{ticket.name}</p>
@@ -345,7 +339,7 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
         <div className="pt-10">
             <Button size="lg" onClick={onDone} className="h-14 md:h-20 px-12 md:px-20 text-lg md:text-2xl font-bold rounded-2xl md:rounded-3xl uppercase tracking-widest shadow-xl shadow-primary/20 transition-all hover:scale-105 active:scale-95">Complete</Button>
         </div>
-    </motion.div>
+    </div>
 );
 
 const StepDetails = ({ 
@@ -372,7 +366,6 @@ const StepDetails = ({
                         defaultCountry="US"
                         value={member.phone || ''}
                         onChange={(value) => onUpdate({ phone: value || '' })}
-                        inputComponent={Input as any}
                         placeholder="(555) 000-0000"
                         className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-xl font-bold focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 [&_input]:bg-transparent shadow-inner text-slate-900"
                     />
@@ -410,24 +403,24 @@ const StepDetails = ({
                 
                 {bannedClient && (
                     <motion.div key="banned" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-                        <Alert variant="destructive" className="bg-destructive/5 border-destructive shadow-xl border-2 rounded-2xl p-6">
-                            <Ban className="h-5 w-5" />
-                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1">Check-in Restricted</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
-                                Account restricted. Please see the desk for assistance.
-                            </AlertDescription>
-                        </Alert>
+                        <div className="bg-destructive/10 text-destructive border border-destructive/20 p-4 rounded-xl flex gap-3">
+                            <Ban className="h-5 w-5 shrink-0" />
+                            <div>
+                                <p className="text-xs font-bold uppercase tracking-tight mb-1">Check-in Restricted</p>
+                                <p className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">Account restricted. Please see the desk for assistance.</p>
+                            </div>
+                        </div>
                     </motion.div>
                 )}
                 {existingClientWithBalance && !bannedClient && (
                     <motion.div key="balance" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-                        <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-2xl p-6 shadow-xl">
-                            <Wallet className="h-5 w-5" />
-                            <AlertTitle className="text-xs font-bold uppercase tracking-tight mb-1">Balance Alert</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
-                                Balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Settle at desk to join queue.
-                            </AlertDescription>
-                        </Alert>
+                        <div className="bg-destructive/5 border border-destructive/20 p-4 rounded-xl flex gap-3 text-destructive">
+                            <Wallet className="h-5 w-5 shrink-0" />
+                            <div>
+                                <p className="text-xs font-bold uppercase tracking-tight mb-1">Balance Alert</p>
+                                <p className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">Balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Settle at desk to join queue.</p>
+                            </div>
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -442,39 +435,42 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, pricingTiers }: {
     }, [service]);
 
     return (
-        <button onClick={onToggle} className={cn("relative p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex flex-col items-center justify-center gap-3 h-full group", isSelected ? "border-primary bg-primary/5 shadow-xl ring-4 ring-primary/10" : "bg-white/60 border-white/40 hover:border-primary/20 shadow-sm")}>
-            <div className={cn("p-3 rounded-2xl bg-primary/5 transition-all group-hover:scale-110", isSelected && "bg-primary text-white shadow-lg")}>
+        <motion.button 
+            whileTap={{ scale: 0.95 }}
+            onClick={onToggle} 
+            className={cn(
+                "relative p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex flex-col items-center justify-center gap-3 h-full group", 
+                isSelected ? "border-primary bg-primary/5 shadow-xl ring-4 ring-primary/10" : "bg-white/60 border-white/40 hover:border-primary/20 shadow-sm"
+            )}
+        >
+            <div className={cn("p-3 rounded-2xl bg-primary/5 transition-all group-hover:scale-110 shadow-inner", isSelected && "bg-primary text-white shadow-lg")}>
                 <Sparkles className={cn("w-6 h-6 md:w-8 md:h-8", isSelected ? "text-white" : "text-primary opacity-40")} />
             </div>
             <div className="text-center space-y-1">
-                <p className="font-bold uppercase tracking-tight text-xs md:text-sm text-slate-900 leading-tight">{service.name}</p>
-                <p className="text-[10px] md:text-xs font-black text-primary tracking-tighter font-mono">${minPrice.toFixed(0)}+</p>
+                <p className="font-bold uppercase tracking-tight text-[10px] md:text-sm text-slate-900 leading-tight">{service.name}</p>
+                <p className="text-[9px] md:text-xs font-black text-primary tracking-tighter font-mono">${minPrice.toFixed(0)}+</p>
             </div>
             {isSelected && <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5 shadow-lg"><Check className="w-3 h-3" /></div>}
-        </button>
+        </motion.button>
     );
 };
 
-const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
+const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: any; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
     const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
-    const selectedMainId = useMemo(() => member.serviceIds.find(id => mainServices.some(s => s.id === id)), [member.serviceIds, mainServices]);
+    const selectedMainId = useMemo(() => member.serviceIds.find((id: string) => mainServices.some(s => s.id === id)), [member.serviceIds, mainServices]);
     
+    const selectedMainService = useMemo(() => services.find(s => s.id === selectedMainId), [services, selectedMainId]);
+    const categories = useMemo(() => Array.from(new Set(mainServices.map(s => s.category || 'Standard'))).sort(), [mainServices]);
+
     const [view, setView] = useState<'category' | 'main' | 'addon'>(selectedMainId ? 'addon' : 'category');
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-
-    const selectedMainService = useMemo(() => services.find(s => s.id === selectedMainId), [services, selectedMainId]);
 
     const compatibleAddOns = useMemo(() => {
         if (!selectedMainService) return [];
         return services.filter(s => s.type === 'addon' && (selectedMainService.compatibleAddOnIds || []).includes(s.id));
     }, [services, selectedMainService]);
 
-    const categories = useMemo(() => Array.from(new Set(mainServices.map(s => s.category || 'Standard'))).sort(), [mainServices]);
-
-    const handleCategorySelect = (cat: string) => {
-        setSelectedCategory(cat);
-        setView('main');
-    };
+    const handleCategorySelect = (cat: string) => { setSelectedCategory(cat); setView('main'); };
 
     const handleMainSelect = (id: string) => {
         const nextServiceIds = [id];
@@ -482,16 +478,13 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
         onUpdate({ serviceIds: nextServiceIds });
         
         const nextAddOns = services.filter(s => s.type === 'addon' && (selectedMain?.compatibleAddOnIds || []).includes(s.id));
-        if (nextAddOns.length > 0) {
-            setView('addon');
-        }
+        if (nextAddOns.length > 0) setView('addon');
+        else onUpdate({ serviceIds: nextServiceIds }); // Transition handled by parent if needed
     };
 
     const toggleAddOn = (id: string) => {
         const isSelected = member.serviceIds.includes(id);
-        const next = isSelected 
-            ? member.serviceIds.filter(sid => sid !== id)
-            : [...member.serviceIds, id];
+        const next = isSelected ? member.serviceIds.filter((sid: string) => sid !== id) : [...member.serviceIds, id];
         onUpdate({ serviceIds: next });
     };
 
@@ -504,14 +497,15 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
                         <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60">Select a category to browse treatments</p>
                     </div>
                     {categories.map(category => (
-                        <button 
+                        <motion.button 
                             key={category} 
+                            whileTap={{ scale: 0.98 }}
                             className="w-full p-6 md:p-10 text-xl md:text-3xl font-bold rounded-2xl md:rounded-[2rem] border-2 border-white/40 bg-white/60 backdrop-blur-xl hover:border-primary/20 hover:bg-primary/5 transition-all shadow-xl uppercase tracking-tight text-slate-800 text-left flex justify-between items-center group" 
                             onClick={() => handleCategorySelect(category)}
                         >
                             {category}
                             <ArrowRight className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-0 group-hover:opacity-40 transition-all -translate-x-4 group-hover:translate-x-0" />
-                        </button>
+                        </motion.button>
                     ))}
                 </motion.div>
             )}
@@ -527,13 +521,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
                         {mainServices.filter(s => (s.category || 'Standard') === selectedCategory).map(service => (
-                            <ServiceSelectionCard 
-                                key={service.id} 
-                                service={service} 
-                                isSelected={member.serviceIds.includes(service.id)} 
-                                onToggle={() => handleMainSelect(service.id)} 
-                                pricingTiers={pricingTiers} 
-                            />
+                            <ServiceSelectionCard key={service.id} service={service} isSelected={member.serviceIds.includes(service.id)} onToggle={() => handleMainSelect(service.id)} pricingTiers={pricingTiers} />
                         ))}
                     </div>
                 </motion.div>
@@ -543,7 +531,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
                 <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 text-left" key="addon-sel">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <button onClick={() => setView('main')} className="text-primary font-bold uppercase tracking-widest p-2 -ml-2 transition-all hover:bg-primary/5 rounded-xl flex items-center gap-2 text-[10px] md:text-xs w-fit">
-                            <ArrowLeft className="h-4 w-4"/> Change Primary Treatment
+                            <ArrowLeft className="h-4 w-4"/> Change Treatment
                         </button>
                         <Badge variant="outline" className="h-8 px-4 rounded-xl border-primary/20 text-primary bg-primary/5 font-black uppercase text-[10px] tracking-tight truncate max-w-xs">
                             <Sparkles className="w-3 h-3 mr-2 opacity-40"/>
@@ -553,20 +541,12 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
                     
                     <div className="space-y-2">
                         <h3 className="text-xl md:text-2xl font-bold uppercase tracking-tighter text-slate-900">Enhance your session?</h3>
-                        <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60 leading-relaxed">
-                            Optional add-ons compatible with your selection.
-                        </p>
+                        <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60 leading-relaxed">Optional add-ons compatible with your selection.</p>
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
                         {compatibleAddOns.map(addon => (
-                            <ServiceSelectionCard 
-                                key={addon.id} 
-                                service={addon} 
-                                isSelected={member.serviceIds.includes(addon.id)} 
-                                onToggle={() => toggleAddOn(addon.id)} 
-                                pricingTiers={pricingTiers} 
-                            />
+                            <ServiceSelectionCard key={addon.id} service={addon} isSelected={member.serviceIds.includes(addon.id)} onToggle={() => toggleAddOn(addon.id)} pricingTiers={pricingTiers} />
                         ))}
                     </div>
                 </motion.div>
@@ -575,7 +555,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
     );
 };
 
-const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
+const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: any; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
     <div className="space-y-6 text-left" key="staff-selection-step">
         <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
             <StaffSelectionCard staff={{ id: 'any', name: 'First Available', avatarUrl: '' }} pricingTiers={pricingTiers} isSelected={member.preferredStaffId === 'any' || !member.preferredStaffId} />
@@ -593,7 +573,7 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
     </div>
 );
 
-const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
+const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: any, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
     <div className="space-y-6 md:space-y-10 text-left" key="consent-step">
         {requiredForms.map(form => (
             <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-10 rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-xl shadow-xl">
@@ -665,13 +645,13 @@ const MemberSetup = ({
     const hasNextSubStep = currentSubStepIndex < subSteps.length - 1;
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} key={`member-setup-wrapper-${member.id}`}>
+        <div key={`member-setup-wrapper-${member.id}`}>
             <div className="p-8 md:p-12 pb-4 text-left">
                 <div className="flex items-center justify-between gap-4 mb-2">
-                    <h2 className="text-2xl md:text-4xl font-bold tracking-tighter uppercase text-slate-900">{isGroup ? `Guest ${member.index + 1}` : 'Guest Check-in'}</h2>
+                    <h2 className="text-2xl md:text-4xl font-bold tracking-tighter uppercase text-slate-900 leading-none">{isGroup ? `Guest ${member.index + 1}` : 'Guest Check-in'}</h2>
                     {isGroup && <Badge className="bg-primary/10 text-primary border-none font-black px-3 py-1 rounded-xl text-xs md:text-sm shadow-sm">{member.index + 1} / {partyMembers.length}</Badge>}
                 </div>
-                <div className="flex items-center gap-3 text-primary font-bold uppercase tracking-[0.2em] text-[10px] md:sm">
+                <div className="flex items-center gap-3 text-primary font-bold uppercase tracking-[0.2em] text-[10px] md:text-sm">
                     {subStepTitles[memberSubStep as MemberSubStep].icon} {subStepTitles[memberSubStep as MemberSubStep].title}
                 </div>
                 <div className="pt-6 md:pt-8"><Progress value={progress} className="h-1.5 md:h-2 rounded-full bg-white/20" /></div>
@@ -683,19 +663,19 @@ const MemberSetup = ({
                         {memberSubStep === 'details' && (
                             <div className="space-y-8">
                                 {matchedAppointment && (
-                                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2.5rem] border-4 border-primary bg-primary/5 shadow-2xl space-y-6">
+                                    <div className="p-6 rounded-[2.5rem] border-4 border-primary bg-primary/5 shadow-2xl space-y-6 text-left">
                                         <div className="flex items-center gap-4">
                                             <div className="p-3 bg-primary rounded-2xl shadow-xl"><CalendarCheck className="w-8 h-8 text-white" /></div>
-                                            <div className="space-y-1 text-left">
+                                            <div className="space-y-1">
                                                 <p className="text-[10px] font-black uppercase text-primary tracking-widest">Appointment Match</p>
-                                                <h3 className="text-xl font-black uppercase text-slate-900">{services.find(s => s.id === matchedAppointment.serviceId)?.name}</h3>
+                                                <h3 className="text-xl font-black uppercase text-slate-900">{services.find((s:any) => s.id === matchedAppointment.serviceId)?.name}</h3>
                                             </div>
                                         </div>
-                                        <p className="text-xs font-bold text-slate-600 uppercase leading-relaxed tracking-tight text-left">You have a reserved slot at <strong>{format(safeDate(matchedAppointment.startTime), 'h:mm a')}</strong>. Would you like to check in immediately?</p>
+                                        <p className="text-xs font-bold text-slate-600 uppercase leading-relaxed tracking-tight">You have a reserved slot at <strong>{format(safeDate(matchedAppointment.startTime), 'h:mm a')}</strong>. Would you like to check in immediately?</p>
                                         <Button size="lg" className="w-full h-14 rounded-2xl text-base font-black uppercase shadow-xl" onClick={() => onAppointmentCheckIn(matchedAppointment)}>Direct Check-In</Button>
                                         <Separator className="bg-primary/10 border-dashed" />
                                         <p className="text-[9px] text-center font-black uppercase text-primary opacity-40">Or continue to change services</p>
-                                    </motion.div>
+                                    </div>
                                 )}
                                 <StepDetails 
                                     member={member} 
@@ -751,17 +731,9 @@ const MemberSetup = ({
                     </div>
                 )}
             </div>
-        </motion.div>
+        </div>
     );
 };
-
-const Alert = ({ variant, className, children }: any) => (
-    <div className={cn("p-4 rounded-lg flex gap-3", variant === 'destructive' ? "bg-destructive/10 text-destructive border border-destructive/20" : "bg-muted text-muted-foreground", className)}>
-        {children}
-    </div>
-);
-const AlertTitle = ({ className, children }: any) => <h5 className={cn("font-bold", className)}>{children}</h5>;
-const AlertDescription = ({ className, children }: any) => <div className={cn("text-sm", className)}>{children}</div>;
 
 type Step = 'partyType' | 'identityChoice' | 'phonePad' | 'identityConfirm' | 'welcomeBack' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'consents' | 'staff';
@@ -771,6 +743,15 @@ export default function WalkInPage() {
   const { toast } = useToast();
   const params = useParams();
   const tenantId = params.tenantId as string;
+
+  // ENSURE FormProvider has access to methods
+  const methods = useForm({
+      defaultValues: {
+          name: '',
+          email: '',
+          phone: '',
+      }
+  });
 
   const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
   const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
@@ -1127,82 +1108,84 @@ export default function WalkInPage() {
             <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full animate-pulse" />
         </div>
 
-        {isClosed ? (
-            <div className="h-screen flex items-center justify-center bg-background p-4"><ClosedView schedule={scheduleProfiles?.[0]} logoUrl={logoUrl} tenantName={tenant.name} /></div>
-        ) : (
-            <AnimatePresence mode="wait">
-                {!entered ? (
-                    <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group z-10" onClick={() => setEntered(true)}>
-                        <div className={cn(
-                            "relative overflow-hidden mb-12 md:mb-16 transition-all duration-1000 mx-auto",
-                            showWordmark ? "w-24 h-24 md:w-32 md:h-32 rounded-2xl md:rounded-3xl" : "w-48 h-48 md:w-64 md:h-64 rounded-3xl md:rounded-[3rem]",
-                            logoUrl ? "shadow-2xl border-4 border-white" : "p-8 md:p-12 bg-white/40 backdrop-blur-3xl border-2 border-white/30 group-hover:border-primary/20 group-hover:shadow-primary/10 shadow-xl"
-                        )}>
-                            {logoUrl ? (
-                                <Image src={logoUrl} alt={tenant.name} fill className="object-cover" />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                    <ClarityFlowLogo className={cn(showWordmark ? "w-12 h-12 md:w-16 md:h-16" : "w-24 h-24 md:w-32 md:h-32")} />
-                                </div>
-                            )}
-                        </div>
-                        
-                        {showWordmark && (
-                            <div className="animate-in fade-in slide-in-from-top-4 duration-1000">
-                                {wordmarkUrl ? (
-                                    <div className="relative h-16 md:h-32 w-full max-w-[500px] mx-auto mb-8">
-                                        <Image src={wordmarkUrl} alt={tenant.name} fill className="object-contain" />
-                                    </div>
+        <FormProvider {...methods}>
+            {isClosed ? (
+                <div className="h-screen flex items-center justify-center bg-background p-4"><ClosedView schedule={scheduleProfiles?.[0]} logoUrl={logoUrl} tenantName={tenant.name} /></div>
+            ) : (
+                <AnimatePresence mode="wait">
+                    {!entered ? (
+                        <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group z-10" onClick={() => setEntered(true)}>
+                            <div className={cn(
+                                "relative overflow-hidden mb-12 md:mb-16 transition-all duration-1000 mx-auto",
+                                showWordmark ? "w-24 h-24 md:w-32 md:h-32 rounded-2xl md:rounded-3xl" : "w-48 h-48 md:w-64 md:h-64 rounded-3xl md:rounded-[3rem]",
+                                logoUrl ? "shadow-2xl border-4 border-white" : "p-8 md:p-12 bg-white/40 backdrop-blur-3xl border-2 border-white/30 group-hover:border-primary/20 group-hover:shadow-primary/10 shadow-xl"
+                            )}>
+                                {logoUrl ? (
+                                    <Image src={logoUrl} alt={tenant.name} fill className="object-cover" />
                                 ) : (
-                                    <h1 className="text-4xl md:text-7xl font-bold tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none text-center">{tenant.name || 'Welcome'}</h1>
+                                    <div className="w-full h-full flex items-center justify-center">
+                                        <ClarityFlowLogo className={cn(showWordmark ? "w-12 h-12 md:w-16 md:h-16" : "w-24 h-24 md:w-32 md:h-32")} />
+                                    </div>
                                 )}
                             </div>
-                        )}
+                            
+                            {showWordmark && (
+                                <div className="animate-in fade-in slide-in-from-top-4 duration-1000">
+                                    {wordmarkUrl ? (
+                                        <div className="relative h-16 md:h-32 w-full max-w-[500px] mx-auto mb-8">
+                                            <Image src={wordmarkUrl} alt={tenant.name} fill className="object-contain" />
+                                        </div>
+                                    ) : (
+                                        <h1 className="text-4xl md:text-7xl font-bold tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm leading-none text-center">{tenant.name || 'Welcome'}</h1>
+                                    )}
+                                </div>
+                            )}
 
-                        <p className="text-primary text-xs md:text-xl font-bold tracking-[0.4em] uppercase animate-pulse drop-shadow-sm mt-4 opacity-60 text-center">Tap to Begin</p>
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-12 md:mt-16 flex justify-center">
-                            <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce text-slate-400 opacity-30" />
+                            <p className="text-primary text-xs md:text-xl font-bold tracking-[0.4em] uppercase animate-pulse drop-shadow-sm mt-4 opacity-60 text-center">Tap to Begin</p>
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-12 md:mt-16 flex justify-center">
+                                <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce text-slate-400 opacity-30" />
+                            </motion.div>
                         </motion.div>
-                    </motion.div>
-                ) : (
-                    <motion.div key="content" className="w-full max-w-4xl mx-auto bg-white/40 border-2 border-white/50 rounded-[2.5rem] md:rounded-[4rem] shadow-[0_32px_64px_rgba(0,0,0,0.05)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10 text-center">
-                        {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
-                        {step === 'identityChoice' && <IdentityChoiceView onSelect={handleIdentitySelect} onBack={() => setStep('partyType')} />}
-                        {step === 'phonePad' && <PhonePadView value={phonePadValue} onDigit={handlePhonePadDigit} onDelete={handlePhonePadDelete} onConfirm={handlePhonePadConfirm} onBack={() => setStep('identityChoice')} isVerifying={isResolvingIdentity} />}
-                        {step === 'identityConfirm' && matchedClient && <IdentityConfirmView client={matchedClient} onConfirm={handleIdentityConfirm} onBack={() => setStep('phonePad')} />}
-                        {step === 'welcomeBack' && matchedClient && <WelcomeBackView name={matchedClient.name} onContinue={() => setStep('memberSetup')} />}
-                        {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
-                            <MemberSetup 
-                                member={{...partyMembers[currentMemberIndex], index: currentMemberIndex}}
-                                partyMembers={partyMembers}
-                                onUpdate={handleMemberUpdate}
-                                memberSubStep={memberSubStep}
-                                services={services} 
-                                staff={activeStaff} 
-                                pricingTiers={pricingTiers || []}
-                                consentForms={consentForms || []}
-                                formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
-                                setFormAnswers={(a: any) => setFormAnswers(p => ({...p, [partyMembers[currentMemberIndex].id]: a}))}
-                                onNext={handleNextSubStep} onBack={handleBack}
-                                isGroup={isGroup} isLastMember={currentMemberIndex === partyMembers.length - 1}
-                                onAddAnother={() => { 
-                                    setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); 
-                                    setCurrentMemberIndex(partyMembers.length); 
-                                    setMemberSubStep('details'); 
-                                }}
-                                onSubmit={handleSubmit} isSubmitting={isSubmitting}
-                                bannedClient={bannedClient}
-                                existingClientWithBalance={existingClientWithBalance}
-                                isResolvingIdentity={isResolvingIdentity}
-                                matchedAppointment={matchedAppointment}
-                                onAppointmentCheckIn={handleAppointmentCheckIn}
-                            />
-                        )}
-                        {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); setPhonePadValue(''); setClientType(null); setMatchedClient(null); }} />}
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        )}
+                    ) : (
+                        <ViewContainer>
+                            {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
+                            {step === 'identityChoice' && <IdentityChoiceView onSelect={handleIdentitySelect} onBack={() => setStep('partyType')} />}
+                            {step === 'phonePad' && <PhonePadView value={phonePadValue} onDigit={handlePhonePadDigit} onDelete={handlePhonePadDelete} onConfirm={handlePhonePadConfirm} onBack={() => setStep('identityChoice')} isVerifying={isResolvingIdentity} />}
+                            {step === 'identityConfirm' && matchedClient && <IdentityConfirmView client={matchedClient} onConfirm={handleIdentityConfirm} onBack={() => setStep('phonePad')} />}
+                            {step === 'welcomeBack' && matchedClient && <WelcomeBackView name={matchedClient.name} onContinue={() => setStep('memberSetup')} />}
+                            {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
+                                <MemberSetup 
+                                    member={{...partyMembers[currentMemberIndex], index: currentMemberIndex}}
+                                    partyMembers={partyMembers}
+                                    onUpdate={handleMemberUpdate}
+                                    memberSubStep={memberSubStep}
+                                    services={services} 
+                                    staff={activeStaff} 
+                                    pricingTiers={pricingTiers || []}
+                                    consentForms={consentForms || []}
+                                    formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
+                                    setFormAnswers={(a: any) => setFormAnswers(p => ({...p, [partyMembers[currentMemberIndex].id]: a}))}
+                                    onNext={handleNextSubStep} onBack={handleBack}
+                                    isGroup={isGroup} isLastMember={currentMemberIndex === partyMembers.length - 1}
+                                    onAddAnother={() => { 
+                                        setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); 
+                                        setCurrentMemberIndex(partyMembers.length); 
+                                        setMemberSubStep('details'); 
+                                    } }
+                                    onSubmit={handleSubmit} isSubmitting={isSubmitting}
+                                    bannedClient={bannedClient}
+                                    existingClientWithBalance={existingClientWithBalance}
+                                    isResolvingIdentity={isResolvingIdentity}
+                                    matchedAppointment={matchedAppointment}
+                                    onAppointmentCheckIn={handleAppointmentCheckIn}
+                                />
+                            )}
+                            {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); setPhonePadValue(''); setClientType(null); setMatchedClient(null); }} />}
+                        </ViewContainer>
+                    )}
+                </AnimatePresence>
+            )}
+        </FormProvider>
 
         <AnimatePresence>
             {showBirthdayCelebration && (
@@ -1217,8 +1200,33 @@ export default function WalkInPage() {
         </AnimatePresence>
 
         <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-            <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></DialogContent>
+            <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></DialogContent>
         </Dialog>
     </div>
   );
 }
+
+const ClosedView = ({ schedule, logoUrl, tenantName }: { schedule: any, logoUrl?: string, tenantName?: string }) => (
+    <div className="text-center space-y-6 max-w-md bg-white/40 backdrop-blur-xl p-10 rounded-[3rem] border border-white/20 shadow-2xl">
+        <div className="inline-block p-6 bg-white/50 rounded-full border border-white/30 mb-4 shadow-inner overflow-hidden">
+            {logoUrl ? (
+                <div className="relative w-16 h-16">
+                    <Image src={logoUrl} alt={tenantName || 'Logo'} fill className="object-cover" />
+                </div>
+            ) : (
+                <Clock className="w-12 h-12 text-primary" />
+            )}
+        </div>
+        <h1 className="text-2xl md:text-4xl font-bold uppercase tracking-tighter text-slate-900">Closed</h1>
+        <p className="text-sm md:text-base text-slate-600 font-medium leading-relaxed uppercase tracking-tight">Our kiosk is only available during business hours. Please come back during our scheduled times or book online.</p>
+        {schedule && (
+            <div className="p-4 rounded-2xl bg-white/60 border border-white/40 text-sm shadow-sm text-center">
+                <p className="font-bold text-primary mb-2 uppercase tracking-widest text-[10px]">Today's Hours</p>
+                <p className="text-lg font-bold text-slate-900 uppercase tracking-tight text-center">{isBusinessOpen(new Date(), schedule).hours || 'Closed'}</p>
+            </div>
+        )}
+        <Button asChild className="w-full h-14 rounded-2xl shadow-xl text-lg font-bold uppercase tracking-widest">
+            <Link href="/">Return Home</Link>
+        </Button>
+    </div>
+);
