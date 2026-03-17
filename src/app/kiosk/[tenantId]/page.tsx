@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, useDoc, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, getDocs, query, where, doc, writeBatch, increment } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
@@ -51,7 +51,8 @@ import {
     Delete, 
     Workflow, 
     Trash2,
-    ArrowDown
+    ArrowDown,
+    CalendarCheck
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -77,14 +78,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-
-const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
-    if (typeof val?.toDate === 'function') return val.toDate();
-    return new Date(val);
-};
+import { Separator } from '@/components/ui/separator';
 
 const isBusinessOpen = (date: Date, schedule: any) => {
     if (!schedule || !schedule.week) return { open: true };
@@ -216,10 +210,10 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
     const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'delete'];
     
     const formattedDisplay = useMemo(() => {
-        if (!value) return '(   )   -    ';
         const cleaned = value.replace(/\D/g, '');
-        if (cleaned.length <= 3) return `( ${cleaned} )   -    `;
-        if (cleaned.length <= 6) return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3)} -    `;
+        if (!cleaned) return '';
+        if (cleaned.length <= 3) return `( ${cleaned} )`;
+        if (cleaned.length <= 6) return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3)}`;
         return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3, 6)} - ${cleaned.slice(6)}`;
     }, [value]);
 
@@ -232,7 +226,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
 
             <div className="p-8 rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white/50 shadow-inner text-center">
                 <p className="text-xl md:text-3xl font-black font-mono tracking-widest text-primary leading-none min-h-[1.2em]">
-                    {formattedDisplay}
+                    {formattedDisplay || '\u00A0'}
                 </p>
             </div>
 
@@ -254,9 +248,9 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                     return (
                         <motion.button 
                             key={i} 
-                            whileTap={{ scale: 0.9, boxShadow: '0 0 20px rgba(var(--primary), 0.3)' }}
+                            whileTap={{ scale: 0.95, backgroundColor: 'rgba(var(--primary), 0.1)' }}
                             onClick={() => onDigit(d)}
-                            className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-white/10 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center"
+                            className="h-16 w-16 md:h-20 md:w-20 rounded-2xl bg-white/40 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center"
                         >
                             {d}
                         </motion.button>
@@ -672,7 +666,7 @@ const MemberSetup = ({
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} key={`member-setup-wrapper-${member.id}`}>
-            <div className="p-8 md:p-12 pb-4">
+            <div className="p-8 md:p-12 pb-4 text-left">
                 <div className="flex items-center justify-between gap-4 mb-2">
                     <h2 className="text-2xl md:text-4xl font-bold tracking-tighter uppercase text-slate-900">{isGroup ? `Guest ${member.index + 1}` : 'Guest Check-in'}</h2>
                     {isGroup && <Badge className="bg-primary/10 text-primary border-none font-black px-3 py-1 rounded-xl text-xs md:text-sm shadow-sm">{member.index + 1} / {partyMembers.length}</Badge>}
@@ -760,6 +754,14 @@ const MemberSetup = ({
         </motion.div>
     );
 };
+
+const Alert = ({ variant, className, children }: any) => (
+    <div className={cn("p-4 rounded-lg flex gap-3", variant === 'destructive' ? "bg-destructive/10 text-destructive border border-destructive/20" : "bg-muted text-muted-foreground", className)}>
+        {children}
+    </div>
+);
+const AlertTitle = ({ className, children }: any) => <h5 className={cn("font-bold", className)}>{children}</h5>;
+const AlertDescription = ({ className, children }: any) => <div className={cn("text-sm", className)}>{children}</div>;
 
 type Step = 'partyType' | 'identityChoice' | 'phonePad' | 'identityConfirm' | 'welcomeBack' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'consents' | 'staff';
@@ -1134,7 +1136,7 @@ export default function WalkInPage() {
                         <div className={cn(
                             "relative overflow-hidden mb-12 md:mb-16 transition-all duration-1000 mx-auto",
                             showWordmark ? "w-24 h-24 md:w-32 md:h-32 rounded-2xl md:rounded-3xl" : "w-48 h-48 md:w-64 md:h-64 rounded-3xl md:rounded-[3rem]",
-                            logoUrl ? "shadow-2xl border-2 border-white" : "p-8 md:p-12 bg-white/40 backdrop-blur-3xl border-2 border-white/30 group-hover:border-primary/20 group-hover:shadow-primary/10 shadow-xl"
+                            logoUrl ? "shadow-2xl border-4 border-white" : "p-8 md:p-12 bg-white/40 backdrop-blur-3xl border-2 border-white/30 group-hover:border-primary/20 group-hover:shadow-primary/10 shadow-xl"
                         )}>
                             {logoUrl ? (
                                 <Image src={logoUrl} alt={tenant.name} fill className="object-cover" />
@@ -1163,7 +1165,7 @@ export default function WalkInPage() {
                         </motion.div>
                     </motion.div>
                 ) : (
-                    <motion.div key="content" className="w-full max-w-4xl mx-auto bg-white/40 border-2 border-white/50 rounded-[2.5rem] md:rounded-[4rem] shadow-[0_32px_64px_rgba(0,0,0,0.05)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10">
+                    <motion.div key="content" className="w-full max-w-4xl mx-auto bg-white/40 border-2 border-white/50 rounded-[2.5rem] md:rounded-[4rem] shadow-[0_32px_64px_rgba(0,0,0,0.05)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10 text-center">
                         {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
                         {step === 'identityChoice' && <IdentityChoiceView onSelect={handleIdentitySelect} onBack={() => setStep('partyType')} />}
                         {step === 'phonePad' && <PhonePadView value={phonePadValue} onDigit={handlePhonePadDigit} onDelete={handlePhonePadDelete} onConfirm={handlePhonePadConfirm} onBack={() => setStep('identityChoice')} isVerifying={isResolvingIdentity} />}
@@ -1183,7 +1185,11 @@ export default function WalkInPage() {
                                 setFormAnswers={(a: any) => setFormAnswers(p => ({...p, [partyMembers[currentMemberIndex].id]: a}))}
                                 onNext={handleNextSubStep} onBack={handleBack}
                                 isGroup={isGroup} isLastMember={currentMemberIndex === partyMembers.length - 1}
-                                onAddAnother={() => { setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); setCurrentMemberIndex(partyMembers.length); setMemberSubStep('details'); }}
+                                onAddAnother={() => { 
+                                    setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); 
+                                    setCurrentMemberIndex(partyMembers.length); 
+                                    setMemberSubStep('details'); 
+                                }}
                                 onSubmit={handleSubmit} isSubmitting={isSubmitting}
                                 bannedClient={bannedClient}
                                 existingClientWithBalance={existingClientWithBalance}
@@ -1216,4 +1222,3 @@ export default function WalkInPage() {
     </div>
   );
 }
-
