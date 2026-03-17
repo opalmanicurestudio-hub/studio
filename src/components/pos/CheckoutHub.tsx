@@ -308,8 +308,8 @@ export const CheckoutHub = ({
         const lastUsedStr = client.subscription.perkLastUsed;
         if (!lastUsedStr) return false;
         
-        const lastUsed = parseISO(lastUsedStr);
-        const nextBilling = parseISO(client.subscription.nextBillingDate);
+        const lastUsed = safeDate(lastUsedStr);
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
         const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
         
         if (!isAfter(lastUsed, cycleStart)) return false;
@@ -327,8 +327,8 @@ export const CheckoutHub = ({
         const lastUsedStr = client.subscription.perkLastUsed;
         if (!lastUsedStr) return false;
 
-        const lastUsed = parseISO(lastUsedStr);
-        const nextBilling = parseISO(client.subscription.nextBillingDate);
+        const lastUsed = safeDate(lastUsedStr);
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
         const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
         
         if (!isAfter(lastUsed, cycleStart)) return false;

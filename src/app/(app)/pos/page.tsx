@@ -356,70 +356,6 @@ function POSPage() {
         }, 0);
     }, [appliedDiscountCodes, discounts, subtotal]);
 
-    const isRetailDiscountExhausted = (client: Client, membership: Membership) => {
-        if (!membership.retailDiscountLimit || membership.retailDiscountLimit === 0) return false;
-        if (!client.subscription?.nextBillingDate) return false;
-        if (client.subscription.status !== 'active') return true;
-
-        const lastUsedStr = client.subscription.perkLastUsed;
-        if (!lastUsedStr) return false;
-
-        const lastUsed = parseISO(lastUsedStr);
-        const nextBilling = parseISO(client.subscription.nextBillingDate);
-        const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
-        
-        if (!isAfter(lastUsed, cycleStart)) return false;
-
-        const usageCount = client.subscription.perkUsage?.['retail_discount'] || 0;
-        return usageCount >= membership.retailDiscountLimit;
-    };
-
-    const membershipDiscount = useMemo(() => {
-        if (!selectedClientId || !clients || !memberships || !packages) return 0;
-        const client = clients.find(c => c.id === selectedClientId);
-        const mId = client?.activeMembershipId || client?.subscription?.membershipId;
-        
-        if (client?.subscription?.status && client.subscription.status !== 'active') return 0;
-
-        let bestDiscountPct = 0;
-        let eligibleProductIds: string[] = [];
-
-        if (mId) {
-            const membership = memberships.find(m => m.id === mId);
-            if (membership?.retailDiscount) {
-                const exhausted = isRetailDiscountExhausted(client!, membership);
-                if (!exhausted) {
-                    bestDiscountPct = membership.retailDiscount;
-                    eligibleProductIds = membership.applicableProductIds || [];
-                }
-            }
-        }
-
-        if (client?.activePackages) {
-            client.activePackages.forEach(p => {
-                const pkgDef = packages.find(pkg => pkg.id === p.packageId);
-                if (pkgDef?.retailDiscount && pkgDef.retailDiscount > bestDiscountPct) {
-                    bestDiscountPct = pkgDef.retailDiscount;
-                    eligibleProductIds = pkgDef.applicableProductIds || [];
-                }
-            });
-        }
-
-        if (bestDiscountPct === 0) return 0;
-
-        return retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            if (product?.type !== 'retail') return acc;
-            
-            const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
-            if (isEligible) {
-                const price = product?.msrp || product?.costPerUnit || 0;
-                return acc + (price * item.quantity * (bestDiscountPct / 100));
-            }
-            return acc;
-        }, 0);
-    }, [selectedClientId, clients, memberships, packages, retailItems, inventory]);
-
     const handleSkip = (walkInId: string) => {
         if (!firestore || !tenantId) return;
         const walkIn = walkIns?.find(w => w.id === walkInId);
@@ -554,7 +490,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: apt.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
