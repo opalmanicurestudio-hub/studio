@@ -971,6 +971,3 @@ export const CheckoutHub = ({
         </div>
     );
 };
-
-export const WaiveFeeDialogExport = WaiveFeeDialog;
-export const CheckoutHubExport = CheckoutHub;
