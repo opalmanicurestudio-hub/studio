@@ -57,7 +57,7 @@ import { Label as RadioLabel } from '@/components/ui/label';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { cn } from '@/lib/utils';
+import { cn, hexToHSLComponents } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, subYears } from 'date-fns';
@@ -466,7 +466,6 @@ export const CheckoutHub = ({
     return (
         <div className="flex flex-col space-y-6 md:space-y-10">
             <div className="flex-shrink-0 text-left">
-                <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-2 mt-2">
                     <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
                         <DialogTrigger asChild>
