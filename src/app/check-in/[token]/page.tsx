@@ -422,7 +422,7 @@ const ReviewFormView = ({ onSubmit, onCancel, serviceName, staffName }: { onSubm
     return (
         <ViewContainer>
             <ViewHeader title="Feedback" subtitle={`How was your ${serviceName}?`} icon={Star} />
-            <CardContent className="p-8 space-y-8 text-center"><div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-center">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div><div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px]" value={text} onChange={(e) => setText(text)} /></div></CardContent>
+            <CardContent className="p-8 space-y-8 text-center"><div className="space-y-4"><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-center">Rate your experience with {staffName}</p><div className="flex justify-center gap-2">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="transition-all active:scale-90"><Star className={cn("w-10 h-10 md:w-12 md:h-12 transition-colors", star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} /></button>))}</div></div><div className="space-y-3 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label><Textarea placeholder="Share your thoughts..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px]" value={text} onChange={(e) => setText(e.target.value)} /></div></CardContent>
             <CardFooter className="p-8 pt-0 flex flex-col gap-3"><Button onClick={() => onSubmit(rating, text)} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30">Submit Review</Button><Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase tracking-widest text-[10px]">Maybe Later</Button></CardFooter>
         </ViewContainer>
     );
@@ -578,12 +578,24 @@ export default function CheckInPage() {
                         </div>
                     ) : (
                         <div className="p-10 bg-primary/5 border-4 border-primary/20 rounded-[3rem] text-center space-y-6 shadow-xl">
-                            <div className={cn("w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl rotate-6", currentStatus === 'arrived' ? "bg-green-500 shadow-green-500/20" : "bg-amber-500 shadow-amber-500/20")}>
-                                {currentStatus === 'arrived' ? <CheckCircle2 className="w-14 h-14 text-white -rotate-6" /> : <Clock className="w-14 h-14 text-white -rotate-6 animate-pulse" />}
+                            <div className={cn("w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl rotate-6", 
+                                currentStatus === 'arrived' ? "bg-green-500 shadow-green-500/20" : 
+                                currentStatus === 'on_my_way' ? "bg-blue-500 shadow-blue-500/20" : 
+                                "bg-amber-500 shadow-amber-500/20"
+                            )}>
+                                {currentStatus === 'arrived' ? <CheckCircle2 className="w-14 h-14 text-white -rotate-6" /> : 
+                                 currentStatus === 'on_my_way' ? <Car className="w-14 h-14 text-white -rotate-6" /> : 
+                                 <Clock className="w-14 h-14 text-white -rotate-6 animate-pulse" />}
                             </div>
                             <div className="space-y-2">
-                                <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{currentStatus === 'arrived' ? 'Arrived' : `Late +${lateTime}m`}</h3>
-                                <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">We've updated our terminal. We'll be with you shortly.</p>
+                                <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                                    {currentStatus === 'arrived' ? 'Arrived' : 
+                                     currentStatus === 'on_my_way' ? 'En Route' : 
+                                     `Late +${lateTime}m`}
+                                </h3>
+                                <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">
+                                    {currentStatus === 'on_my_way' ? "We'll see you shortly! Please check in at the terminal upon arrival." : "We've updated our terminal. We'll be with you shortly."}
+                                </p>
                             </div>
                         </div>
                     )}
