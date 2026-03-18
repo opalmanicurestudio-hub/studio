@@ -545,7 +545,7 @@ export function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -762,7 +762,7 @@ export function POSPage() {
         const now = new Date().toISOString();
         const selectedClient = (clients || []).find(c => c.id === selectedClientId);
         
-        let subtotalForLtv = 0;
+        let totalLtvIncrease = 0;
         let totalCashIncrease = 0;
         let cashTipsTotal = 0;
         const cashTipsByStaffUpdate: Record<string, number> = {};
@@ -798,7 +798,7 @@ export function POSPage() {
                 } else updateData.totalStock = (product.totalStock || 0) - item.quantity;
                 batch.update(productRef, updateData);
                 const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                batch.set(scRef, { productId: item.id, date: now, change: -item.quantity, unit: item.unit || 'units', reason: `Service: ${service.name} for ${selectedClient?.name || 'Guest'}`, appointmentId: apt.id });
+                batch.set(scRef, { id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: item.unit || 'units', reason: `Service: ${service.name} for ${selectedClient?.name || 'Guest'}`, appointmentId: apt.id });
             });
 
             const mainStaffId = overrides[service.id] || apt.staffId;
@@ -806,10 +806,10 @@ export function POSPage() {
             const isMainRedeemed = redeemedOffer?.itemId === service.id;
             const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember)) + additional; 
             
-            subtotalForLtv += mainPartRevenue;
+            totalLtvIncrease += mainPartRevenue;
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
 
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
             
             addOnServices.forEach((addon: any) => {
                 const addonStaffId = overrides[addon.id] || apt.staffId;
@@ -817,9 +817,9 @@ export function POSPage() {
                 const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
                 const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaffMember);
                 
-                subtotalForLtv += addonPrice;
+                totalLtvIncrease += addonPrice;
                 if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice;
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
             });
 
             batch.update(appointmentRef, { status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find((st:any)=>st.id===(overrides[a.id]||apt.staffId))), 0), actualEndTime: now });
@@ -833,11 +833,11 @@ export function POSPage() {
 
         const retailTotalValue = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         retailItems.forEach(item => {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: item.price * item.quantity, paymentMethod: paymentData.paymentMethod, hasReceipt: true });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: item.price * item.quantity, paymentMethod: paymentData.paymentMethod, hasReceipt: true });
             batch.update(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) });
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}` });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}` });
         });
-        subtotalForLtv += retailTotalValue;
+        totalLtvIncrease += retailTotalValue;
         if (paymentData.paymentMethod === 'cash') totalCashIncrease += retailTotalValue;
 
         if (selectedClient && appliedAdjustments.size > 0) {
@@ -847,14 +847,16 @@ export function POSPage() {
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
             appliedAdjustments.forEach(id => {
                 const fee = currentUnpaid.find(f => f.feeId === id);
-                if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: selectedClient.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false });
+                if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: selectedClient.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false });
             });
-            subtotalForLtv += settledTotal;
+            totalLtvIncrease += settledTotal;
         }
 
         if (selectedClient) {
-            const finalLtvDelta = Math.max(0, subtotalForLtv - discount - membershipDiscount);
+            // Deduct total promotional value from LTV increase
+            const finalLtvDelta = Math.max(0, totalLtvIncrease - discount - membershipDiscount);
             const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
+            
             if (redeemedOffer) {
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`));
                 const offeringName = redeemedOffer.type === 'membership' ? memberships?.find(m => m.id === redeemedOffer.id)?.name : packages?.find(p => p.id === redeemedOffer.id)?.name;
@@ -878,7 +880,7 @@ export function POSPage() {
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
             const finalAmount = safeNumeric(amount);
             if (finalAmount > 0) {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
                 if (paymentData.paymentMethod === 'cash') {
                     cashTipsTotal += finalAmount;
                     cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(finalAmount);
@@ -887,7 +889,7 @@ export function POSPage() {
         });
         
         if (discount > 0) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
         }
 
         if (paymentData.paymentMethod === 'cash' && activeTill) {
@@ -938,6 +940,7 @@ export function POSPage() {
         
         if (Math.abs(safeNumeric(data.discrepancy)) > 0.01) {
             const txn: Omit<Transaction, 'id'> = {
+                id: nanoid(),
                 date: new Date().toISOString(),
                 description: `Till Discrepancy: ${data.discrepancy > 0 ? 'Overage' : 'Shortage'}`,
                 clientOrVendor: 'Internal Audit',
@@ -1040,7 +1043,7 @@ export function POSPage() {
                         <div className="flex flex-col items-center py-8 gap-8 h-full">
                             <button onClick={() => setIsCartCollapsed(false)} className="h-12 w-12 rounded-2xl bg-primary/5 text-primary hover:bg-primary/10 shadow-sm flex items-center justify-center"><ChevronLeft className="h-6 w-6" /></button>
                             <div className="flex flex-col items-center gap-1 [writing-mode:vertical-lr] rotate-180"><span className="font-black uppercase tracking-[0.3em] text-sm text-slate-900 opacity-40">Current Sale</span><span className="font-black text-primary text-xl mt-6 tracking-tighter">${total.toFixed(2)}</span></div>
-                            <div className="mt-auto pb-8"><Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">{(cart?.length || 0) + selectedAppointmentIds.size}</Badge></div>
+                            <div className="mt-auto pb-8"><Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">{cart.length + selectedAppointmentIds.size}</Badge></div>
                         </div>
                     ) : (
                         <div className="flex flex-col h-full w-full">

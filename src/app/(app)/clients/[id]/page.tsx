@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -188,7 +189,7 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages } = useInventory();
+  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages, transactions: allTransactions } = useInventory();
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -200,6 +201,7 @@ export default function ClientDetailPage() {
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isQuickSettleOpen, setIsQuickSettleOpen] = useState(false);
   const [isSettleProcessing, setIsSettleProcessing] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
 
   const appointmentsForThisClient = useMemo(() => (allAppointments || []).filter(apt => apt.clientId === clientId).map(apt => ({ ...apt, service: services.find(s => s.id === apt.serviceId) })), [clientId, allAppointments, services]);
   const clientRedemptions = useMemo(() => (allRedemptions || []).filter(r => r.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allRedemptions]);
@@ -267,6 +269,25 @@ export default function ClientDetailPage() {
     } finally {
         setIsSettleProcessing(false);
     }
+  };
+
+  const handleReconcileLtv = async () => {
+      if (!client || !firestore || !tenantId || !allTransactions) return;
+      setIsReconciling(true);
+      
+      const clientIncomeTransactions = allTransactions.filter(t => t.clientId === client.id && t.type === 'income');
+      const realLtv = clientIncomeTransactions.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
+      
+      const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+      try {
+          updateDocumentNonBlocking(clientRef, { lifetimeValue: realLtv });
+          toast({ title: "Ledger Reconciled", description: `Dossier LTV synchronized to $${realLtv.toFixed(2)} based on ${clientIncomeTransactions.length} transactions.` });
+      } catch (e) {
+          console.error(e);
+          toast({ variant: 'destructive', title: "Reconciliation Failed" });
+      } finally {
+          setIsReconciling(false);
+      }
   };
 
   const handleSaveFormula = (formula: CustomFormula) => {
@@ -595,6 +616,15 @@ export default function ClientDetailPage() {
                     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white text-left">
                         <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
                             <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Financial Vault</CardTitle>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={handleReconcileLtv}
+                                disabled={isReconciling}
+                                className="h-8 w-8 rounded-xl text-primary hover:bg-primary/5"
+                            >
+                                {isReconciling ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                            </Button>
                         </CardHeader>
                         <CardContent className="p-6 space-y-6">
                             <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group">
