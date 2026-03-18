@@ -54,10 +54,11 @@ export function useDoc<T = any>(
     setIsLoading(true);
     setError(null);
 
-    // CRITICAL: Metadata changes are disabled to prevent internal Firestore objects
-    // from leaking into the UI before they resolve into numbers.
+    // CRITICAL: Metadata changes are disabled to prevent internal Firestore sentinel objects
+    // (like from increment()) from leaking into the UI before they resolve into numbers.
     const unsubscribe = onSnapshot(
       memoizedDocRef,
+      { includeMetadataChanges: false },
       (snapshot: DocumentSnapshot<DocumentData>) => {
         if (snapshot.exists()) {
           setData({ id: snapshot.id, ...(snapshot.data() as T) });

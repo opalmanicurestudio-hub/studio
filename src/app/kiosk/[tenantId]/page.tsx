@@ -52,7 +52,7 @@ import {
     CheckCircle2,
     ArrowDown
 } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { format, parseISO, parse, isSameDay, addMinutes, startOfDay } from 'date-fns';
@@ -566,7 +566,7 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: any; onU
         </RadioGroup>
         {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
             <div className="flex items-center justify-between rounded-2xl border-2 border-white/50 bg-white/40 backdrop-blur-xl p-5 mt-6 shadow-inner">
-                <div className="space-y-0.5">
+                <div className="space-y-0.5 text-left">
                     <Label htmlFor={`wait-${member.id}`} className="font-bold text-base md:text-lg text-slate-800 uppercase tracking-tight">Wait for Pro?</Label>
                     <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest opacity-60">Estimated wait time may increase</p>
                 </div>
@@ -580,7 +580,7 @@ const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { 
     <div className="space-y-6 md:space-y-10 text-left" key="consent-step">
         {requiredForms.map(form => (
             <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-10 rounded-[2rem] border-2 border-white/50 bg-white/60 backdrop-blur-xl shadow-xl">
-                <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 uppercase tracking-tighter text-slate-900"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-60" /> {form.title}</h3>
+                <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 uppercase tracking-tighter text-slate-900 text-left"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary opacity-60" /> {form.title}</h3>
                 <div className="space-y-6 md:space-y-10">
                     {form.fields?.map(field => (
                         <div key={field.id} className="kiosk-form-field">
@@ -747,7 +747,6 @@ export default function WalkInPage() {
   const params = useParams();
   const tenantId = params.tenantId as string;
 
-  // ENSURE FormProvider has access to methods
   const methods = useForm({
       defaultValues: {
           name: '',
@@ -1203,7 +1202,18 @@ export default function WalkInPage() {
         </AnimatePresence>
 
         <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-            <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></Dialog>
+            <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center">
+                <DialogHeader className="p-6 bg-muted/5 border-b">
+                    <DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle>
+                </DialogHeader>
+                <div className="flex justify-center p-8 bg-white text-center">
+                    {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                </div>
+                <DialogFooter className="p-6 border-t bg-muted/5">
+                    <Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </div>
   );
 }

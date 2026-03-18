@@ -415,7 +415,7 @@ function POSPage() {
 
     const discount = useMemo(() => {
         return appliedDiscountCodes.reduce((acc, code) => {
-            const d = (discounts || []).find(dis => dis.code.toUpperCase() === code.toUpperCase());
+            const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase());
             if (!d) return acc;
             return acc + (d.type === 'percentage' ? subtotal * (d.value / 100) : d.value);
         }, 0);

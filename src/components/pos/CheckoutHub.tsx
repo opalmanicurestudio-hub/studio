@@ -563,7 +563,7 @@ export const CheckoutHub = ({
                                         <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge>
                                     ) : ent.exhausted ? (
                                         <div className="flex flex-col items-end gap-1">
-                                            <Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Limit Reached</Badge>
+                                            <Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge>
                                             <span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span>
                                         </div>
                                     ) : (
