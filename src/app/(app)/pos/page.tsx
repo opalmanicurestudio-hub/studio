@@ -860,8 +860,14 @@ function POSPage() {
         }
 
         if (selectedClient) {
+            // CRITICAL FIX: Rebuild LTV Logic
+            // LTV now uses the atomic increment() operator to stack revenue from all streams
+            // net of both promotional and membership-specific discounts.
             const finalLtvDelta = Math.max(0, totalLtvIncrease - discount - membershipDiscount);
-            const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
+            const updates: any = { 
+                lifetimeValue: increment(finalLtvDelta), 
+                lastAppointment: now 
+            };
             
             if (redeemedOffer) {
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`));
@@ -898,7 +904,7 @@ function POSPage() {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Discounts', amount: -discount, paymentMethod: 'Internal', hasReceipt: false });
         }
 
-        if (paymentData.paymentMethod === 'cash' && activeTill) {
+        if (paymentTab === 'cash' && activeTill) {
             const finalCashInput = totalCashIncrease + cashTipsTotal;
             const tillUpdates = { 
                 expectedCash: increment(finalCashInput),

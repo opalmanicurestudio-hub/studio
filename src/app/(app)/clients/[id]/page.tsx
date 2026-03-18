@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -275,6 +274,7 @@ export default function ClientDetailPage() {
       if (!client || !firestore || !tenantId || !allTransactions) return;
       setIsReconciling(true);
       
+      // CRITICAL: Rebuild LTV logic to hard-audit the transaction ledger
       const clientIncomeTransactions = allTransactions.filter(t => t.clientId === client.id && t.type === 'income');
       const realLtv = clientIncomeTransactions.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
       
@@ -365,18 +365,18 @@ export default function ClientDetailPage() {
                             {isOwnerOrAdmin ? (
                                 <div className="space-y-1 min-w-0 max-w-full text-left">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
-                                    <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{client.email}</a>
-                                    <p className="text-xs md:text-sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
+                                    <a href={`mailto:${client.email}`} className="text-xs md:sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{client.email}</a>
+                                    <p className="text-xs md:sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
                                 </div>
                             ) : (
                                 <div className="space-y-1 text-left">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
-                                    <p className="text-xs md:text-sm font-black uppercase tracking-tight text-muted-foreground italic">Contact Restricted</p>
+                                    <p className="text-xs md:sm font-black uppercase tracking-tight text-muted-foreground italic">Contact Restricted</p>
                                 </div>
                             )}
                             <div className="space-y-1 text-left">
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Discovery Source</p>
-                                <p className="text-xs md:text-sm font-black uppercase tracking-tight text-slate-700">{client.intel?.referralSource || 'Unknown'}</p>
+                                <p className="text-xs md:sm font-black uppercase tracking-tight text-slate-700">{client.intel?.referralSource || 'Unknown'}</p>
                             </div>
                             <div className="space-y-1 text-left">
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Strategic Origin</p>
@@ -455,7 +455,7 @@ export default function ClientDetailPage() {
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Enhancement Allotment</p>
                                                             </div>
                                                             <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
-                                                                {isRedeemed ? <CheckCircle className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+                                                                {isRedeemed ? <CheckCircle className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
                                                             </div>
                                                         </div>
                                                         <div className="space-y-2">
