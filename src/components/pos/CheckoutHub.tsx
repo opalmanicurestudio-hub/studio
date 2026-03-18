@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -179,7 +180,6 @@ export const CheckoutHub = ({
     onWaiveFeeToggle,
     tipAllocations,
     setTipAllocations,
-    isGroupCheckout,
     activeTill,
     staff,
     role
@@ -310,12 +310,10 @@ export const CheckoutHub = ({
     const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
         if (client.subscription?.status !== 'active') return true;
         
-        // CRITICAL ENFORCEMENT: Check usage count strictly
         const usageCount = client.subscription?.perkUsage?.[perkId] || 0;
         const perkDef = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
         const limit = perkDef?.quantity || 1;
         
-        // If we have already hit or exceeded the limit, it's exhausted
         if (usageCount >= limit) return true;
 
         if (!client.subscription?.nextBillingDate) return false;
@@ -327,8 +325,6 @@ export const CheckoutHub = ({
         const nextBilling = safeDate(client.subscription.nextBillingDate);
         const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
         
-        // If the last used date was in a previous cycle, the usage count should have been reset. 
-        // If it wasn't reset in the DB, we still treat it as fresh for the UI if lastUsed < cycleStart.
         if (!isAfter(lastUsed, cycleStart)) return false;
 
         return usageCount >= limit;
@@ -376,7 +372,7 @@ export const CheckoutHub = ({
     }, [selectedClient, memberships, packages, cartServiceIds]);
 
     const handleRedeem = (entitlement: any) => {
-        if (entitlement.exhausted) return toast({ variant: 'destructive', title: 'Perk Exhausted', description: 'Monthly limit reached.' });
+        if (entitlement.exhausted) return toast({ variant: 'destructive', title: 'Perk Exhausted', description: 'Usage limit reached for this cycle.' });
         setRedeemedOffer({ type: entitlement.type, id: entitlement.id, itemId: entitlement.itemId });
         toast({ title: 'Entitlement Applied', description: `${entitlement.label} redeemed.` });
     };
@@ -568,7 +564,7 @@ export const CheckoutHub = ({
                                         <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge>
                                     ) : ent.exhausted ? (
                                         <div className="flex flex-col items-end gap-1">
-                                            <Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge>
+                                            <Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Limit Reached</Badge>
                                             <span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span>
                                         </div>
                                     ) : (

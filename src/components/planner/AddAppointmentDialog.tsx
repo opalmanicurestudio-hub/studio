@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -23,7 +24,8 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { 
   Calendar as CalendarIcon, 
   PlusCircle, 
@@ -69,7 +71,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
