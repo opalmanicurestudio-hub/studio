@@ -70,7 +70,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
     </CardHeader>
     <CardContent className="p-3 md:p-4 pt-0 text-left">
       <div className="text-xl md:text-3xl font-black tracking-tighter text-slate-900">{value}</div>
-      <p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-60 truncate">{description}</p>
+      <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-60 truncate">{description}</p>
     </CardContent>
   </Card>
 );
@@ -545,7 +545,7 @@ export function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -661,7 +661,7 @@ export function POSPage() {
         const now = new Date().toISOString();
         if (action === 'charge_cancel') {
             batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: minutes, cancellationReason: reason, cancellationFeeApplied: fee, cancellationPaymentStatus: 'paid' });
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Late Protocol Fee: ${apt.clientName}`, clientOrVendor: apt.clientName || 'Client', clientId: apt.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: apt.staffId });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Late Protocol Fee: ${apt.clientName}`, clientOrVendor: apt.clientName || 'Client', clientId: apt.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: apt.staffId });
             toast({ title: "Fee Charged & Voided" });
         } else if (action === 'charge_accommodate') {
             batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: minutes, status: 'confirmed' });
@@ -761,9 +761,9 @@ export function POSPage() {
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
         const selectedClient = (clients || []).find(c => c.id === selectedClientId);
-        let totalLtvIncrease = 0;
-        let totalCashIncrease = 0;
         
+        let subtotalForLtv = 0;
+        let totalCashIncrease = 0;
         let cashTipsTotal = 0;
         const cashTipsByStaffUpdate: Record<string, number> = {};
 
@@ -774,6 +774,7 @@ export function POSPage() {
             const overrides = checkoutState.serviceStaffOverrides || {};
             const isWaived = waivedAppointmentFees.has(apt.id);
             const additional = !isWaived ? safeNumeric(checkoutState.additionalCharge) : 0;
+            
             const formula = checkoutState.formula || [];
             formula.forEach((item: any) => {
                 const product = (inventory || []).find(p => p.id === item.id);
@@ -799,36 +800,44 @@ export function POSPage() {
                 const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                 batch.set(scRef, { productId: item.id, date: now, change: -item.quantity, unit: item.unit || 'units', reason: `Service: ${service.name} for ${selectedClient?.name || 'Guest'}`, appointmentId: apt.id });
             });
+
             const mainStaffId = overrides[service.id] || apt.staffId;
             const mainStaffMember = (staff || []).find(s => s.id === mainStaffId);
             const isMainRedeemed = redeemedOffer?.itemId === service.id;
             const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember)) + additional; 
-            totalLtvIncrease += mainPartRevenue;
+            
+            subtotalForLtv += mainPartRevenue;
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
 
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
+            
             addOnServices.forEach((addon: any) => {
                 const addonStaffId = overrides[addon.id] || apt.staffId;
                 const addonStaffMember = (staff || []).find((s: any) => s.id === addonStaffId);
                 const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
                 const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaffMember);
-                totalLtvIncrease += addonPrice;
+                
+                subtotalForLtv += addonPrice;
                 if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice;
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
             });
-            batch.update(appointmentRef, { status: 'completed', revenue: totalLtvIncrease, actualEndTime: now });
+
+            batch.update(appointmentRef, { status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find((st:any)=>st.id===(overrides[a.id]||apt.staffId))), 0), actualEndTime: now });
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
-            const involvedIds = new Set<string>(); if (apt.staffId) involvedIds.add(apt.staffId);
+            
+            const involvedIds = new Set<string>(); 
+            if (apt.staffId) involvedIds.add(apt.staffId);
             if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
             involvedIds.forEach(sid => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }); });
         }
+
         const retailTotalValue = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         retailItems.forEach(item => {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: item.price * item.quantity, paymentMethod: paymentData.paymentMethod, hasReceipt: true });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: item.price * item.quantity, paymentMethod: paymentData.paymentMethod, hasReceipt: true });
             batch.update(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) });
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.id, date: now, id: nanoid(), change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}` });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}` });
         });
-        totalLtvIncrease += retailTotalValue;
+        subtotalForLtv += retailTotalValue;
         if (paymentData.paymentMethod === 'cash') totalCashIncrease += retailTotalValue;
 
         if (selectedClient && appliedAdjustments.size > 0) {
@@ -838,17 +847,20 @@ export function POSPage() {
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
             appliedAdjustments.forEach(id => {
                 const fee = currentUnpaid.find(f => f.feeId === id);
-                if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Debt Settlement: ${fee.reason}`, clientOrVendor: selectedClient.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false });
+                if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: selectedClient.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false });
             });
+            subtotalForLtv += settledTotal;
         }
+
         if (selectedClient) {
-            const updates: any = { lifetimeValue: increment(totalLtvIncrease), lastAppointment: now };
+            const finalLtvDelta = Math.max(0, subtotalForLtv - discount - membershipDiscount);
+            const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
             if (redeemedOffer) {
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`));
                 const offeringName = redeemedOffer.type === 'membership' ? memberships?.find(m => m.id === redeemedOffer.id)?.name : packages?.find(p => p.id === redeemedOffer.id)?.name;
                 batch.set(redemptionRef, { id: redemptionRef.id, clientId: selectedClientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, serviceName: services?.find(s => s.id === redeemedOffer.itemId)?.name || 'Service', date: now, staffId: currentUser?.uid });
                 if (redeemedOffer.type === 'package') updates.activePackages = (selectedClient.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
-                else { updates['subscription.perkUsage.' + redeemedOffer.itemId] = increment(1); updates['subscription.perkLastUsed'] = now; }
+                else { updates[`subscription.perkUsage.${redeemedOffer.itemId}`] = increment(1); updates['subscription.perkLastUsed'] = now; }
             }
 
             if (membershipDiscount > 0) {
@@ -864,17 +876,18 @@ export function POSPage() {
         }
         
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
-            if (safeNumeric(amount) > 0) {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
+            const finalAmount = safeNumeric(amount);
+            if (finalAmount > 0) {
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
                 if (paymentData.paymentMethod === 'cash') {
-                    cashTipsTotal += safeNumeric(amount);
-                    cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(safeNumeric(amount));
+                    cashTipsTotal += finalAmount;
+                    cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(finalAmount);
                 }
             }
         });
         
         if (discount > 0) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
         }
 
         if (paymentData.paymentMethod === 'cash' && activeTill) {
@@ -941,7 +954,7 @@ export function POSPage() {
         toast({ title: "Till Reconciled" });
     };
 
-    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Set(prev); if (waive && authorizerId && reason) next.set(id); else next.delete(id); return next; }); };
+    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
 
     const tax = subtotal * 0.07;
     const total = subtotal + tax + tipAmount - discount - membershipDiscount;
@@ -1027,7 +1040,7 @@ export function POSPage() {
                         <div className="flex flex-col items-center py-8 gap-8 h-full">
                             <button onClick={() => setIsCartCollapsed(false)} className="h-12 w-12 rounded-2xl bg-primary/5 text-primary hover:bg-primary/10 shadow-sm flex items-center justify-center"><ChevronLeft className="h-6 w-6" /></button>
                             <div className="flex flex-col items-center gap-1 [writing-mode:vertical-lr] rotate-180"><span className="font-black uppercase tracking-[0.3em] text-sm text-slate-900 opacity-40">Current Sale</span><span className="font-black text-primary text-xl mt-6 tracking-tighter">${total.toFixed(2)}</span></div>
-                            <div className="mt-auto pb-8"><Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">{(retailItems?.length || 0) + selectedAppointmentIds.size}</Badge></div>
+                            <div className="mt-auto pb-8"><Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">{(cart?.length || 0) + selectedAppointmentIds.size}</Badge></div>
                         </div>
                     ) : (
                         <div className="flex flex-col h-full w-full">

@@ -311,9 +311,9 @@ export const CheckoutHub = ({
     const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
         if (!client.subscription || client.subscription.status !== 'active') return true;
         
-        const usageCount = client.subscription?.perkUsage?.[perkId] || 0;
+        const usageCount = Number(client.subscription?.perkUsage?.[perkId] || 0);
         const perkDef = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
-        const limit = perkDef?.quantity || 1;
+        const limit = Number(perkDef?.quantity || 1);
         
         if (usageCount >= limit) return true;
 
