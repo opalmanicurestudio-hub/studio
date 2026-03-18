@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -896,7 +895,7 @@ function POSPage() {
         });
         
         if (discount > 0) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Discounts', amount: -discount, paymentMethod: 'Internal', hasReceipt: false });
         }
 
         if (paymentData.paymentMethod === 'cash' && activeTill) {
