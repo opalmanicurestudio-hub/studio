@@ -621,7 +621,7 @@ export const CheckoutHub = ({
                                         </div>
                                         
                                         {addOns.length > 0 && (
-                                            <div className="space-y-2 pl-4 border-l-2 border-primary/10">
+                                            <div className="space-y-2 pl-4 border-l-2 border-primary/10 text-left">
                                                 {addOns.map((addon: any) => {
                                                     const addonStaffId = overrides[addon.id] || data.appointment.staffId;
                                                     const addonStaffMember = staff.find((s: any) => s.id === addonStaffId);
@@ -629,7 +629,7 @@ export const CheckoutHub = ({
                                                     
                                                     return (
                                                         <div key={addon.id} className="space-y-0.5 group">
-                                                            <div className="flex justify-between items-center">
+                                                            <div className="flex justify-between items-center text-left">
                                                                 <div className="flex items-center gap-2">
                                                                     <span className={cn("text-[10px] font-bold uppercase tracking-tight", isAddonRedeemed ? "text-primary" : "text-muted-foreground")}>+ {addon.name}</span>
                                                                     {isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 px-1 font-black uppercase">REDEEMED</Badge>}

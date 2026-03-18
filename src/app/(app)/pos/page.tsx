@@ -18,7 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay, endOfDay, format, subMinutes, differenceInDays, subMonths, isAfter, subYears } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { AddClientDialog } from '@/components/clients/AddClientDialog';
+import { AddClientDialog, type ClientFormData } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Cake } from 'lucide-react';
@@ -47,6 +47,7 @@ const safeDate = (val: any): Date => {
 const sanitizeForFirestore = (obj: any): any => {
     if (obj === null || typeof obj !== 'object') return obj;
     if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+    if (obj.constructor && (obj.constructor.name === 'FieldValue' || obj.constructor.name === 'FieldValueImpl')) return obj;
     return Object.fromEntries(
         Object.entries(obj)
             .filter(([_, v]) => v !== undefined)
@@ -161,7 +162,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
 };
 
 function POSPage() {
-    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -797,7 +798,7 @@ function POSPage() {
             totalLtvIncrease += mainPartRevenue;
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
 
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
             addOnServices.forEach((addon: any) => {
                 const addonStaffId = overrides[addon.id] || apt.staffId;
                 const addonStaffMember = (staff || []).find((s: any) => s.id === addonStaffId);
@@ -805,7 +806,7 @@ function POSPage() {
                 const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaffMember);
                 totalLtvIncrease += addonPrice;
                 if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice;
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
             });
             batch.update(appointmentRef, { status: 'completed', revenue: totalLtvIncrease, actualEndTime: now });
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
@@ -815,9 +816,9 @@ function POSPage() {
         }
         const retailTotalValue = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         retailItems.forEach(item => {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: item.price * item.quantity, paymentMethod: paymentData.paymentMethod, hasReceipt: true });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: item.price * item.quantity, paymentMethod: paymentData.paymentMethod, hasReceipt: true });
             batch.update(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) });
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}` });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.id, date: now, id: nanoid(), change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}` });
         });
         totalLtvIncrease += retailTotalValue;
         if (paymentData.paymentMethod === 'cash') totalCashIncrease += retailTotalValue;
@@ -829,7 +830,7 @@ function POSPage() {
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
             appliedAdjustments.forEach(id => {
                 const fee = currentUnpaid.find(f => f.feeId === id);
-                if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: selectedClient.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false });
+                if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Debt Settlement: ${fee.reason}`, clientOrVendor: selectedClient.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false });
             });
         }
         if (selectedClient) {
@@ -842,7 +843,6 @@ function POSPage() {
                 else { updates['subscription.perkUsage.' + redeemedOffer.itemId] = increment(1); updates['subscription.perkLastUsed'] = now; }
             }
 
-            // Track Retail Discount usage if applied
             if (membershipDiscount > 0) {
                 const mId = selectedClient.activeMembershipId || selectedClient.subscription?.membershipId;
                 const membership = memberships?.find(m => m.id === mId);
@@ -852,12 +852,12 @@ function POSPage() {
                 }
             }
 
-            batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), sanitizeForFirestore(updates));
         }
         
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
             if ((amount as number) > 0) {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
                 if (paymentData.paymentMethod === 'cash') {
                     cashTipsTotal += (amount as number);
                     cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(amount as number);
@@ -866,17 +866,18 @@ function POSPage() {
         });
         
         if (discount > 0) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
         }
 
         if (paymentData.paymentMethod === 'cash' && activeTill) {
             const finalCashInput = totalCashIncrease + cashTipsTotal;
-            batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), { 
+            const tillUpdates = { 
                 expectedCash: increment(finalCashInput),
                 totalCashSales: increment(totalCashIncrease),
                 totalCashTips: increment(cashTipsTotal),
                 ...cashTipsByStaffUpdate
-            });
+            };
+            batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), tillUpdates);
         }
 
         try {
