@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -52,7 +53,7 @@ import {
     CheckCircle2,
     ArrowDown
 } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { format, parseISO, parse, isSameDay, addMinutes, startOfDay } from 'date-fns';
@@ -83,7 +84,7 @@ const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val === 'string') return parseISO(val);
-    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -494,7 +495,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: an
     return (
         <AnimatePresence mode="wait">
             {view === 'category' && (
-                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="grid grid-cols-1 gap-3 md:gap-4" key="cat-sel">
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} className="grid grid-cols-1 gap-3 md:gap-4" key="cat-sel">
                     <div className="space-y-2 text-left mb-4">
                         <h3 className="text-xl md:text-2xl font-bold uppercase tracking-tight text-slate-900">Choose Department</h3>
                         <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60">Select a category to browse treatments</p>
@@ -514,7 +515,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: an
             )}
 
             {view === 'main' && (
-                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6 text-left" key="main-sel">
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6 text-left" key="main-sel">
                     <button onClick={() => setView('category')} className="mb-2 -ml-2 text-primary font-bold uppercase tracking-widest p-2 transition-all hover:bg-primary/5 rounded-xl flex items-center gap-2 text-[10px] md:text-xs">
                         <ArrowLeft className="h-4 w-4"/> Change Category
                     </button>
@@ -531,7 +532,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: an
             )}
 
             {view === 'addon' && (
-                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 text-left" key="addon-sel">
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 text-left" key="addon-sel">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <button onClick={() => setView('main')} className="text-primary font-bold uppercase tracking-widest p-2 -ml-2 transition-all hover:bg-primary/5 rounded-xl flex items-center gap-2 text-[10px] md:text-xs w-fit">
                             <ArrowLeft className="h-4 w-4"/> Change Treatment

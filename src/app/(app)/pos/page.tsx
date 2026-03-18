@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -8,6 +9,14 @@ import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { Button } from '@/components/ui/button';
+import { 
+  Card, 
+  CardContent, 
+  CardHeader, 
+  CardTitle, 
+  CardDescription, 
+  CardFooter 
+} from '@/components/ui/card';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
@@ -22,7 +31,6 @@ import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, U
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { cn, hexToHSLComponents } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
