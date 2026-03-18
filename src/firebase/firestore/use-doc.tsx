@@ -1,3 +1,4 @@
+
 'use client';
     
 import { useState, useEffect } from 'react';
@@ -57,7 +58,8 @@ export function useDoc<T = any>(
     // CRITICAL: We removed { includeMetadataChanges: true } to prevent Firestore 
     // FieldValue objects (like increment() or serverTimestamp()) from leaking into 
     // the React state during pending local writes. This prevents "Objects are not 
-    // valid as a React child" errors.
+    // valid as a React child" errors and ensures atomic numeric updates like LTV
+    // are correctly resolved before rendering.
     const unsubscribe = onSnapshot(
       memoizedDocRef,
       (snapshot: DocumentSnapshot<DocumentData>) => {

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -147,6 +148,7 @@ export const CheckoutHub = ({
     appointmentsData,
     onSelectAppointment,
     clients,
+    isGroupCheckout,
     payerOptions,
     selectedClientId,
     setSelectedClientId,
@@ -181,8 +183,7 @@ export const CheckoutHub = ({
     setTipAllocations,
     activeTill,
     staff,
-    role,
-    isGroupCheckout
+    role
 }: any) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
