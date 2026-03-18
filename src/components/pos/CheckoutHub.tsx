@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -182,7 +181,8 @@ export const CheckoutHub = ({
     setTipAllocations,
     activeTill,
     staff,
-    role
+    role,
+    isGroupCheckout
 }: any) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -308,7 +308,7 @@ export const CheckoutHub = ({
     };
 
     const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
-        if (client.subscription?.status !== 'active') return true;
+        if (!client.subscription || client.subscription.status !== 'active') return true;
         
         const usageCount = client.subscription?.perkUsage?.[perkId] || 0;
         const perkDef = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
@@ -461,7 +461,7 @@ export const CheckoutHub = ({
                             </DialogHeader>
                             <div className="p-6 space-y-6">
                                 <div className="relative">
-                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                                     <Input 
                                         placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
                                         value={clientSearch} 
