@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -50,7 +49,8 @@ import {
     Delete, 
     Workflow, 
     CalendarCheck,
-    CheckCircle2
+    CheckCircle2,
+    ArrowDown
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';

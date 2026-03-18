@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -853,7 +852,6 @@ function POSPage() {
         }
 
         if (selectedClient) {
-            // Deduct total promotional value from LTV increase
             const finalLtvDelta = Math.max(0, totalLtvIncrease - discount - membershipDiscount);
             const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
             
