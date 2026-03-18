@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -70,7 +71,7 @@ const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val === 'string') return parseISO(val);
-    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -427,6 +428,26 @@ const ReviewFormView = ({ onSubmit, onCancel, serviceName, staffName }: { onSubm
     );
 };
 
+const EnRouteView = () => (
+    <ViewContainer>
+        <ViewHeader title="En Route" subtitle="See you soon!" icon={Car} />
+        <CardContent className="p-10 text-center space-y-8">
+            <div className="w-24 h-24 bg-blue-500/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-blue-500/5 rotate-6">
+                <Car className="w-12 h-12 text-blue-500 -rotate-6" />
+            </div>
+            <div className="space-y-2">
+                <p className="font-black text-xl uppercase tracking-tight text-slate-900">Safety First</p>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed text-center">We've noted your status. Please check in at the terminal when you arrive at the studio. Safe travels!</p>
+            </div>
+        </CardContent>
+        <CardFooter className="p-8 pt-0">
+            <Button asChild variant="ghost" className="w-full font-bold uppercase text-[10px] tracking-widest text-muted-foreground">
+                <a href="/">Return Home</a>
+            </Button>
+        </CardFooter>
+    </ViewContainer>
+);
+
 export default function CheckInPage() {
     const params = useParams();
     const router = useRouter();
@@ -549,11 +570,12 @@ export default function CheckInPage() {
     if (appointment?.status === 'servicing') return <ServicingView serviceName={service?.name || 'Service'} />;
     if (appointment?.status === 'ready_for_checkout') return <CheckoutView qrCodeUrl={`https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`} ticketId={appointment.id.slice(-6).toUpperCase()} />;
     if (appointment?.status === 'completed') return <ThankYouView tenantId={tenant?.id || ''} onLeaveReview={() => setIsReviewFlow(true)} />;
+    if (currentStatus === 'on_my_way') return <EnRouteView />;
 
     return (
         <ViewContainer>
             <ViewHeader title="Identity Check" subtitle="Verify your session" icon={Fingerprint} />
-            <CardContent className="p-6 md:p-10 space-y-10">
+            <CardContent className="p-6 md:p-10 space-y-10 text-left">
                 <div className="p-6 rounded-[2rem] bg-muted/10 border-2 space-y-6 shadow-inner">
                      <div className="flex items-center gap-6">
                         <Avatar className="w-16 h-16 rounded-2xl border-4 border-background shadow-xl"><AvatarImage src={service.imageUrl} className="object-cover" /><AvatarFallback className="bg-primary/10 text-primary"><Activity className="w-8 h-8" /></AvatarFallback></Avatar>
@@ -572,8 +594,20 @@ export default function CheckInPage() {
                 <div className="space-y-6">
                     {currentStatus === 'pending' ? (
                         <div className="flex flex-col gap-4">
-                            <div className="grid grid-cols-2 gap-4"><Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-20 rounded-3xl border-4 font-black uppercase tracking-widest text-xs flex flex-col gap-2"><Clock className="h-6 w-6 opacity-40" />Running Late</Button><Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-20 rounded-3xl border-4 border-primary/20 bg-primary/5 text-primary font-black uppercase tracking-widest text-xs flex flex-col gap-2 shadow-inner"><Car className="h-6 w-6" />On My Way</Button></div>
-                            <Button size="lg" variant="default" onClick={() => handleUpdateStatus('arrived')} className="h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30 active:scale-95 transition-all"><MapPin className="mr-3 h-6 w-6" />I Have Arrived</Button>
+                            <div className="grid grid-cols-2 gap-4">
+                                <Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-20 rounded-3xl border-4 font-black uppercase tracking-widest text-xs flex flex-col gap-2">
+                                    <Clock className="h-6 w-6 opacity-40" />
+                                    Running Late
+                                </Button>
+                                <Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-20 rounded-3xl border-4 border-primary/20 bg-primary/5 text-primary font-black uppercase tracking-widest text-xs flex flex-col gap-2 shadow-inner">
+                                    <Car className="h-6 w-6" />
+                                    On My Way
+                                </Button>
+                            </div>
+                            <Button size="lg" variant="default" onClick={() => handleUpdateStatus('arrived')} className="h-20 rounded-[2rem] font-black uppercase tracking-[0.2em] text-lg shadow-3xl shadow-primary/30 active:scale-95 transition-all">
+                                <MapPin className="mr-3 h-6 w-6" />
+                                I Have Arrived
+                            </Button>
                         </div>
                     ) : (
                         <div className="p-10 bg-primary/5 border-4 border-primary/20 rounded-[3rem] text-center space-y-6 shadow-xl">

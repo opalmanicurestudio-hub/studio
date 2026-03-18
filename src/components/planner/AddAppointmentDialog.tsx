@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -645,7 +646,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                     control={control}
                                     render={({ field }) => (
                                         <RadioGroup value={field.value} onValueChange={field.onChange} className="grid grid-cols-1 gap-3">
-                                            <label htmlFor="pay-vault" className={cn("flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50", !selectedClient?.cardOnFile?.token && "opacity-40 grayscale grayscale-[0.5]")}>
+                                            <label htmlFor="pay-vault" className={cn("flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5", !selectedClient?.cardOnFile?.token && "opacity-40 grayscale grayscale-[0.5]")}>
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="card_on_file" id="pay-vault" disabled={!selectedClient?.cardOnFile?.token}/>
                                                     <div className="space-y-0.5">
@@ -655,7 +656,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                 </div>
                                                 <ShieldCheck className={cn("w-5 h-5", selectedClient?.cardOnFile?.token ? "text-primary" : "text-slate-300")} />
                                             </label>
-                                            <label htmlFor="pay-terminal" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 border-border">
+                                            <label htmlFor="pay-terminal" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5 border-border">
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="terminal" id="pay-terminal" />
                                                     <div className="space-y-0.5">
@@ -665,7 +666,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                 </div>
                                                 <Zap className="w-5 h-5 text-primary" />
                                             </label>
-                                            <label htmlFor="pay-pending" className="flex items-center justify-between p-5 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:bg-muted/50">
+                                            <label htmlFor="pay-pending" className="flex items-center justify-between p-5 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:bg-muted/5">
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="none" id="pay-pending" />
                                                     <div className="space-y-0.5">

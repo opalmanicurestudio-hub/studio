@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -308,8 +309,8 @@ export const CheckoutHub = ({
     };
 
     const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
+        if (client.subscription?.status !== 'active') return true;
         if (!client.subscription?.nextBillingDate) return false;
-        if (client.subscription.status !== 'active') return true;
 
         const lastUsedStr = client.subscription.perkLastUsed;
         if (!lastUsedStr) return false;
@@ -357,7 +358,7 @@ export const CheckoutHub = ({
             const pkgDef = packages?.find(pkg => pkg.id === p.packageId);
             if (pkgDef && cartServiceIds.includes(pkgDef.serviceId)) {
                 items.push({
-                    type: 'package', id: pkgDef.id, label: pkgDef.name, subLabel: 'Prepaid Bundle', exhausted: p.sessionsRemaining <= 0,
+                    type: 'package', id: pkgDef.id, itemId: pkgDef.serviceId, label: pkgDef.name, subLabel: 'Prepaid Bundle', exhausted: p.sessionsRemaining <= 0,
                     usage: `${p.sessionsRemaining} left`
                 });
             }

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -561,7 +562,7 @@ function POSPage() {
             }
             const activePack = currentClient.activePackages?.find(p => { const pkgDef = packages?.find(pkg => pkg.id === p.packageId); return pkgDef?.serviceId === selectedAppointment.serviceId; });
             if (activePack && (isLateOrNoShow || data.reason === 'client_request' || data.reason === 'other')) {
-                const nextPackages = currentClient.activePackages!.map(p => p.packageId === activePack.packageId ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
+                const nextPackages = (currentClient.activePackages || []).map(p => p.packageId === activePack.packageId ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
                 batch.update(clientRef, { activePackages: nextPackages });
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
                 const pkgDef = packages?.find(pkg => pkg.id === activePack.packageId);
@@ -931,7 +932,7 @@ function POSPage() {
         toast({ title: "Till Reconciled" });
     };
 
-    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Set(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
+    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
 
     const tax = subtotal * 0.07;
     const total = subtotal + tax + tipAmount - discount - membershipDiscount;
