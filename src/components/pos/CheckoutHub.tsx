@@ -80,7 +80,6 @@ const safeDate = (val: any): Date => {
     if (val instanceof Date) return val;
     if (typeof val === 'string') return parseISO(val);
     if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-    if (typeof val?.toDate === 'function') return val.toDate();
     return new Date(val);
 };
 
@@ -424,7 +423,7 @@ export const CheckoutHub = ({
                                 {selectedClient ? (
                                     <div className="flex items-center gap-3">
                                         <div className="relative shrink-0">
-                                            <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
+                                            <Avatar className="h-7 v-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
                                                 <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
                                                 <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
                                             </Avatar>
@@ -552,7 +551,7 @@ export const CheckoutHub = ({
                                 className={cn(
                                     "h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all",
                                     redeemedOffer?.itemId === ent.itemId ? "bg-green-500/10 border-green-500/20 text-green-700" : 
-                                    ent.exhausted ? "opacity-50 bg-muted/30 grayscale border-dashed" : "bg-white border-indigo-500/10 hover:border-primary/30"
+                                    ent.exhausted ? "opacity-50 bg-muted/30 grayscale border-dashed cursor-not-allowed" : "bg-white border-indigo-500/10 hover:border-primary/30"
                                 )}
                             >
                                 <div className="text-left min-w-0 flex-1">

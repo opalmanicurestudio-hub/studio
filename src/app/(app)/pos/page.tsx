@@ -34,6 +34,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TillManagement } from '@/components/pos/TillManagement';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -137,7 +138,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                                     type="password" 
                                     placeholder="PIN" 
                                     maxLength={4} 
-                                    value={pin}
+                                    value={pin} 
                                     onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
                                     className="h-14 rounded-2xl border-2 text-center text-xl font-black tracking-[0.5em] w-32 bg-muted/5 shadow-inner"
                                 />
