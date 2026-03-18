@@ -559,7 +559,10 @@ export const CheckoutHub = ({
                                     {redeemedOffer?.itemId === ent.itemId ? (
                                         <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge>
                                     ) : ent.exhausted ? (
-                                        <Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge>
+                                            <span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span>
+                                        </div>
                                     ) : (
                                         <div className="space-y-0.5">
                                             <Badge variant="outline" className={cn("h-5 px-2 font-black text-[8px] uppercase border-2", ent.exhausted ? "text-destructive border-destructive/20" : "text-indigo-600 border-indigo-500/20")}>{ent.usage}</Badge>

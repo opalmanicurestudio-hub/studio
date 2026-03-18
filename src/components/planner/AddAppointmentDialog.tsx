@@ -506,7 +506,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                                         {hasPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
                                                                         {hasDebt && <Badge variant="destructive" className="border-none text-[7px] h-3.5 px-1 font-black uppercase animate-pulse">ARREARS</Badge>}
                                                                     </div>
-                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 truncate">{c.email || c.phone || 'No contact on file'}</p>
+                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p>
                                                                 </div>
                                                                 {isSel && <Check className="w-5 h-5 text-primary" />}
                                                             </button>
