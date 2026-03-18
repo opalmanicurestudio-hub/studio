@@ -65,7 +65,7 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, arrayUnion, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, arrayUnion, writeBatch, increment, getDocs, query, where } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -255,6 +255,7 @@ export default function ClientDetailPage() {
     batch.update(clientRef, {
         outstandingBalance: 0,
         unpaidFees: [],
+        // CRITICAL FIX: Explicitly increment LTV using the transaction amount
         lifetimeValue: increment(amount)
     });
 
@@ -271,17 +272,24 @@ export default function ClientDetailPage() {
   };
 
   const handleReconcileLtv = async () => {
-      if (!client || !firestore || !tenantId || !allTransactions) return;
+      if (!client || !firestore || !tenantId) return;
       setIsReconciling(true);
       
-      // CRITICAL: Rebuild LTV logic to hard-audit the transaction ledger
-      const clientIncomeTransactions = allTransactions.filter(t => t.clientId === client.id && t.type === 'income');
-      const realLtv = clientIncomeTransactions.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
-      
-      const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
       try {
+          // CRITICAL REBUILD: Perform a hard-audit of the transaction ledger
+          const txnsRef = collection(firestore, `tenants/${tenantId}/transactions`);
+          const q = query(txnsRef, where("clientId", "==", client.id), where("type", "==", "income"));
+          const snapshot = await getDocs(q);
+          
+          const realLtv = snapshot.docs.reduce((acc, d) => {
+              const data = d.data();
+              return acc + (Number(data.amount) || 0);
+          }, 0);
+          
+          const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
           updateDocumentNonBlocking(clientRef, { lifetimeValue: realLtv });
-          toast({ title: "Ledger Reconciled", description: `Dossier LTV synchronized to $${realLtv.toFixed(2)} based on ${clientIncomeTransactions.length} transactions.` });
+          
+          toast({ title: "Ledger Reconciled", description: `Dossier LTV synchronized to $${realLtv.toFixed(2)} based on ${snapshot.docs.length} verified income records.` });
       } catch (e) {
           console.error(e);
           toast({ variant: 'destructive', title: "Reconciliation Failed" });
@@ -305,7 +313,7 @@ export default function ClientDetailPage() {
       toast({ title: "Protocol Purged", description: "Formula removed from technical archive." });
   }
 
-  // DEFENSIVE: Ensure we parse numeric values correctly to avoid $NaN display issues
+  // DEFENSIVE: Secure numeric values to prevent $NaN errors
   const { safeLTV, safeWalletCredit, safeOutstandingBalance } = useMemo(() => {
       const getNum = (v: any) => {
           const n = Number(v);
@@ -353,8 +361,8 @@ export default function ClientDetailPage() {
                         </Avatar>
                         {activeMembership && <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-indigo-600 text-white p-1.5 md:p-2 rounded-2xl shadow-xl border-4 border-white"><Award className="w-4 h-4 md:w-6 md:h-6" /></div>}
                     </div>
-                    <div className="space-y-4 flex-1 min-w-0 w-full">
-                        <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start sm:items-baseline gap-3 md:gap-4">
+                    <div className="space-y-4 flex-1 min-w-0 w-full text-left">
+                        <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start sm:items-baseline gap-3 md:gap-4 text-left">
                             <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate leading-none w-full sm:w-auto", client.name.length > 15 ? "text-xl md:text-4xl" : "text-2xl md:text-5xl")}>{client.name}</h2>
                             <div className="flex gap-2 shrink-0">
                                 {activeMembership && <Badge className="bg-indigo-500/10 text-indigo-700 border-none font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Master Member</Badge>}
@@ -407,7 +415,7 @@ export default function ClientDetailPage() {
                             <ScrollBar orientation="horizontal" className="hidden" />
                         </ScrollArea>
                         
-                        <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500">
+                        <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500 text-left">
                             {activeMembership && (
                                 <div className="space-y-4">
                                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3 text-left">
@@ -423,7 +431,7 @@ export default function ClientDetailPage() {
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4 text-left">
                                                         <div className="flex justify-between items-start gap-2">
-                                                            <div className="min-w-0">
+                                                            <div className="min-w-0 text-left">
                                                                 <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Service Allotment</p>
                                                             </div>
@@ -450,7 +458,7 @@ export default function ClientDetailPage() {
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4">
                                                         <div className="flex justify-between items-start">
-                                                            <div className="min-w-0">
+                                                            <div className="min-w-0 text-left">
                                                                 <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Enhancement Allotment</p>
                                                             </div>
@@ -478,7 +486,7 @@ export default function ClientDetailPage() {
                                     <CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><BadgeInfo className="w-4 h-4 text-primary" /> Dossier Details</CardTitle>
                                 </CardHeader>
                                 <CardContent className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 text-left">
-                                    <div className="space-y-6">
+                                    <div className="space-y-6 text-left">
                                         <div className="space-y-1 text-left">
                                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Birth Milestone</p>
                                             <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
@@ -494,13 +502,13 @@ export default function ClientDetailPage() {
 
                         <TabsContent value="history" className="m-0 space-y-8 md:space-y-10 animate-in fade-in duration-500 text-left">
                             <div className="space-y-4">
-                                <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 text-left">Scheduled Events</h3>
+                                <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Scheduled Events</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
                                 </div>
                             </div>
                             <div className="space-y-4 pt-6 border-t border-dashed">
-                                <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 text-left">Historical Records</h3>
+                                <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Historical Records</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] font-black uppercase tracking-widest">Empty history</p></div>}
                                 </div>
@@ -510,7 +518,7 @@ export default function ClientDetailPage() {
                         <TabsContent value="archive" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                             <div className="space-y-6">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
-                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3">
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left">
                                         <FlaskConical className="w-5 h-5" />
                                         Technical Archive
                                     </h3>
@@ -626,19 +634,19 @@ export default function ClientDetailPage() {
                                 {isReconciling ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                             </Button>
                         </CardHeader>
-                        <CardContent className="p-6 space-y-6">
+                        <CardContent className="p-6 space-y-6 text-left">
                             <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group">
                                 <div className="absolute top-0 right-0 p-4 opacity-5"><TrendingUp className="w-10 h-10 md:w-12 md:h-12 text-primary"/></div>
                                 <p className="text-[8px] md:text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">Lifetime Yield</p>
                                 <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none">${safeLTV.toFixed(2)}</p>
                             </div>
                             
-                            <div className="grid grid-cols-1 gap-4">
-                                <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner">
+                            <div className="grid grid-cols-1 gap-4 text-left">
+                                <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner text-left">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Store Credit</p>
                                     <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono">${safeWalletCredit.toFixed(2)}</p>
                                 </div>
-                                <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
+                                <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all text-left", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Account Arrears</p>
                                     <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${safeOutstandingBalance.toFixed(2)}</p>
                                 </div>
@@ -676,9 +684,10 @@ export default function ClientDetailPage() {
                             {hasDebt && hasCardOnFile && (
                                 <Button 
                                     className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white"
-                                    onClick={() => setIsQuickSettleOpen(true)}
+                                    onClick={handleQuickSettle}
+                                    disabled={isSettleProcessing}
                                 >
-                                    <Zap className="mr-2 h-4 w-4" /> Charge Card on File
+                                    {isSettleProcessing ? <Loader className="animate-spin" /> : <><Zap className="mr-2 h-4 w-4" /> Charge Card on File</>}
                                 </Button>
                             )}
                             <Button 

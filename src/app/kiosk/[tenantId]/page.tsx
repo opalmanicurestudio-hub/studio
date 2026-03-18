@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -42,15 +42,14 @@ import {
     ShieldCheck, 
     Fingerprint, 
     Star, 
-    Zap, 
+    ArrowDown, 
     Cake, 
     PartyPopper, 
     Gift, 
     Delete, 
     Workflow, 
     CalendarCheck,
-    CheckCircle2,
-    ArrowDown
+    CheckCircle2
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -258,7 +257,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                 <Button 
                     size="lg" 
                     onClick={onConfirm} 
-                    disabled={value.length < 10 || isVerifying}
+                    disabled={phonePadValue.length < 10 || isVerifying}
                     className="w-full h-16 md:h-20 rounded-2xl text-lg md:text-2xl font-bold uppercase tracking-widest shadow-2xl shadow-primary/30 group"
                 >
                     {isVerifying ? <Loader className="animate-spin" /> : <>Identify Me <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></>}
@@ -1150,39 +1149,41 @@ export default function WalkInPage() {
                         </motion.div>
                     ) : (
                         <ViewContainer>
-                            {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
-                            {step === 'identityChoice' && <IdentityChoiceView onSelect={handleIdentitySelect} onBack={() => setStep('partyType')} />}
-                            {step === 'phonePad' && <PhonePadView value={phonePadValue} onDigit={handlePhonePadDigit} onDelete={handlePhonePadDelete} onConfirm={handlePhonePadConfirm} onBack={() => setStep('identityChoice')} isVerifying={isResolvingIdentity} />}
-                            {step === 'identityConfirm' && matchedClient && <IdentityConfirmView client={matchedClient} onConfirm={handleIdentityConfirm} onBack={() => setStep('phonePad')} />}
-                            {step === 'welcomeBack' && matchedClient && <WelcomeBackView name={matchedClient.name} onContinue={() => setStep('memberSetup')} />}
-                            {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
-                                <MemberSetup 
-                                    member={{...partyMembers[currentMemberIndex], index: currentMemberIndex}}
-                                    partyMembers={partyMembers}
-                                    onUpdate={handleMemberUpdate}
-                                    memberSubStep={memberSubStep}
-                                    services={services} 
-                                    staff={activeStaff} 
-                                    pricingTiers={pricingTiers || []}
-                                    consentForms={consentForms || []}
-                                    formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
-                                    setFormAnswers={(a: any) => setFormAnswers(p => ({...p, [partyMembers[currentMemberIndex].id]: a}))}
-                                    onNext={handleNextSubStep} onBack={handleBack}
-                                    isGroup={isGroup} isLastMember={currentMemberIndex === partyMembers.length - 1}
-                                    onAddAnother={() => { 
-                                        setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); 
-                                        setCurrentMemberIndex(partyMembers.length); 
-                                        setMemberSubStep('details'); 
-                                    } }
-                                    onSubmit={handleSubmit} isSubmitting={isSubmitting}
-                                    bannedClient={bannedClient}
-                                    existingClientWithBalance={existingClientWithBalance}
-                                    isResolvingIdentity={isResolvingIdentity}
-                                    matchedAppointment={matchedAppointment}
-                                    onAppointmentCheckIn={handleAppointmentCheckIn}
-                                />
-                            )}
-                            {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); setPhonePadValue(''); setClientType(null); setMatchedClient(null); }} />}
+                            <AnimatePresence mode="wait">
+                                {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
+                                {step === 'identityChoice' && <IdentityChoiceView onSelect={handleIdentitySelect} onBack={() => setStep('partyType')} />}
+                                {step === 'phonePad' && <PhonePadView value={phonePadValue} onDigit={handlePhonePadDigit} onDelete={handlePhonePadDelete} onConfirm={handlePhonePadConfirm} onBack={() => setStep('identityChoice')} isVerifying={isResolvingIdentity} />}
+                                {step === 'identityConfirm' && matchedClient && <IdentityConfirmView client={matchedClient} onConfirm={handleIdentityConfirm} onBack={() => setStep('phonePad')} />}
+                                {step === 'welcomeBack' && matchedClient && <WelcomeBackView name={matchedClient.name} onContinue={() => setStep('memberSetup')} />}
+                                {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
+                                    <MemberSetup 
+                                        member={{...partyMembers[currentMemberIndex], index: currentMemberIndex}}
+                                        partyMembers={partyMembers}
+                                        onUpdate={handleMemberUpdate}
+                                        memberSubStep={memberSubStep}
+                                        services={services} 
+                                        staff={activeStaff} 
+                                        pricingTiers={pricingTiers || []}
+                                        consentForms={consentForms || []}
+                                        formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
+                                        setFormAnswers={(a: any) => setFormAnswers(p => ({...p, [partyMembers[currentMemberIndex].id]: a}))}
+                                        onNext={handleNextSubStep} onBack={handleBack}
+                                        isGroup={isGroup} isLastMember={currentMemberIndex === partyMembers.length - 1}
+                                        onAddAnother={() => { 
+                                            setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); 
+                                            setCurrentMemberIndex(partyMembers.length); 
+                                            setMemberSubStep('details'); 
+                                        } }
+                                        onSubmit={handleSubmit} isSubmitting={isSubmitting}
+                                        bannedClient={bannedClient}
+                                        existingClientWithBalance={existingClientWithBalance}
+                                        isResolvingIdentity={isResolvingIdentity}
+                                        matchedAppointment={matchedAppointment}
+                                        onAppointmentCheckIn={handleAppointmentCheckIn}
+                                    />
+                                )}
+                                {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); setPhonePadValue(''); setClientType(null); setMatchedClient(null); }} />}
+                            </AnimatePresence>
                         </ViewContainer>
                     )}
                 </AnimatePresence>
