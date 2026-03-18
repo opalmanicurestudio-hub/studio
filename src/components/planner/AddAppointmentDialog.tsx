@@ -324,11 +324,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     if (finalStaffId === 'any') {
         const candidates = qualifiedStaff.filter(s => {
             const dayName = format(startDateTime, 'eeee').toLowerCase();
-            const sched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
+            const sDaySched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
             if (!data.overrideBusinessHours) {
-                if (!sched?.enabled) return false;
-                const openT = timeStringToDate(sched.start, startDateTime);
-                const closeT = timeStringToDate(sched.end, startDateTime);
+                if (!sDaySched?.enabled) return false;
+                const openT = timeStringToDate(sDaySched.start, startDateTime);
+                const closeT = timeStringToDate(sDaySched.end, startDateTime);
                 if (startDateTime < openT || endDateTime > closeT) return false;
             }
             return !appointmentsFromDB?.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: safeDate(apt.startTime), end: safeDate(apt.endTime) }, { inclusive: false }));

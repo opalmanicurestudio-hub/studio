@@ -55,17 +55,12 @@ export function useDoc<T = any>(
     setIsLoading(true);
     setError(null);
 
-    // CRITICAL: We removed { includeMetadataChanges: true } to prevent Firestore 
-    // FieldValue objects (like increment() or serverTimestamp()) from leaking into 
-    // the React state during pending local writes. This prevents "Objects are not 
-    // valid as a React child" errors and ensures atomic numeric updates like LTV
-    // are correctly resolved before rendering.
+    // CRITICAL: Metadata changes are disabled to prevent internal Firestore objects
+    // from leaking into the UI before they resolve into numbers.
     const unsubscribe = onSnapshot(
       memoizedDocRef,
       (snapshot: DocumentSnapshot<DocumentData>) => {
         if (snapshot.exists()) {
-          // Document exists, update data and stop loading.
-          // We set id FIRST so that it can be overridden by data.id if it exists.
           setData({ id: snapshot.id, ...(snapshot.data() as T) });
           setIsLoading(false);
           setError(null);
