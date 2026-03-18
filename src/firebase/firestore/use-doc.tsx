@@ -28,23 +28,19 @@ export interface UseDocResult<T> {
  * React hook to subscribe to a single Firestore document in real-time.
  * Handles nullable references.
  * 
- * IMPORTANT! YOU MUST MEMOIZE the inputted memoizedTargetRefOrQuery or BAD THINGS WILL HAPPEN
- * use useMemo to memoize it per React guidence.  Also make sure that it's dependencies are stable
- * references
- *
+ * IMPORTANT! YOU MUST MEMOIZE the inputted memoizedDocRef or BAD THINGS WILL HAPPEN
+ * use useMemoFirebase to memoize it.
  *
  * @template T Optional type for document data. Defaults to any.
- * @param {DocumentReference<DocumentData> | null | undefined} docRef -
+ * @param {DocumentReference<DocumentData> | null | undefined} memoizedDocRef -
  * The Firestore DocumentReference. Waits if null/undefined.
  * @returns {UseDocResult<T>} Object with data, isLoading, error.
  */
 export function useDoc<T = any>(
   memoizedDocRef: DocumentReference<DocumentData> | null | undefined,
 ): UseDocResult<T> {
-  type StateDataType = WithId<T> | null;
-
-  const [data, setData] = useState<StateDataType>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true); // Start as loading
+  const [data, setData] = useState<WithId<T> | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<FirestoreError | Error | null>(null);
 
   useEffect(() => {
@@ -58,28 +54,23 @@ export function useDoc<T = any>(
     setIsLoading(true);
     setError(null);
 
+    // CRITICAL: We removed { includeMetadataChanges: true } to prevent Firestore 
+    // FieldValue objects (like increment() or serverTimestamp()) from leaking into 
+    // the React state during pending local writes. This prevents "Objects are not 
+    // valid as a React child" errors.
     const unsubscribe = onSnapshot(
       memoizedDocRef,
-      { includeMetadataChanges: true }, // Listen for metadata to check for pending writes
       (snapshot: DocumentSnapshot<DocumentData>) => {
         if (snapshot.exists()) {
           // Document exists, update data and stop loading.
-          // IMPORTANT: We set id: snapshot.id FIRST so that if the data contains an 'id' field, it overwrites it.
-          // This is critical for collections like appointmentCheckIns where doc.id is a token but data.id is the actual entity ID.
+          // We set id FIRST so that it can be overridden by data.id if it exists.
           setData({ id: snapshot.id, ...(snapshot.data() as T) });
           setIsLoading(false);
           setError(null);
         } else {
-          // Document does not exist in cache. Check for pending writes.
-          if (snapshot.metadata.hasPendingWrites) {
-            // The document is being created locally. It's not a 404 yet.
-            // We stay in the loading state and wait for the server to confirm.
-          } else {
-            // The server has confirmed the document does not exist.
-            setData(null);
-            setIsLoading(false);
-            setError(null); // This is a confirmed "not found" state, not an error.
-          }
+          setData(null);
+          setIsLoading(false);
+          setError(null);
         }
       },
       (error: FirestoreError) => {
@@ -92,13 +83,12 @@ export function useDoc<T = any>(
         setData(null);
         setIsLoading(false);
 
-        // trigger global error propagation
         errorEmitter.emit('permission-error', contextualError);
       }
     );
 
     return () => unsubscribe();
-  }, [memoizedDocRef]); // Re-run if the memoizedDocRef changes.
+  }, [memoizedDocRef]);
 
   return { data, isLoading, error };
 }

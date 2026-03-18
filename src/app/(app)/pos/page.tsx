@@ -54,6 +54,11 @@ const sanitizeForFirestore = (obj: any): any => {
     );
 };
 
+const safeNumeric = (val: any): number => {
+    const n = Number(val);
+    return isNaN(n) ? 0 : n;
+};
+
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card className="border-2 shadow-sm overflow-hidden bg-white/50 backdrop-blur-sm">
     <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
@@ -101,7 +106,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                 <div className="p-6 md:p-8 space-y-8">
                     <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 text-center space-y-2 shadow-inner">
                         <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Protocol Recovery Fee</p>
-                        <p className="text-4xl md:text-6xl font-black text-destructive tracking-tighter font-mono">${Math.ceil(data.fee).toFixed(2)}</p>
+                        <p className="text-4xl md:text-6xl font-black text-destructive tracking-tighter font-mono">${safeNumeric(data.fee).toFixed(2)}</p>
                         <div className="pt-3 border-t border-destructive/10">
                             <p className="text-[10px] font-bold text-slate-600 uppercase">Penalty for +{data.minutes}m delay</p>
                         </div>
@@ -160,7 +165,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
     );
 };
 
-function POSPage() {
+export function POSPage() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
@@ -244,7 +249,7 @@ function POSPage() {
             const d = safeDate(t.date);
             return d >= todayStart && d <= todayEnd && t.type === 'income';
         });
-        const totalDailyGrossRevenue = dailyTransactions.reduce((acc, t) => acc + t.amount, 0);
+        const totalDailyGrossRevenue = dailyTransactions.reduce((acc, t) => acc + safeNumeric(t.amount), 0);
 
         return {
             avgWaitTime,
@@ -311,7 +316,7 @@ function POSPage() {
             
             const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
             if (isEligible) {
-                const price = product?.msrp || product?.costPerUnit || 0;
+                const price = safeNumeric(product?.msrp || product?.costPerUnit);
                 return acc + (price * item.quantity * (bestDiscountPct / 100));
             }
             return acc;
@@ -319,7 +324,6 @@ function POSPage() {
     }, [selectedClientId, clients, memberships, packages, retailItems, inventory, isRetailDiscountExhausted]);
 
     const payerOptions = useMemo(() => {
-        if (selectedAppointmentIds.size === 0) return clients || [];
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
           const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
@@ -390,7 +394,7 @@ function POSPage() {
                 return sum + (isAddonRedeemed ? 0 : getServicePrice(s, addonStaff));
             }, 0);
             
-            const additional = (data.appointment.checkoutState?.additionalCharge || 0);
+            const additional = safeNumeric(data.appointment.checkoutState?.additionalCharge);
             const isWaived = waivedAppointmentFees.has(data.appointment.id);
             const effectiveAdditional = isWaived ? 0 : additional;
 
@@ -402,7 +406,7 @@ function POSPage() {
         const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => {
             const allFees = (clients || []).flatMap(c => c.unpaidFees || []);
             const fee = allFees.find(f => f.feeId === id);
-            return acc + (fee?.feeAmount || 0);
+            return acc + safeNumeric(fee?.feeAmount);
         }, 0);
 
         return servicesSub + retailSub + adjustmentSub;
@@ -591,10 +595,10 @@ function POSPage() {
             if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
             let price = 0;
             let type: 'product' | 'service' | 'membership' | 'package' = 'product';
-            if ('msrp' in item) { price = item.msrp || item.costPerUnit || 0; type = 'product'; }
-            else if ('duration' in item) { price = item.price || 0; type = 'service'; }
-            else if ('interval' in item) { price = item.price || 0; type = 'membership'; }
-            else if ('sessions' in item) { price = item.price || 0; type = 'package'; }
+            if ('msrp' in item) { price = safeNumeric(item.msrp || item.costPerUnit); type = 'product'; }
+            else if ('duration' in item) { price = safeNumeric(item.price); type = 'service'; }
+            else if ('interval' in item) { price = safeNumeric(item.price); type = 'membership'; }
+            else if ('sessions' in item) { price = safeNumeric(item.price); type = 'package'; }
             return [...prev, { id: item.id, name: item.name, quantity: 1, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
         });
     }, []);
@@ -768,7 +772,7 @@ function POSPage() {
             const checkoutState = apt.checkoutState || {};
             const overrides = checkoutState.serviceStaffOverrides || {};
             const isWaived = waivedAppointmentFees.has(apt.id);
-            const additional = !isWaived ? (checkoutState.additionalCharge || 0) : 0;
+            const additional = !isWaived ? safeNumeric(checkoutState.additionalCharge) : 0;
             const formula = checkoutState.formula || [];
             formula.forEach((item: any) => {
                 const product = (inventory || []).find(p => p.id === item.id);
@@ -828,7 +832,7 @@ function POSPage() {
 
         if (selectedClient && appliedAdjustments.size > 0) {
             const currentUnpaid = selectedClient.unpaidFees || [];
-            const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + (fee?.feeAmount || 0); }, 0);
+            const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + safeNumeric(fee?.feeAmount); }, 0);
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) });
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
             appliedAdjustments.forEach(id => {
@@ -859,11 +863,11 @@ function POSPage() {
         }
         
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
-            if ((amount as number) > 0) {
+            if (safeNumeric(amount) > 0) {
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
                 if (paymentData.paymentMethod === 'cash') {
-                    cashTipsTotal += (amount as number);
-                    cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(amount as number);
+                    cashTipsTotal += safeNumeric(amount);
+                    cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(safeNumeric(amount));
                 }
             }
         });
@@ -906,7 +910,7 @@ function POSPage() {
             ...sanitizeForFirestore(data)
         };
         await setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, sessionId), session, {});
-        toast({ title: "Till Opened", description: `Session initialized with $${data.openingFloat.toFixed(2)}.` });
+        toast({ title: "Till Opened", description: `Session initialized with $${safeNumeric(data.openingFloat).toFixed(2)}.` });
     };
 
     const handleCloseTill = async (data: any) => {
@@ -918,7 +922,7 @@ function POSPage() {
         };
         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), updates);
         
-        if (Math.abs(data.discrepancy) > 0.01) {
+        if (Math.abs(safeNumeric(data.discrepancy)) > 0.01) {
             const txn: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
                 description: `Till Discrepancy: ${data.discrepancy > 0 ? 'Overage' : 'Shortage'}`,
@@ -926,7 +930,7 @@ function POSPage() {
                 type: data.discrepancy > 0 ? 'income' : 'expense',
                 context: 'Business',
                 category: 'Audit Adjustment',
-                amount: Math.abs(data.discrepancy),
+                amount: Math.abs(safeNumeric(data.discrepancy)),
                 paymentMethod: 'Till Internal',
                 hasReceipt: false,
             };
@@ -936,7 +940,7 @@ function POSPage() {
         toast({ title: "Till Reconciled" });
     };
 
-    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
+    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Set(prev); if (waive && authorizerId && reason) next.set(id); else next.delete(id); return next; }); };
 
     const tax = subtotal * 0.07;
     const total = subtotal + tax + tipAmount - discount - membershipDiscount;
@@ -995,7 +999,7 @@ function POSPage() {
                         <div className="grid gap-4 md:gap-6 grid-cols-2 lg:grid-cols-4 flex-1 w-full text-left">
                             <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
                             <KpiCard title="Arrival Count" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500" />} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total guests today." />
-                            <KpiCard title="Daily Gross" value={`$${kpiData.totalDailyGrossRevenue.toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
+                            <KpiCard title="Daily Gross" value={`$${safeNumeric(kpiData.totalDailyGrossRevenue).toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
                         </div>
                         {isOwnerOrAdmin && (
                             <Button 
@@ -1004,7 +1008,7 @@ function POSPage() {
                                 className={cn("h-14 md:h-20 px-8 rounded-3xl font-black uppercase text-xs shadow-xl border-4 flex flex-col items-center justify-center gap-1", activeTill ? "border-green-500/20 bg-green-500/5 text-green-700" : "shadow-primary/20")}
                             >
                                 <Landmark className="w-5 h-5 mb-1" />
-                                {activeTill ? `Till: $${activeTill.expectedCash.toFixed(2)}` : "Open Studio Till"}
+                                {activeTill ? `Till: $${safeNumeric(activeTill.expectedCash).toFixed(2)}` : "Open Studio Till"}
                             </Button>
                         )}
                     </div>

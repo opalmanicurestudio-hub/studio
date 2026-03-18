@@ -26,6 +26,11 @@ import { cn } from '@/lib/utils';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useTenant } from '@/context/TenantContext';
 
+const safeNumeric = (val: any): number => {
+    const n = Number(val);
+    return isNaN(n) ? 0 : n;
+};
+
 export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
     const { role } = useTenant();
     const isOwnerOrAdmin = role === 'owner' || role === 'admin';
@@ -44,15 +49,8 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
     };
 
     // DEFENSIVE: Secure numeric values to prevent $NaN errors caused by objects or missing fields
-    const safeLTV = useMemo(() => {
-        const val = Number(client.lifetimeValue);
-        return isNaN(val) ? 0 : val;
-    }, [client.lifetimeValue]);
-
-    const safeBalance = useMemo(() => {
-        const val = Number(client.outstandingBalance);
-        return isNaN(val) ? 0 : val;
-    }, [client.outstandingBalance]);
+    const safeLTV = useMemo(() => safeNumeric(client.lifetimeValue), [client.lifetimeValue]);
+    const safeBalance = useMemo(() => safeNumeric(client.outstandingBalance), [client.outstandingBalance]);
 
     const hasDebt = safeBalance > 0;
     const isMember = !!(client.activeMembershipId || client.subscription);
