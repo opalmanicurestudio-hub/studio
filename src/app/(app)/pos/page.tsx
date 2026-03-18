@@ -1,11 +1,8 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption, type TillSession, type Membership, type Package } from '@/lib/data';
-import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
@@ -16,12 +13,12 @@ import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, whe
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay, endOfDay, format, subMinutes, differenceInDays, subMonths, isAfter, subYears } from 'date-fns';
+import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay, endOfDay, format, subMinutes, subMonths, isAfter, subYears } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog, type ClientFormData } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Cake } from 'lucide-react';
+import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Cake } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -35,6 +32,7 @@ import { OverrideCancellationDialog } from '@/components/planner/OverrideCancell
 import { Html5Qrcode } from 'html5-qrcode';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TillManagement } from '@/components/pos/TillManagement';
+import { Badge } from '@/components/ui/badge';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -563,7 +561,11 @@ function POSPage() {
             }
             const activePack = currentClient.activePackages?.find(p => { const pkgDef = packages?.find(pkg => pkg.id === p.packageId); return pkgDef?.serviceId === selectedAppointment.serviceId; });
             if (activePack && (isLateOrNoShow || data.reason === 'client_request' || data.reason === 'other')) {
-                const nextPackages = (currentClient.activePackages || []).map(p => p.packageId === activePack.packageId ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
+                const nextPackages = (currentClient.activePackages || []).map(p => 
+                    p.packageId === activePack.packageId 
+                        ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } 
+                        : p
+                ).filter(p => p.sessionsRemaining > 0);
                 batch.update(clientRef, { activePackages: nextPackages });
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
                 const pkgDef = packages?.find(pkg => pkg.id === activePack.packageId);

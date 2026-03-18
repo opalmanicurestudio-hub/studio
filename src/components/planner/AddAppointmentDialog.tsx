@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Sheet,
@@ -254,8 +253,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     if (selectedService.depositType === 'full') amount = price;
     else if (selectedService.depositType === 'breakeven') amount = selectedService.cost;
     else {
-        if (selectedService.depositSubType === 'percentage') amount = price * ((selectedService.depositAmount || 0) / 100);
-        else amount = selectedService.depositAmount || 0;
+        if (selectedService.depositSubType === 'flat') amount = selectedService.depositAmount || 0;
+        else amount = price * ((selectedService.depositAmount || 0) / 100);
     }
     return { amount: Math.ceil(amount), type: selectedService.depositType };
   }, [selectedService]);
@@ -502,11 +501,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                                 </div>
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-center gap-2">
-                                                                        <p className="font-black uppercase text-xs truncate leading-none">{c.name}</p>
+                                                                        <p className="font-black uppercase text-xs truncate leading-none text-left">{c.name}</p>
                                                                         {hasPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
                                                                         {hasDebt && <Badge variant="destructive" className="border-none text-[7px] h-3.5 px-1 font-black uppercase animate-pulse">ARREARS</Badge>}
                                                                     </div>
-                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p>
+                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate text-left">{c.email || c.phone || 'No contact on file'}</p>
                                                                 </div>
                                                                 {isSel && <Check className="w-5 h-5 text-primary" />}
                                                             </button>
@@ -649,7 +648,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                             <label htmlFor="pay-vault" className={cn("flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5", !selectedClient?.cardOnFile?.token && "opacity-40 grayscale grayscale-[0.5]")}>
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="card_on_file" id="pay-vault" disabled={!selectedClient?.cardOnFile?.token}/>
-                                                    <div className="space-y-0.5">
+                                                    <div className="space-y-0.5 text-left">
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">Vaulted Card</span>
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{selectedClient?.cardOnFile?.token ? `${selectedClient?.cardOnFile?.brand} •••• ${selectedClient?.cardOnFile?.last4}` : 'No secure card archived'}</p>
                                                     </div>
@@ -659,7 +658,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                             <label htmlFor="pay-terminal" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5 border-border">
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="terminal" id="pay-terminal" />
-                                                    <div className="space-y-0.5">
+                                                    <div className="space-y-0.5 text-left">
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">Terminal Entry</span>
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase font-bold tracking-tight opacity-60">Authorize new card via terminal</p>
                                                     </div>
@@ -669,7 +668,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                             <label htmlFor="pay-pending" className="flex items-center justify-between p-5 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:bg-muted/5">
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="none" id="pay-pending" />
-                                                    <div className="space-y-0.5">
+                                                    <div className="space-y-0.5 text-left">
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">Remote Settlement Required</span>
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Guest pays via secure link before session</p>
                                                     </div>
@@ -702,8 +701,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                             <AvatarFallback className="bg-primary/10 text-primary font-black uppercase">{(currentAssignedPro?.name || 'S')[0]}</AvatarFallback>
                                         </Avatar>
                                         <div className="min-w-0 flex-1">
-                                            <p className="font-black text-xl uppercase tracking-tight leading-none mb-1 truncate">{currentAssignedPro?.name}</p>
-                                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{currentAssignedPro?.role}</p>
+                                            <p className="font-black text-xl uppercase tracking-tight leading-none mb-1 truncate text-left">{currentAssignedPro?.name}</p>
+                                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">{currentAssignedPro?.role}</p>
                                         </div>
                                     </div>
                                 </Card>
