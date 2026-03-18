@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -285,6 +284,19 @@ export default function ClientDetailPage() {
       toast({ title: "Protocol Purged", description: "Formula removed from technical archive." });
   }
 
+  // DEFENSIVE: Ensure we parse numeric values correctly to avoid $NaN display issues
+  const { safeLTV, safeWalletCredit, safeOutstandingBalance } = useMemo(() => {
+      const getNum = (v: any) => {
+          const n = Number(v);
+          return isNaN(n) ? 0 : n;
+      }
+      return {
+          safeLTV: getNum(client?.lifetimeValue),
+          safeWalletCredit: getNum(client?.walletCredit),
+          safeOutstandingBalance: getNum(client?.outstandingBalance)
+      };
+  }, [client]);
+
   if (isUserLoading || isTenantLoading || clientLoading) {
       return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
   }
@@ -293,7 +305,7 @@ export default function ClientDetailPage() {
   const upcomingAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) > new Date() && apt.status !== 'cancelled');
   const pastAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) <= new Date()).sort((a,b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
 
-  const hasDebt = Number(client.outstandingBalance || 0) > 0;
+  const hasDebt = safeOutstandingBalance > 0;
   const hasCardOnFile = !!client.cardOnFile?.token;
 
   return (
@@ -330,10 +342,10 @@ export default function ClientDetailPage() {
                         </div>
                         <div className="flex flex-wrap justify-center sm:justify-start gap-x-6 sm:gap-x-10 gap-y-4 pt-2 w-full text-left">
                             {isOwnerOrAdmin ? (
-                                <div className="space-y-1 min-w-0 max-w-full text-left text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Verified Contact</p>
-                                    <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full text-left">{client.email}</a>
-                                    <p className="text-xs md:text-sm font-black tracking-tight text-slate-700 text-left">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
+                                <div className="space-y-1 min-w-0 max-w-full text-left">
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
+                                    <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{client.email}</a>
+                                    <p className="text-xs md:text-sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
                                 </div>
                             ) : (
                                 <div className="space-y-1 text-left">
@@ -450,7 +462,7 @@ export default function ClientDetailPage() {
                                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Birth Milestone</p>
                                             <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
                                         </div>
-                                        {client.address && <div className="space-y-1 text-left text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
+                                        {client.address && <div className="space-y-1 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
                                     </div>
                                     <div className="space-y-6 text-left">
                                         {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight">{client.emergencyContact.name}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{client.emergencyContact.relationship}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
@@ -588,17 +600,17 @@ export default function ClientDetailPage() {
                             <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group">
                                 <div className="absolute top-0 right-0 p-4 opacity-5"><TrendingUp className="w-10 h-10 md:w-12 md:h-12 text-primary"/></div>
                                 <p className="text-[8px] md:text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">Lifetime Yield</p>
-                                <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none">${Number(client.lifetimeValue || 0).toFixed(2)}</p>
+                                <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none">${safeLTV.toFixed(2)}</p>
                             </div>
                             
                             <div className="grid grid-cols-1 gap-4">
                                 <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Store Credit</p>
-                                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono">${Number(client.walletCredit || 0).toFixed(2)}</p>
+                                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono">${safeWalletCredit.toFixed(2)}</p>
                                 </div>
                                 <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Account Arrears</p>
-                                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${Number(client.outstandingBalance || 0).toFixed(2)}</p>
+                                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${safeOutstandingBalance.toFixed(2)}</p>
                                 </div>
                             </div>
 
@@ -610,7 +622,7 @@ export default function ClientDetailPage() {
                                 </p>
                                 {client.cardOnFile ? (
                                     <div className="p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-3 text-left">
                                             <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10">
                                                 <CreditCard className="w-5 h-5 text-primary" />
                                             </div>
@@ -671,13 +683,13 @@ export default function ClientDetailPage() {
             <div className="p-8 space-y-8">
                 <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                     <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Arrears Balance</p>
-                    <p className="text-5xl font-black text-primary tracking-tighter font-mono">${Number(client.outstandingBalance).toFixed(2)}</p>
+                    <p className="text-5xl font-black text-primary tracking-tighter font-mono">${safeOutstandingBalance.toFixed(2)}</p>
                 </div>
                 <div className="space-y-4 text-left">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Distribution Method</p>
-                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left text-left">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</p>
+                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left">
                         <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
-                        <div className="text-left text-left">
+                        <div className="text-left">
                             <p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile?.brand} •••• {client.cardOnFile?.last4}</p>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase">Authorized Vault Access</p>
                         </div>

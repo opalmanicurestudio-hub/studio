@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -79,7 +78,7 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
                 Start building your client base to unlock automated loyalty tracking and custom formulas.
             </p>
         </div>
-        <Button size="lg" onClick={onAddClient} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+        <Button size="lg" onAddClient={onAddClient} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
             <UserPlus className="mr-2 h-5 w-5" />
             Add First Guest
         </Button>
@@ -370,8 +369,16 @@ export default function ClientsPage() {
             return (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
         }).length;
 
-        const totalRevenue = filteredClients.reduce((acc, c) => acc + Number(c.lifetimeValue || 0), 0);
-        const totalPendingDebt = filteredClients.reduce((acc, c) => acc + Number(c.outstandingBalance || 0), 0);
+        // DEFENSIVE: Ensure we parse the lifetimeValue correctly to avoid NaN poisoning
+        const totalRevenue = filteredClients.reduce((acc, c) => {
+            const val = Number(c.lifetimeValue);
+            return acc + (isNaN(val) ? 0 : val);
+        }, 0);
+
+        const totalPendingDebt = filteredClients.reduce((acc, c) => {
+            const val = Number(c.outstandingBalance);
+            return acc + (isNaN(val) ? 0 : val);
+        }, 0);
 
         const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -499,7 +506,7 @@ export default function ClientsPage() {
                               </div>
                               <div className="w-full md:w-auto">
                                   <Select value={lastSeenFilter} onValueChange={setLastSeenFilter}>
-                                      <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-64 bg-white shadow-inner">
+                                      <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner">
                                           <SelectValue placeholder="ACTIVITY WINDOW" />
                                       </SelectTrigger>
                                       <SelectContent className="rounded-2xl border-2 shadow-2xl">

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -44,7 +43,18 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         return (name || 'G').substring(0, 2).toUpperCase();
     };
 
-    const hasDebt = Number(client.outstandingBalance || 0) > 0;
+    // DEFENSIVE: Secure numeric values to prevent $NaN errors caused by objects or missing fields
+    const safeLTV = useMemo(() => {
+        const val = Number(client.lifetimeValue);
+        return isNaN(val) ? 0 : val;
+    }, [client.lifetimeValue]);
+
+    const safeBalance = useMemo(() => {
+        const val = Number(client.outstandingBalance);
+        return isNaN(val) ? 0 : val;
+    }, [client.outstandingBalance]);
+
+    const hasDebt = safeBalance > 0;
     const isMember = !!(client.activeMembershipId || client.subscription);
     const hasCardOnFile = !!client.cardOnFile?.token;
 
@@ -101,12 +111,12 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                 <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Gross Yield</p>
-                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${Number(client.lifetimeValue || 0).toFixed(2)}</p>
+                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${safeLTV.toFixed(2)}</p>
                     </div>
                     {hasDebt ? (
                         <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 space-y-1 text-left">
                             <p className="text-[9px] font-black uppercase tracking-widest text-destructive/60">Arrears</p>
-                            <p className="text-xl font-black font-mono tracking-tighter text-destructive">${Number(client.outstandingBalance || 0).toFixed(2)}</p>
+                            <p className="text-xl font-black font-mono tracking-tighter text-destructive">${safeBalance.toFixed(2)}</p>
                         </div>
                     ) : (
                         <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-right">
