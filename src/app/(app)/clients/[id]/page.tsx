@@ -131,7 +131,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                 )}
                  {client.sensoryNeeds && (
                     <div className="flex items-center gap-3 text-left">
-                        <div className="p-2 bg-blue-500/10 rounded-xl border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div>
+                        <div className="p-2 bg-blue-500/10 rounded-xl border border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest">Sensory Intel</span>
                     </div>
                 )}

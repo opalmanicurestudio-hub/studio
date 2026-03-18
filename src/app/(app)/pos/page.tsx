@@ -23,7 +23,7 @@ import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, U
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { cn, hexToHSLComponents } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -131,7 +131,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                         <div className="space-y-3 pt-4 border-t border-dashed">
                             <div className="flex items-center justify-between px-1">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Manager Override</Label>
-                                <ShieldCheck className="w-3 h-3 text-primary" />
+                                <ShieldCheck className="w-3 x-3 text-primary" />
                             </div>
                             <div className="flex gap-2">
                                 <Input 
@@ -166,7 +166,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
     );
 };
 
-export function POSPage() {
+function POSPage() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
