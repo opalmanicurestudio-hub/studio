@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -108,7 +109,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
 
       methods.reset({
           email: item.clientEmail || item.customerEmail || item.client?.email || '',
-          phone: item.clientPhone || item.customerPhone || item.client?.phone || '',
+          phone: (item.clientPhone || item.customerPhone || item.client?.phone || '').replace(/\s/g, ''),
       });
     }
   }, [open, item, methods]);
@@ -294,7 +295,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                     <div className="space-y-1">
                         <p className="text-[10px] font-black uppercase text-primary">Protocol Confirmation</p>
                         <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
-                            Verifying the manifest here updates the appointment card instantly across all studio terminals.
+                            Verifying the manifest here updates the appointment card and guest dossier instantly.
                         </p>
                     </div>
                 </div>

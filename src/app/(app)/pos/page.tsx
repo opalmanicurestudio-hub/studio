@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -30,7 +31,7 @@ import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, U
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { cn, hexToHSLComponents } from '@/lib/utils';
+import { cn, hexToHSLComponents, safeNumber } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
@@ -61,11 +62,6 @@ const sanitizeForFirestore = (obj: any): any => {
             .filter(([_, v]) => v !== undefined)
             .map(([k, v]) => [k, sanitizeForFirestore(v)])
     );
-};
-
-const safeNumeric = (val: any): number => {
-    const n = Number(val);
-    return isNaN(n) ? 0 : n;
 };
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
@@ -115,7 +111,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                 <div className="p-6 md:p-8 space-y-8">
                     <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 text-center space-y-2 shadow-inner">
                         <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Protocol Recovery Fee</p>
-                        <p className="text-4xl md:text-6xl font-black text-destructive tracking-tighter font-mono">${safeNumeric(data.fee).toFixed(2)}</p>
+                        <p className="text-4xl md:text-6xl font-black text-destructive tracking-tighter font-mono">${safeNumber(data.fee).toFixed(2)}</p>
                         <div className="pt-3 border-t border-destructive/10">
                             <p className="text-[10px] font-bold text-slate-600 uppercase">Penalty for +{data.minutes}m delay</p>
                         </div>
@@ -259,7 +255,7 @@ function POSPage() {
             const d = safeDate(t.date);
             return d >= todayStart && d <= todayEnd && t.type === 'income';
         });
-        const totalDailyGrossRevenue = dailyTransactions.reduce((acc, t) => acc + safeNumeric(t.amount), 0);
+        const totalDailyGrossRevenue = dailyTransactions.reduce((acc, t) => acc + safeNumber(t.amount), 0);
 
         return {
             avgWaitTime,
@@ -326,7 +322,7 @@ function POSPage() {
             
             const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id);
             if (isEligible) {
-                const price = safeNumeric(product?.msrp || product?.costPerUnit);
+                const price = safeNumber(product?.msrp || product?.costPerUnit);
                 return acc + (price * item.quantity * (bestDiscountPct / 100));
             }
             return acc;
@@ -404,7 +400,7 @@ function POSPage() {
                 return sum + (isAddonRedeemed ? 0 : getServicePrice(s, addonStaff));
             }, 0);
             
-            const additional = safeNumeric(data.appointment.checkoutState?.additionalCharge);
+            const additional = safeNumber(data.appointment.checkoutState?.additionalCharge);
             const isWaived = waivedAppointmentFees.has(data.appointment.id);
             const effectiveAdditional = isWaived ? 0 : additional;
 
@@ -416,18 +412,18 @@ function POSPage() {
         const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => {
             const allFees = (clients || []).flatMap(c => c.unpaidFees || []);
             const fee = allFees.find(f => f.feeId === id);
-            return acc + safeNumeric(fee?.feeAmount);
+            return acc + safeNumber(fee?.feeAmount);
         }, 0);
 
-        return servicesSub + retailSub + adjustmentSub;
+        return safeNumber(servicesSub + retailSub + adjustmentSub);
     }, [selectedAptsData, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff, redeemedOffer]);
 
     const discountValue = useMemo(() => {
-        return appliedDiscountCodes.reduce((acc, code) => {
+        return safeNumber(appliedDiscountCodes.reduce((acc, code) => {
             const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase());
             if (!d) return acc;
             return acc + (d.type === 'percentage' ? subtotal * (d.value / 100) : d.value);
-        }, 0);
+        }, 0));
     }, [appliedDiscountCodes, discounts, subtotal]);
 
     const handleSkip = (walkInId: string) => {
@@ -554,7 +550,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, id: nanoid(), description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -605,10 +601,10 @@ function POSPage() {
             if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
             let price = 0;
             let type: 'product' | 'service' | 'membership' | 'package' = 'product';
-            if ('msrp' in item) { price = safeNumeric(item.msrp || item.costPerUnit); type = 'product'; }
-            else if ('duration' in item) { price = safeNumeric(item.price); type = 'service'; }
-            else if ('interval' in item) { price = safeNumeric(item.price); type = 'membership'; }
-            else if ('sessions' in item) { price = safeNumeric(item.price); type = 'package'; }
+            if ('msrp' in item) { price = safeNumber(item.msrp || item.costPerUnit); type = 'product'; }
+            else if ('duration' in item) { price = safeNumber(item.price); type = 'service'; }
+            else if ('interval' in item) { price = safeNumber(item.price); type = 'membership'; }
+            else if ('sessions' in item) { price = safeNumber(item.price); type = 'package'; }
             return [...prev, { id: item.id, name: item.name, quantity: 1, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
         });
     }, []);
@@ -793,7 +789,7 @@ function POSPage() {
         const batch = writeBatch(firestore);
         
         const sanitizedCheckoutState = sanitizeForFirestore(checkoutState);
-        const overrides = checkoutState.serviceStaffOverrides || {}; // DEFINITION: Ensuring overrides is defined
+        const overrides = checkoutState.serviceStaffOverrides || {};
 
         if (allComplete) {
             batch.update(appointmentRef, { status: 'ready_for_checkout', checkoutState: sanitizedCheckoutState, actualEndTime: new Date().toISOString() });
@@ -848,7 +844,7 @@ function POSPage() {
             const checkoutState = apt.checkoutState || {};
             const overrides = checkoutState.serviceStaffOverrides || {};
             const isWaived = waivedAppointmentFees.has(apt.id);
-            const additional = !isWaived ? safeNumeric(checkoutState.additionalCharge) : 0;
+            const additional = !isWaived ? safeNumber(checkoutState.additionalCharge) : 0;
             
             const formula = checkoutState.formula || [];
             formula.forEach((item: any) => {
@@ -917,7 +913,7 @@ function POSPage() {
 
         if (selectedClient && appliedAdjustments.size > 0) {
             const currentUnpaid = selectedClient.unpaidFees || [];
-            const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + safeNumeric(fee?.feeAmount); }, 0);
+            const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + safeNumber(fee?.feeAmount); }, 0);
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) });
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
             appliedAdjustments.forEach(id => {
@@ -948,7 +944,7 @@ function POSPage() {
         }
         
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
-            const finalAmount = safeNumeric(amount);
+            const finalAmount = safeNumber(amount);
             if (finalAmount > 0) {
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
                 if (paymentData.paymentMethod === 'cash') {
@@ -996,7 +992,7 @@ function POSPage() {
             ...sanitizeForFirestore(data)
         };
         await setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, sessionId), session, {});
-        toast({ title: "Till Opened", description: `Session initialized with $${safeNumeric(data.openingFloat).toFixed(2)}.` });
+        toast({ title: "Till Opened", description: `Session initialized with $${safeNumber(data.openingFloat).toFixed(2)}.` });
     };
 
     const handleCloseTill = async (data: any) => {
@@ -1008,7 +1004,7 @@ function POSPage() {
         };
         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), updates);
         
-        if (Math.abs(safeNumeric(data.discrepancy)) > 0.01) {
+        if (Math.abs(safeNumber(data.discrepancy)) > 0.01) {
             const txn: Omit<Transaction, 'id'> = {
                 id: nanoid(),
                 date: new Date().toISOString(),
@@ -1017,7 +1013,7 @@ function POSPage() {
                 type: data.discrepancy > 0 ? 'income' : 'expense',
                 context: 'Business',
                 category: 'Audit Adjustment',
-                amount: Math.abs(safeNumeric(data.discrepancy)),
+                amount: Math.abs(safeNumber(data.discrepancy)),
                 paymentMethod: 'Till Internal',
                 hasReceipt: false,
             };
@@ -1086,7 +1082,7 @@ function POSPage() {
                         <div className="grid gap-4 md:gap-6 grid-cols-2 lg:grid-cols-4 flex-1 w-full text-left">
                             <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
                             <KpiCard title="Arrival Count" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500" />} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total guests today." />
-                            <KpiCard title="Daily Gross" value={`$${safeNumeric(kpiData.totalDailyGrossRevenue).toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
+                            <KpiCard title="Daily Gross" value={`$${safeNumber(kpiData.totalDailyGrossRevenue).toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
                         </div>
                         {isOwnerOrAdmin && (
                             <Button 
@@ -1095,7 +1091,7 @@ function POSPage() {
                                 className={cn("h-14 md:h-20 px-8 rounded-3xl font-black uppercase text-xs shadow-xl border-4 flex flex-col items-center justify-center gap-1", activeTill ? "border-green-500/20 bg-green-500/5 text-green-700" : "shadow-primary/20")}
                             >
                                 <Landmark className="w-5 h-5 mb-1" />
-                                {activeTill ? `Till: $${safeNumeric(activeTill.expectedCash).toFixed(2)}` : "Open Studio Till"}
+                                {activeTill ? `Till: $${safeNumber(activeTill.expectedCash).toFixed(2)}` : "Open Studio Till"}
                             </Button>
                         )}
                     </div>
