@@ -217,12 +217,11 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                                 {services.filter(s => s.type === 'addon' && !s.isPrivate).map(addon => {
                                     const isSelected = addOnIds.includes(addon.id);
                                     return (
-                                        <button 
+                                        <div 
                                             key={addon.id} 
-                                            type="button"
                                             onClick={() => handleToggleAddOn(addon.id)}
                                             className={cn(
-                                                "flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left",
+                                                "flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left cursor-pointer",
                                                 isSelected ? "border-primary bg-primary/5 shadow-md" : "border-transparent bg-white hover:border-primary/10"
                                             )}
                                         >
@@ -233,7 +232,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                                                 <span className={cn("text-[11px] font-black uppercase tracking-tight", isSelected ? "text-slate-900" : "text-slate-500")}>{addon.name}</span>
                                             </div>
                                             <span className="font-black font-mono text-[10px] text-primary/60">+${addon.price.toFixed(0)}</span>
-                                        </button>
+                                        </div>
                                     );
                                 })}
                             </div>
