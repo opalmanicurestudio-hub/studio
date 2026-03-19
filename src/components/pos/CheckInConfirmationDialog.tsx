@@ -24,9 +24,9 @@ import {
     Activity, 
     Landmark, 
     MapPin, 
-    ShieldCheck 
+    ShieldCheck,
+    Info
 } from 'lucide-react';
-import { type Service, type Appointment, type WalkIn } from '@/lib/data';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
