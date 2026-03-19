@@ -68,7 +68,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '../ui/switch';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -489,7 +489,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                               className="h-16 text-2xl md:text-3xl font-black font-mono border-2 rounded-2xl shadow-inner bg-muted/5 text-center focus-visible:ring-primary/20"
                           />
                           {actualDuration > service.duration && (
-                              <div className="p-4 bg-amber-500/5 border-2 border-amber-500/10 rounded-2xl animate-in slide-in-from-top-2">
+                              <div className="p-4 bg-amber-500/5 border-2 border-amber-500/10 rounded-2xl animate-in slide-in-from-top-2 text-left">
                                   <span className="text-[10px] font-black text-amber-700 flex items-center gap-2 uppercase tracking-tight"><Info className="w-3.5 h-3.5"/> Foundation Burn: +{actualDuration - service.duration}m Over Goal</span>
                               </div>
                           )}
@@ -524,7 +524,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 {editableFormula.length > 0 ? (
                                     <div className="grid gap-2">
                                         {editableFormula.map((item, index) => (
-                                            <div key={item.id} className="flex justify-between items-center p-4 bg-white rounded-2xl border-2 shadow-sm gap-4 group hover:border-primary/20 transition-all">
+                                            <div key={item.id} className="flex justify-between items-center p-4 bg-white rounded-2xl border-2 shadow-sm gap-4 group hover:border-primary/20 transition-all text-left">
                                                 <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
                                                 <div className="flex items-center gap-3">
                                                     <div className="flex items-center gap-2">
@@ -576,7 +576,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
                         <AnimatePresence>
                             {saveAsCustomFormula && (
-                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="overflow-hidden">
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                                     <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
                                         <Label htmlFor="custom-formula-name-review-manual" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
                                             <Tag className="w-3.5 h-3.5" /> Formula Identifier
@@ -615,9 +615,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <Button 
                         onClick={handleCompleteMyPart} 
                         disabled={completedServiceIds.length === 0 || (saveAsCustomFormula && !customFormulaName.trim())}
-                        className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all group"
+                        className="w-full h-14 sm:h-16 rounded-[1.5rem] md:rounded-[2rem] text-xs sm:text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all group whitespace-normal leading-tight px-4"
                     >
-                        {buttonLabel} <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2" />
+                        {buttonLabel} <ArrowRight className="ml-2 sm:ml-3 w-4 h-4 sm:w-6 sm:h-6 transition-transform group-hover:translate-x-2 shrink-0" />
                     </Button>
                     <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-tighter text-[10px] text-slate-400">Abort Review</Button>
                 </div>
