@@ -412,12 +412,27 @@ export const CheckoutHub = ({
     return (
         <div className="flex flex-col space-y-6 md:space-y-10">
             <div className="flex-shrink-0 text-left">
+                {isGroupCheckout && !selectedClientId && !isCartEmpty && (
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
+                        <Alert variant="destructive" className="border-2 border-primary/20 bg-primary/5 rounded-2xl p-4 shadow-xl shadow-primary/5">
+                            <Users className="h-5 w-5 text-primary" />
+                            <AlertTitle className="text-[10px] font-black uppercase text-primary tracking-widest text-left">Group Protocol Required</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1 text-left">
+                                Multiple guests detected. Please identify the primary account for settlement.
+                            </AlertDescription>
+                        </Alert>
+                    </motion.div>
+                )}
+
                 <div className="flex gap-2 mt-2">
                     <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
                         <DialogTrigger asChild>
                             <Button 
                                 variant="outline" 
-                                className="h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4"
+                                className={cn(
+                                    "h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4",
+                                    isGroupCheckout && !selectedClientId && !isCartEmpty && "border-primary animate-pulse bg-primary/5 ring-4 ring-primary/10"
+                                )}
                                 onClick={() => setIsPayerDialogOpen(true)}
                             >
                                 {selectedClient ? (
@@ -435,49 +450,55 @@ export const CheckoutHub = ({
                                         </div>
                                         <div className="flex items-center gap-2 min-w-0 text-left">
                                             <span className="truncate text-xs md:text-sm">{selectedClient.name}</span>
-                                            {isBirthdayToday && (
-                                                <TooltipProvider>
-                                                    <Tooltip>
-                                                        <TooltipTrigger asChild>
-                                                            <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />
-                                                        </TooltipTrigger>
-                                                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Guest Birthday Today</TooltipContent>
-                                                    </Tooltip>
-                                                </TooltipProvider>
-                                            )}
+                                            {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
                                             {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
                                             {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
                                         </div>
                                     </div>
-                                ) : <span className="opacity-40 text-xs md:text-sm">{isGroupCheckout ? "Select Account..." : "Search Payer..."}</span>}
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        {isGroupCheckout ? <Users className="w-4 h-4 text-primary" /> : <User className="w-4 h-4" />}
+                                        <span className={cn("text-xs md:text-sm", isGroupCheckout ? "text-primary" : "opacity-40")}>
+                                            {isGroupCheckout ? "Select Primary Payee..." : "Search Payer..."}
+                                        </span>
+                                    </div>
+                                )}
                                 <ChevronDown className="h-4 w-4 opacity-40 ml-2 shrink-0" />
                             </Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 overflow-hidden shadow-3xl">
                             <DialogHeader className="p-6 pb-4 border-b bg-muted/5 text-left">
-                                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Guest Search</DialogTitle>
-                                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Attribute this sale to a guest dossier.</DialogDescription>
+                                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">
+                                    {isGroupCheckout ? 'Identify Group Payer' : 'Guest Search'}
+                                </DialogTitle>
+                                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
+                                    {isGroupCheckout ? 'The only available options are the guests being serviced in this group.' : 'Attribute this sale to a guest dossier.'}
+                                </DialogDescription>
                             </DialogHeader>
                             <div className="p-6 space-y-6">
-                                <div className="relative">
-                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                                    <Input 
-                                        placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
-                                        value={clientSearch} 
-                                        onChange={e => setClientSearch(e.target.value)} 
-                                        className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-sm tracking-tight focus-visible:ring-primary/20"
-                                        autoFocus
-                                    />
-                                </div>
-                                <ScrollArea className="h-[300px] md:h-[350px] -mx-2 px-2">
+                                {!isGroupCheckout && (
+                                    <div className="relative">
+                                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                                        <Input 
+                                            placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
+                                            value={clientSearch} 
+                                            onChange={e => setClientSearch(e.target.value)} 
+                                            className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-sm tracking-tight focus-visible:ring-primary/20"
+                                            autoFocus
+                                        />
+                                    </div>
+                                )}
+                                <ScrollArea className={cn("-mx-2 px-2", isGroupCheckout ? "h-auto" : "h-[300px] md:h-[350px]")}>
                                     <div className="space-y-2 pb-4">
-                                        <button 
-                                            className="w-full text-left p-4 hover:bg-muted/50 transition-all flex items-center gap-4 border-2 rounded-2xl border-transparent hover:border-border"
-                                            onClick={() => { setSelectedClientId(null); setIsPayerDialogOpen(false); }}
-                                        >
-                                            <div className="p-3 bg-muted rounded-xl shadow-inner"><User className="w-5 h-5 text-muted-foreground" /></div>
-                                            <span className="font-black uppercase tracking-widest text-[11px] text-slate-600">WALK-IN GUEST (ANONYMOUS)</span>
-                                        </button>
+                                        {!isGroupCheckout && (
+                                            <button 
+                                                className="w-full text-left p-4 hover:bg-muted/50 transition-all flex items-center gap-4 border-2 rounded-2xl border-transparent hover:border-border"
+                                                onClick={() => { setSelectedClientId(null); setIsPayerDialogOpen(false); }}
+                                            >
+                                                <div className="p-3 bg-muted rounded-xl shadow-inner"><User className="w-5 h-5 text-muted-foreground" /></div>
+                                                <span className="font-black uppercase tracking-widest text-[11px] text-slate-600">WALK-IN GUEST (ANONYMOUS)</span>
+                                            </button>
+                                        )}
                                         {filteredPayerOptions.map((c: Client) => {
                                             const cMember = !!(c.activeMembershipId || c.subscription);
                                             const cPkg = (c.activePackages?.length || 0) > 0;
@@ -511,12 +532,14 @@ export const CheckoutHub = ({
                                     </div>
                                 </ScrollArea>
                             </div>
-                            <DialogFooter className="p-6 pt-0 bg-muted/5 border-t">
-                                <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}>
-                                    <UserPlus className="w-4 h-4 mr-2" />
-                                    Register New Client Profile
-                                </Button>
-                            </DialogFooter>
+                            {!isGroupCheckout && (
+                                <DialogFooter className="p-6 pt-0 bg-muted/5 border-t">
+                                    <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}>
+                                        <UserPlus className="w-4 h-4 mr-2" />
+                                        Register New Client Profile
+                                    </Button>
+                                </DialogFooter>
+                            )}
                         </DialogContent>
                     </Dialog>
                     <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" onClick={onScanClick}><QrCode className="w-6 h-6 opacity-40" /></Button>
@@ -910,7 +933,7 @@ export const CheckoutHub = ({
                         <Button 
                             className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tight" 
                             onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
-                            disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total) || isCartEmpty}
+                            disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
                         >
                             {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (total <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(total).toFixed(2)}`)}
                         </Button>
