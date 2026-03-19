@@ -7,9 +7,16 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * Safely extracts a numeric value from a potential Firestore FieldValue (Sentinel) object.
- * Returns 0 if the value is not a valid number.
+ * Returns 0 if the value is not a valid number or is a Firestore metadata object.
  */
 export function safeNumber(val: any): number {
+  if (val === null || val === undefined) return 0;
+  
+  // Explicitly handle numbers
+  if (typeof val === 'number') return val;
+  
+  // Attempt to cast to number. 
+  // Firestore Sentinel objects (increment) result in NaN when passed to Number()
   const n = Number(val);
   return isNaN(n) ? 0 : n;
 }

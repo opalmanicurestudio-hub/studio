@@ -57,7 +57,7 @@ import { Label as RadioLabel } from '@/components/ui/label';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { cn, hexToHSLComponents } from '@/lib/utils';
+import { cn, hexToHSLComponents, safeNumber } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, subYears } from 'date-fns';
@@ -288,7 +288,7 @@ export const CheckoutHub = ({
     const handleIndividualTipChange = (staffId: string, value: number) => {
         const nextAllocations = { ...tipAllocations, [staffId]: value };
         setTipAllocations(nextAllocations);
-        const nextTotal = Object.values(nextAllocations).reduce((sum: number, val: any) => sum + (Number(val) || 0), 0);
+        const nextTotal = Object.values(nextAllocations).reduce((sum: number, val: any) => sum + safeNumber(val), 0);
         setTipAmount(Number(nextTotal.toFixed(2)));
     };
 
@@ -306,17 +306,12 @@ export const CheckoutHub = ({
         } else toast({ variant: 'destructive', title: 'Invalid Code' });
     };
 
-    /**
-     * CRITICAL FIX: Benefit Enforcement
-     * We perform numeric validation against the guest's verified usage.
-     * If monthly allotments are exhausted (e.g. 1/1), redemptions are strictly disabled.
-     */
     const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
         if (!client.subscription || client.subscription.status !== 'active') return true;
         
-        const usageCount = Number(client.subscription?.perkUsage?.[perkId] || 0);
+        const usageCount = safeNumber(client.subscription?.perkUsage?.[perkId]);
         const perkDef = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
-        const limit = Number(perkDef?.quantity || 1);
+        const limit = safeNumber(perkDef?.quantity || 1);
         
         if (usageCount >= limit) return true;
 
@@ -346,7 +341,7 @@ export const CheckoutHub = ({
                         const exhausted = isPerkExhausted(selectedClient, perk.id, membership);
                         items.push({
                             type: 'membership', id: membership.id, itemId: perk.id, label: perk.name, subLabel: 'Membership Perk', exhausted, 
-                            usage: `${selectedClient.subscription?.perkUsage?.[perk.id] || 0}/${perk.quantity}`
+                            usage: `${safeNumber(selectedClient.subscription?.perkUsage?.[perk.id])}/${perk.quantity}`
                         });
                     }
                 });
@@ -355,7 +350,7 @@ export const CheckoutHub = ({
                         const exhausted = isPerkExhausted(selectedClient, perk.id, membership);
                         items.push({
                             type: 'membership', id: membership.id, itemId: perk.id, label: perk.name, subLabel: 'Membership Perk (Add-on)', exhausted, 
-                            usage: `${selectedClient.subscription?.perkUsage?.[perk.id] || 0}/${perk.quantity}`
+                            usage: `${safeNumber(selectedClient.subscription?.perkUsage?.[perk.id])}/${perk.quantity}`
                         });
                     }
                 });
@@ -542,7 +537,7 @@ export const CheckoutHub = ({
 
             {selectedClient && availableEntitlements.length > 0 && (
                 <div className="space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1 text-left">
                         <Award className="w-3 h-3" />
                         Available Benefits
                     </p>
@@ -623,7 +618,7 @@ export const CheckoutHub = ({
                                                 </div>
                                             </div>
                                             <div className="text-right shrink-0">
-                                                <p className={cn("font-black font-mono text-base md:text-lg tracking-tighter", isRedeemed ? "line-through text-muted-foreground opacity-40" : "text-slate-900")}>${getServicePrice(data.service, data.staff).toFixed(2)}</p>
+                                                <p className={cn("font-black font-mono text-base md:text-lg tracking-tighter", isRedeemed ? "line-through text-muted-foreground opacity-40" : "text-slate-900")}>${safeNumber(getServicePrice(data.service, data.staff)).toFixed(2)}</p>
                                                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                             </div>
                                         </div>
@@ -642,7 +637,7 @@ export const CheckoutHub = ({
                                                                     <span className={cn("text-[10px] font-bold uppercase tracking-tight", isAddonRedeemed ? "text-primary" : "text-muted-foreground")}>+ {addon.name}</span>
                                                                     {isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 px-1 font-black uppercase">REDEEMED</Badge>}
                                                                 </div>
-                                                                <span className={cn("text-[10px] font-black font-mono", isAddonRedeemed ? "line-through text-muted-foreground opacity-40" : "text-muted-foreground")}>${getServicePrice(addon, data.staff).toFixed(2)}</span>
+                                                                <span className={cn("text-[10px] font-black font-mono", isAddonRedeemed ? "line-through text-muted-foreground opacity-40" : "text-muted-foreground")}>${safeNumber(getServicePrice(addon, data.staff)).toFixed(2)}</span>
                                                             </div>
                                                             <div className="flex items-center gap-1.5 opacity-60 text-left">
                                                                 <span className="text-[8px] font-black uppercase text-primary tracking-widest">{addonStaffMember?.name?.split(' ')[0] || 'Tech'}</span>
@@ -653,11 +648,11 @@ export const CheckoutHub = ({
                                             </div>
                                         )}
 
-                                        {data.appointment.checkoutState?.additionalCharge > 0 && (
+                                        {safeNumber(data.appointment.checkoutState?.additionalCharge) > 0 && (
                                             <div className="pt-3 border-t border-dashed flex justify-between items-center text-left">
                                                 <span className="text-[10px] font-black uppercase text-muted-foreground">Audit Overage</span>
                                                 <div className="flex items-center gap-3">
-                                                    <span className={cn("font-black font-mono text-xs", waivedAppointmentFees.has(data.appointment.id) ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
+                                                    <span className={cn("font-black font-mono text-xs", waivedAppointmentFees.has(data.appointment.id) ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${safeNumber(data.appointment.checkoutState.additionalCharge).toFixed(2)}</span>
                                                     {isOwnerOrAdmin && (waivedAppointmentFees.has(data.appointment.id) ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
                                                 </div>
                                             </div>
@@ -679,7 +674,7 @@ export const CheckoutHub = ({
                                         <span className="w-6 md:w-8 text-center text-xs font-black">{item.quantity}</span>
                                         <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3"/></Button>
                                     </div>
-                                    <p className="font-black font-mono text-sm tracking-tighter w-14 md:w-16 text-right text-slate-900">${(item.price * item.quantity).toFixed(2)}</p>
+                                    <p className="font-black font-mono text-sm tracking-tighter w-14 md:w-16 text-right text-slate-900">${(safeNumber(item.price) * item.quantity).toFixed(2)}</p>
                                 </div>
                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4"/></Button>
                             </div>
@@ -694,7 +689,7 @@ export const CheckoutHub = ({
                                         <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p>
                                         <p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Protocol Debt</p>
                                     </div>
-                                    <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${fee?.feeAmount.toFixed(2)}</p>
+                                    <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${safeNumber(fee?.feeAmount).toFixed(2)}</p>
                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => onApplyAdjustmentToggle(id as string, false)}><XCircle className="h-4 w-4"/></Button>
                                 </div>
                             );
@@ -740,7 +735,7 @@ export const CheckoutHub = ({
                                     <p className="text-[9px] md:text-[10px] text-muted-foreground font-bold truncate opacity-60 uppercase">{d.description}</p>
                                 </div>
                                 <div className="text-right ml-4 shrink-0">
-                                    <p className="text-xs md:sm font-black text-amber-700">{d.type === 'percentage' ? `${d.value}%` : `$${d.value}`} OFF</p>
+                                    <p className="text-xs md:sm font-black text-amber-700">{d.type === 'percentage' ? `${d.value}%` : `$${safeNumber(d.value)}`} OFF</p>
                                 </div>
                             </Button>
                         ))}
@@ -751,21 +746,21 @@ export const CheckoutHub = ({
             <div className="space-y-4 pt-6 border-t border-dashed text-left">
                 <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
                     <p>Subtotal</p>
-                    <p className="font-mono text-[11px] md:text-xs">${subtotal.toFixed(2)}</p>
+                    <p className="font-mono text-[11px] md:text-xs">${safeNumber(subtotal).toFixed(2)}</p>
                 </div>
                 {(discount + membershipDiscount) > 0 && (
                     <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter text-left">
                         <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
-                        <span className="font-mono text-[11px] md:text-xs">-${(discount + membershipDiscount).toFixed(2)}</span>
+                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(discount + membershipDiscount).toFixed(2)}</span>
                     </div>
                 )}
                 {appliedAdjustments.size > 0 && (
                     <div className="flex justify-between items-center text-[10px] text-destructive font-black uppercase tracking-tighter text-left">
                         <span className="flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Debt Consolidation</span>
-                        <span className="font-mono text-[11px] md:text-xs">+{Array.from(appliedAdjustments).reduce((sum, id) => {
+                        <span className="font-mono text-[11px] md:text-xs">+{safeNumber(Array.from(appliedAdjustments).reduce((sum, id) => {
                             const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
-                            return sum + (fee?.feeAmount || 0);
-                        }, 0).toFixed(2)}</span>
+                            return sum + safeNumber(fee?.feeAmount);
+                        }, 0)).toFixed(2)}</span>
                     </div>
                 )}
                 {redeemedOffer && (
@@ -776,7 +771,7 @@ export const CheckoutHub = ({
                 )}
                 <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
                     <p>Studio Tax (7%)</p>
-                    <p className="font-mono text-[11px] md:text-xs">${tax.toFixed(2)}</p>
+                    <p className="font-mono text-[11px] md:text-xs">${safeNumber(tax).toFixed(2)}</p>
                 </div>
                 
                 <div className="flex justify-between items-center py-1 md:py-2 text-left">
@@ -824,7 +819,7 @@ export const CheckoutHub = ({
                         <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
                         <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
                     </div>
-                    <p className="font-mono text-2xl md:text-4xl">${total.toFixed(2)}</p>
+                    <p className="font-mono text-2xl md:text-4xl">${safeNumber(total).toFixed(2)}</p>
                 </div>
 
                 <AnimatePresence>
@@ -888,7 +883,7 @@ export const CheckoutHub = ({
                                     <div className="space-y-1.5 text-left">
                                         <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600 ml-2">Change Due</Label>
                                         <div className="h-12 md:h-14 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
-                                            <p className="font-black text-lg md:text-2xl text-green-600 font-mono tracking-tighter">-${(amountTendered - total).toFixed(2)}</p>
+                                            <p className="font-black text-lg md:text-2xl text-green-600 font-mono tracking-tighter">-${safeNumber(amountTendered - total).toFixed(2)}</p>
                                         </div>
                                     </div>
                                 )}
@@ -917,7 +912,7 @@ export const CheckoutHub = ({
                             onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
                             disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total) || isCartEmpty}
                         >
-                            {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (total <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${total.toFixed(2)}`)}
+                            {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (total <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(total).toFixed(2)}`)}
                         </Button>
                     </div>
                 </div>
