@@ -36,7 +36,9 @@ import {
   ChevronRight,
   Filter,
   SlidersHorizontal,
-  Check
+  Check,
+  RefreshCw,
+  Database
 } from 'lucide-react';
 import {
   Select,
@@ -78,7 +80,7 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
                 Start building your client base to unlock automated loyalty tracking and custom formulas.
             </p>
         </div>
-        <Button size="lg" onAddClient={onAddClient} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+        <Button size="lg" onClick={onAddClient} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
             <UserPlus className="mr-2 h-5 w-5" />
             Add First Guest
         </Button>
@@ -104,6 +106,7 @@ export default function ClientsPage() {
   const [showBanned, setShowBanned] = useState(false);
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
@@ -157,6 +160,40 @@ export default function ClientsPage() {
       description: `${data.name} has been added to your client list.`,
     });
   }
+
+  const handleBulkReconcile = async () => {
+      if (!firestore || !tenantId || !clients || isReconciling) return;
+      setIsReconciling(true);
+      const batch = writeBatch(firestore);
+      
+      try {
+          const txnsRef = collection(firestore, `tenants/${tenantId}/transactions`);
+          const txnsSnap = await getDocs(query(txnsRef, where("type", "==", "income")));
+          
+          const incomeByClient: Record<string, number> = {};
+          txnsSnap.docs.forEach(d => {
+              const data = d.data();
+              if (data.clientId) {
+                  incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) + (Number(data.amount) || 0);
+              }
+          });
+
+          clients.forEach(client => {
+              const realLtv = incomeByClient[client.id] || 0;
+              if (Math.abs(realLtv - (Number(client.lifetimeValue) || 0)) > 0.01) {
+                  batch.update(doc(firestore, `tenants/${tenantId}/clients`, client.id), { lifetimeValue: realLtv });
+              }
+          });
+
+          await batch.commit();
+          toast({ title: "Ledgers Synchronized", description: "All client lifetime values have been verified against the transaction ledger." });
+      } catch (e) {
+          console.error(e);
+          toast({ variant: 'destructive', title: "Sync Failed" });
+      } finally {
+          setIsReconciling(false);
+      }
+  };
 
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
@@ -224,7 +261,6 @@ export default function ClientsPage() {
         totalLtvGain += Number(secondary.lifetimeValue || 0);
         totalBalanceGain += Number(secondary.outstandingBalance || 0);
 
-        // 1. Find all appointments for this secondary client
         const aptsRef = collection(firestore, `tenants/${tenantId}/appointments`);
         const aptsQuery = query(aptsRef, where("clientId", "==", secondary.id));
         const aptsSnap = await getDocs(aptsQuery);
@@ -233,7 +269,6 @@ export default function ClientsPage() {
             batch.update(aptDoc.ref, { clientId: primaryId });
         });
 
-        // 2. Find all transactions for this secondary client
         const txnsRef = collection(firestore, `tenants/${tenantId}/transactions`);
         const txnsQuery = query(txnsRef, where("clientId", "==", secondary.id));
         const txnsSnap = await getDocs(txnsQuery);
@@ -242,12 +277,10 @@ export default function ClientsPage() {
             batch.update(txnDoc.ref, { clientId: primaryId });
         });
 
-        // 3. Delete the secondary profile
         const secondaryRef = doc(firestore, `tenants/${tenantId}/clients`, secondary.id);
         batch.delete(secondaryRef);
     }
 
-    // 4. Update primary with consolidated financials
     batch.update(primaryRef, {
         lifetimeValue: increment(totalLtvGain),
         outstandingBalance: increment(totalBalanceGain)
@@ -369,16 +402,8 @@ export default function ClientsPage() {
             return (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
         }).length;
 
-        // DEFENSIVE: Ensure we parse the lifetimeValue correctly to avoid NaN poisoning
-        const totalRevenue = filteredClients.reduce((acc, c) => {
-            const val = Number(c.lifetimeValue);
-            return acc + (isNaN(val) ? 0 : val);
-        }, 0);
-
-        const totalPendingDebt = filteredClients.reduce((acc, c) => {
-            const val = Number(c.outstandingBalance);
-            return acc + (isNaN(val) ? 0 : val);
-        }, 0);
+        const totalRevenue = filteredClients.reduce((acc, c) => acc + (Number(c.lifetimeValue) || 0), 0);
+        const totalPendingDebt = filteredClients.reduce((acc, c) => acc + (Number(c.outstandingBalance) || 0), 0);
 
         const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -409,7 +434,7 @@ export default function ClientsPage() {
                         Intelligence Hub
                     </CardTitle>
                 </CardHeader>
-                <CardContent className="p-8 pt-0">
+                <CardContent className="p-8 pt-0 text-left">
                     <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Active Portfolio</p>
                     <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">{stats.totalActiveClients}</p>
                     <div className="mt-6 space-y-4">
@@ -432,7 +457,7 @@ export default function ClientsPage() {
                         <TrendingUp className="w-3 h-3" /> Financial Performance
                     </CardTitle>
                 </CardHeader>
-                <CardContent className="p-6 space-y-6">
+                <CardContent className="p-6 space-y-6 text-left">
                     <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 text-destructive space-y-1">
                         <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Arrears Recovery</p>
                         <p className="text-2xl font-black font-mono tracking-tighter">${stats.totalPendingDebt.toFixed(2)}</p>
@@ -482,20 +507,20 @@ export default function ClientsPage() {
           <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
               <div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
                   <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-2">
-                      <div className="space-y-1">
+                      <div className="space-y-1 text-left">
                           <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Rolodex</h1>
                           <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Complete guest record database</p>
                       </div>
                       <div className="flex items-center gap-3 w-full md:w-auto">
-                          <Button variant="outline" onClick={handleExport} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm"><FileDown className="mr-2 h-4 w-4" /> Export</Button>
+                          <Button variant="outline" onClick={handleExport} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm"><FileDown className="mr-2 h-4 w-4" /> Export</Button>
                           <Button onClick={() => setIsAddClientOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20"><UserPlus className="mr-2 h-4 w-4" /> New Guest</Button>
                       </div>
                   </div>
 
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                      <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8">
+                      <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
                           <div className="flex flex-col md:flex-row items-center gap-4">
-                              <div className="relative flex-1 w-full">
+                              <div className="relative flex-1 w-full text-left">
                                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                                   <Input 
                                       placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
@@ -520,9 +545,9 @@ export default function ClientsPage() {
                           </div>
 
                           <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-6 md:gap-x-10 gap-y-4 md:gap-y-6">
-                              <div className="flex items-center gap-3 w-full md:w-auto">
+                              <div className="flex items-center gap-3 w-full md:w-auto text-left">
                                   <div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div>
-                                  <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Filter Matrix</h4>
+                                  <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Library Matrix</h4>
                               </div>
                               <div className="flex flex-wrap items-center gap-4 md:gap-8">
                                   <div className="flex items-center space-x-2">
@@ -541,9 +566,15 @@ export default function ClientsPage() {
                                       </Label>
                                   </div>
                               </div>
-                              <Button variant="ghost" size="sm" className='w-full md:w-auto md:ml-auto font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={() => setIsMergeClientsOpen(true)}>
-                                  <Merge className="mr-2 h-3.5 w-3.5"/>Merge Duplicate Profiles
-                              </Button>
+                              <div className="flex flex-wrap gap-2 w-full md:w-auto md:ml-auto">
+                                <Button variant="ghost" size="sm" className='h-9 font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={handleBulkReconcile} disabled={isReconciling}>
+                                    {isReconciling ? <Loader className="animate-spin h-3.5 w-3.5 mr-2"/> : <Database className="mr-2 h-3.5 w-3.5"/>}
+                                    Sync All Ledgers
+                                </Button>
+                                <Button variant="ghost" size="sm" className='h-9 font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={() => setIsMergeClientsOpen(true)}>
+                                    <Merge className="mr-2 h-3.5 w-3.5"/>Merge Duplicate Profiles
+                                </Button>
+                              </div>
                           </div>
                       </CardHeader>
                       <CardContent className="p-6 md:p-8">
@@ -632,7 +663,7 @@ export default function ClientsPage() {
         
         <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
               <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-                  <AlertDialogHeader className="p-6 pb-0">
+                  <AlertDialogHeader className="p-6 pb-0 text-left">
                       <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Confirm Purge</AlertDialogTitle>
                       <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
                           You are about to permanently delete {selectedItems.size} guest records. This will wipe all associated dossiers, formulas, and history. <strong>This action is non-reversible.</strong>

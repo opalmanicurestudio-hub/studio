@@ -164,7 +164,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                             className="h-10 font-bold uppercase text-[9px] text-muted-foreground hover:text-destructive"
                             onClick={() => handleAction('decline_void')}
                         >
-                            Void Protocol without Penalty
+                            Decline Protocol without Penalty
                         </Button>
                     </div>
                 </div>
@@ -860,18 +860,8 @@ function POSPage() {
         }
 
         if (selectedClient) {
-            /**
-             * CRITICAL REBUILD: Lifetime Value Logic
-             * We calculate the Net New Revenue (Gross Increase - All Discounts).
-             * We use the atomic increment() operator to stack this value server-side.
-             * This prevents local state resets to $0.00 or overwriting existing history.
-             */
             const finalLtvDelta = Math.max(0, totalLtvIncrease - discount - membershipDiscount);
-            const updates: any = { 
-                lifetimeValue: increment(finalLtvDelta), 
-                lastAppointment: now 
-            };
-            
+            const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
             if (redeemedOffer) {
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`));
                 const offeringName = redeemedOffer.type === 'membership' ? memberships?.find(m => m.id === redeemedOffer.id)?.name : packages?.find(p => p.id === redeemedOffer.id)?.name;
@@ -879,17 +869,12 @@ function POSPage() {
                 if (redeemedOffer.type === 'package') updates.activePackages = (selectedClient.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
                 else { updates[`subscription.perkUsage.${redeemedOffer.itemId}`] = increment(1); updates['subscription.perkLastUsed'] = now; }
             }
-
             if (membershipDiscount > 0) {
                 const mId = selectedClient.activeMembershipId || selectedClient.subscription?.membershipId;
                 const membership = memberships?.find(m => m.id === mId);
-                if (membership?.retailDiscountLimit) {
-                    updates['subscription.perkUsage.retail_discount'] = increment(1);
-                    updates['subscription.perkLastUsed'] = now;
-                }
+                if (membership?.retailDiscountLimit) { updates['subscription.perkUsage.retail_discount'] = increment(1); updates['subscription.perkLastUsed'] = now; }
             }
-
-            batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), sanitizeForFirestore(updates));
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
         }
         
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {

@@ -47,7 +47,8 @@ import {
     Landmark,
     Star,
     History,
-    CheckCircle
+    CheckCircle,
+    Database
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -286,6 +287,7 @@ export default function ClientDetailPage() {
           
           const realLtv = snapshot.docs.reduce((acc, d) => {
               const data = d.data();
+              // Standard LTV is Net revenue post-discounts
               return acc + (Number(data.amount) || 0);
           }, 0);
           
@@ -508,7 +510,7 @@ export default function ClientDetailPage() {
                             <div className="space-y-4 pt-6 border-t border-dashed">
                                 <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Historical Records</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] font-black uppercase tracking-widest">Empty history</p></div>}
+                                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">Empty history</p></div>}
                                 </div>
                             </div>
                         </TabsContent>
@@ -622,15 +624,22 @@ export default function ClientDetailPage() {
                     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white text-left">
                         <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
                             <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Financial Vault</CardTitle>
-                            <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                onClick={handleReconcileLtv}
-                                disabled={isReconciling}
-                                className="h-8 w-8 rounded-xl text-primary hover:bg-primary/5"
-                            >
-                                {isReconciling ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                            </Button>
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="icon" 
+                                            onClick={handleReconcileLtv}
+                                            disabled={isReconciling}
+                                            className="h-8 w-8 rounded-xl text-primary hover:bg-primary/5 border border-primary/10 shadow-sm"
+                                        >
+                                            {isReconciling ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">Reconcile LTV from Ledger</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
                         </CardHeader>
                         <CardContent className="p-6 space-y-6 text-left">
                             <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group">
