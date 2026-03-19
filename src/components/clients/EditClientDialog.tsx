@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -61,7 +60,7 @@ import {
   CreditCard,
   Lock
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { type Client } from '@/lib/data';
 import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -288,7 +287,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                         name="avatarUrl"
                         control={control}
                         render={({ field }) => (
-                            <div className="relative group">
+                            <div className="relative group shrink-0">
                                 <Avatar className="w-24 h-24 border-4 border-background shadow-2xl rounded-3xl overflow-hidden transition-all group-hover:scale-105">
                                     <AvatarImage src={field.value || undefined} alt="Client Avatar" className="object-cover" />
                                     <AvatarFallback className="bg-primary/10 text-primary font-black uppercase"><Upload className="h-8 w-8 opacity-40" /></AvatarFallback>
@@ -299,10 +298,10 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                             </div>
                         )}
                     />
-                    <div className="flex-1 space-y-4 w-full">
+                    <div className="flex-1 space-y-4 w-full text-left">
                         <div className="space-y-1.5 text-left">
                             <Label htmlFor="full-name-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Legal Name</Label>
-                            <Input id="full-name-edit" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base" />
+                            <Input id="full-name-edit" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base shadow-inner bg-white" />
                             {errors.name && <p className="text-[9px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                         </div>
                         <div className="space-y-1.5 text-left">
@@ -532,19 +531,24 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
 
   useEffect(() => {
     if(open && client) {
-        reset({
-            name: client.name,
-            email: client.email,
-            // CRITICAL FIX: Strip spaces from phone number to prevent react-phone-number-input console error
-            phone: client.phone ? client.phone.replace(/\s/g, '') : '',
-            avatarUrl: client.avatarUrl,
+        // Sanitize data to prevent Sentinel object leaks into form state
+        const sanitizedClient = {
+            ...client,
+            lifetimeValue: safeNumber(client.lifetimeValue),
+            outstandingBalance: safeNumber(client.outstandingBalance),
+            walletCredit: safeNumber(client.walletCredit),
+            name: String(client.name || ''),
+            email: String(client.email || ''),
+            phone: client.phone ? String(client.phone).replace(/\s/g, '') : '',
+            avatarUrl: String(client.avatarUrl || ''),
             birthday: client.birthday ? parseISO(client.birthday) : undefined,
             address: client.address || {},
             emergencyContact: client.emergencyContact || {},
             notes: client.notes || {},
             intel: client.intel || {},
             cardOnFile: client.cardOnFile || {},
-        });
+        };
+        reset(sanitizedClient);
     }
   }, [open, client, reset]);
 

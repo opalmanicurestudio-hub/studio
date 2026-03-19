@@ -57,7 +57,7 @@ import { format, parseISO, subMonths, isAfter } from 'date-fns';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { EditClientDialog } from '@/components/clients/EditClientDialog';
@@ -87,11 +87,6 @@ const safeDate = (val: any): Date => {
         return new Date(val.seconds * 1000);
     }
     return new Date(val);
-};
-
-const safeNumeric = (val: any): number => {
-    const n = Number(val);
-    return isNaN(n) ? 0 : n;
 };
 
 const getInitials = (name: string) => {
@@ -153,7 +148,7 @@ const AppointmentHistoryCard = ({
   appointment: any;
   onRebook: (appointment: Appointment) => void;
 }) => {
-  const total = Number((appointment.revenue || appointment.service?.price || 0)) + Number(appointment.tipAmount || 0);
+  const total = safeNumber(appointment.revenue || appointment.service?.price || 0) + safeNumber(appointment.tipAmount || 0);
   return (
     <Card className="flex flex-col border-2 rounded-[1.5rem] shadow-sm overflow-hidden group hover:border-primary/20 transition-all bg-white text-left">
       <CardContent className="p-5 space-y-4 flex-1">
@@ -239,7 +234,7 @@ export default function ClientDetailPage() {
     setIsSettleProcessing(true);
     
     const batch = writeBatch(firestore);
-    const amount = Number(client.outstandingBalance || 0);
+    const amount = safeNumber(client.outstandingBalance);
     const now = new Date().toISOString();
 
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -289,7 +284,7 @@ export default function ClientDetailPage() {
           let realLtv = 0;
           snapshot.docs.forEach(d => {
               const data = d.data();
-              const amt = Number(data.amount) || 0;
+              const amt = safeNumber(data.amount);
               // Sum(Income) - Sum(Reversal) - Sum(Discounts)
               if (data.type === 'income') {
                   realLtv += amt;
@@ -329,9 +324,9 @@ export default function ClientDetailPage() {
 
   const { safeLTV, safeWalletCredit, safeOutstandingBalance } = useMemo(() => {
       return {
-          safeLTV: safeNumeric(client?.lifetimeValue),
-          safeWalletCredit: safeNumeric(client?.walletCredit),
-          safeOutstandingBalance: safeNumeric(client?.outstandingBalance)
+          safeLTV: safeNumber(client?.lifetimeValue),
+          safeWalletCredit: safeNumber(client?.walletCredit),
+          safeOutstandingBalance: safeNumber(client?.outstandingBalance)
       };
   }, [client]);
 
@@ -382,8 +377,8 @@ export default function ClientDetailPage() {
                             {isOwnerOrAdmin ? (
                                 <div className="space-y-1 min-w-0 max-w-full text-left">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
-                                    <a href={`mailto:${client.email}`} className="text-xs md:sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{client.email}</a>
-                                    <p className="text-xs md:sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
+                                    <a href={`mailto:${client.email}`} className="text-xs md:sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{String(client.email || '')}</a>
+                                    <p className="text-xs md:sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(String(client.phone)) : 'N/A'}</p>
                                 </div>
                             ) : (
                                 <div className="space-y-1 text-left">
@@ -393,7 +388,7 @@ export default function ClientDetailPage() {
                             )}
                             <div className="space-y-1 text-left">
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Discovery Source</p>
-                                <p className="text-xs md:sm font-black uppercase tracking-tight text-slate-700">{client.intel?.referralSource || 'Unknown'}</p>
+                                <p className="text-xs md:sm font-black uppercase tracking-tight text-slate-700">{String(client.intel?.referralSource || 'Unknown')}</p>
                             </div>
                             <div className="space-y-1 text-left">
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Strategic Origin</p>
@@ -445,7 +440,7 @@ export default function ClientDetailPage() {
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Service Allotment</p>
                                                             </div>
                                                             <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
-                                                                {isRedeemed ? <CheckCircle className="w-4 h-4" /> : <Star className="w-4 h-4" />}
+                                                                {isRedeemed ? <CheckCircle2 className="w-4 h-4" /> : <Star className="w-4 h-4" />}
                                                             </div>
                                                         </div>
                                                         <div className="space-y-2">
@@ -472,7 +467,7 @@ export default function ClientDetailPage() {
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Enhancement Allotment</p>
                                                             </div>
                                                             <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
-                                                                {isRedeemed ? <CheckCircle className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
+                                                                {isRedeemed ? <CheckCircle2 className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
                                                             </div>
                                                         </div>
                                                         <div className="space-y-2">
@@ -500,10 +495,10 @@ export default function ClientDetailPage() {
                                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Birth Milestone</p>
                                             <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
                                         </div>
-                                        {client.address && <div className="space-y-1 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
+                                        {client.address && <div className="space-y-1 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{String(client.address.street || '')}<br/>{String(client.address.city || '')}, {String(client.address.state || '')} {String(client.address.zip || '')}</p></div>}
                                     </div>
                                     <div className="space-y-6 text-left">
-                                        {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight">{client.emergencyContact.name}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{client.emergencyContact.relationship}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
+                                        {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight">{String(client.emergencyContact.name || '')}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{String(client.emergencyContact.relationship || '')}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(String(client.emergencyContact.phone)) : 'N/A'}</p></div>}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -542,7 +537,7 @@ export default function ClientDetailPage() {
                                             <Card key={formula.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group text-left">
                                                 <CardHeader className="bg-muted/5 border-b p-5 flex flex-row items-center justify-between text-left">
                                                     <div className="space-y-0.5 text-left">
-                                                        <CardTitle className="text-xs font-black uppercase tracking-tight">{formula.name}</CardTitle>
+                                                        <CardTitle className="text-xs font-black uppercase tracking-tight">{String(formula.name || 'Untitled Formula')}</CardTitle>
                                                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Established {format(safeDate(formula.date), 'MMM d, yyyy')}</p>
                                                     </div>
                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeleteFormula(formula.id)}>
@@ -553,15 +548,15 @@ export default function ClientDetailPage() {
                                                     <div className="space-y-2">
                                                         {formula.items.map((item, idx) => (
                                                             <div key={idx} className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight p-2 rounded-xl bg-muted/20 border-2 border-transparent">
-                                                                <span className="text-slate-600 truncate mr-2">{item.name}</span>
-                                                                <span className="font-black text-slate-900 shrink-0">{item.quantity}{item.unit}</span>
+                                                                <span className="text-slate-600 truncate mr-2">{String(item.name || 'Component')}</span>
+                                                                <span className="font-black text-slate-900 shrink-0">{safeNumber(item.quantity)}{String(item.unit || 'u')}</span>
                                                             </div>
                                                         ))}
                                                     </div>
                                                     {formula.notes && (
                                                         <div className="pt-2 text-left">
                                                             <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1">Audit Notes</p>
-                                                            <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3">"{formula.notes}"</p>
+                                                            <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3">"{String(formula.notes)}"</p>
                                                         </div>
                                                     )}
                                                 </CardContent>
@@ -585,10 +580,10 @@ export default function ClientDetailPage() {
                                         {client.unpaidFees.map((fee) => (
                                             <div key={fee.feeId} className="flex justify-between items-center p-5 rounded-2xl border-2 border-destructive/20 bg-destructive/[0.02] shadow-sm">
                                                 <div className="space-y-1 text-left">
-                                                    <p className="font-black text-sm uppercase tracking-tight text-destructive">{fee.reason}</p>
+                                                    <p className="font-black text-sm uppercase tracking-tight text-destructive">{String(fee.reason || 'Outstanding Balance')}</p>
                                                     <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p>
                                                 </div>
-                                                <p className="text-xl font-black font-mono tracking-tighter text-destructive">${Number(fee.feeAmount || 0).toFixed(2)}</p>
+                                                <p className="text-xl font-black font-mono tracking-tighter text-destructive">${safeNumber(fee.feeAmount).toFixed(2)}</p>
                                             </div>
                                         ))}
                                     </div>
@@ -607,8 +602,8 @@ export default function ClientDetailPage() {
                                                     {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.type === 'membership' ? <Award className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
                                                 </div>
                                                 <div className="min-w-0 text-left">
-                                                    <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate">{r.serviceName}</p>
-                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Via {r.offeringName}</p>
+                                                    <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate">{String(r.serviceName || 'Benefit')}</p>
+                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Via {String(r.offeringName || 'Offer')}</p>
                                                 </div>
                                             </div>
                                             <div className="text-right">
@@ -679,11 +674,11 @@ export default function ClientDetailPage() {
                                         <div className="flex items-center gap-3 text-left">
                                             <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><CreditCard className="w-5 h-5 text-primary" /></div>
                                             <div className="text-left">
-                                                <p className="text-xs font-black uppercase tracking-tighter text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p>
-                                                <p className="text-[8px] font-bold text-muted-foreground uppercase">Exp: {client.cardOnFile.expiryMonth}/{client.cardOnFile.expiryYear}</p>
+                                                <p className="text-xs font-black uppercase tracking-tighter text-slate-900">{String(client.cardOnFile.brand || 'Card')} •••• {String(client.cardOnFile.last4 || '****')}</p>
+                                                <p className="text-[8px] font-bold text-muted-foreground uppercase">Exp: {safeNumber(client.cardOnFile.expiryMonth)}/{safeNumber(client.cardOnFile.expiryYear)}</p>
                                             </div>
                                         </div>
-                                        <Button variant="ghost" size="icon" onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5"><RefreshCw className="w-3.5 h-3.5" /></Button>
+                                        <button onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5 flex items-center justify-center rounded-lg transition-colors"><RefreshCw className="w-3.5 h-3.5" /></button>
                                     </div>
                                 ) : (
                                     <Button variant="outline" onClick={() => setIsEditClientOpen(true)} className="w-full h-12 rounded-xl border-2 border-dashed font-black uppercase text-[9px] tracking-widest bg-muted/5 hover:bg-primary/[0.02] hover:border-primary/20 transition-all">
@@ -732,14 +727,14 @@ export default function ClientDetailPage() {
             <div className="p-8 space-y-8">
                 <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                     <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Arrears Balance</p>
-                    <p className="text-5xl font-black text-primary tracking-tighter font-mono">${safeLTV.toFixed(2)}</p>
+                    <p className="text-5xl font-black text-primary tracking-tighter font-mono">${safeOutstandingBalance.toFixed(2)}</p>
                 </div>
                 <div className="space-y-4 text-left">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</p>
                     <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left">
                         <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
                         <div className="text-left">
-                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile?.brand} •••• {client.cardOnFile?.last4}</p>
+                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">{String(client.cardOnFile?.brand || 'Card')} •••• {String(client.cardOnFile?.last4 || '****')}</p>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase">Authorized Vault Access</p>
                         </div>
                     </div>
@@ -750,7 +745,7 @@ export default function ClientDetailPage() {
                 </div>
             </div>
             <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
-                <Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30" onClick={handleQuickSettle} disabled={isSettleProcessing}>{isSettleProcessing ? <Loader className="animate-spin" /> : 'Authorize Charge'}</Button>
+                <Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-3xl shadow-primary/30" onClick={handleQuickSettle} disabled={isSettleProcessing}>{isSettleProcessing ? <Loader className="animate-spin" /> : 'Authorize Charge'}</Button>
                 <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
             </DialogFooter>
         </DialogContent>
