@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -280,12 +281,12 @@ export const CheckoutHub = ({
         }
     }, [allInvolvedStaff, setTipAmount, setTipAllocations]);
 
-    // Re-split tips automatically if the staff composition changes (e.g. adding/removing tickets)
+    // Re-split tips automatically if the staff composition changes
     useEffect(() => {
         if (tipAmount > 0) {
             handleTotalTipChange(tipAmount);
         }
-    }, [allInvolvedStaff.length, handleTotalTipChange]);
+    }, [allInvolvedStaff.length, handleTotalTipChange, tipAmount]);
 
     const handleIndividualTipChange = (staffId: string, value: number) => {
         const nextAllocations = { ...tipAllocations, [staffId]: safeNumber(value) };
