@@ -111,15 +111,15 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                             return (svcId === appointment.serviceId) || concurrentIds.includes(svcId) || primaryDone;
                                         });
                                         return (
-                                            <div key={`tech-${tech.id}`} className={cn("flex items-center gap-2 p-2 rounded-xl border-2 bg-background transition-all", isDone && "opacity-40 grayscale")}>
+                                            <div key={`tech-card-${tech.id}`} className={cn("flex items-center gap-2 p-2 rounded-xl border-2 bg-background transition-all", isDone && "opacity-40 grayscale")}>
                                                 <Avatar className="h-7 w-7 border shadow-sm rounded-lg"><AvatarImage src={tech.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-[9px] uppercase">{(tech.name||'S')[0]}</AvatarFallback></Avatar>
                                                 <div className="min-w-0 flex-1 text-left">
                                                     <p className="text-[10px] font-black uppercase tracking-tight truncate leading-tight">{tech.name.split(' ')[0]}</p>
                                                     <div className="flex items-center gap-1.5 mt-0.5">
-                                                        {techServices.map((sid, idx) => {
+                                                        {techServices.map((sid, sIdx) => {
                                                             const isCon = concurrentIds.includes(sid);
                                                             return (
-                                                                <Tooltip key={`tech-${tech.id}-svc-${sid}-${idx}`}>
+                                                                <Tooltip key={`tech-tip-${tech.id}-${sid}-${sIdx}`}>
                                                                     <TooltipTrigger>{isCon ? <Zap className="w-2.5 h-2.5 text-primary" /> : <Workflow className="w-2.5 h-2.5 text-muted-foreground opacity-40" />}</TooltipTrigger>
                                                                     <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">{services?.find((s: Service) => s.id === sid)?.name} ({isCon ? 'Concurrent' : 'Turn'})</TooltipContent>
                                                                 </Tooltip>
@@ -134,7 +134,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                 </div>
                             </div>
                             <div className="text-right shrink-0">
-                                {allServices?.slice(0, 2).map((s, idx) => <div key={`service-status-${s.id}-${idx}`} className="flex items-center justify-end gap-1">{completedIds.includes(s.id) && <Check className="w-2.5 h-2.5 text-green-500" />}<p className={cn("text-[9px] font-black uppercase tracking-widest", completedIds.includes(s.id) ? "text-muted-foreground line-through opacity-40" : "text-slate-900")}>{s.name}</p></div>)}
+                                {allServices?.slice(0, 2).map((s, idx) => <div key={`svc-lbl-${s.id}-${idx}`} className="flex items-center justify-end gap-1">{completedIds.includes(s.id) && <Check className="w-2.5 h-2.5 text-green-500" />}<p className={cn("text-[9px] font-black uppercase tracking-widest", completedIds.includes(s.id) ? "text-muted-foreground line-through opacity-40" : "text-slate-900")}>{s.name}</p></div>)}
                                 {elapsedTime && <p className={cn("text-2xl font-black font-mono tracking-tighter mt-3", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>}
                             </div>
                         </div>

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -117,9 +116,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
   }, [initialAppointment, allAppointments]);
 
-  // CRITICAL: Guard Clause to prevent TypeError when data is synchronizing
-  if (!mounted || !open || !appointment || !client || !service) return null;
-
   const currentAddOns = useMemo(() => {
     if (!appointment?.addOnIds || !allServices) return [];
     return appointment.addOnIds
@@ -159,13 +155,15 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       .reduce((acc: number, p: any) => {
         const product = inventory.find((i) => i.id === p.id);
         if (!product) return acc;
-        let costPerUse =
-          product.costingMethod === 'size' && product.size
-            ? (product.costPerUnit || 0) / product.size
-            : product.estimatedUses
-            ? (product.costPerUnit || 0) / product.estimatedUses
-            : product.costPerUnit || 0;
-        return acc + costPerUse * (p.quantityUsed || 1);
+        let costPerBaseUnit = 0;
+        if (product.costingMethod === 'size' && product.size) {
+            costPerBaseUnit = (product.costPerUnit || 0) / product.size;
+        } else if (product.costingMethod === 'uses' && product.estimatedUses) {
+            costPerBaseUnit = (product.costPerUnit || 0) / product.estimatedUses;
+        } else {
+            costPerBaseUnit = product.costPerUnit || 0;
+        }
+        return acc + costPerBaseUnit * (p.quantityUsed || 1);
       }, 0);
 
     const start = safeDate(appointment.actualStartTime || appointment.startTime);
@@ -248,6 +246,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     });
     setIsAddAndConfigureOpen(false);
   };
+
+  // Guard Clause now moved AFTER all hook calls
+  if (!mounted || !open || !appointment || !client || !service) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
   const mainStaffId = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;

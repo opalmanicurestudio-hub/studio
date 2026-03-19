@@ -45,6 +45,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { CheckInConfirmationDialog } from '@/components/pos/CheckInConfirmationDialog';
 import { PrintTicket } from '@/components/planner/PrintTicket';
 
+// HELPER FUNCTIONS (Moved to top for consistent scope)
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -107,7 +108,6 @@ function POSPage() {
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
-    const [policyEnforcementData, setPolicyEnforcementData] = useState<any | null>(null);
     const [pendingCheckInItem, setPendingCheckInItem] = useState<any | null>(null);
     const [ticketToPrint, setTicketToPrint] = useState<any | null>(null);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
@@ -116,9 +116,10 @@ function POSPage() {
     const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package'; id: string; itemId?: string } | null>(null);
     const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
 
-    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+    const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
     const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
 
+    // Data Resolution Memos
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointmentsFromInventory || !clients || !services || !staff) return [];
         return appointmentsFromInventory
@@ -149,6 +150,7 @@ function POSPage() {
 
     const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
 
+    // HANDLERS
     const handleSelectAppointment = useCallback((id: string) => {
         const nextIds = new Set(selectedAppointmentIds);
         let nextClientId = selectedClientId;
@@ -323,7 +325,7 @@ function POSPage() {
       batch.commit().then(() => toast({ title: "Service Started" }));
     };
 
-    const handleFinishService = (apt: Appointment) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); };
+    const handleFinishService = (apt: Appointment) => { setSelectedAppointment(apt); setIsTechnicianReviewOpen(true); };
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
       if (!firestore || !tenantId || !services) return;
@@ -342,15 +344,7 @@ function POSPage() {
             if (apt) { setSelectedAppointment(apt); setIsCancelDialogOpen(true); }
             return; 
         }
-        setConfirmation({
-            isOpen: true, title: 'Are you sure?', description: 'This will remove the guest from the queue.',
-            onConfirm: async () => {
-                if (!firestore || !tenantId) return;
-                await updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'cancelled' });
-                toast({ title: "Walk-in Removed" });
-                setConfirmation(null);
-            }
-        });
+        toast({ title: "Walk-in Removed" });
     };
 
     const handleCheckout = async (paymentData: {paymentMethod: string, amountTendered: number}) => {
@@ -533,7 +527,7 @@ function POSPage() {
                             <KpiCard title="Arrival Count" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500" />} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total guests today." />
                             <KpiCard title="Daily Gross" value={`$${safeNumber(kpiData.totalDailyGrossRevenue).toFixed(2)}`} icon={<DollarSign className="text-amber-500" />} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
                         </div>
-                        {isOwnerOrAdmin && (<Button variant={activeTill ? "outline" : "default"} onClick={() => setIsTillManagementOpen(true)} className={cn("h-14 md:h-20 px-8 rounded-3xl font-black uppercase text-xs shadow-xl border-4 flex flex-col items-center justify-center gap-1", activeTill ? "border-green-500/20 bg-green-500/5 text-green-700" : "shadow-primary/20")}><Landmark className="w-5 h-5 mb-1" /> {activeTill ? `Till: $${safeNumber(activeTill.expectedCash).toFixed(2)}` : "Open Studio Till"}</Button>)}
+                        {isOwnerOrAdminUser && (<Button variant={activeTill ? "outline" : "default"} onClick={() => setIsTillManagementOpen(true)} className={cn("h-14 md:h-20 px-8 rounded-3xl font-black uppercase text-xs shadow-xl border-4 flex flex-col items-center justify-center gap-1", activeTill ? "border-green-500/20 bg-green-500/5 text-green-700" : "shadow-primary/20")}><Landmark className="w-5 h-5 mb-1" /> {activeTill ? `Till: $${safeNumber(activeTill.expectedCash).toFixed(2)}` : "Open Studio Till"}</Button>)}
                     </div>
                     <div className="grid gap-10 grid-cols-1">
                         <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={onForceIdle} />

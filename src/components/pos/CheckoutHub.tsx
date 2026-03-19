@@ -451,7 +451,7 @@ export const CheckoutHub = ({
                                             )}
                                         </div>
                                         <div className="flex items-center gap-2 min-w-0 text-left">
-                                            <span className="truncate text-xs md:text-sm">{selectedClient.name}</span>
+                                            <span className="truncate text-xs md:sm">{selectedClient.name}</span>
                                             {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
                                             {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
                                             {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
@@ -604,11 +604,9 @@ export const CheckoutHub = ({
             )}
 
             <div className="space-y-4">
-                <div className="flex items-center justify-between px-1">
-                    <div className="flex items-center gap-2 text-left">
-                        <ShoppingCart className="w-4 h-4 text-primary" />
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized Manifest</h3>
-                    </div>
+                <div className="flex items-center gap-2 px-1 text-left">
+                    <ShoppingCart className="w-4 h-4 text-primary" />
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized Manifest</h3>
                 </div>
                 
                 {isCartEmpty ? (
@@ -863,7 +861,7 @@ export const CheckoutHub = ({
                 </AnimatePresence>
 
                 <div className="space-y-3 md:space-y-4 pt-6 text-left">
-                    <RadioGroup value={paymentTab} onValueChange={paymentTab === 'cash' ? (v) => { if(!activeTill && v === 'cash') return; setPaymentTab(v); } : setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+                    <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
                         <div>
                             <RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" disabled={!activeTill} />
                             <RadioLabel htmlFor="hub-pay-cash" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !activeTill && "opacity-40 grayscale")}>
@@ -943,7 +941,7 @@ export const CheckoutHub = ({
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
+            <WaiveFeeDialog open={isInterveneAuthOpen} onOpenChange={setIsInterveneAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
         </div>
     );
 };
