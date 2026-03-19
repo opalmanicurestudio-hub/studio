@@ -240,7 +240,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                     </div>
 
                     <div className="space-y-6 pt-4 border-t border-dashed">
-                        <div className="space-y-4">
+                        <div className="space-y-4 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                                 <Activity className="w-3.5 h-3.5 opacity-40" /> Strategic Accommodations
                             </Label>

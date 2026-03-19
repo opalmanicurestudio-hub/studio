@@ -86,6 +86,18 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+const timeStringToDate = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    if (!timeStr) return d;
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+    d.setHours(hours, minutes);
+    return d;
+}
+
 const isBusinessOpen = (date: Date, schedule: any) => {
     if (!schedule || !schedule.week) return { open: true };
     const dayName = format(date, 'eeee').toLowerCase();
@@ -257,7 +269,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                 <Button 
                     size="lg" 
                     onClick={onConfirm} 
-                    disabled={phonePadValue.length < 10 || isVerifying}
+                    disabled={value.length < 10 || isVerifying}
                     className="w-full h-16 md:h-20 rounded-2xl text-lg md:text-2xl font-bold uppercase tracking-widest shadow-2xl shadow-primary/30 group"
                 >
                     {isVerifying ? <Loader className="animate-spin" /> : <>Identify Me <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></>}
