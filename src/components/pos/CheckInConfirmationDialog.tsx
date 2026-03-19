@@ -25,22 +25,31 @@ import {
     Landmark, 
     MapPin, 
     ShieldCheck,
-    Info
+    Info,
+    Mail,
+    Phone,
+    Printer
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useForm, FormProvider } from 'react-hook-form';
+import { PhoneInput } from '@/components/ui/phone-input';
+import { type Service, type Tenant } from '@/lib/data';
+import { PrintTicket } from '@/components/planner/PrintTicket';
 
 interface CheckInConfirmationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: any; // Appointment or WalkIn
   services: Service[];
-  onConfirm: (data: { serviceId: string; addOnIds: string[] }) => void;
+  tenant: Tenant | null;
+  onConfirm: (data: { serviceId: string; addOnIds: string[]; email: string; phone: string }) => void;
 }
 
 export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps> = ({
@@ -48,17 +57,29 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
   onOpenChange,
   item,
   services,
+  tenant,
   onConfirm,
 }) => {
   const [serviceId, setServiceId] = useState('');
   const [addOnIds, setAddOnIds] = useState<string[]>([]);
+  
+  const methods = useForm({
+      defaultValues: {
+          email: '',
+          phone: '',
+      }
+  });
 
   useEffect(() => {
     if (open && item) {
       setServiceId(item.serviceId || (item.serviceIds?.[0]) || '');
       setAddOnIds(item.addOnIds || item.serviceIds?.slice(1) || []);
+      methods.reset({
+          email: item.clientEmail || item.customerEmail || '',
+          phone: item.clientPhone || item.customerPhone || '',
+      });
     }
-  }, [open, item]);
+  }, [open, item, methods]);
 
   const selectedService = useMemo(() => services.find(s => s.id === serviceId), [services, serviceId]);
   
@@ -67,27 +88,37 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
   };
 
   const handleConfirm = () => {
-    onConfirm({ serviceId, addOnIds });
+    const { email, phone } = methods.getValues();
+    onConfirm({ serviceId, addOnIds, email, phone });
     onOpenChange(false);
+  };
+
+  const handlePrint = () => {
+      window.print();
   };
 
   if (!item) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
-        <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left flex-shrink-0">
-          <div className="flex items-center gap-3 mb-2">
-            <ShieldCheck className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Identity Certification</span>
+      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col max-h-[90vh]">
+        <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5 p-8 pb-6")}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+                <ShieldCheck className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Identity Certification</span>
+            </div>
+            <Button variant="ghost" size="sm" onClick={handlePrint} className="h-8 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary border border-primary/20 hover:bg-primary/5">
+                <Printer className="w-3.5 h-3.5 mr-2" /> Print Ticket
+            </Button>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none mt-4">
             Verify Check-in
           </DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Confirm manifest for: <strong className="text-foreground">{item.clientName || item.customerName}</strong></DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[60vh]">
+        <ScrollArea className="flex-1">
             <div className="p-8 space-y-10">
                 <div className="space-y-6">
                     <div className="flex items-center gap-4 text-left">
@@ -100,11 +131,24 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                         </div>
                     </div>
 
+                    <FormProvider {...methods}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1 flex items-center gap-2"><Mail className="w-3 h-3"/> Verified Email</Label>
+                                <Input {...methods.register('email')} className="h-12 rounded-xl border-2 font-bold text-xs" />
+                            </div>
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1 flex items-center gap-2"><Phone className="w-3 h-3"/> Verified Mobile</Label>
+                                <PhoneInput name="phone" label="" className="h-12" />
+                            </div>
+                        </div>
+                    </FormProvider>
+
                     <div className="p-6 rounded-[2.5rem] bg-muted/10 border-2 space-y-6 shadow-inner text-left">
                         <div className="space-y-3">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Primary Treatment</Label>
                             <Select value={serviceId} onValueChange={setServiceId}>
-                                <SelectTrigger className="h-14 rounded-2xl border-2 shadow-sm bg-white font-black uppercase text-xs tracking-tight">
+                                <SelectTrigger id="service-confirm-select" className="h-14 rounded-2xl border-2 shadow-sm bg-white font-black uppercase text-xs tracking-tight">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -168,6 +212,18 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
             </Button>
           </div>
         </DialogFooter>
+
+        {/* HIDDEN PRINTABLE AREA */}
+        <div className="hidden print:block" id="print-ticket-area">
+            {selectedService && (
+                <PrintTicket data={{
+                    business: { name: tenant?.name || 'Studio', phone: tenant?.twilioPhoneNumber || '' },
+                    client: { name: item.clientName || item.customerName, email: methods.watch('email'), phone: methods.watch('phone') } as any,
+                    appointment: item,
+                    service: selectedService
+                }} />
+            )}
+        </div>
       </DialogContent>
     </Dialog>
   );

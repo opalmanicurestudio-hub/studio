@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -700,22 +699,43 @@ function POSPage() {
 
     const handleResolveCheckInConfirmation = async (data: any) => {
         if (!pendingCheckInItem || !firestore || !tenantId) return;
-        const { id, isWalkIn } = pendingCheckInItem;
+        const { id, isWalkIn, clientId } = pendingCheckInItem;
         const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
         
+        const batch = writeBatch(firestore);
+
         const updates: any = {
             checkInStatus: 'arrived',
             serviceId: data.serviceId,
             addOnIds: data.addOnIds,
+            clientEmail: data.email,
+            clientPhone: data.phone,
         };
 
         if (isWalkIn) {
             updates.serviceIds = [data.serviceId, ...(data.addOnIds || [])];
+            updates.customerEmail = data.email;
+            updates.customerPhone = data.phone;
         }
 
-        updateDocumentNonBlocking(docRef, updates);
-        toast({ title: "Check-in Certified" });
-        setPendingCheckInItem(null);
+        batch.update(docRef, updates);
+
+        if (clientId) {
+            const clientRef = doc(firestore, 'tenants', tenantId, 'clients', clientId);
+            batch.update(clientRef, {
+                email: data.email,
+                phone: data.phone
+            });
+        }
+
+        try {
+            await batch.commit();
+            toast({ title: "Check-in Certified", description: "Contact info and manifest updated." });
+            setPendingCheckInItem(null);
+        } catch (e) {
+            console.error(e);
+            toast({ variant: 'destructive', title: "Certification Failed" });
+        }
     };
 
     const handleResolve = (item: any) => {
@@ -1124,6 +1144,7 @@ function POSPage() {
                 onOpenChange={() => setPendingCheckInItem(null)} 
                 item={pendingCheckInItem} 
                 services={services || []} 
+                tenant={selectedTenant}
                 onConfirm={handleResolveCheckInConfirmation} 
             />
         </div>
