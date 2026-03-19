@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -863,7 +863,7 @@ export const CheckoutHub = ({
                 </AnimatePresence>
 
                 <div className="space-y-3 md:space-y-4 pt-6 text-left">
-                    <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+                    <RadioGroup value={paymentTab} onValueChange={paymentTab === 'cash' ? (v) => { if(!activeTill && v === 'cash') return; setPaymentTab(v); } : setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
                         <div>
                             <RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" disabled={!activeTill} />
                             <RadioLabel htmlFor="hub-pay-cash" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !activeTill && "opacity-40 grayscale")}>
