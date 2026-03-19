@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -42,6 +43,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { TillManagement } from '@/components/pos/TillManagement';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { CheckInConfirmationDialog } from '@/components/pos/CheckInConfirmationDialog';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -217,6 +219,7 @@ function POSPage() {
     const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
 
     const [policyEnforcementData, setPolicyEnforcementData] = useState<any | null>(null);
+    const [pendingCheckInItem, setPendingCheckInItem] = useState<any | null>(null);
 
     const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
 
@@ -624,6 +627,14 @@ function POSPage() {
         const tmhrValue = selectedTenant.tmhr || 50;
         const premium = selectedTenant.lateInconveniencePremium || 0;
 
+        if (status === 'arrived') {
+            const item = isWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
+            if (item) {
+                setPendingCheckInItem({ ...item, isWalkIn });
+                return;
+            }
+        }
+
         if (status === 'running_late' && lateMinutes && !isWalkIn) {
             const apt = (appointmentsFromInventory || []).find(a => a.id === id);
             if (apt) {
@@ -685,6 +696,26 @@ function POSPage() {
         }
         await batch.commit();
         setPolicyEnforcementData(null);
+    };
+
+    const handleResolveCheckInConfirmation = async (data: any) => {
+        if (!pendingCheckInItem || !firestore || !tenantId) return;
+        const { id, isWalkIn } = pendingCheckInItem;
+        const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
+        
+        const updates: any = {
+            checkInStatus: 'arrived',
+            serviceId: data.serviceId,
+            addOnIds: data.addOnIds,
+        };
+
+        if (isWalkIn) {
+            updates.serviceIds = [data.serviceId, ...(data.addOnIds || [])];
+        }
+
+        updateDocumentNonBlocking(docRef, updates);
+        toast({ title: "Check-in Certified" });
+        setPendingCheckInItem(null);
     };
 
     const handleResolve = (item: any) => {
@@ -860,7 +891,6 @@ function POSPage() {
         }
 
         if (selectedClient) {
-            // CRITICAL LTV FIX: Log net delta after ALL discounts
             const finalLtvDelta = Math.max(0, totalLtvIncrease - discountValue - membershipDiscount);
             const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
             
@@ -875,8 +905,6 @@ function POSPage() {
                 const mId = selectedClient.activeMembershipId || selectedClient.subscription?.membershipId;
                 const membership = memberships?.find(m => m.id === mId);
                 if (membership?.retailDiscountLimit) { updates['subscription.perkUsage.retail_discount'] = increment(1); updates['subscription.perkLastUsed'] = now; }
-                
-                // Track membership discount as an internal expense for LTV reconciliation
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Membership Discount Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: membershipDiscount, paymentMethod: 'Internal', hasReceipt: false });
             }
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
@@ -894,7 +922,6 @@ function POSPage() {
         });
         
         if (discountValue > 0) {
-            // Track promo discount as an internal expense for LTV reconciliation
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false });
         }
 
@@ -1091,6 +1118,14 @@ function POSPage() {
             </Dialog>
             <PolicyEnforcementDialog open={!!policyEnforcementData} onOpenChange={() => setPolicyEnforcementData(null)} data={policyEnforcementData} staff={staff || []} onResolve={handleResolvePolicyEnforcement} />
             <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
+            
+            <CheckInConfirmationDialog 
+                open={!!pendingCheckInItem} 
+                onOpenChange={() => setPendingCheckInItem(null)} 
+                item={pendingCheckInItem} 
+                services={services || []} 
+                onConfirm={handleResolveCheckInConfirmation} 
+            />
         </div>
     );
 }
