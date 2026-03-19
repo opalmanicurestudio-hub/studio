@@ -306,6 +306,11 @@ export const CheckoutHub = ({
         } else toast({ variant: 'destructive', title: 'Invalid Code' });
     };
 
+    /**
+     * CRITICAL FIX: Benefit Enforcement
+     * We perform numeric validation against the guest's verified usage.
+     * If monthly allotments are exhausted (e.g. 1/1), redemptions are strictly disabled.
+     */
     const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
         if (!client.subscription || client.subscription.status !== 'active') return true;
         

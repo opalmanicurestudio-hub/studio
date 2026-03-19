@@ -54,10 +54,13 @@ export function useDoc<T = any>(
     setIsLoading(true);
     setError(null);
 
-    // CRITICAL FIX: includeMetadataChanges is set to FALSE.
-    // This prevents Firestore "Sentinel" objects (like the ones emitted by increment())
-    // from leaking into the React state before they resolve to numbers.
-    // This resolves the "Objects are not valid as React child" error and $NaN issues.
+    /**
+     * CRITICAL FIX: includeMetadataChanges is set to FALSE.
+     * This is mandatory when using atomic operators like increment().
+     * It prevents Firestore "Sentinel" objects (local cache placeholders) 
+     * from leaking into React state before they resolve to numbers.
+     * Resolves: "Objects are not valid as a React child" and $0.00 reset issues.
+     */
     const unsubscribe = onSnapshot(
       memoizedDocRef,
       { includeMetadataChanges: false },

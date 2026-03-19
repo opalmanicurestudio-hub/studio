@@ -860,6 +860,12 @@ function POSPage() {
         }
 
         if (selectedClient) {
+            /**
+             * CRITICAL REBUILD: Lifetime Value Logic
+             * We calculate the Net New Revenue (Gross Increase - All Discounts).
+             * We use the atomic increment() operator to stack this value server-side.
+             * This prevents local state resets to $0.00 or overwriting existing history.
+             */
             const finalLtvDelta = Math.max(0, totalLtvIncrease - discount - membershipDiscount);
             const updates: any = { 
                 lifetimeValue: increment(finalLtvDelta), 

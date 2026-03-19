@@ -87,6 +87,11 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+const safeNumeric = (val: any): number => {
+    const n = Number(val);
+    return isNaN(n) ? 0 : n;
+};
+
 const getInitials = (name: string) => {
     if (!name) return '?';
     const parts = name.split(' ');
@@ -312,14 +317,10 @@ export default function ClientDetailPage() {
   }
 
   const { safeLTV, safeWalletCredit, safeOutstandingBalance } = useMemo(() => {
-      const getNum = (v: any) => {
-          const n = Number(v);
-          return isNaN(n) ? 0 : n;
-      }
       return {
-          safeLTV: getNum(client?.lifetimeValue),
-          safeWalletCredit: getNum(client?.walletCredit),
-          safeOutstandingBalance: getNum(client?.outstandingBalance)
+          safeLTV: safeNumeric(client?.lifetimeValue),
+          safeWalletCredit: safeNumeric(client?.walletCredit),
+          safeOutstandingBalance: safeNumeric(client?.outstandingBalance)
       };
   }, [client]);
 
@@ -713,7 +714,7 @@ export default function ClientDetailPage() {
             <div className="p-8 space-y-8">
                 <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                     <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Arrears Balance</p>
-                    <p className="text-5xl font-black text-primary tracking-tighter font-mono">${safeOutstandingBalance.toFixed(2)}</p>
+                    <p className="text-5xl font-black text-primary tracking-tighter font-mono">${safeLTV.toFixed(2)}</p>
                 </div>
                 <div className="space-y-4 text-left">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</p>
