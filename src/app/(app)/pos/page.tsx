@@ -791,8 +791,9 @@ function POSPage() {
         if (allComplete) {
             batch.update(appointmentRef, { status: 'ready_for_checkout', checkoutState: sanitizedCheckoutState, actualEndTime: new Date().toISOString() });
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
-            const involvedIds = new Set<string>(); if (apt.staffId) involvedIds.add(apt.staffId);
-            if (checkoutState.serviceStaffOverrides) Object.values(checkoutState.serviceStaffOverrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
+            const involvedIds = new Set<string>(); 
+            if (apt.staffId) involvedIds.add(apt.staffId);
+            if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
             involvedIds.forEach(sid => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }); });
         } else {
             batch.update(appointmentRef, { checkoutState: sanitizedCheckoutState });

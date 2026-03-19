@@ -100,7 +100,6 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
       setAddOnIds(item.addOnIds || item.serviceIds?.slice(1) || []);
       setArrivalNotes(item.notes || '');
       
-      // Prefill accommodations from client sensory needs if available
       const currentNeeds = item.client?.sensoryNeeds || '';
       const initialAcc = accommodationsOptions
         .filter(opt => currentNeeds.toLowerCase().includes(opt.label.toLowerCase()))
@@ -250,12 +249,11 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                                 {accommodationsOptions.map((opt) => {
                                     const isSelected = selectedAccommodations.includes(opt.id);
                                     return (
-                                        <button
+                                        <div
                                             key={opt.id}
-                                            type="button"
                                             onClick={() => handleToggleAccommodation(opt.id)}
                                             className={cn(
-                                                "flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left",
+                                                "flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left cursor-pointer",
                                                 isSelected ? "border-primary bg-primary/5 shadow-md" : "border-transparent bg-muted/10 hover:border-border"
                                             )}
                                         >
@@ -265,8 +263,13 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                                                 </div>
                                                 <span className={cn("text-[11px] font-black uppercase tracking-tight", isSelected ? "text-slate-900" : "text-slate-500")}>{opt.label}</span>
                                             </div>
-                                            <Checkbox checked={isSelected} onCheckedChange={() => handleToggleAccommodation(opt.id)} className="h-5 w-5 rounded-lg border-2" />
-                                        </button>
+                                            <Checkbox 
+                                                checked={isSelected} 
+                                                onCheckedChange={() => handleToggleAccommodation(opt.id)} 
+                                                className="h-5 w-5 rounded-lg border-2" 
+                                                onClick={(e) => e.stopPropagation()}
+                                            />
+                                        </div>
                                     );
                                 })}
                             </div>
@@ -308,7 +311,6 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
           </div>
         </DialogFooter>
 
-        {/* HIDDEN PRINTABLE AREA */}
         <div className="hidden print:block" id="print-ticket-area">
             {selectedService && (
                 <PrintTicket data={{
