@@ -631,7 +631,7 @@ export const CheckoutHub = ({
                                 <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all text-left", isRedeemed ? "border-primary bg-primary/[0.03] shadow-lg" : "border-border/50 bg-muted/5")}>
                                     <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4 text-left">
                                         <div className="flex justify-between items-start gap-4">
-                                            <div className="flex-1 min-w-0 text-left">
+                                            <div className="flex-1 min-w-0 text-left w-full">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
                                                     {isRedeemed && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Entitlement</Badge>}
@@ -658,7 +658,7 @@ export const CheckoutHub = ({
                                                             <div className="flex justify-between items-center text-left">
                                                                 <div className="flex items-center gap-2 text-left">
                                                                     <span className={cn("text-[10px] font-bold uppercase tracking-tight", isAddonRedeemed ? "text-primary" : "text-muted-foreground")}>+ {addon.name}</span>
-                                                                    {isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 px-1 font-black uppercase">REDEEMED</Badge>}
+                                                                    {isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 font-black uppercase">REDEEMED</Badge>}
                                                                 </div>
                                                                 <span className={cn("text-[10px] font-black font-mono", isAddonRedeemed ? "line-through text-muted-foreground opacity-40" : "text-muted-foreground")}>${safeNumber(getServicePrice(addon, data.staff)).toFixed(2)}</span>
                                                             </div>
@@ -941,7 +941,7 @@ export const CheckoutHub = ({
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-            <WaiveFeeDialog open={isInterveneAuthOpen} onOpenChange={setIsInterveneAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
+            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
         </div>
     );
 };
