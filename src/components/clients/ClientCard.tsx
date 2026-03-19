@@ -22,14 +22,9 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useTenant } from '@/context/TenantContext';
-
-const safeNumeric = (val: any): number => {
-    const n = Number(val);
-    return isNaN(n) ? 0 : n;
-};
 
 export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
     const { role } = useTenant();
@@ -48,9 +43,9 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         return (name || 'G').substring(0, 2).toUpperCase();
     };
 
-    // DEFENSIVE: Secure numeric values to prevent $NaN errors caused by objects or missing fields
-    const safeLTV = useMemo(() => safeNumeric(client.lifetimeValue), [client.lifetimeValue]);
-    const safeBalance = useMemo(() => safeNumeric(client.outstandingBalance), [client.outstandingBalance]);
+    // CRITICAL: Protect against "Objects as React child" by wrapping all numeric values in safeNumber helper
+    const safeLTV = useMemo(() => safeNumber(client.lifetimeValue), [client.lifetimeValue]);
+    const safeBalance = useMemo(() => safeNumber(client.outstandingBalance), [client.outstandingBalance]);
 
     const hasDebt = safeBalance > 0;
     const isMember = !!(client.activeMembershipId || client.subscription);
@@ -126,7 +121,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                     )}
                 </div>
 
-                <div className="flex items-center gap-3 pt-2 border-t border-dashed mt-auto">
+                <div className="flex items-center gap-3 pt-2 border-t border-dashed mt-auto text-left">
                     <TooltipProvider>
                         <div className="flex gap-2">
                             {client.intel?.hasIncidents && (

@@ -15,8 +15,15 @@ export function safeNumber(val: any): number {
   // Explicitly handle numbers
   if (typeof val === 'number') return val;
   
+  // Detect Firestore Sentinel objects (increment, etc)
+  // These often have keys like _methodName, Dc, or are just objects that cast to NaN
+  if (typeof val === 'object') {
+      if ('_methodName' in val || 'Dc' in val || 'it' in val) {
+          return 0;
+      }
+  }
+  
   // Attempt to cast to number. 
-  // Firestore Sentinel objects (increment) result in NaN when passed to Number()
   const n = Number(val);
   return isNaN(n) ? 0 : n;
 }

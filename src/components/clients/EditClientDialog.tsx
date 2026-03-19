@@ -289,8 +289,8 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                         render={({ field }) => (
                             <div className="relative group shrink-0">
                                 <Avatar className="w-24 h-24 border-4 border-background shadow-2xl rounded-3xl overflow-hidden transition-all group-hover:scale-105">
-                                    <AvatarImage src={field.value || undefined} alt="Client Avatar" className="object-cover" />
-                                    <AvatarFallback className="bg-primary/10 text-primary font-black uppercase"><Upload className="h-8 w-8 opacity-40" /></AvatarFallback>
+                                    <AvatarImage src={field.value || undefined} alt="Staff Avatar" className="object-cover" />
+                                    <AvatarFallback className="bg-primary/10 text-primary font-black uppercase text-xl">{(watch('name') || 'S').charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-[2rem] cursor-pointer">
                                     <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
@@ -531,8 +531,9 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
 
   useEffect(() => {
     if(open && client) {
-        // Sanitize data to prevent Sentinel object leaks into form state
-        const sanitizedClient = {
+        // CRITICAL FIX: Sanitize data to prevent Firestore Sentinel objects from leaking into form state
+        // and causing "Objects are not valid as a React child" crashes during reset().
+        const sanitizedClient: any = {
             ...client,
             lifetimeValue: safeNumber(client.lifetimeValue),
             outstandingBalance: safeNumber(client.outstandingBalance),

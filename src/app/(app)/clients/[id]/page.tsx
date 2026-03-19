@@ -70,7 +70,7 @@ import { collection, doc, arrayUnion, writeBatch, increment, getDocs, query, whe
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
