@@ -282,19 +282,27 @@ export default function ClientDetailPage() {
       
       try {
           const txnsRef = collection(firestore, `tenants/${tenantId}/transactions`);
-          const q = query(txnsRef, where("clientId", "==", client.id), where("type", "==", "income"));
+          const q = query(txnsRef, where("clientId", "==", client.id));
           const snapshot = await getDocs(q);
           
-          const realLtv = snapshot.docs.reduce((acc, d) => {
+          let realLtv = 0;
+          snapshot.docs.forEach(d => {
               const data = d.data();
-              // Standard LTV is Net revenue post-discounts
-              return acc + (Number(data.amount) || 0);
-          }, 0);
+              const amt = Number(data.amount) || 0;
+              // Sum(Income) - Sum(Reversal) - Sum(Discounts)
+              if (data.type === 'income') {
+                  realLtv += amt;
+              } else if (data.type === 'reversal') {
+                  realLtv -= amt;
+              } else if (data.type === 'expense' && data.category === 'Discounts') {
+                  realLtv -= amt;
+              }
+          });
           
           const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-          updateDocumentNonBlocking(clientRef, { lifetimeValue: realLtv });
+          updateDocumentNonBlocking(clientRef, { lifetimeValue: Math.max(0, realLtv) });
           
-          toast({ title: "Ledger Reconciled", description: `Dossier LTV synchronized to $${realLtv.toFixed(2)} based on ${snapshot.docs.length} verified income records.` });
+          toast({ title: "Ledger Reconciled", description: `Dossier LTV synchronized to $${Math.max(0, realLtv).toFixed(2)} based on ${snapshot.docs.length} verified records.` });
       } catch (e) {
           console.error(e);
           toast({ variant: 'destructive', title: "Reconciliation Failed" });
@@ -502,13 +510,13 @@ export default function ClientDetailPage() {
 
                         <TabsContent value="history" className="m-0 space-y-8 md:space-y-10 animate-in fade-in duration-500 text-left">
                             <div className="space-y-4">
-                                <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Scheduled Events</h3>
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Scheduled Events</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
                                 </div>
                             </div>
                             <div className="space-y-4 pt-6 border-t border-dashed">
-                                <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Historical Records</h3>
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Historical Records</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">Empty history</p></div>}
                                 </div>

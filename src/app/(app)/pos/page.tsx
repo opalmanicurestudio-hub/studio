@@ -420,7 +420,7 @@ function POSPage() {
         return servicesSub + retailSub + adjustmentSub;
     }, [selectedAptsData, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff, redeemedOffer]);
 
-    const discount = useMemo(() => {
+    const discountValue = useMemo(() => {
         return appliedDiscountCodes.reduce((acc, code) => {
             const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase());
             if (!d) return acc;
@@ -860,8 +860,10 @@ function POSPage() {
         }
 
         if (selectedClient) {
-            const finalLtvDelta = Math.max(0, totalLtvIncrease - discount - membershipDiscount);
+            // CRITICAL LTV FIX: Log net delta after ALL discounts
+            const finalLtvDelta = Math.max(0, totalLtvIncrease - discountValue - membershipDiscount);
             const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
+            
             if (redeemedOffer) {
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`));
                 const offeringName = redeemedOffer.type === 'membership' ? memberships?.find(m => m.id === redeemedOffer.id)?.name : packages?.find(p => p.id === redeemedOffer.id)?.name;
@@ -873,6 +875,9 @@ function POSPage() {
                 const mId = selectedClient.activeMembershipId || selectedClient.subscription?.membershipId;
                 const membership = memberships?.find(m => m.id === mId);
                 if (membership?.retailDiscountLimit) { updates['subscription.perkUsage.retail_discount'] = increment(1); updates['subscription.perkLastUsed'] = now; }
+                
+                // Track membership discount as an internal expense for LTV reconciliation
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Membership Discount Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: membershipDiscount, paymentMethod: 'Internal', hasReceipt: false });
             }
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
         }
@@ -888,8 +893,9 @@ function POSPage() {
             }
         });
         
-        if (discount > 0) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Discounts', amount: -discount, paymentMethod: 'Internal', hasReceipt: false });
+        if (discountValue > 0) {
+            // Track promo discount as an internal expense for LTV reconciliation
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false });
         }
 
         if (paymentTab === 'cash' && activeTill) {
@@ -960,7 +966,7 @@ function POSPage() {
     const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
 
     const tax = subtotal * 0.07;
-    const total = subtotal + tax + tipAmount - discount - membershipDiscount;
+    const total = subtotal + tax + tipAmount - discountValue - membershipDiscount;
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
@@ -969,7 +975,7 @@ function POSPage() {
         payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
         onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
         subtotal, tax, total, tipAmount, setTipAmount, onCheckout: handleCheckout,
-        appliedDiscountCodes, setAppliedDiscountCodes, discount, membershipDiscount,
+        appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
         appliedAdjustments, onApplyAdjustmentToggle: (ids: any, apply?: boolean) => onApplyAdjustmentToggle(ids, apply),
         redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [],

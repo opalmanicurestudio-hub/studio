@@ -167,19 +167,29 @@ export default function ClientsPage() {
       const batch = writeBatch(firestore);
       
       try {
+          // Source of Truth: The full transaction ledger for this tenant
           const txnsRef = collection(firestore, `tenants/${tenantId}/transactions`);
-          const txnsSnap = await getDocs(query(txnsRef, where("type", "==", "income")));
+          const txnsSnap = await getDocs(txnsRef);
           
           const incomeByClient: Record<string, number> = {};
           txnsSnap.docs.forEach(d => {
               const data = d.data();
               if (data.clientId) {
-                  incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) + (Number(data.amount) || 0);
+                  const amount = Number(data.amount) || 0;
+                  // LTV = Sum(Income) - Sum(Reversals) - Sum(Discounts)
+                  if (data.type === 'income') {
+                      incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) + amount;
+                  } else if (data.type === 'reversal') {
+                      incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) - amount;
+                  } else if (data.type === 'expense' && data.category === 'Discounts') {
+                      incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) - amount;
+                  }
               }
           });
 
           clients.forEach(client => {
-              const realLtv = incomeByClient[client.id] || 0;
+              const realLtv = Math.max(0, incomeByClient[client.id] || 0);
+              // Only update if discrepancy is found to save operations
               if (Math.abs(realLtv - (Number(client.lifetimeValue) || 0)) > 0.01) {
                   batch.update(doc(firestore, `tenants/${tenantId}/clients`, client.id), { lifetimeValue: realLtv });
               }
@@ -506,8 +516,8 @@ export default function ClientsPage() {
         <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
           <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
               <div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-2">
-                      <div className="space-y-1 text-left">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-2 text-left">
+                      <div className="space-y-1">
                           <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Rolodex</h1>
                           <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Complete guest record database</p>
                       </div>
@@ -520,7 +530,7 @@ export default function ClientsPage() {
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
                       <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
                           <div className="flex flex-col md:flex-row items-center gap-4">
-                              <div className="relative flex-1 w-full text-left">
+                              <div className="relative flex-1 w-full">
                                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                                   <Input 
                                       placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
@@ -580,7 +590,7 @@ export default function ClientsPage() {
                       <CardContent className="p-6 md:p-8">
                           {selectedItems.size > 0 && (
                               <div className="mb-8 p-5 rounded-[2rem] bg-slate-900 text-white flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
-                                  <div className="flex items-center gap-4">
+                                  <div className="flex items-center gap-4 text-left">
                                       <div className="p-2 bg-white/10 rounded-xl"><Check className="w-5 h-5" /></div>
                                       <p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p>
                                   </div>
@@ -617,7 +627,7 @@ export default function ClientsPage() {
                       {totalPages > 1 && (
                           <CardFooter className="p-8 pt-0 border-t bg-muted/5">
                               <div className="flex items-center justify-between w-full">
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">
                                       Segment {currentPage} of {totalPages}
                                   </span>
                                   <div className="flex items-center gap-2">
@@ -664,8 +674,8 @@ export default function ClientsPage() {
         <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
               <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
                   <AlertDialogHeader className="p-6 pb-0 text-left">
-                      <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Confirm Purge</AlertDialogTitle>
-                      <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+                      <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Confirm Purge</AlertDialogTitle>
+                      <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
                           You are about to permanently delete {selectedItems.size} guest records. This will wipe all associated dossiers, formulas, and history. <strong>This action is non-reversible.</strong>
                       </AlertDialogDescription>
                   </AlertDialogHeader>
