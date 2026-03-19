@@ -106,7 +106,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
             <CardContent className="p-5 space-y-4" onClick={onResolve}>
                 <div className="flex justify-between items-start gap-4">
                     <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap text-left">
                             {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-bounce shrink-0" />}
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{customerName}</p>
                             {isMember && (
@@ -152,7 +152,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                             })}
                         </div>
                         {checkInStatus === 'running_late' && <Badge className="bg-amber-500 border-none text-[9px] font-black uppercase animate-pulse">+{lateTimeMinutes}m Late</Badge>}
-                        {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest">Arrived</Badge>}
+                        {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest">HERE</Badge>}
                         {checkInStatus === 'on_my_way' && <Badge className="bg-blue-500 border-none text-[9px] font-black uppercase tracking-widest"><Car className="w-2.5 h-2.5 mr-1" />EN ROUTE</Badge>}
                     </div>
                 )}

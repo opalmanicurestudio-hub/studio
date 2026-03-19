@@ -704,7 +704,7 @@ function POSPage() {
 
     const handleResolveCheckInConfirmation = async (data: any) => {
         if (!pendingCheckInItem || !firestore || !tenantId) return;
-        const { id, isWalkIn, clientId } = pendingCheckInItem;
+        const { id, isWalkIn, clientId, checkInToken } = pendingCheckInItem;
         const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
         
         const batch = writeBatch(firestore);
@@ -725,6 +725,12 @@ function POSPage() {
         }
 
         batch.update(docRef, updates);
+
+        // Update token check-in record for global sync
+        if (!isWalkIn && checkInToken) {
+            const tokenRef = doc(firestore, 'appointmentCheckIns', checkInToken);
+            batch.update(tokenRef, { checkInStatus: 'arrived' });
+        }
 
         if (clientId) {
             const clientRef = doc(firestore, 'tenants', tenantId, 'clients', clientId);
@@ -794,13 +800,13 @@ function POSPage() {
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
             const involvedIds = new Set<string>(); 
             if (apt.staffId) involvedIds.add(apt.staffId);
-            Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
+            if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
             involvedIds.forEach(sid => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }); });
         } else {
             batch.update(appointmentRef, { checkoutState: sanitizedCheckoutState });
             const involvedStaffIdsSet = new Set<string>();
             if (apt.staffId) involvedStaffIdsSet.add(apt.staffId);
-            Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedStaffIdsSet.add(id); });
+            if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedStaffIdsSet.add(id); });
             involvedStaffIdsSet.forEach(sid => {
                 const hasRemainingParts = allPartIds.some(pid => !completedIds.includes(pid) && (overrides[pid] === sid || (pid === apt.serviceId && apt.staffId === sid && !overrides[pid])));
                 if (!hasRemainingParts) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
