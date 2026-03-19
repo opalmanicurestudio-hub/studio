@@ -35,7 +35,7 @@ export function AppHeaderClient({ title }: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur-xl md:px-8">
       <div className="flex items-center gap-4">
-        <SidebarTrigger className="md:hidden hover:bg-primary/10 transition-colors" />
+        <SidebarTrigger className="lg:hidden hover:bg-primary/10 transition-colors" />
         <h1 className="text-sm sm:text-lg font-black uppercase tracking-tighter text-slate-900 md:text-xl truncate">
           {title}
         </h1>

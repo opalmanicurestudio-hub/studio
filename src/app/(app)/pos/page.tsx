@@ -79,103 +79,13 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
   </Card>
 );
 
-const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }: { open: boolean, onOpenChange: (open: boolean) => void, data: any, staff: Staff[], onResolve: (action: 'charge_cancel' | 'charge_accommodate' | 'waive_accommodate' | 'decline_void', finalFee: number) => void }) => {
-    const [pin, setPin] = useState('');
-    const { toast } = useToast();
-
-    const handleAction = (action: 'charge_cancel' | 'charge_accommodate' | 'waive_accommodate' | 'decline_void') => {
-        if (action === 'waive_accommodate') {
-            const authorized = staff.find(s => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
-            if (!authorized) {
-                toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Manager authorization required to waive protocol fees.' });
-                return;
-            }
-        }
-        onResolve(action, data.fee);
-        setPin('');
-    };
-
-    if (!data) return null;
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
-                <DialogHeader className="p-6 pb-8 border-b bg-muted/5 text-left">
-                    <div className="flex items-center gap-3 mb-2">
-                        <AlertTriangle className="w-5 h-5 text-destructive" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Protocol Intervention</span>
-                    </div>
-                    <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Status Resolution</DialogTitle>
-                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Guest: {data.appointment.clientName}</DialogDescription>
-                </DialogHeader>
-                <div className="p-6 md:p-8 space-y-8">
-                    <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 text-center space-y-2 shadow-inner">
-                        <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Protocol Recovery Fee</p>
-                        <p className="text-4xl md:text-6xl font-black text-destructive tracking-tighter font-mono">${safeNumber(data.fee).toFixed(2)}</p>
-                        <div className="pt-3 border-t border-destructive/10">
-                            <p className="text-[10px] font-bold text-slate-600 uppercase">Penalty for +{data.minutes}m delay</p>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3">
-                        <Button 
-                            variant="destructive" 
-                            className="h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-destructive/20"
-                            onClick={() => handleAction('charge_cancel')}
-                        >
-                            <DollarSign className="w-4 h-4 mr-2" /> Charge & Cancel
-                        </Button>
-                        <Button 
-                            className="h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg"
-                            onClick={() => handleAction('charge_accommodate')}
-                        >
-                            <Clock className="w-4 h-4 mr-2" /> Charge & Accommodate
-                        </Button>
-                        
-                        <div className="space-y-3 pt-4 border-t border-dashed">
-                            <div className="flex items-center justify-between px-1">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Manager Override</Label>
-                                <ShieldCheck className="w-3 x-3 text-primary" />
-                            </div>
-                            <div className="flex gap-2">
-                                <Input 
-                                    type="password" 
-                                    placeholder="PIN" 
-                                    maxLength={4} 
-                                    value={pin} 
-                                    onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                                    className="h-14 rounded-2xl border-2 text-center text-xl font-black tracking-[0.5em] w-32 bg-muted/5 shadow-inner"
-                                />
-                                <Button 
-                                    variant="outline" 
-                                    className="h-14 rounded-2xl border-2 flex-1 font-black uppercase text-[10px] tracking-widest"
-                                    onClick={() => handleAction('waive_accommodate')}
-                                >
-                                    Waive & Accommodate
-                                </Button>
-                            </div>
-                        </div>
-
-                        <Button 
-                            variant="ghost" 
-                            className="h-10 font-bold uppercase text-[9px] text-muted-foreground hover:text-destructive"
-                            onClick={() => handleAction('decline_void')}
-                        >
-                            Decline Protocol without Penalty
-                        </Button>
-                    </div>
-                </div>
-            </DialogContent>
-        </Dialog>
-    );
-};
-
 function POSPage() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
     const { toast } = useToast();
+    const isMobile = useIsMobile();
 
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
