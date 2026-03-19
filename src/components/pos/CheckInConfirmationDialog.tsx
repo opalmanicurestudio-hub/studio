@@ -49,6 +49,7 @@ import { type Service, type Tenant } from '@/lib/data';
 import { PrintTicket } from '@/components/planner/PrintTicket';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface CheckInConfirmationDialogProps {
   open: boolean;
@@ -80,6 +81,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
   tenant,
   onConfirm,
 }) => {
+  const isMobile = useIsMobile();
   const [serviceId, setServiceId] = useState('');
   const [addOnIds, setAddOnIds] = useState<string[]>([]);
   const [selectedAccommodations, setSelectedAccommodations] = useState<string[]>([]);
