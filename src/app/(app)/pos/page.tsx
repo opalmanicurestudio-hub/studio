@@ -860,10 +860,8 @@ function POSPage() {
         }
 
         if (selectedClient) {
-            // CRITICAL FIX: LTV now correctly subtracts promo/membership discounts from the net delta
             const finalLtvDelta = Math.max(0, totalLtvIncrease - discount - membershipDiscount);
             const updates: any = { 
-                // CRITICAL: Uses atomic increment() to prevent overwriting with zero/NaN
                 lifetimeValue: increment(finalLtvDelta), 
                 lastAppointment: now 
             };
@@ -1077,7 +1075,23 @@ function POSPage() {
             {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
             <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid, res) => { const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id); updateDocumentNonBlocking(appointmentRef, { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
-            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 border-4 rounded-[3rem] shadow-3xl"><DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left"><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Scan Terminal</DialogTitle><DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authenticate asset codes or session tickets.</DialogDescription></DialogHeader><div className="p-10 relative"><div id="qr-reader-pos" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" /><div className="absolute inset-10 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-1/2 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div><DialogFooter className="p-6 pt-4 border-t bg-muted/5"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button></DialogFooter></Dialog>
+            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+                <DialogContent className="sm:max-w-md p-0 border-4 rounded-[3rem] shadow-3xl">
+                    <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
+                        <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Scan Terminal</DialogTitle>
+                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authenticate asset codes or session tickets.</DialogDescription>
+                    </DialogHeader>
+                    <div className="p-10 relative">
+                        <div id="qr-reader-pos" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" />
+                        <div className="absolute inset-10 flex items-center justify-center pointer-events-none">
+                            <div className="w-2/3 h-1/2 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                        </div>
+                    </div>
+                    <DialogFooter className="p-6 pt-4 border-t bg-muted/5">
+                        <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
             <PolicyEnforcementDialog open={!!policyEnforcementData} onOpenChange={() => setPolicyEnforcementData(null)} data={policyEnforcementData} staff={staff || []} onResolve={handleResolvePolicyEnforcement} />
             <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
         </div>

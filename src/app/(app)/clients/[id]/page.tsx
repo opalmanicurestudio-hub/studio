@@ -255,7 +255,6 @@ export default function ClientDetailPage() {
     batch.update(clientRef, {
         outstandingBalance: 0,
         unpaidFees: [],
-        // CRITICAL FIX: Explicitly increment LTV using the transaction amount
         lifetimeValue: increment(amount)
     });
 
@@ -276,7 +275,6 @@ export default function ClientDetailPage() {
       setIsReconciling(true);
       
       try {
-          // CRITICAL REBUILD: Perform a hard-audit of the transaction ledger
           const txnsRef = collection(firestore, `tenants/${tenantId}/transactions`);
           const q = query(txnsRef, where("clientId", "==", client.id), where("type", "==", "income"));
           const snapshot = await getDocs(q);
@@ -313,7 +311,6 @@ export default function ClientDetailPage() {
       toast({ title: "Protocol Purged", description: "Formula removed from technical archive." });
   }
 
-  // DEFENSIVE: Secure numeric values to prevent $NaN errors
   const { safeLTV, safeWalletCredit, safeOutstandingBalance } = useMemo(() => {
       const getNum = (v: any) => {
           const n = Number(v);
@@ -661,17 +658,13 @@ export default function ClientDetailPage() {
                                 {client.cardOnFile ? (
                                     <div className="p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] flex items-center justify-between">
                                         <div className="flex items-center gap-3 text-left">
-                                            <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10">
-                                                <CreditCard className="w-5 h-5 text-primary" />
-                                            </div>
+                                            <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><CreditCard className="w-5 h-5 text-primary" /></div>
                                             <div className="text-left">
                                                 <p className="text-xs font-black uppercase tracking-tighter text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p>
                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase">Exp: {client.cardOnFile.expiryMonth}/{client.cardOnFile.expiryYear}</p>
                                             </div>
                                         </div>
-                                        <Button variant="ghost" size="icon" onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5">
-                                            <RefreshCw className="w-3.5 h-3.5" />
-                                        </Button>
+                                        <Button variant="ghost" size="icon" onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5"><RefreshCw className="w-3.5 h-3.5" /></Button>
                                     </div>
                                 ) : (
                                     <Button variant="outline" onClick={() => setIsEditClientOpen(true)} className="w-full h-12 rounded-xl border-2 border-dashed font-black uppercase text-[9px] tracking-widest bg-muted/5 hover:bg-primary/[0.02] hover:border-primary/20 transition-all">
@@ -696,9 +689,7 @@ export default function ClientDetailPage() {
                                 className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs border-2" 
                                 asChild
                             >
-                                <Link href={`/pos?payer_id=${client.id}&action=settle`}>
-                                    Initialize POS Settlement
-                                </Link>
+                                <Link href={`/pos?payer_id=${client.id}&action=settle`}>Initialize POS Settlement</Link>
                             </Button>
                         </CardFooter>
                     </Card>
@@ -740,13 +731,7 @@ export default function ClientDetailPage() {
                 </div>
             </div>
             <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
-                <Button 
-                    className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30"
-                    onClick={handleQuickSettle}
-                    disabled={isSettleProcessing}
-                >
-                    {isSettleProcessing ? <Loader className="animate-spin" /> : 'Authorize Charge'}
-                </Button>
+                <Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30" onClick={handleQuickSettle} disabled={isSettleProcessing}>{isSettleProcessing ? <Loader className="animate-spin" /> : 'Authorize Charge'}</Button>
                 <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
             </DialogFooter>
         </DialogContent>
