@@ -6,6 +6,15 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Safely extracts a numeric value from a potential Firestore FieldValue (Sentinel) object.
+ * Returns 0 if the value is not a valid number.
+ */
+export function safeNumber(val: any): number {
+  const n = Number(val);
+  return isNaN(n) ? 0 : n;
+}
+
+/**
  * Converts a Hex color to HSL components string "H S% L%" 
  * for use with Tailwind's hsl(var(--primary)) configuration.
  */

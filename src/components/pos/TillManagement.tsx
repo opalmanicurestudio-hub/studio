@@ -60,7 +60,7 @@ import {
     TrendingDown 
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { type TillSession, type Staff, type TillDenominations } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -125,7 +125,7 @@ const DenominationInput = ({ denom, count, onChange, disabled, subtitle }: any) 
                     className="w-20 h-10 text-center font-black rounded-xl border-2 focus-visible:ring-primary/20 bg-muted/5 shadow-inner"
                 />
                 <div className="w-20 text-right">
-                    <p className="font-mono text-xs font-black text-slate-900">${((count || 0) * denom.val).toFixed(2)}</p>
+                    <p className="font-mono text-xs font-black text-slate-900">${(safeNumber(count) * denom.val).toFixed(2)}</p>
                 </div>
             </div>
         </div>
@@ -138,8 +138,8 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
     const openedBy = staff.find(s => s.id === session.openedBy);
 
     const auditRows = denominations.map(d => {
-        const counted = session.closingDenominations?.[d.key] || (session.status === 'open' ? session.openingDenominations?.[d.key] : 0) || 0;
-        const kept = session.nextDayDenominations?.[d.key] || 0;
+        const counted = safeNumber(session.closingDenominations?.[d.key] || (session.status === 'open' ? session.openingDenominations?.[d.key] : 0) || 0);
+        const kept = safeNumber(session.nextDayDenominations?.[d.key] || 0);
         const deposited = Math.max(0, counted - kept);
         return { ...d, counted, kept, deposited };
     }).filter(r => r.counted > 0 || r.deposited > 0);
@@ -148,7 +148,7 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
         if (!session.cashTipsByStaff) return [];
         return Object.entries(session.cashTipsByStaff).map(([staffId, amount]) => ({
             name: staff.find(s => s.id === staffId)?.name || 'Unknown Staff',
-            amount: amount as number
+            amount: safeNumber(amount)
         })).filter(t => t.amount > 0);
     }, [session.cashTipsByStaff, staff]);
 
@@ -184,7 +184,7 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
                 </div>
                 <div className="flex justify-between font-black border-t-2 border-black pt-2 text-sm">
                     <span className="uppercase text-[9px]">Net Bank Deposit</span>
-                    <span>${(session.cashToDeposit || session.openingFloat).toFixed(2)}</span>
+                    <span>${safeNumber(session.cashToDeposit || session.openingFloat).toFixed(2)}</span>
                 </div>
             </div>
 
@@ -197,13 +197,13 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
                         {staffTips.map((t, idx) => (
                             <div key={idx} className="flex justify-between items-center text-[10px]">
                                 <span className="truncate pr-2">{t.name}</span>
-                                <span className="font-black">${t.amount.toFixed(2)}</span>
+                                <span className="font-black">${safeNumber(t.amount).toFixed(2)}</span>
                             </div>
                         ))}
                     </div>
                     <div className="flex justify-between font-black border-t border-dashed border-black pt-2">
                         <span className="text-[9px]">Total Cash Tips</span>
-                        <span>${(session.totalCashTips || 0).toFixed(2)}</span>
+                        <span>${safeNumber(session.totalCashTips || 0).toFixed(2)}</span>
                     </div>
                     <Separator className="border-dashed border-black" />
                 </div>
@@ -213,32 +213,32 @@ const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
                 <p className="text-[9px] font-black tracking-widest border-b border-black pb-1 text-center">Audit Summary</p>
                 <div className="flex justify-between items-center">
                     <span>Opening Float</span>
-                    <span className="font-black">${session.openingFloat?.toFixed(2)}</span>
+                    <span className="font-black">${safeNumber(session.openingFloat).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                     <span>Cash Sales</span>
-                    <span className="font-black">${(session.totalCashSales || 0).toFixed(2)}</span>
+                    <span className="font-black">${safeNumber(session.totalCashSales || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                     <span>Cash Tips</span>
-                    <span className="font-black">${(session.totalCashTips || 0).toFixed(2)}</span>
+                    <span className="font-black">${safeNumber(session.totalCashTips || 0).toFixed(2)}</span>
                 </div>
-                {session.totalCashRefunds > 0 && (
+                {safeNumber(session.totalCashRefunds) > 0 && (
                     <div className="flex justify-between items-center text-destructive">
                         <span>Cash Refunds</span>
-                        <span className="font-black">-${session.totalCashRefunds.toFixed(2)}</span>
+                        <span className="font-black">-${safeNumber(session.totalCashRefunds).toFixed(2)}</span>
                     </div>
                 )}
                 <Separator className="border-black opacity-20" />
                 <div className="flex justify-between items-center text-sm font-black pt-1">
                     <span>Actual Drawer</span>
-                    <span>${(session.actualCash || session.openingFloat).toFixed(2)}</span>
+                    <span>${safeNumber(session.actualCash || session.openingFloat).toFixed(2)}</span>
                 </div>
-                {Math.abs(session.discrepancy || 0) > 0.01 && (
+                {Math.abs(safeNumber(session.discrepancy || 0)) > 0.01 && (
                     <div className="mt-2 p-2 bg-slate-100 flex flex-col gap-1 border border-black">
-                        <div className={cn("flex justify-between items-center", session.discrepancy > 0 ? "text-green-700" : "text-red-700")}>
+                        <div className={cn("flex justify-between items-center", safeNumber(session.discrepancy) > 0 ? "text-green-700" : "text-red-700")}>
                             <span>Audit Variance</span>
-                            <span>{session.discrepancy > 0 ? '+' : ''}${session.discrepancy?.toFixed(2)}</span>
+                            <span>{safeNumber(session.discrepancy) > 0 ? '+' : ''}${safeNumber(session.discrepancy).toFixed(2)}</span>
                         </div>
                     </div>
                 )}
@@ -302,6 +302,7 @@ export const TillManagement = ({
     activeTill, 
     staff,
     onOpenTill,
+    onConfirmCloseTill,
     onCloseTill,
     requireTillWitness = true
 }: { 
@@ -310,6 +311,7 @@ export const TillManagement = ({
     activeTill: TillSession | null,
     staff: Staff[],
     onOpenTill: (data: any) => void,
+    onConfirmCloseTill: (data: any) => void,
     onCloseTill: (data: any) => void,
     requireTillWitness?: boolean
 }) => {
@@ -334,11 +336,11 @@ export const TillManagement = ({
     const witnessSigCanvasRef = useRef<SignatureCanvas | null>(null);
 
     const actualTotal = useMemo(() => {
-        return denominations.reduce((acc, d) => acc + (counts[d.key] || 0) * d.val, 0);
+        return denominations.reduce((acc, d) => acc + (safeNumber(counts[d.key]) * d.val), 0);
     }, [counts]);
 
     const floatTotal = useMemo(() => {
-        return denominations.reduce((acc, d) => acc + (floatCounts[d.key] || 0) * d.val, 0);
+        return denominations.reduce((acc, d) => acc + (safeNumber(floatCounts[d.key]) * d.val), 0);
     }, [floatCounts]);
 
     const filteredSessions = useMemo(() => {
@@ -370,7 +372,7 @@ export const TillManagement = ({
     };
 
     const handleFloatChange = (key: string, val: number) => {
-        const totalInDrawer = counts[key] || 0;
+        const totalInDrawer = safeNumber(counts[key]) || 0;
         if (val > totalInDrawer) {
             toast({ variant: 'destructive', title: 'Invalid Selection', description: `Only ${totalInDrawer} units of ${key.replace('_', ' ')} counted.` });
             return;
@@ -430,7 +432,7 @@ export const TillManagement = ({
             
             const depositDenoms: Record<string, number> = {};
             denominations.forEach(d => {
-                const remaining = (counts[d.key] || 0) - (floatCounts[d.key] || 0);
+                const remaining = safeNumber(counts[d.key]) - safeNumber(floatCounts[d.key]);
                 if (remaining > 0) depositDenoms[d.key] = remaining;
             });
 
@@ -550,7 +552,7 @@ export const TillManagement = ({
                                             <div className="grid gap-3">
                                                 {filteredSessions.map(session => {
                                                     const staffMember = staff.find(s => s.id === session.openedBy);
-                                                    const isDiff = Math.abs(session.discrepancy || 0) > 0.01;
+                                                    const isDiff = Math.abs(safeNumber(session.discrepancy) || 0) > 0.01;
                                                     return (
                                                         <button key={session.id} onClick={() => setHistoricalSession(session)} className="text-left w-full p-4 rounded-2xl border-2 bg-white hover:border-primary/20 transition-all group flex items-center justify-between">
                                                             <div className="flex items-center gap-4">
@@ -566,7 +568,7 @@ export const TillManagement = ({
                                                                 </div>
                                                             </div>
                                                             <div className="text-right shrink-0 ml-4">
-                                                                <p className="font-black font-mono text-sm tracking-tighter text-slate-900">${(session.actualCash || session.openingFloat).toFixed(2)}</p>
+                                                                <p className="font-black font-mono text-sm tracking-tighter text-slate-900">${safeNumber(session.actualCash || session.openingFloat).toFixed(2)}</p>
                                                                 {isDiff && <p className="text-[8px] font-black uppercase text-destructive animate-pulse">Variance Logged</p>}
                                                             </div>
                                                         </button>
@@ -581,15 +583,15 @@ export const TillManagement = ({
                                     {step === 'count' && (
                                         <motion.div key="count" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-10 pb-20">
                                             {activeTill && (
-                                                <Card className="bg-primary/5 border-2 border-primary/10 rounded-[2rem] shadow-inner overflow-hidden">
+                                                <Card className="bg-primary/5 border-2 border-primary/10 rounded-[2rem] shadow-inner overflow-hidden text-left">
                                                     <CardContent className="p-6 grid grid-cols-2 gap-6">
                                                         <div className="space-y-1 text-left">
                                                             <p className="text-[9px] font-black uppercase text-primary tracking-widest">Expected Ledger</p>
-                                                            <p className="text-3xl font-black font-mono tracking-tighter text-primary">${activeTill.expectedCash.toFixed(2)}</p>
+                                                            <p className="text-3xl font-black font-mono tracking-tighter text-primary">${safeNumber(activeTill.expectedCash).toFixed(2)}</p>
                                                             <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2">
-                                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Sales: ${(activeTill.totalCashSales || 0).toFixed(2)}</p>
-                                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Tips: ${(activeTill.totalCashTips || 0).toFixed(2)}</p>
-                                                                {activeTill.totalCashRefunds > 0 && <p className="text-[8px] font-bold text-destructive/60 uppercase">Refunds: -${activeTill.totalCashRefunds.toFixed(2)}</p>}
+                                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Sales: ${safeNumber(activeTill.totalCashSales || 0).toFixed(2)}</p>
+                                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Tips: ${safeNumber(activeTill.totalCashTips || 0).toFixed(2)}</p>
+                                                                {safeNumber(activeTill.totalCashRefunds) > 0 && <p className="text-[8px] font-bold text-destructive/60 uppercase">Refunds: -${safeNumber(activeTill.totalCashRefunds).toFixed(2)}</p>}
                                                             </div>
                                                         </div>
                                                         <div className="space-y-1 text-right border-l border-dashed border-primary/20 pl-6">
@@ -600,7 +602,7 @@ export const TillManagement = ({
                                                 </Card>
                                             )}
                                             <div className="space-y-4">
-                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Total Drawer Count</p>
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1 text-left">Total Drawer Count</p>
                                                 <div className="grid grid-cols-1 gap-2">
                                                     {denominations.map(d => <DenominationInput key={d.key} denom={d} count={counts[d.key] || 0} onChange={handleCountChange} />)}
                                                 </div>
@@ -648,20 +650,20 @@ export const TillManagement = ({
                                             </div>
 
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div className="p-5 rounded-[1.5rem] border-2 bg-muted/10 space-y-1">
+                                                <div className="p-5 rounded-[1.5rem] border-2 bg-muted/10 space-y-1 text-left">
                                                     <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Verified Revenue</p>
-                                                    <p className="text-xl font-black font-mono text-slate-900">${(activeTill?.totalCashSales || 0).toFixed(2)}</p>
+                                                    <p className="text-xl font-black font-mono text-slate-900">${safeNumber(activeTill?.totalCashSales || 0).toFixed(2)}</p>
                                                 </div>
-                                                <div className="p-5 rounded-[1.5rem] border-2 bg-indigo-500/5 border-indigo-500/10 space-y-1">
+                                                <div className="p-5 rounded-[1.5rem] border-2 bg-indigo-500/5 border-indigo-500/10 space-y-1 text-left">
                                                     <p className="text-[9px] font-black uppercase text-indigo-600 opacity-60 flex items-center gap-2"><HeartHandshake className="w-3 h-3" /> Team Gratuity</p>
-                                                    <p className="text-xl font-black font-mono text-indigo-600">${(activeTill?.totalCashTips || 0).toFixed(2)}</p>
+                                                    <p className="text-xl font-black font-mono text-indigo-600">${safeNumber(activeTill?.totalCashTips || 0).toFixed(2)}</p>
                                                 </div>
                                             </div>
 
                                             <div className="p-6 rounded-[2rem] border-4 border-primary/20 bg-primary/5 flex justify-between items-center shadow-xl">
                                                 <div className="flex items-center gap-3">
                                                     <div className="p-2 rounded-xl bg-primary text-white shadow-lg"><ArrowUpFromLine className="w-5 h-5" /></div>
-                                                    <div className="space-y-0.5">
+                                                    <div className="space-y-0.5 text-left">
                                                         <span className="font-black uppercase tracking-tight text-xs text-slate-900">Bank Deposit Allocation</span>
                                                         <p className="text-[8px] font-black text-primary/60 uppercase">Net removed from drawer</p>
                                                     </div>

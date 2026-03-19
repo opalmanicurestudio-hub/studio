@@ -65,7 +65,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import Link from 'next/link';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { Input } from '@/components/ui/input';
@@ -120,13 +120,13 @@ const OwnerDashboard = ({
             </CardTitle>
             <DollarSign className="h-4 w-4 text-primary opacity-40" />
           </CardHeader>
-          <CardContent className="p-3 md:p-4 pt-0">
-            {isLoading ? <Skeleton className="h-10 w-32"/> : <div className="text-2xl md:text-3xl font-black tracking-tighter text-primary">${todaysRevenue.toFixed(2)}</div>}
+          <CardContent className="p-3 md:p-4 pt-0 text-left">
+            {isLoading ? <Skeleton className="h-10 w-32"/> : <div className="text-2xl md:text-3xl font-black tracking-tighter text-primary">${safeNumber(todaysRevenue).toFixed(2)}</div>}
             {!isLoading && (
                 <div className="mt-1 flex items-center gap-1">
                     <TrendingUp className="w-3 h-3 text-primary" />
                     <span className="text-[10px] font-bold text-primary uppercase">
-                        {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(0)}%
+                        {safeNumber(profitPercentage) >= 0 ? '+' : ''}{safeNumber(profitPercentage).toFixed(0)}%
                     </span>
                 </div>
             )}
@@ -140,21 +140,21 @@ const OwnerDashboard = ({
             </CardTitle>
             <Landmark className="h-4 w-4 text-muted-foreground opacity-40" />
           </CardHeader>
-          <CardContent className="p-3 md:p-4 pt-0">
+          <CardContent className="p-3 md:p-4 pt-0 text-left">
             <div className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">
-              {isLoading ? <Skeleton className="h-10 w-20 inline-block" /> : activeTill ? `$${activeTill.expectedCash.toFixed(2)}` : 'Closed'}
+              {isLoading ? <Skeleton className="h-10 w-20 inline-block" /> : activeTill ? `$${safeNumber(activeTill.expectedCash).toFixed(2)}` : 'Closed'}
             </div>
              {!isLoading && <p className="text-[10px] font-bold uppercase text-muted-foreground opacity-60 mt-1 truncate">{activeTill ? 'Active Session' : 'No open till'}</p>}
           </CardContent>
         </Card>
 
-        <Card className={cn("border-2 shadow-sm", totalOutstandingDebt > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-muted/10")}>
+        <Card className={cn("border-2 shadow-sm", safeNumber(totalOutstandingDebt) > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-muted/10")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Arrears</CardTitle>
-            <Wallet className={cn("h-4 w-4 opacity-40", totalOutstandingDebt > 0 ? "text-destructive" : "text-muted-foreground")} />
+            <Wallet className={cn("h-4 w-4 opacity-40", safeNumber(totalOutstandingDebt) > 0 ? "text-destructive" : "text-muted-foreground")} />
           </CardHeader>
-          <CardContent className="p-3 md:p-4 pt-0">
-            {isLoading ? <Skeleton className="h-10 w-20 inline-block"/> : <div className={cn("text-2xl md:text-3xl font-black tracking-tighter", totalOutstandingDebt > 0 ? "text-destructive" : "text-slate-900")}>${totalOutstandingDebt.toFixed(2)}</div>}
+          <CardContent className="p-3 md:p-4 pt-0 text-left">
+            {isLoading ? <Skeleton className="h-10 w-20 inline-block"/> : <div className={cn("text-2xl md:text-3xl font-black tracking-tighter", safeNumber(totalOutstandingDebt) > 0 ? "text-destructive" : "text-slate-900")}>${safeNumber(totalOutstandingDebt).toFixed(2)}</div>}
             <p className="text-[10px] font-bold uppercase text-muted-foreground opacity-60 mt-1">Pending recovery</p>
           </CardContent>
         </Card>
@@ -164,8 +164,8 @@ const OwnerDashboard = ({
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-teal-700">Retention</CardTitle>
             <HeartHandshake className="h-4 w-4 text-accent opacity-40" />
           </CardHeader>
-          <CardContent className="p-3 md:p-4 pt-0">
-            {isLoading ? <Skeleton className="h-10 w-20 inline-block"/> : <div className="text-2xl md:text-3xl font-black tracking-tighter text-teal-700">{clientRetentionRate.toFixed(0)}%</div>}
+          <CardContent className="p-3 md:p-4 pt-0 text-left">
+            {isLoading ? <Skeleton className="h-10 w-20 inline-block"/> : <div className="text-2xl md:text-3xl font-black tracking-tighter text-teal-700">{safeNumber(clientRetentionRate).toFixed(0)}%</div>}
             <p className="text-[10px] font-bold uppercase text-teal-600/60 mt-1">Repeat rate</p>
           </CardContent>
         </Card>
@@ -173,7 +173,7 @@ const OwnerDashboard = ({
 
       <div className="grid gap-6 grid-cols-1 md:grid-cols-5">
         <Card className="md:col-span-3 border-2 shadow-sm overflow-hidden">
-          <CardHeader className="p-4 md:p-6 border-b bg-muted/5">
+          <CardHeader className="p-4 md:p-6 border-b bg-muted/5 text-left">
             <CardTitle className="text-sm font-black uppercase tracking-widest">Weekly Profit Yield</CardTitle>
             <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-tight opacity-60">Revenue vs Overhead across 7 days.</CardDescription>
           </CardHeader>
@@ -210,7 +210,7 @@ const OwnerDashboard = ({
         </Card>
 
          <Card className="md:col-span-2 border-2 shadow-sm overflow-hidden flex flex-col">
-          <CardHeader className="p-4 md:p-6 border-b bg-muted/5">
+          <CardHeader className="p-4 md:p-6 border-b bg-muted/5 text-left">
             <CardTitle className="text-sm font-black uppercase tracking-widest">Acquisition Velocity</CardTitle>
             <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-tight opacity-60">Session origin distribution.</CardDescription>
           </CardHeader>
@@ -246,7 +246,7 @@ const OwnerDashboard = ({
 
         <Card className="md:col-span-5 border-2 shadow-sm overflow-hidden">
           <CardHeader className="p-4 md:p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
-            <div className="space-y-1">
+            <div className="space-y-1 text-left">
                 <CardTitle className="text-sm font-black uppercase tracking-widest">Recent Activity</CardTitle>
                 <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-tight opacity-60">Latest ledger entries.</CardDescription>
             </div>
@@ -257,7 +257,7 @@ const OwnerDashboard = ({
           <CardContent className="p-0">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, index) => (
-                <div key={`skeleton-${index}`} className="flex items-center gap-4 p-4 border-b last:border-b-0">
+                <div key={`skeleton-${index}`} className="flex items-center gap-4 p-4 border-b last:border-b-0 text-left">
                   <Skeleton className="h-10 w-10 rounded-2xl" />
                   <div className="grid gap-1 flex-1">
                     <Skeleton className="h-4 w-24" />
@@ -271,7 +271,7 @@ const OwnerDashboard = ({
                 {recentActivities.map(({ apt, client, service }: any) => {
                     if (!client || !service) return null;
                     return (
-                    <div key={apt.id} className="flex items-center gap-3 md:gap-4 p-3 md:p-4 hover:bg-muted/30 transition-colors">
+                    <div key={apt.id} className="flex items-center gap-3 md:gap-4 p-3 md:p-4 hover:bg-muted/30 transition-colors text-left">
                         <Avatar className="h-9 w-9 md:h-10 md:w-10 border-2 rounded-2xl shadow-sm shrink-0">
                         <AvatarImage src={client.avatarUrl || undefined} alt="Avatar" className="object-cover" />
                         <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">
@@ -288,7 +288,7 @@ const OwnerDashboard = ({
                         </div>
                         <div className="flex flex-col items-end gap-1">
                             <p className="font-black font-mono text-xs md:text-sm text-primary">
-                                +${(service.price).toFixed(2)}
+                                +${safeNumber(service.price).toFixed(2)}
                             </p>
                             <Badge variant="secondary" className="h-3.5 md:h-4 px-1 md:px-1.5 text-[7px] md:text-[8px] font-black uppercase tracking-tighter border-none">
                                 {apt.status}
@@ -450,13 +450,13 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
                     <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Wallet className="w-3 h-3 text-primary" />Today's Take-Home</CardTitle>
                 </CardHeader>
-                <CardContent className="px-4 pb-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">${todayKpis.earnings.toFixed(2)}</p><p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">Est. base + tips</p></CardContent>
+                <CardContent className="px-4 pb-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">${safeNumber(todayKpis.earnings).toFixed(2)}</p><p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">Est. base + tips</p></CardContent>
             </Card>
             <Card className="border-2 shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
                     <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3 text-primary" />Gifts & Tips</CardTitle>
                 </CardHeader>
-                <CardContent className="px-4 pb-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">${todayKpis.tips.toFixed(2)}</p><p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">From completed work</p></CardContent>
+                <CardContent className="px-4 pb-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">${safeNumber(todayKpis.tips).toFixed(2)}</p><p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">From completed work</p></CardContent>
             </Card>
             <Card className="border-2 shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
@@ -491,7 +491,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                                 <AvatarImage src={nextAppointment.client?.avatarUrl || undefined} className="object-cover" />
                                 <AvatarFallback className="font-black text-lg bg-primary/10 text-primary">{nextAppointment.client?.name?.substring(0, 2).toUpperCase()}</AvatarFallback>
                             </Avatar>
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-0 flex-1 text-left">
                                 <p className="font-black text-xl md:text-2xl uppercase tracking-tighter leading-none mb-1 truncate">{nextAppointment.client?.name}</p>
                                 <p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{nextAppointment.service?.name}</p>
                             </div>
@@ -514,7 +514,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                                     <AvatarImage src={apt.client?.avatarUrl || undefined} alt={apt.client?.name || ''} className="object-cover" />
                                     <AvatarFallback className="font-black text-[10px] bg-muted text-muted-foreground">{apt.client?.name?.substring(0, 2).toUpperCase()}</AvatarFallback>
                                 </Avatar>
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1 min-w-0 text-left">
                                     <div className="flex items-center gap-1.5">
                                         <p className="font-black uppercase tracking-tight text-xs md:sm text-slate-900 truncate">{apt.client?.name}</p>
                                         {apt.checkInStatus === 'arrived' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" title="Arrived" />}
@@ -732,7 +732,7 @@ export default function DashboardPage() {
     setDebriefContent('');
     try {
       const result = await endOfDayDebrief({
-        dailyRevenue: todaysRevenue,
+        dailyRevenue: safeNumber(todaysRevenue),
         dailyExpenses: 0,
         inventoryLevels: inventory.filter(item => item.type === 'professional').slice(0, 5).reduce((acc, item) => { acc[item.name] = item.totalStock; return acc; }, {} as any),
         completedAppointments: todayAppointments?.filter(a => a.status === 'completed').length || 0,
