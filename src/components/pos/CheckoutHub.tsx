@@ -259,21 +259,16 @@ export const CheckoutHub = ({
         return staff.filter((s: Staff) => staffIds.has(s.id));
     }, [appointmentsData, staff]);
 
-    useEffect(() => {
-        if (allInvolvedStaff.length === 1 && tipAmount > 0) {
-            setTipAllocations({ [allInvolvedStaff[0].id]: tipAmount });
-        }
-    }, [tipAmount, allInvolvedStaff]);
-
-    const handleTotalTipChange = (value: number) => {
-        const roundedValue = Number(value.toFixed(2));
+    const handleTotalTipChange = useCallback((value: number) => {
+        const roundedValue = Number(safeNumber(value).toFixed(2));
         setTipAmount(roundedValue);
+        
         if (allInvolvedStaff.length > 0) {
             const splitAmount = Number((roundedValue / allInvolvedStaff.length).toFixed(2));
             const newAllocations: Record<string, number> = {};
             let currentTotal = 0;
             
-            allInvolvedStaff.forEach((member, index) => {
+            allInvolvedStaff.forEach((member: Staff, index: number) => {
                 if (index === allInvolvedStaff.length - 1) {
                     newAllocations[member.id] = Number((roundedValue - currentTotal).toFixed(2));
                 } else {
@@ -283,10 +278,17 @@ export const CheckoutHub = ({
             });
             setTipAllocations(newAllocations);
         }
-    };
+    }, [allInvolvedStaff, setTipAmount, setTipAllocations]);
+
+    // Re-split tips automatically if the staff composition changes (e.g. adding/removing tickets)
+    useEffect(() => {
+        if (tipAmount > 0) {
+            handleTotalTipChange(tipAmount);
+        }
+    }, [allInvolvedStaff.length, handleTotalTipChange]);
 
     const handleIndividualTipChange = (staffId: string, value: number) => {
-        const nextAllocations = { ...tipAllocations, [staffId]: value };
+        const nextAllocations = { ...tipAllocations, [staffId]: safeNumber(value) };
         setTipAllocations(nextAllocations);
         const nextTotal = Object.values(nextAllocations).reduce((sum: number, val: any) => sum + safeNumber(val), 0);
         setTipAmount(Number(nextTotal.toFixed(2)));
@@ -650,7 +652,7 @@ export const CheckoutHub = ({
                                             <div className="space-y-2 pl-4 border-l-2 border-primary/10 text-left">
                                                 {addOns.map((addon: any) => {
                                                     const addonStaffId = overrides[addon.id] || data.appointment.staffId;
-                                                    const addonStaffMember = staff.find((s: any) => s.id === addonStaffId);
+                                                    const addonStaff = staff.find((s: any) => s.id === addonStaffId);
                                                     const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
                                                     
                                                     return (
@@ -663,7 +665,7 @@ export const CheckoutHub = ({
                                                                 <span className={cn("text-[10px] font-black font-mono", isAddonRedeemed ? "line-through text-muted-foreground opacity-40" : "text-muted-foreground")}>${safeNumber(getServicePrice(addon, data.staff)).toFixed(2)}</span>
                                                             </div>
                                                             <div className="flex items-center gap-1.5 opacity-60 text-left">
-                                                                <span className="text-[8px] font-black uppercase text-primary tracking-widest">{addonStaffMember?.name?.split(' ')[0] || 'Tech'}</span>
+                                                                <span className="text-[8px] font-black uppercase text-primary tracking-widest">{addonStaff?.name?.split(' ')[0] || 'Tech'}</span>
                                                             </div>
                                                         </div>
                                                     );
@@ -804,7 +806,7 @@ export const CheckoutHub = ({
                         <Input 
                             type="number" 
                             value={tipAmount || ''} 
-                            onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} 
+                            onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} 
                             className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-base md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
                             placeholder="0.00" 
                         />
