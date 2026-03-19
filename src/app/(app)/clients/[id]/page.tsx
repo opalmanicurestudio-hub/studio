@@ -70,6 +70,7 @@ import { collection, doc, arrayUnion, writeBatch, increment, getDocs, query, whe
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -645,7 +646,7 @@ export default function ClientDetailPage() {
                                             {isReconciling ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">Reconcile LTV from Ledger</TooltipContent>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Reconcile LTV from Ledger</TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         </CardHeader>
