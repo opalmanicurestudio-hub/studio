@@ -629,7 +629,12 @@ function POSPage() {
         if (status === 'arrived') {
             const item = isWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
             if (item) {
-                setPendingCheckInItem({ ...item, isWalkIn });
+                const enrichedItem = { 
+                    ...item, 
+                    isWalkIn, 
+                    client: clients.find(c => c.id === item.clientId) 
+                };
+                setPendingCheckInItem(enrichedItem);
                 return;
             }
         }
@@ -710,6 +715,7 @@ function POSPage() {
             addOnIds: data.addOnIds,
             clientEmail: data.email,
             clientPhone: data.phone,
+            notes: data.notes || '',
         };
 
         if (isWalkIn) {
@@ -722,10 +728,14 @@ function POSPage() {
 
         if (clientId) {
             const clientRef = doc(firestore, 'tenants', tenantId, 'clients', clientId);
-            batch.update(clientRef, {
+            const clientUpdates: any = {
                 email: data.email,
-                phone: data.phone
-            });
+                phone: data.phone,
+            };
+            if (data.accommodations?.length > 0) {
+                clientUpdates.sensoryNeeds = data.accommodations.join(', ');
+            }
+            batch.update(clientRef, clientUpdates);
         }
 
         try {

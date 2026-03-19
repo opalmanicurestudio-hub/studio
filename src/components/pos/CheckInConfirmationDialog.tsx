@@ -28,7 +28,12 @@ import {
     Info,
     Mail,
     Phone,
-    Printer
+    Printer,
+    Ear,
+    VolumeX,
+    SunDim,
+    MessageSquare,
+    Users
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +47,8 @@ import { useForm, FormProvider } from 'react-hook-form';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { type Service, type Tenant } from '@/lib/data';
 import { PrintTicket } from '@/components/planner/PrintTicket';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 
 interface CheckInConfirmationDialogProps {
   open: boolean;
@@ -49,8 +56,21 @@ interface CheckInConfirmationDialogProps {
   item: any; // Appointment or WalkIn
   services: Service[];
   tenant: Tenant | null;
-  onConfirm: (data: { serviceId: string; addOnIds: string[]; email: string; phone: string }) => void;
+  onConfirm: (data: { 
+    serviceId: string; 
+    addOnIds: string[]; 
+    email: string; 
+    phone: string;
+    accommodations: string[];
+    notes: string;
+  }) => void;
 }
+
+const accommodationsOptions = [
+    { id: 'silent', label: 'Silent Appointment', icon: VolumeX, color: 'text-indigo-500' },
+    { id: 'sensory', label: 'Sensory Sensitivity', icon: Ear, color: 'text-blue-500' },
+    { id: 'lighting', label: 'Low Lighting', icon: SunDim, color: 'text-amber-500' },
+];
 
 export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps> = ({
   open,
@@ -62,6 +82,8 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
 }) => {
   const [serviceId, setServiceId] = useState('');
   const [addOnIds, setAddOnIds] = useState<string[]>([]);
+  const [selectedAccommodations, setSelectedAccommodations] = useState<string[]>([]);
+  const [arrivalNotes, setArrivalNotes] = useState('');
   
   const methods = useForm({
       defaultValues: {
@@ -74,9 +96,18 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
     if (open && item) {
       setServiceId(item.serviceId || (item.serviceIds?.[0]) || '');
       setAddOnIds(item.addOnIds || item.serviceIds?.slice(1) || []);
+      setArrivalNotes(item.notes || '');
+      
+      // Prefill accommodations from client sensory needs if available
+      const currentNeeds = item.client?.sensoryNeeds || '';
+      const initialAcc = accommodationsOptions
+        .filter(opt => currentNeeds.toLowerCase().includes(opt.label.toLowerCase()))
+        .map(opt => opt.id);
+      setSelectedAccommodations(initialAcc);
+
       methods.reset({
-          email: item.clientEmail || item.customerEmail || '',
-          phone: item.clientPhone || item.customerPhone || '',
+          email: item.clientEmail || item.customerEmail || item.client?.email || '',
+          phone: item.clientPhone || item.customerPhone || item.client?.phone || '',
       });
     }
   }, [open, item, methods]);
@@ -87,9 +118,26 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
     setAddOnIds(prev => prev.includes(id) ? prev.filter(aid => aid !== id) : [...prev, id]);
   };
 
+  const handleToggleAccommodation = (id: string) => {
+    setSelectedAccommodations(prev => 
+        prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]
+    );
+  };
+
   const handleConfirm = () => {
     const { email, phone } = methods.getValues();
-    onConfirm({ serviceId, addOnIds, email, phone });
+    const accommodationsLabels = accommodationsOptions
+        .filter(opt => selectedAccommodations.includes(opt.id))
+        .map(opt => opt.label);
+
+    onConfirm({ 
+        serviceId, 
+        addOnIds, 
+        email, 
+        phone,
+        accommodations: accommodationsLabels,
+        notes: arrivalNotes
+    });
     onOpenChange(false);
   };
 
@@ -101,7 +149,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col max-h-[90vh]">
+      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-full max-h-[95vh] sm:max-h-[90vh]">
         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5 p-8 pb-6")}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -125,7 +173,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                         <Avatar className="h-16 w-16 border-4 border-background shadow-xl rounded-[1.5rem]">
                             <AvatarFallback className="font-black text-xl bg-primary/10 text-primary">{(item.clientName || item.customerName || 'G')[0]}</AvatarFallback>
                         </Avatar>
-                        <div className="min-w-0">
+                        <div className="min-w-0 text-left">
                             <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest">Guest Profile</p>
                             <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{item.clientName || item.customerName}</h3>
                         </div>
@@ -190,6 +238,51 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                             </div>
                         </div>
                     </div>
+
+                    <div className="space-y-6 pt-4 border-t border-dashed">
+                        <div className="space-y-4">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                                <Activity className="w-3.5 h-3.5 opacity-40" /> Strategic Accommodations
+                            </Label>
+                            <div className="grid grid-cols-1 gap-2">
+                                {accommodationsOptions.map((opt) => {
+                                    const isSelected = selectedAccommodations.includes(opt.id);
+                                    return (
+                                        <button
+                                            key={opt.id}
+                                            type="button"
+                                            onClick={() => handleToggleAccommodation(opt.id)}
+                                            className={cn(
+                                                "flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left",
+                                                isSelected ? "border-primary bg-primary/5 shadow-md" : "border-transparent bg-muted/10 hover:border-border"
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className={cn("p-2 rounded-xl bg-white shadow-sm", isSelected ? opt.color : "text-slate-400 opacity-40")}>
+                                                    <opt.icon className="w-4 h-4" />
+                                                </div>
+                                                <span className={cn("text-[11px] font-black uppercase tracking-tight", isSelected ? "text-slate-900" : "text-slate-500")}>{opt.label}</span>
+                                            </div>
+                                            <Checkbox checked={isSelected} onCheckedChange={() => handleToggleAccommodation(opt.id)} className="h-5 w-5 rounded-lg border-2" />
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2 text-left">
+                            <Label htmlFor="arrival-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                                <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Arrival Intel & Notes
+                            </Label>
+                            <Textarea 
+                                id="arrival-notes"
+                                value={arrivalNotes}
+                                onChange={(e) => setArrivalNotes(e.target.value)}
+                                placeholder="Last minute instructions or requests for the technician..."
+                                className="rounded-2xl border-2 bg-muted/5 p-4 font-medium leading-relaxed min-h-[100px]"
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 <div className="p-5 rounded-2xl border-2 border-dashed bg-primary/[0.02] flex items-start gap-4 text-left shadow-inner">
@@ -204,7 +297,7 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
             </div>
         </ScrollArea>
 
-        <DialogFooter className="p-8 pt-4 border-t bg-muted/5 shrink-0">
+        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-6" : "p-8 pt-4")}>
           <div className="flex flex-col sm:flex-row gap-3 w-full">
             <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-tighter text-[10px] text-slate-400">Abort Check-in</Button>
             <Button onClick={handleConfirm} className="flex-[2] h-16 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
