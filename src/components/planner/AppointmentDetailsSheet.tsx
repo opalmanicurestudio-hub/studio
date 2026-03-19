@@ -52,7 +52,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -117,6 +117,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
   }, [initialAppointment, allAppointments]);
 
+  // CRITICAL: Guard Clause to prevent TypeError when data is synchronizing
+  if (!mounted || !open || !appointment || !client || !service) return null;
+
   const currentAddOns = useMemo(() => {
     if (!appointment?.addOnIds || !allServices) return [];
     return appointment.addOnIds
@@ -141,30 +144,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           allCertified: pendingForms.length === 0
       };
   }, [service, consentForms, signedConsents]);
-
-  useEffect(() => {
-    let timer: NodeJS.Timeout | undefined;
-    if (appointment?.status === 'servicing' && appointment.actualStartTime) {
-      const startTime = safeDate(appointment.actualStartTime);
-      const update = () => {
-        const diff = differenceInSeconds(new Date(), startTime);
-        const h = Math.floor(diff / 3600);
-        const m = Math.floor((diff % 3600) / 60);
-        const s = diff % 60;
-        setElapsedTime(
-          h > 0
-            ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-            : `${m}:${String(s).padStart(2, '0')}`
-        );
-        setIsRunningOver(Math.floor(diff / 60) > (service?.duration || 0));
-      };
-      update();
-      timer = setInterval(update, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [appointment?.status, appointment?.actualStartTime, service?.duration]);
 
   const financialData = useMemo(() => {
     if (!appointment || !service) return null;
@@ -212,13 +191,35 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return { revenue, breakEven, profit: revenue - breakEven };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
-  const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
   
-  const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
+  useEffect(() => {
+    let timer: NodeJS.Timeout | undefined;
+    if (appointment?.status === 'servicing' && appointment.actualStartTime) {
+      const startTime = safeDate(appointment.actualStartTime);
+      const update = () => {
+        const diff = differenceInSeconds(new Date(), startTime);
+        const h = Math.floor(diff / 3600);
+        const m = Math.floor((diff % 3600) / 60);
+        const s = diff % 60;
+        setElapsedTime(
+          h > 0
+            ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+            : `${m}:${String(s).padStart(2, '0')}`
+        );
+        setIsRunningOver(Math.floor(diff / 60) > (service?.duration || 0));
+      };
+      update();
+      timer = setInterval(update, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [appointment?.status, appointment?.actualStartTime, service?.duration]);
 
-  if (!mounted || !open) return null;
+  const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
+  const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
 
   const handleCopyCheckInLink = () => {
     if (appointment.checkInToken) {
