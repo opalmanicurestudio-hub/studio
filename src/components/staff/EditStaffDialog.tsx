@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -64,7 +63,8 @@ import {
     Zap,
     DollarSign,
     Edit,
-    Landmark
+    Landmark,
+    Wallet
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -144,6 +144,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
 
     return (
         <div className="space-y-12">
+            {/* STEP 1: IDENTITY */}
             <div className="space-y-8 text-left">
                 <SectionHeader icon={Fingerprint} title="Identity & Security" step={1} />
                 <div className="space-y-8">
@@ -248,6 +249,7 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
 
             <Separator className="border-dashed" />
 
+            {/* STEP 2: PROFILE */}
             <div className="space-y-10">
                 <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
                 <div className="space-y-8 text-left">
@@ -259,27 +261,6 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
                     <div className="space-y-2 text-left">
                         <Label htmlFor="specialties-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Signature Specialties</Label>
                         <Input id="specialties-edit" placeholder="e.g., BALAYAGE, PRECISION CUTS" {...register('specialties')} className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner bg-white" />
-                    </div>
-
-                    <div className="space-y-4 text-left">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
-                            <Smartphone className="w-3.5 h-3.5 opacity-40" /> Social Presence
-                        </Label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {[
-                                { id: 'instagramUrl', icon: Instagram, label: 'Instagram' },
-                                { id: 'facebookUrl', icon: Facebook, label: 'Facebook' },
-                                { id: 'tiktokUrl', icon: Film, label: 'TikTok' },
-                                { id: 'twitterUrl', icon: Twitter, label: 'Twitter/X' },
-                                { id: 'youtubeUrl', icon: Youtube, label: 'YouTube' },
-                                { id: 'portfolioUrl', icon: LinkIcon, label: 'Portfolio' }
-                            ].map(social => (
-                                <div key={social.id} className="relative group text-left">
-                                    <social.icon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40 group-focus-within:text-primary transition-colors" />
-                                    <Input placeholder={`${social.label} URL...`} {...register(social.id as any)} className="h-11 pl-10 rounded-xl border-2 font-medium text-[10px] shadow-sm bg-white" />
-                                </div>
-                            ))}
-                        </div>
                     </div>
 
                     <div className="space-y-4 pt-4 border-t border-dashed text-left">
@@ -338,13 +319,73 @@ const EditStaffFormInternal = ({ services, consentForms, pricingTiers, onSendPas
 
             <Separator className="border-dashed" />
 
+            {/* STEP 3: COMPENSATION (MODIFIED) */}
+            <div className="space-y-10 text-left">
+                <SectionHeader icon={Wallet} title="Compensation & Yield" step={3} />
+                <div className="space-y-10 text-left">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Pay Structure</Label>
+                            <Controller name="payStructure" control={control} render={({ field }) => (
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                        <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION</SelectItem>
+                                        <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
+                                        <SelectItem value="hourly_plus_commission" className="font-bold uppercase text-[10px] tracking-widest">HOURLY + COMMISSION</SelectItem>
+                                        <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">SALARY</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            )}/>
+                        </div>
+                        {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Cadence</Label>
+                                <Controller name="payoutFrequency" control={control} render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            <SelectItem value="weekly" className="font-bold uppercase text-[10px] tracking-widest">WEEKLY</SelectItem>
+                                            <SelectItem value="bi-weekly" className="font-bold uppercase text-[10px] tracking-widest">BI-WEEKLY</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                )}/>
+                            </div>
+                        )}
+                    </div>
+
+                    {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="commissionRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service %</Label>
+                                <div className="relative"><Input id="commissionRate-edit" type="number" placeholder="40" {...register('commissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="retailCommissionRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail %</Label>
+                                <div className="relative"><Input id="retailCommissionRate-edit" type="number" placeholder="10" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
+                            </div>
+                        </div>
+                    )} 
+                    
+                    {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
+                        <div className="space-y-2 animate-in slide-in-from-top-2">
+                            <Label htmlFor="hourlyRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
+                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /><Input id="hourlyRate-edit" type="number" placeholder="25.00" {...register('hourlyRate')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" /></div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <Separator className="border-dashed" />
+
+            {/* STEP 4: GOVERNANCE */}
             <div className="space-y-10 text-left">
                 <SectionHeader icon={Landmark} title="Governance & Compliance" step={4} />
                 <div className="space-y-10 text-left">
                     <div className="space-y-4">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60 text-left"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Full Legal Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label><Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" /></div>
                             <div className="space-y-1.5 text-left">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
                                 <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (
