@@ -31,7 +31,9 @@ import {
   Undo2,
   FileSignature,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  MessageSquare,
+  Ear
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -372,6 +374,20 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               <div className="space-y-4">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Health & Intel</h3>
                 <div className="space-y-3">
+                  {client.sensoryNeeds && (
+                    <Alert className="border-2 rounded-xl bg-blue-500/5 border-blue-200">
+                        <Ear className="h-4 w-4 text-blue-600" />
+                        <AlertTitle className="text-[9px] font-black uppercase text-left text-blue-700">Special Accommodations</AlertTitle>
+                        <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left text-blue-600">{client.sensoryNeeds}</AlertDescription>
+                    </Alert>
+                  )}
+                  {appointment.notes && (
+                    <Alert className="border-2 rounded-xl bg-primary/5 border-primary/20">
+                        <MessageSquare className="h-4 w-4 text-primary" />
+                        <AlertTitle className="text-[9px] font-black uppercase text-left text-primary">Arrival Intel</AlertTitle>
+                        <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left text-slate-600">{appointment.notes}</AlertDescription>
+                    </Alert>
+                  )}
                   {client.medicalNotes && (
                     <Alert variant="destructive" className="border-2 rounded-xl bg-red-500/5"><ShieldAlert className="h-4 w-4" /><AlertTitle className="text-[9px] font-black uppercase text-left">Medical Alert</AlertTitle><AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left">{client.medicalNotes}</AlertDescription></Alert>
                   )}

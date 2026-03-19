@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -19,7 +20,9 @@ import {
     UserPlus,
     Award,
     Repeat,
-    ShieldAlert
+    ShieldAlert,
+    MessageSquare,
+    Ear
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -120,10 +123,38 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                 </Badge>
                             )}
                         </div>
-                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1 flex items-center gap-1.5 opacity-60">
-                            <Clock className="w-2.5 h-2.5" />
-                            {isWalkIn ? `Waiting ${waitTime}` : `Scheduled ${waitTime}`}
-                        </p>
+                        <div className="flex items-center gap-3 mt-1 text-left">
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-1.5 opacity-60">
+                                <Clock className="w-2.5 h-2.5" />
+                                {isWalkIn ? `Waiting ${waitTime}` : `Scheduled ${waitTime}`}
+                            </p>
+                            <div className="flex gap-1.5">
+                                {item.notes && (
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <div className="p-1 bg-primary/10 rounded-lg shrink-0">
+                                                    <MessageSquare className="w-3 h-3 text-primary" />
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Guest Intel Available</TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                )}
+                                {client?.sensoryNeeds && (
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <div className="p-1 bg-blue-500/10 rounded-lg shrink-0">
+                                                    <Ear className="w-3 h-3 text-blue-600" />
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Special Accommodations</TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                )}
+                            </div>
+                        </div>
                     </div>
                     <div className="text-right shrink-0">
                         {primaryServices?.slice(0, 1).map((s: Service) => <p key={s.id} className="text-[10px] font-black uppercase text-primary tracking-tight">{s.name}</p>)}

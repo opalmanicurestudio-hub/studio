@@ -46,7 +46,8 @@ import {
     Users,
     FileSignature,
     Calculator,
-    Pipette
+    Pipette,
+    Ear
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -67,6 +68,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '../ui/switch';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -353,7 +355,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   return (
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl rounded-[3rem] border-4 max-h-[95dvh]")}>
+        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl rounded-[3rem] border-4 max-h-[95dvh]")}>
             <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
                 <div className="flex items-center gap-3 mb-2">
                     <Sparkles className="w-5 h-5 text-primary" />
@@ -377,6 +379,24 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardContent>
                 </Card>
 
+                {/* GUEST INTEL ALERT */}
+                <div className="mt-8 space-y-3">
+                    {client.sensoryNeeds && (
+                        <Alert className="border-2 rounded-xl bg-blue-500/5 border-blue-200">
+                            <Ear className="h-4 w-4 text-blue-600" />
+                            <AlertTitle className="text-[9px] font-black uppercase text-left text-blue-700">Special Accommodations</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left text-blue-600">{client.sensoryNeeds}</AlertDescription>
+                        </Alert>
+                    )}
+                    {appointment.notes && (
+                        <Alert className="border-2 rounded-xl bg-primary/5 border-primary/20">
+                            <MessageSquare className="h-4 w-4 text-primary" />
+                            <AlertTitle className="text-[9px] font-black uppercase text-left text-primary">Arrival Intel</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left text-slate-600">{appointment.notes}</AlertDescription>
+                        </Alert>
+                    )}
+                </div>
+
                 <div className="space-y-10 mt-10">
                   <SectionHeader icon={ListChecks} title="Flow Control" step={1} />
                   <div className="space-y-4">
@@ -385,13 +405,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 <div className="flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-4 min-w-0 flex-1">
                                         <Checkbox 
-                                            id={`complete-${service.id}`} 
+                                            id={`complete-review-${service.id}`} 
                                             checked={completedServiceIds.includes(service.id)} 
                                             onCheckedChange={() => toggleServiceComplete(service.id)}
                                             className="h-6 w-6 rounded-full border-2"
                                         />
                                         <div className="min-w-0 text-left">
-                                            <Label htmlFor={`complete-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{service.name}</Label>
+                                            <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{service.name}</Label>
                                             <p className="text-[9px] font-black uppercase text-primary tracking-widest opacity-60">Main Service</p>
                                         </div>
                                     </div>
@@ -417,13 +437,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                     <div className="flex items-center justify-between gap-4">
                                         <div className="flex items-center gap-4 min-w-0 flex-1">
                                             <Checkbox 
-                                                id={`complete-${addon.id}`} 
+                                                id={`complete-review-${addon.id}`} 
                                                 checked={completedServiceIds.includes(addon.id)} 
                                                 onCheckedChange={() => toggleServiceComplete(addon.id)}
                                                 className="h-6 w-6 rounded-full border-2"
                                             />
                                             <div className="min-w-0 text-left">
-                                                <Label htmlFor={`complete-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{addon.name}</Label>
+                                                <Label htmlFor={`complete-review-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{addon.name}</Label>
                                                 <Badge variant="outline" className={cn("text-[8px] h-5 px-2 uppercase font-black tracking-widest cursor-pointer border-2 shadow-sm transition-all", (concurrentServiceIds.includes(addon.id)) ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
                                                     {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2.5 h-2.5 mr-1" /> Concurrent</> : <><Workflow className="w-2.5 h-2.5 mr-1" /> Sequential</>}
                                                 </Badge>
@@ -458,11 +478,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
                     <div className="space-y-8 text-left">
                         <div className="space-y-3 text-left">
-                          <Label htmlFor="actual-duration-review" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+                          <Label htmlFor="actual-duration-review-manual" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
                               <Clock className="w-3.5 h-3.5 opacity-40" /> Actual Duration (Minutes)
                           </Label>
                           <Input 
-                              id="actual-duration-review"
+                              id="actual-duration-review-manual"
                               type="number"
                               value={actualDuration}
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
@@ -546,23 +566,23 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <div className="space-y-6 text-left">
                         <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner transition-all">
                             <div className="space-y-1 text-left">
-                                <Label htmlFor="save-formula-toggle-review" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                                <Label htmlFor="save-formula-toggle-review-manual" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
                                     <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
                                 </Label>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Register this recipe in guest dossier</p>
                             </div>
-                            <Switch id="save-formula-toggle-review" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125 data-[state=checked]:bg-primary" />
+                            <Switch id="save-formula-toggle-review-manual" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125 data-[state=checked]:bg-primary" />
                         </div>
 
                         <AnimatePresence>
                             {saveAsCustomFormula && (
                                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="overflow-hidden">
                                     <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
-                                        <Label htmlFor="custom-formula-name-review" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
+                                        <Label htmlFor="custom-formula-name-review-manual" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
                                             <Tag className="w-3.5 h-3.5" /> Formula Identifier
                                         </Label>
                                         <Input 
-                                            id="custom-formula-name-review" 
+                                            id="custom-formula-name-review-manual" 
                                             placeholder="e.g., WINTER GLOSS MIX" 
                                             value={customFormulaName} 
                                             onChange={e => setCustomFormulaName(e.target.value.toUpperCase())}
@@ -574,11 +594,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </AnimatePresence>
 
                         <div className="space-y-3 text-left">
-                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                            <Label htmlFor="review-notes-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                                 <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
                             </Label>
                             <Textarea 
-                                id="review-notes"
+                                id="review-notes-manual"
                                 placeholder="Audit notes regarding treatment outcomes, reactions, or client requests..." 
                                 value={reviewNotes}
                                 onChange={(e) => setReviewNotes(e.target.value)}
