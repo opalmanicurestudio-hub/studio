@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -21,7 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { type InventoryItem } from '@/lib/data';
+import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,7 +31,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Pipette, Sparkles, X, Activity, Loader } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
+import { useFirebase, useUser, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { collection, doc, increment } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
+import { nanoid } from 'nanoid';
 
 const useSchema = z.object({
   productId: z.string().min(1, 'Product selection is required.'),
@@ -45,7 +50,6 @@ interface LogUseDialogProps {
   onOpenChange: (open: boolean) => void;
   product: InventoryItem | null; 
   allProducts: InventoryItem[];
-  onConfirm: (productId: string, quantity: number, notes: string) => { success: boolean, message: string };
   dialogType: 'product' | 'overhead';
 }
 
@@ -54,10 +58,14 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
   onOpenChange,
   product,
   allProducts,
-  onConfirm,
   dialogType,
 }) => {
   const isMobile = useIsMobile();
+  const { firestore } = useFirebase();
+  const { user: currentUser } = useUser();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
+
   const {
     control,
     handleSubmit,
@@ -86,22 +94,77 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
     }
   }, [open, reset, dialogType, product]);
 
-  const handleFormSubmit = (data: UseFormData) => {
-    const result = onConfirm(data.productId, data.quantity, data.reason || 'Manual Use Log');
+  const handleFormSubmit = async (data: UseFormData) => {
+    if (!firestore || !tenantId || !selectedProduct) return;
+
+    const productDocRef = doc(firestore, 'tenants', tenantId, 'inventory', selectedProduct.id);
+    const stockCorrectionsRef = collection(firestore, 'tenants', tenantId, 'stockCorrections');
     
-    if (result.success) {
-        toast({
-            title: 'Use Logged',
-            description: result.message,
-        });
-        onOpenChange(false);
+    const updateData: any = {};
+    let unitLabel = 'units';
+    
+    // PARTIAL DEDUCTION LOGIC
+    if (selectedProduct.costingMethod === 'uses') {
+        unitLabel = selectedProduct.useUnit || 'uses';
+        let currentUses = safeNumber(selectedProduct.partialContainerUses);
+        let currentStock = safeNumber(selectedProduct.totalStock);
+        const usesPerContainer = safeNumber(selectedProduct.estimatedUses) || 1;
+        
+        currentUses -= data.quantity;
+        while (currentUses <= 0 && currentStock > 0) {
+            currentStock -= 1;
+            currentUses += usesPerContainer;
+        }
+        
+        if (currentStock < 0) {
+            toast({ variant: 'destructive', title: 'Insufficient Stock', description: `Not enough portions available for ${selectedProduct.name}.` });
+            return;
+        }
+        
+        updateData.totalStock = currentStock;
+        updateData.partialContainerUses = currentUses;
+    } else if (selectedProduct.costingMethod === 'size' && selectedProduct.size) {
+        unitLabel = selectedProduct.unit || 'ml';
+        let currentSize = safeNumber(selectedProduct.partialContainerSize);
+        let currentStock = safeNumber(selectedProduct.totalStock);
+        const sizePerContainer = safeNumber(selectedProduct.size);
+
+        currentSize -= data.quantity;
+        while (currentSize <= 0 && currentStock > 0) {
+            currentStock -= 1;
+            currentSize += sizePerContainer;
+        }
+        
+        if (currentStock < 0) {
+            toast({ variant: 'destructive', title: 'Insufficient Stock', description: `Not enough volume available for ${selectedProduct.name}.` });
+            return;
+        }
+        
+        updateData.totalStock = currentStock;
+        updateData.partialContainerSize = currentSize;
     } else {
-        toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: result.message,
-        });
+        // Direct deduction
+        if (selectedProduct.totalStock < data.quantity) {
+            toast({ variant: 'destructive', title: 'Insufficient Stock', description: `Not enough units available for ${selectedProduct.name}.` });
+            return;
+        }
+        updateData.totalStock = increment(-data.quantity);
+        unitLabel = selectedProduct.unit || 'units';
     }
+    
+    updateDocumentNonBlocking(productDocRef, updateData);
+
+    const newCorrection: Omit<StockCorrection, 'id'> = {
+        productId: selectedProduct.id,
+        date: new Date().toISOString(),
+        change: -data.quantity,
+        unit: unitLabel,
+        reason: data.reason || `Manual Use Log by Admin`,
+    };
+    addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
+    
+    toast({ title: 'Use Logged', description: `${data.quantity} ${unitLabel} of ${selectedProduct.name} reconciled.` });
+    onOpenChange(false);
   };
 
   const unitLabel = selectedProduct?.costingMethod === 'uses' ? (selectedProduct.useUnit || 'uses') : (selectedProduct?.unit || 'units');
@@ -170,7 +233,7 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
       <DialogContentContainer className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[85dvh] rounded-t-[3rem]" : "sm:max-w-md rounded-[3.5rem] border-4")} side="bottom">
         <DialogHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
           <div className="flex items-center gap-3 mb-2">
-            <Sparkles className="w-5 h-5 text-primary" />
+            <Pipette className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Adjustment</span>
           </div>
           <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Log Manual Use</DialogTitle>

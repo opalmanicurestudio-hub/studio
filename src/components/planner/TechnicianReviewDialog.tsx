@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -49,7 +50,7 @@ import {
     Ear,
     Coffee
 } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
+import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState, type StockCorrection } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -61,7 +62,7 @@ import { format, differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Badge } from '@/components/ui/badge';
-import { useUser } from '@/firebase';
+import { useUser, useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -69,6 +70,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '../ui/switch';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { doc, writeBatch, collection, increment } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -130,6 +133,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const { services: allServices, inventory } = useInventory();
   const { selectedTenant } = useTenant();
   const { user: currentUser } = useUser();
+  const { firestore } = useFirebase();
+  const tenantId = selectedTenant?.id;
   const tmhr = selectedTenant?.tmhr || 50;
   const isMobile = useIsMobile();
   const { toast } = useToast();
@@ -187,8 +192,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         }
         
         initialAddons.forEach(addon => {
-            if (!nextOverrides[addon.id]) {
-                nextOverrides[addon.id] = appointment.staffId || '';
+            if (!initialOverrides[addon.id]) {
+                initialOverrides[addon.id] = appointment.staffId || '';
             }
         });
         setServiceStaffOverrides(initialOverrides);
@@ -345,7 +350,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   };
 
   const handleCompleteMyPart = () => {
-    if (!client || !service || !appointment || !currentUser) return;
+    if (!client || !service || !appointment || !currentUser || !firestore || !tenantId) return;
 
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
@@ -364,7 +369,84 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         saveAsCustomFormula,
         customFormulaName: saveAsCustomFormula ? customFormulaName : undefined
     };
-    onSendToFrontDesk(appointment.id, checkoutState);
+
+    // If all parts are complete, we handle final deductions now to ensure precision
+    if (isLastProvider) {
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+
+        editableFormula.forEach(item => {
+            const product = inventory.find(p => p.id === item.id);
+            if (!product) return;
+
+            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
+            const updateData: any = {};
+            let unitLabel = product.unit || 'units';
+
+            if (product.costingMethod === 'uses') {
+                unitLabel = product.useUnit || 'uses';
+                let currentUses = safeNumber(product.partialContainerUses);
+                let currentStock = safeNumber(product.totalStock);
+                const usesPerContainer = safeNumber(product.estimatedUses) || 1;
+                
+                currentUses -= item.quantity;
+                while (currentUses <= 0 && currentStock > 0) {
+                    currentStock -= 1;
+                    currentUses += usesPerContainer;
+                }
+                updateData.totalStock = currentStock;
+                updateData.partialContainerUses = currentUses;
+            } else if (product.costingMethod === 'size' && product.size) {
+                unitLabel = product.unit || 'ml';
+                let currentSize = safeNumber(product.partialContainerSize);
+                let currentStock = safeNumber(product.totalStock);
+                const sizePerContainer = safeNumber(product.size);
+                
+                currentSize -= item.quantity;
+                while (currentSize <= 0 && currentStock > 0) {
+                    currentStock -= 1;
+                    currentSize += sizePerContainer;
+                }
+                updateData.totalStock = currentStock;
+                updateData.partialContainerSize = currentSize;
+            } else {
+                updateData.totalStock = increment(-item.quantity);
+            }
+
+            batch.update(productRef, updateData);
+
+            const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+            batch.set(scRef, {
+                id: nanoid(),
+                productId: product.id,
+                date: now,
+                change: -item.quantity,
+                unit: unitLabel,
+                reason: `Service Formula: ${service.name} for ${client.name}`,
+                appointmentId: appointment.id
+            } as StockCorrection);
+        });
+
+        // Set appointment status
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), {
+            status: 'ready_for_checkout',
+            checkoutState: JSON.parse(JSON.stringify(checkoutState)),
+            actualEndTime: now
+        });
+
+        // Free up staff
+        const involvedIds = new Set([appointment.staffId || '', ...Object.values(serviceStaffOverrides)]);
+        involvedIds.forEach(sid => {
+            if (sid) batch.update(doc(firestore, `tenants/${tenantId}/staff`, sid), { status: 'idle' });
+        });
+
+        batch.commit().then(() => {
+            toast({ title: "Service Concluded", description: "Record sent to front desk for settlement." });
+            onOpenChange(false);
+        });
+    } else {
+        onSendToFrontDesk(appointment.id, checkoutState);
+    }
   };
 
   if (!client || !service || !appointment) return null;

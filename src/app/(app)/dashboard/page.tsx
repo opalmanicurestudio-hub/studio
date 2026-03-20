@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -213,39 +214,80 @@ export default function DashboardPage() {
           deliveredBy: user?.uid || 'system'
       });
 
-      // ATOMIC FORMULA DEDUCTION (Multiplied by quantity)
-      if (item.formula && item.formula.length > 0) {
-          item.formula.forEach(ingredient => {
-              const totalDeduction = ingredient.quantityUsed * qty;
-              const ingredientRef = doc(firestore, `tenants/${tenantId}/inventory`, ingredient.id);
-              batch.update(ingredientRef, { totalStock: increment(-totalDeduction) });
+      // IDENTIFY COMPONENTS TO DEDUCT
+      const ingredients = item.formula && item.formula.length > 0 
+        ? item.formula.map(f => ({ ...f, quantityUsed: f.quantityUsed * qty }))
+        : [{ id: item.id, name: item.name, quantityUsed: qty, unit: item.unit || 'unit' }];
+
+      ingredients.forEach(ingredient => {
+          const product = inventory.find(p => p.id === ingredient.id);
+          if (!product) return;
+
+          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
+          const updateData: any = {};
+          let unitLabel = product.unit || 'units';
+          
+          // PARTIAL DEDUCTION LOGIC
+          if (product.costingMethod === 'uses') {
+              unitLabel = product.useUnit || 'uses';
+              let currentUses = safeNumber(product.partialContainerUses);
+              let currentStock = safeNumber(product.totalStock);
+              const usesPerContainer = safeNumber(product.estimatedUses) || 1;
               
-              const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-              batch.set(correctionRef, {
-                  id: nanoid(),
-                  productId: ingredient.id,
-                  date: now,
-                  change: -totalDeduction,
-                  unit: ingredient.unit,
-                  reason: `Recipe Component: ${item.name} (x${qty}) for ${request.clientName}`,
-                  requestId: request.id
-              });
-          });
-      } else {
-          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-          batch.update(productRef, { totalStock: increment(-qty) });
+              currentUses -= ingredient.quantityUsed;
+              
+              // If we exhausted the current container, open new ones
+              while (currentUses <= 0 && currentStock > 0) {
+                  currentStock -= 1;
+                  currentUses += usesPerContainer;
+              }
+              
+              // Edge case: if we are completely out of stock
+              if (currentStock <= 0 && currentUses < 0) {
+                  currentStock = 0;
+                  currentUses = 0;
+              }
+
+              updateData.totalStock = currentStock;
+              updateData.partialContainerUses = currentUses;
+          } else if (product.costingMethod === 'size' && product.size) {
+              unitLabel = product.unit || 'ml';
+              let currentSize = safeNumber(product.partialContainerSize);
+              let currentStock = safeNumber(product.totalStock);
+              const sizePerContainer = safeNumber(product.size);
+              
+              currentSize -= ingredient.quantityUsed;
+              
+              while (currentSize <= 0 && currentStock > 0) {
+                  currentStock -= 1;
+                  currentSize += sizePerContainer;
+              }
+
+              if (currentStock <= 0 && currentSize < 0) {
+                  currentStock = 0;
+                  currentSize = 0;
+              }
+
+              updateData.totalStock = currentStock;
+              updateData.partialContainerSize = currentSize;
+          } else {
+              // Direct whole-unit deduction
+              updateData.totalStock = increment(-ingredient.quantityUsed);
+          }
+
+          batch.update(productRef, updateData);
 
           const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
           batch.set(correctionRef, {
               id: nanoid(),
-              productId: item.id,
+              productId: product.id,
               date: now,
-              change: -qty,
-              unit: item.unit || 'unit',
-              reason: `Amenity Delivery: ${request.clientName} (x${qty})`,
+              change: -ingredient.quantityUsed,
+              unit: unitLabel,
+              reason: `Amenity Protocol: ${item.name} (x${qty}) for ${request.clientName}`,
               requestId: request.id
           });
-      }
+      });
 
       // POS TERMINAL INTEGRATION: Append to bill using the request's specific appointmentId
       if (request.appointmentId) {
