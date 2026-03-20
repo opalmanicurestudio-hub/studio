@@ -116,7 +116,7 @@ export default function ProductDetailPage() {
           const usesPerContainer = product.estimatedUses || 1;
           let currentTotalUses = (product.totalStock * usesPerContainer) + (product.partialContainerUses || 0);
           initialTotalUnits = currentTotalUses - totalChange;
-        } else if (product.costingMethod === 'size') {
+        } else if (product.costingMethod === 'size' && product.size) {
           const sizePerContainer = product.size || 1;
           let currentTotalSize = (product.totalStock * sizePerContainer) + (product.partialContainerSize || 0);
           initialTotalUnits = currentTotalSize - totalChange;
@@ -131,7 +131,7 @@ export default function ProductDetailPage() {
             const usesPerContainer = product.estimatedUses || 1;
             runningStock = Math.floor(initialTotalUnits / usesPerContainer);
             runningPartial = initialTotalUnits % usesPerContainer;
-        } else if (product.costingMethod === 'size') {
+        } else if (product.costingMethod === 'size' ) {
             const sizePerContainer = product.size || 1;
             runningStock = Math.floor(initialTotalUnits / sizePerContainer);
             runningPartial = initialTotalUnits % sizePerContainer;
@@ -191,7 +191,7 @@ export default function ProductDetailPage() {
     }, [ledgerWithRunningStock, ledgerSearchTerm]);
 
     const professionalPerformance = useMemo(() => {
-        if (!product || product.type !== 'professional' || !stockCorrections) return { consumptionYTD: 0, totalCostOfUse: 0, unit: '' };
+        if (!product || (product.type !== 'professional' && product.type !== 'overhead') || !stockCorrections) return { consumptionYTD: 0, totalCostOfUse: 0, unit: '' };
         const yearStart = new Date(new Date().getFullYear(), 0, 1);
         const relevantCorrections = stockCorrections.filter(sc => sc.productId === product.id && sc.change < 0 && parseISO(sc.date) >= yearStart);
         const totalConsumption = relevantCorrections.reduce((acc, sc) => acc + Math.abs(sc.change), 0);
@@ -238,7 +238,7 @@ export default function ProductDetailPage() {
                     </div>
                 </div>
 
-                <Card className="border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white/80 backdrop-blur-xl transition-all">
+                <Card className="border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white/80 backdrop-blur-xl transition-all text-left">
                     <CardContent className="p-6 md:p-12 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 md:gap-12">
                         <div className="relative shrink-0">
                             <div className="w-32 h-32 md:w-48 md:h-48 rounded-[2rem] md:rounded-[3rem] overflow-hidden border-4 border-white shadow-2xl bg-muted/20 relative flex items-center justify-center">
@@ -249,8 +249,8 @@ export default function ProductDetailPage() {
                                 )}
                             </div>
                         </div>
-                        <div className="space-y-4 flex-1 min-w-0">
-                            <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4">
+                        <div className="space-y-4 flex-1 min-w-0 text-left">
+                            <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4 text-left">
                                 <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 truncate leading-none">{product.name}</h2>
                                 <div className="flex gap-2">
                                     <Badge variant="outline" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase tracking-widest border-2">{product.category}</Badge>
@@ -258,7 +258,7 @@ export default function ProductDetailPage() {
                                 </div>
                             </div>
                             
-                            <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2">
+                            <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2 text-left">
                                 <div className="space-y-1">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Vendor Origin</p>
                                     <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700">{product.supplier || 'Private Stock'}</p>
@@ -268,6 +268,15 @@ export default function ProductDetailPage() {
                                     <p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary">{product.sku || product.id.slice(-6).toUpperCase()}</p>
                                 </div>
                             </div>
+
+                            {product.description && (
+                                <div className="pt-4 space-y-1 text-left">
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Operational Context</p>
+                                    <p className="text-xs md:text-sm font-medium text-slate-600 leading-relaxed italic border-l-4 border-primary/20 pl-4">
+                                        "{product.description}"
+                                    </p>
+                                </div>
+                            )}
                             
                             <div className="flex flex-wrap justify-center sm:justify-start gap-4 pt-4">
                                 <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm" onClick={() => {
@@ -327,7 +336,7 @@ export default function ProductDetailPage() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10">
-                    <div className="lg:col-span-2 xl:col-span-3 space-y-10 min-w-0 order-2 lg:order-1">
+                    <div className="lg:col-span-2 xl:col-span-3 space-y-10 min-w-0 order-2 lg:order-1 text-left">
                         <Tabs defaultValue="history" className="w-full">
                             <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 overflow-x-auto scrollbar-hide">
                                 <TabsTrigger value="history" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Audit Ledger</TabsTrigger>
@@ -335,20 +344,20 @@ export default function ProductDetailPage() {
                                 <TabsTrigger value="batches" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logistics</TabsTrigger>
                             </TabsList>
                             
-                            <TabsContent value="history" className="m-0 space-y-6 animate-in fade-in duration-500">
+                            <TabsContent value="history" className="m-0 space-y-6 animate-in fade-in duration-500 text-left">
                                 <div className="relative">
                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
-                                    <Input placeholder="SEARCH LEDGER BY GUEST OR TECH..." className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white" value={ledgerSearchTerm} onChange={(e) => setLedgerSearchTerm(e.target.value)} />
+                                    <Input placeholder="SEARCH LEDGER BY GUEST OR TECH..." className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner" value={ledgerSearchTerm} onChange={(e) => setLedgerSearchTerm(e.target.value)} />
                                 </div>
                                 <div className="space-y-3">
                                     {filteredLedger.length > 0 ? filteredLedger.map((correction: any) => (
-                                        <div key={correction.id} className="flex flex-col sm:flex-row items-center justify-between p-5 rounded-[1.5rem] bg-white border-2 border-border/50 hover:border-primary/20 transition-all gap-4">
-                                            <div className="flex items-center gap-4 w-full sm:w-auto">
+                                        <div key={correction.id} className="flex flex-col sm:flex-row items-center justify-between p-5 rounded-[1.5rem] bg-white border-2 border-border/50 hover:border-primary/20 transition-all gap-4 text-left shadow-sm">
+                                            <div className="flex items-center gap-4 w-full sm:w-auto text-left">
                                                 <div className="p-3 bg-muted/30 rounded-2xl border shadow-inner shrink-0">
                                                     <CorrectionIcon reason={correction.reason} />
                                                 </div>
                                                 <div className="min-w-0 text-left">
-                                                    <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate">{correction.displayReason}</p>
+                                                    <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate text-left">{correction.displayReason}</p>
                                                     <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60 mt-0.5">{format(safeDate(correction.date), 'MMM d, yyyy @ h:mm a')}</p>
                                                 </div>
                                             </div>
@@ -374,13 +383,13 @@ export default function ProductDetailPage() {
                                     )) : (
                                         <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                                             <Book className="w-12 h-12" />
-                                            <p className="text-[10px] font-black uppercase tracking-widest">No entries found</p>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-center">No entries found</p>
                                         </div>
                                     )}
                                 </div>
                             </TabsContent>
 
-                            <TabsContent value="performance" className="m-0 space-y-8 animate-in fade-in duration-500">
+                            <TabsContent value="performance" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                                 {product.type === 'retail' && retailPerformance && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         {[
@@ -399,7 +408,7 @@ export default function ProductDetailPage() {
                                         ))}
                                     </div>
                                 )}
-                                {product.type === 'professional' && (
+                                {(product.type === 'professional' || product.type === 'overhead' || product.type === 'refreshment') && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         <div className="p-6 rounded-[2rem] bg-white border-2 flex items-center justify-between group hover:border-primary/20 transition-all shadow-sm">
                                             <div className='text-left'>
@@ -419,29 +428,29 @@ export default function ProductDetailPage() {
                                 )}
                             </TabsContent>
 
-                            <TabsContent value="batches" className="m-0 animate-in fade-in duration-500">
+                            <TabsContent value="batches" className="m-0 animate-in fade-in duration-500 text-left">
                                 <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
-                                    <CardContent className="p-0 overflow-x-auto">
+                                    <CardContent className="p-0 overflow-x-auto text-left">
                                         <Table>
                                             <TableHeader className="bg-muted/10 border-b-2">
                                                 <TableRow>
-                                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6">Intake Timestamp</TableHead>
-                                                    <TableHead className="font-black text-[10px] uppercase tracking-widest">Inventory Qty</TableHead>
+                                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-left">Intake Timestamp</TableHead>
+                                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-left">Inventory Qty</TableHead>
                                                     <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10">Landed Cost</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
                                                 {product.batches.sort((a,b) => safeDate(b.receivedDate).getTime() - safeDate(a.receivedDate).getTime()).map(batch => (
                                                     <TableRow key={batch.id} className="group hover:bg-primary/[0.02]">
-                                                        <TableCell className="p-6">
-                                                            <p className="font-black uppercase tracking-tight text-xs text-slate-900">{format(safeDate(batch.receivedDate), 'MMMM d, yyyy')}</p>
+                                                        <TableCell className="p-6 text-left">
+                                                            <p className="font-black uppercase tracking-tight text-xs text-slate-900 text-left">{format(safeDate(batch.receivedDate), 'MMMM d, yyyy')}</p>
                                                             {batch.expirationDate && (
                                                                 <p className={cn("text-[9px] font-black uppercase tracking-widest mt-1 flex items-center gap-1.5", isPast(safeDate(batch.expirationDate)) ? "text-destructive" : "text-muted-foreground opacity-60")}>
                                                                     <Clock className="w-2.5 h-2.5" /> Expiry: {format(safeDate(batch.expirationDate), 'MMM d, yyyy')}
                                                                 </p>
                                                             )}
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="text-left">
                                                             <Badge variant="secondary" className="h-6 px-2.5 font-black font-mono bg-muted/50 border-none shadow-sm">{batch.stock} Units</Badge>
                                                         </TableCell>
                                                         <TableCell className="text-right pr-10">
@@ -457,15 +466,15 @@ export default function ProductDetailPage() {
                         </Tabs>
                     </div>
 
-                    <div className="lg:col-span-1 min-w-0 order-1 lg:order-2 space-y-8">
-                        <Card className="border-4 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
-                            <CardHeader className="p-8 pb-4">
+                    <div className="lg:col-span-1 min-w-0 order-1 lg:order-2 space-y-8 text-left">
+                        <Card className="border-4 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden text-left">
+                            <CardHeader className="p-8 pb-4 border-b bg-muted/5">
                                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
                                     <Calculator className="w-3 h-3" />
                                     Pricing Architecture
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent className="p-8 pt-4 space-y-8">
+                            <CardContent className="p-8 pt-4 space-y-8 text-left">
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                                         <span>Landed Cost</span>
@@ -473,23 +482,25 @@ export default function ProductDetailPage() {
                                     </div>
                                     <Separator className="border-dashed" />
                                     
-                                    {product.type === 'retail' ? (
+                                    {(product.type === 'retail' || product.type === 'refreshment') ? (
                                         <>
                                             <div className="p-6 rounded-[2rem] bg-primary/5 border-2 border-primary/10 space-y-4 shadow-inner">
-                                                <p className="text-[9px] font-black uppercase text-primary tracking-widest text-center">Retail Strategy</p>
+                                                <p className="text-[9px] font-black uppercase text-primary tracking-widest text-center">Price Strategy</p>
                                                 <div className="flex justify-between items-baseline">
                                                     <div className="flex flex-col">
-                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Display Price</span>
-                                                        <span className="text-2xl font-black tracking-tighter font-mono text-slate-900">${(product.msrp || 0).toFixed(2)}</span>
+                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Display Rate</span>
+                                                        <span className="text-2xl font-black tracking-tighter font-mono text-slate-900">${(product.msrp || product.price || 0).toFixed(2)}</span>
                                                     </div>
                                                     <div className="text-right flex flex-col">
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Unit Profit</span>
-                                                        <span className="text-3xl font-black tracking-tighter font-mono text-primary">${(retailPerformance?.profitPerUnit || 0).toFixed(2)}</span>
+                                                        <span className="text-3xl font-black tracking-tighter font-mono text-primary">${((product.msrp || product.price || 0) - (product.costPerUnit || 0)).toFixed(2)}</span>
                                                     </div>
                                                 </div>
                                                 <div className="pt-4 border-t border-primary/10 flex justify-between items-center">
-                                                    <span className="text-10px] font-black uppercase text-slate-600">Profit Margin</span>
-                                                    <Badge className="bg-primary text-white border-none font-black text-xs font-mono">{retailPerformance?.profitMargin.toFixed(1)}%</Badge>
+                                                    <span className="text-[10px] font-black uppercase text-slate-600">Net Margin</span>
+                                                    <Badge className="bg-primary text-white border-none font-black text-xs font-mono">
+                                                        {((product.msrp || product.price || 0) > 0 ? (((product.msrp || product.price || 0) - (product.costPerUnit || 0)) / (product.msrp || product.price || 1)) * 100 : 0).toFixed(1)}%
+                                                    </Badge>
                                                 </div>
                                             </div>
                                         </>
@@ -497,7 +508,7 @@ export default function ProductDetailPage() {
                                         <>
                                             <div className="p-6 rounded-[2rem] bg-indigo-500/5 border-2 border-indigo-500/10 space-y-4 shadow-inner text-left">
                                                 <p className="text-[9px] font-black uppercase tracking-widest text-indigo-600 text-center">Efficiency Model</p>
-                                                <div className="flex justify-between items-baseline">
+                                                <div className="flex justify-between items-baseline text-left">
                                                     <div className="flex flex-col">
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Method</span>
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">By {product.costingMethod || 'Unit'}</span>

@@ -35,7 +35,7 @@ import { type Appointment, type Client, type Service, type Tenant, type Staff, t
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
 import Image from 'next/image';
@@ -229,12 +229,12 @@ const ServicingView = ({
                 </div>
 
                 {tenant?.wifiNetwork && (
-                    <div className="space-y-4">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                    <div className="space-y-4 text-left">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left">
                             <Wifi className="w-3.5 h-3.5 opacity-40" /> Connectivity Hub
                         </p>
                         <div className="p-6 rounded-[2.5rem] border-2 border-primary/10 bg-white shadow-xl space-y-4">
-                            <div className="flex justify-between items-center px-1">
+                            <div className="flex justify-between items-center px-1 text-left">
                                 <div className="space-y-0.5 text-left">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Network SSID</p>
                                     <p className="text-sm font-black uppercase tracking-tight">{tenant.wifiNetwork}</p>
@@ -255,8 +255,8 @@ const ServicingView = ({
                 )}
 
                 {tenant?.refreshmentServiceEnabled && refreshments.length > 0 && (
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between px-1">
+                    <div className="space-y-6 text-left">
+                        <div className="flex items-center justify-between px-1 text-left">
                             <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
                                 <Coffee className="w-3.5 h-3.5" /> Hospitality Menu
                             </p>
@@ -265,22 +265,22 @@ const ServicingView = ({
                             ) : null}
                         </div>
                         
-                        <div className="space-y-4">
+                        <div className="space-y-4 text-left">
                             {refreshments.map(item => {
                                 const qty = quantities[item.id] || 1;
                                 const isSoldOut = item.totalStock <= 0;
                                 
                                 return (
                                     <Card key={item.id} className={cn(
-                                        "rounded-[2rem] border-2 transition-all overflow-hidden",
-                                        isSoldOut ? "opacity-40 grayscale" : "bg-white border-primary/10 hover:border-primary/30"
+                                        "rounded-[2rem] border-2 transition-all overflow-hidden text-left",
+                                        isSoldOut ? "opacity-40 grayscale" : "bg-white border-primary/10 hover:border-primary/30 shadow-sm"
                                     )}>
                                         <CardContent className="p-4 flex gap-4 items-center">
-                                            <div className="relative w-20 h-20 rounded-2xl overflow-hidden bg-muted/20 shrink-0 flex items-center justify-center">
+                                            <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-muted/20 shrink-0 flex items-center justify-center">
                                                 {item.imageUrl ? (
                                                     <Image src={item.imageUrl} alt={item.name} fill className="object-cover" />
                                                 ) : (
-                                                    <Coffee className="w-8 h-8 text-primary opacity-20" />
+                                                    <Coffee className="w-10 h-10 text-primary opacity-20" />
                                                 )}
                                             </div>
                                             <div className="flex-1 min-w-0 text-left space-y-1">
@@ -293,12 +293,12 @@ const ServicingView = ({
                                                     )}
                                                 </div>
                                                 {item.description && (
-                                                    <p className="text-[10px] font-medium text-slate-500 leading-tight line-clamp-3 uppercase tracking-tight italic">
+                                                    <p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight italic opacity-80">
                                                         {item.description}
                                                     </p>
                                                 )}
                                                 
-                                                <div className="flex items-center justify-between pt-2">
+                                                <div className="flex items-center justify-between pt-3">
                                                     <div className="flex items-center gap-3 bg-muted/30 rounded-xl px-2 h-8">
                                                         <button onClick={() => handleQuantityChange(item.id, -1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3 h-3" /></button>
                                                         <span className="font-black font-mono text-xs w-4 text-center">{qty}</span>
@@ -386,7 +386,7 @@ export default function CheckInPage() {
 
     if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) {
         return (
-            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40 text-left">
+            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40 text-left text-left">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mt-4 text-left">Initializing Portal...</p>
             </div>
@@ -445,7 +445,7 @@ export default function CheckInPage() {
                     </div>
                 </div>
 
-                <div className="space-y-6 text-center">
+                <div className="space-y-6 text-center text-left text-left">
                     <p className="text-sm font-medium text-slate-500 leading-relaxed px-4 text-center">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please certifty your arrival status below.</p>
                     
                     <div className="grid gap-3">

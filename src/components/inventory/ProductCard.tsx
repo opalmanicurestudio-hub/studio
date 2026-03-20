@@ -102,7 +102,7 @@ export const ProductCard = ({
         )}>
             <CardContent className="p-6 md:p-8 space-y-6 flex-1 flex flex-col" onClick={onSelect}>
                 <div className="flex items-start justify-between gap-4 cursor-pointer">
-                    <div className="flex items-center gap-4 min-w-0">
+                    <div className="flex items-center gap-4 min-w-0 text-left">
                         <Checkbox
                             id={`select-${item.id}`}
                             checked={isSelected}
@@ -152,7 +152,7 @@ export const ProductCard = ({
                 {item.description && (
                     <div className="px-1 text-left">
                         <p className="text-[10px] font-medium text-slate-500 leading-relaxed line-clamp-2 uppercase italic opacity-60">
-                            {item.description}
+                            "{item.description}"
                         </p>
                     </div>
                 )}
