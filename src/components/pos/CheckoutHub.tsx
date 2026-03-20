@@ -48,7 +48,8 @@ import {
     VolumeX,
     Ear,
     SunDim,
-    Coffee
+    Coffee,
+    Landmark
 } from 'lucide-react';
 import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -78,6 +79,7 @@ import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -137,7 +139,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm }: any) => {
                 </div>
                 <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
                     <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Confirm Waiver</Button>
-                    <Button variant="ghost" onOpenChange={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -410,13 +412,13 @@ export const CheckoutHub = ({
                                 {selectedClient ? (
                                     <div className="flex items-center gap-3 text-left">
                                         <div className="relative shrink-0">
-                                            <Avatar className="h-7 v-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
+                                            <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
                                                 <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
                                                 <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
                                             </Avatar>
                                             {isMember && (
                                                 <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
-                                                    <Award className="w-2 x-2" />
+                                                    <Award className="w-2 h-2" />
                                                 </div>
                                             )}
                                         </div>
@@ -580,7 +582,7 @@ export const CheckoutHub = ({
                 </div>
                 
                 {isCartEmpty ? (
-                    <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[3rem] md:rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                    <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                         <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
                         <div className="space-y-1 text-center">
                             <p className="text-sm font-black uppercase tracking-widest">Cart Idle</p>
@@ -704,55 +706,104 @@ export const CheckoutHub = ({
                 )}
             </div>
 
-            <div className="space-y-4 text-left">
-                <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
-                    <p>Gross Manifest Value</p>
-                    <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalSubtotal).toFixed(2)}</p>
+            <div className="space-y-6">
+                <div className="space-y-4 text-left">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Payment Protocol</Label>
+                    <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
+                        <TabsList className="grid w-full grid-cols-3 h-12 rounded-2xl bg-muted/30 p-1 border-2 border-muted shadow-inner">
+                            <TabsTrigger value="card" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md">
+                                <CreditCard className="w-3 h-3 mr-1.5" /> CARD
+                            </TabsTrigger>
+                            <TabsTrigger value="cash" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md">
+                                <Banknote className="w-3 h-3 mr-1.5" /> CASH
+                            </TabsTrigger>
+                            <TabsTrigger value="other" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md">
+                                <Landmark className="w-3 h-3 mr-1.5" /> OTHER
+                            </TabsTrigger>
+                        </TabsList>
+                        
+                        <AnimatePresence mode="wait">
+                            {paymentTab === 'cash' && (
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4">
+                                    <Card className="border-2 border-primary/20 bg-primary/5 rounded-2xl shadow-inner">
+                                        <CardContent className="p-4 space-y-4">
+                                            <div className="space-y-2">
+                                                <Label className="text-[9px] font-black uppercase text-primary/60">Amount Tendered</Label>
+                                                <div className="relative">
+                                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                                                    <Input 
+                                                        type="number" 
+                                                        value={amountTendered || ''} 
+                                                        onChange={e => setAmountTendered(parseFloat(e.target.value) || 0)}
+                                                        className="h-12 pl-8 text-xl font-black font-mono border-2 rounded-xl bg-white shadow-sm"
+                                                        placeholder="0.00"
+                                                    />
+                                                </div>
+                                            </div>
+                                            {amountTendered > finalTotal && (
+                                                <div className="flex justify-between items-center px-1">
+                                                    <span className="text-[10px] font-black uppercase text-primary">Change Due</span>
+                                                    <span className="text-xl font-black font-mono text-primary">${(amountTendered - finalTotal).toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </Tabs>
                 </div>
-                {finalTotal > 0 && (
+
+                <div className="space-y-4 text-left pt-4 border-t border-dashed">
                     <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
-                        <p>Studio Tax (7%)</p>
-                        <p className="font-mono text-[11px] md:text-xs">${(finalSubtotal * 0.07).toFixed(2)}</p>
+                        <p>Gross Manifest Value</p>
+                        <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalSubtotal).toFixed(2)}</p>
                     </div>
-                )}
-                
-                {totalDiscount > 0 && (
-                    <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter text-left">
-                        <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
-                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
+                    {finalTotal > 0 && (
+                        <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
+                            <p>Studio Tax (7%)</p>
+                            <p className="font-mono text-[11px] md:text-xs">${(finalSubtotal * 0.07).toFixed(2)}</p>
+                        </div>
+                    )}
+                    
+                    {totalDiscount > 0 && (
+                        <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter text-left">
+                            <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
+                            <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
+                        </div>
+                    )}
+                    
+                    <div className="flex justify-between items-center py-1 md:py-2 text-left">
+                        <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
+                        <div className="relative w-32 md:w-36">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
+                            <Input 
+                                type="number" 
+                                value={tipAmount || ''} 
+                                onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} 
+                                className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-base md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
+                                placeholder="0.00" 
+                            />
+                        </div>
                     </div>
-                )}
-                
-                <div className="flex justify-between items-center py-1 md:py-2 text-left">
-                    <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
-                    <div className="relative w-32 md:w-36">
-                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
-                        <Input 
-                            type="number" 
-                            value={tipAmount || ''} 
-                            onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} 
-                            className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-base md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
-                            placeholder="0.00" 
-                        />
-                    </div>
-                </div>
 
-                <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4 border-t border-border/50 text-left">
-                    <div className="space-y-0.5 text-left">
-                        <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
-                        <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
+                    <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4 border-t border-border/50 text-left">
+                        <div className="space-y-0.5 text-left">
+                            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
+                            <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
+                        </div>
+                        <p className="font-mono text-2xl md:text-4xl">${safeNumber(finalTotal).toFixed(2)}</p>
                     </div>
-                    <p className="font-mono text-2xl md:text-4xl">${safeNumber(finalTotal).toFixed(2)}</p>
-                </div>
 
-                <div className="pt-2 text-left">
-                    <Button 
-                        className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" 
-                        onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
-                        disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
-                    >
-                        {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (finalTotal <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`)}
-                    </Button>
+                    <div className="pt-2 text-left">
+                        <Button 
+                            className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" 
+                            onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
+                            disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
+                        >
+                            {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (finalTotal <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`)}
+                        </Button>
+                    </div>
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
