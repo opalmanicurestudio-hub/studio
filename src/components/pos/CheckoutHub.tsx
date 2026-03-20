@@ -243,15 +243,15 @@ export const CheckoutHub = ({
     };
 
     const cartServiceIds = useMemo(() => {
-        const appointmentServiceIds = appointmentsData.map((a: any) => a.appointment.serviceId);
-        const cartServices = cart.filter((item: any) => item.type === 'service').map((item: any) => item.id);
-        const appointmentAddOnIds = appointmentsData.flatMap((a: any) => a.appointment.addOnIds || []);
+        const appointmentServiceIds = (appointmentsData || []).map((a: any) => a.appointment.serviceId);
+        const cartServices = (cart || []).filter((item: any) => item.type === 'service').map((item: any) => item.id);
+        const appointmentAddOnIds = (appointmentsData || []).flatMap((a: any) => a.appointment.addOnIds || []);
         return [...new Set([...appointmentServiceIds, ...cartServices, ...appointmentAddOnIds])];
     }, [cart, appointmentsData]);
 
     const allInvolvedStaff = useMemo(() => {
         const staffIds = new Set<string>();
-        appointmentsData.forEach((data: any) => {
+        (appointmentsData || []).forEach((data: any) => {
             if (data.appointment.staffId) staffIds.add(data.appointment.staffId);
             if (data.appointment.checkoutState?.serviceStaffOverrides) {
                 Object.values(data.appointment.checkoutState.serviceStaffOverrides).forEach((id: any) => {
@@ -493,14 +493,14 @@ export const CheckoutHub = ({
                                     </div>
                                 )}
                                 <ScrollArea className={cn("-mx-2 px-2", isGroupCheckout ? "h-auto" : "h-[300px] md:h-[350px]")}>
-                                    <div className="space-y-2 pb-4">
+                                    <div className="space-y-2 pb-4 text-left">
                                         {!isGroupCheckout && (
                                             <button 
                                                 className="w-full text-left p-4 hover:bg-muted/50 transition-all flex items-center gap-4 border-2 rounded-2xl border-transparent hover:border-border"
                                                 onClick={() => { setSelectedClientId(null); setIsPayerDialogOpen(false); }}
                                             >
                                                 <div className="p-3 bg-muted rounded-xl shadow-inner"><User className="w-5 h-5 text-muted-foreground" /></div>
-                                                <span className="font-black uppercase tracking-widest text-[11px] text-slate-600">WALK-IN GUEST (ANONYMOUS)</span>
+                                                <span className="font-black uppercase tracking-widest text-[11px] text-slate-600 text-left">WALK-IN GUEST (ANONYMOUS)</span>
                                             </button>
                                         )}
                                         {filteredPayerOptions.map((c: Client) => {
@@ -522,12 +522,12 @@ export const CheckoutHub = ({
                                                         </Avatar>
                                                         {cMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}
                                                     </div>
-                                                    <div className="min-w-0 flex-1">
+                                                    <div className="min-w-0 flex-1 text-left">
                                                         <div className="flex items-center gap-2">
                                                             <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>
                                                             {cPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
                                                         </div>
-                                                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p>
+                                                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate text-left">{c.email || c.phone || 'No contact on file'}</p>
                                                     </div>
                                                     {selectedClientId === c.id && <CheckCircle className="ml-auto w-5 h-5 text-primary" />}
                                                 </button>
@@ -538,7 +538,7 @@ export const CheckoutHub = ({
                             </div>
                             {!isGroupCheckout && (
                                 <DialogFooter className="p-6 pt-0 bg-muted/5 border-t">
-                                    <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}>
+                                    <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}>
                                         <UserPlus className="w-4 h-4 mr-2" />
                                         Register New Client Profile
                                     </Button>
@@ -552,7 +552,7 @@ export const CheckoutHub = ({
 
             {selectedClient && isBirthdayToday && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
-                    <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
+                    <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5 text-left">
                         <Cake className="h-5 w-5 text-pink-500" />
                         <AlertTitle className="text-[10px] font-black uppercase text-pink-600 tracking-widest text-left">Birthday Protocol Active</AlertTitle>
                         <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1 text-left">
@@ -569,7 +569,7 @@ export const CheckoutHub = ({
                         Available Benefits
                     </p>
                     <div className="grid gap-2">
-                        {availableEntitlements.map((ent, idx) => (
+                        {availableEntitlements.map((ent: any, idx: number) => (
                             <Button 
                                 key={idx} 
                                 variant="outline" 
@@ -578,7 +578,7 @@ export const CheckoutHub = ({
                                 className={cn(
                                     "h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all",
                                     redeemedOffer?.itemId === ent.itemId ? "bg-green-500/10 border-green-500/20 text-green-700" : 
-                                    ent.exhausted ? "opacity-50 bg-muted/30 grayscale border-dashed cursor-not-allowed" : "bg-white border-indigo-500/10 hover:border-primary/30"
+                                    ent.exhausted ? "opacity-50 bg-muted/30 grayscale border-dashed cursor-not-allowed" : "bg-white border-indigo-500/10 hover:border-primary/30 shadow-sm"
                                 )}
                             >
                                 <div className="text-left min-w-0 flex-1">
@@ -688,7 +688,7 @@ export const CheckoutHub = ({
                         })}
 
                         {cart.map((item: any) => (
-                            <div key={item.id} className="p-3 md:p-4 rounded-2xl md:rounded-3xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-3 md:gap-4 group text-left">
+                            <div key={item.id} className="p-3 md:p-4 rounded-2xl md:rounded-3xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-3 md:gap-4 group text-left shadow-sm">
                                 <div className="flex-1 min-w-0 text-left">
                                     <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
                                     <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p>
@@ -708,7 +708,7 @@ export const CheckoutHub = ({
                         {Array.from(appliedAdjustments).map(id => {
                             const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
                             return (
-                                <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/[0.02] flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 text-left">
+                                <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/[0.02] flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 text-left shadow-sm">
                                     <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
                                     <div className="flex-1 min-w-0 text-left">
                                         <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p>
@@ -733,13 +733,13 @@ export const CheckoutHub = ({
                         <Tag className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                         <Input placeholder="MANUAL CODE..." value={promoCodeInput} onChange={e => setPromoCodeInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleApplyDiscount(promoCodeInput)} className="pl-10 h-11 md:h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-muted/5 shadow-inner" />
                     </div>
-                    <Button variant="outline" size="icon" className="h-11 h-11 md:h-12 md:w-12 rounded-2xl border-2 shadow-sm shrink-0" onClick={() => setIsDiscountBrowserOpen(true)}><Users className="w-5 h-5" /></Button>
+                    <Button variant="outline" size="icon" className="h-11 h-11 md:h-12 md:w-12 rounded-2xl border-2 shadow-sm shrink-0 bg-white" onClick={() => setIsDiscountBrowserOpen(true)}><Users className="w-5 h-5" /></Button>
                 </div>
 
                 {appliedDiscountCodes.length > 0 && (
                     <div className="space-y-2">
                         {appliedDiscountCodes.map((code: string) => (
-                            <div key={code} className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between animate-in zoom-in-95 text-left">
+                            <div key={code} className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between animate-in zoom-in-95 text-left shadow-sm">
                                 <div className="flex items-center gap-2 px-1 text-left">
                                     <CheckCircle2 className="h-4 w-4 text-primary" />
                                     <p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{code}</p>
@@ -754,7 +754,7 @@ export const CheckoutHub = ({
                     <div className="space-y-3 pt-2 text-left">
                         <p className="text-[9px] font-black uppercase text-amber-600 tracking-[0.2em] flex items-center gap-2 px-1"><Wand2 className="h-3 w-3" /> System Recommendation</p>
                         {suggestedDiscounts.map((d: any) => (
-                            <Button key={d.id} variant="outline" className="w-full justify-between h-auto py-3 md:py-4 px-4 md:px-5 border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/10 border-2 rounded-2xl md:rounded-[1.5rem] group transition-all" onClick={() => handleApplyDiscount(d.code)}>
+                            <Button key={d.id} variant="outline" className="w-full justify-between h-auto py-3 md:py-4 px-4 md:px-5 border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/10 border-2 rounded-2xl md:rounded-[1.5rem] group transition-all shadow-sm" onClick={() => handleApplyDiscount(d.code)}>
                                 <div className="text-left min-w-0 flex-1">
                                     <p className="text-[11px] md:text-xs font-black uppercase tracking-widest text-amber-700">{d.code}</p>
                                     <p className="text-[9px] md:text-[10px] text-muted-foreground font-bold truncate opacity-60 uppercase">{d.description}</p>
@@ -914,7 +914,7 @@ export const CheckoutHub = ({
                                 )}
                             </div>
                             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide text-left">
-                                {quickTenderOptions.map(val => (
+                                {quickTenderOptions.map((val: any) => (
                                     <Button key={val} variant="outline" size="sm" className="flex-1 font-black h-9 md:h-11 rounded-xl text-[10px] md:text-xs shrink-0 border-2 bg-background hover:bg-primary/5" onClick={() => setAmountTendered(val)}>${val}</Button>
                                 ))}
                                 <Button variant="outline" size="sm" className="flex-1 font-black h-9 md:h-11 rounded-xl border-2 border-primary text-primary text-[9px] md:text-xs shrink-0 hover:bg-primary/5" onClick={() => setAmountTendered(total)}>EXACT AMOUNT</Button>
@@ -923,7 +923,7 @@ export const CheckoutHub = ({
                     )}
 
                     {!activeTill && (
-                        <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3 text-left">
+                        <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3 text-left shadow-inner">
                             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                             <p className="text-[9px] font-bold text-amber-700 uppercase leading-relaxed text-left">
                                 Cash payments disabled. Please open a till session to reconcile physical currency.

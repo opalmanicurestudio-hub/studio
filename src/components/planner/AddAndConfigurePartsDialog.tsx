@@ -60,15 +60,15 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
   const [configs, setConfigs] = useState<Record<string, PartConfig>>({});
   const [searchTerm, setSearchTerm] = useState('');
 
-  const activeStaff = useMemo(() => staff.filter(s => s.active && !s.onBreak), [staff]);
+  const activeStaff = useMemo(() => (staff || []).filter(s => s.active && !s.onBreak), [staff]);
 
   useEffect(() => {
     if (open) {
-      const initialIds = new Set(initialSelected.map(s => s.id));
+      const initialIds = new Set((initialSelected || []).map(s => s.id));
       setSelectedIds(initialIds);
       
       const initialConfigs: Record<string, PartConfig> = {};
-      initialSelected.forEach(s => {
+      (initialSelected || []).forEach(s => {
         initialConfigs[s.id] = {
           staffId: defaultStaffId,
           isConcurrent: false
@@ -147,7 +147,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
                   onClick={(e) => e.stopPropagation()}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                  <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate text-left">
                     {addOn.name}
                   </p>
                   <div className="flex items-center gap-3 mt-0.5">
@@ -166,7 +166,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
                     className="overflow-hidden"
                   >
                     <div className="p-4 sm:p-5 rounded-2xl border-2 border-dashed border-primary/20 bg-primary/[0.02] ml-10 space-y-5">
-                      <div className="space-y-2">
+                      <div className="space-y-2 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Assigned Professional</Label>
                         <Select 
                           value={config.staffId} 
@@ -177,7 +177,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
                           </SelectTrigger>
                           <SelectContent className="rounded-xl border-2 shadow-2xl">
                             {activeStaff.map(s => (
-                              <SelectItem key={s.id} value={s.id}>
+                              <SelectItem key={s.id} value={s.id} className="rounded-xl">
                                 <div className="flex items-center gap-2">
                                   <div className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
                                   <Avatar className="h-5 w-5 border shadow-inner">
@@ -192,7 +192,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
                         </Select>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="space-y-2 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Flow Logic</Label>
                         <RadioGroup 
                           value={config.isConcurrent ? 'concurrent' : 'sequential'} 
@@ -236,8 +236,8 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="bottom" className="h-[95vh] p-0 border-none rounded-t-[3rem] overflow-hidden bg-background flex flex-col">
-          <SheetHeader className="p-6 sm:p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
-            <div className="flex items-center gap-3 mb-2">
+          <SheetHeader className="text-left p-6 border-b bg-muted/5 flex-shrink-0">
+            <div className="flex items-center gap-3 mb-1.5">
               <Sparkles className="w-4 h-4 text-primary" />
               <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Session Configurator</span>
             </div>

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
@@ -31,7 +30,8 @@ import {
   CheckCircle2,
   ArrowRight,
   MessageSquare,
-  Ear
+  Ear,
+  Unlock
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -62,11 +62,13 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, doc, increment, writeBatch } from 'firebase/firestore';
+import { collection, doc, increment, writeBatch, deleteField } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '../ui/switch';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -109,15 +111,19 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     setMounted(true);
   }, []);
 
+  const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState<string | null>(null);
+  const [isRunningOver, setIsRunningOver] = useState(false);
+
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
-    return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
+    return allAppointments.find((a: any) => a.id === initialAppointment.id) || initialAppointment;
   }, [initialAppointment, allAppointments]);
 
   const currentAddOns = useMemo(() => {
     if (!appointment?.addOnIds || !allServices) return [];
     return appointment.addOnIds
-      .map(id => allServices.find(s => s.id === id))
+      .map((id: string) => allServices.find(s => s.id === id))
       .filter((s): s is Service => !!s);
   }, [appointment?.addOnIds, allServices]);
 
@@ -144,7 +150,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     if (!appointment || !service) return null;
     const isCompleted = appointment.status === 'completed';
     const addOns = (appointment.addOnIds || [])
-      .map((id) => allServices.find((s) => s.id === id))
+      .map((id: string) => allServices.find((s) => s.id === id))
       .filter((s): s is Service => !!s);
     const allServicesInApt = [service, ...addOns];
     const assignedStaffMember = staff.find((s) => s.id === appointment.staffId);
@@ -188,9 +194,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return { revenue, breakEven, profit: revenue - breakEven };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
-  const [elapsedTime, setElapsedTime] = useState<string | null>(null);
-  const [isRunningOver, setIsRunningOver] = useState(false);
-
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
     if (appointment?.status === 'servicing' && appointment.actualStartTime) {
@@ -214,8 +217,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       if (timer) clearInterval(timer);
     };
   }, [appointment?.status, appointment?.actualStartTime, service?.duration]);
-
-  const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
 
   const handleAddAndConfigureConfirm = (selectedAddOns: Service[], configs: any) => {
     if (!firestore || !tenantId || !appointment) return;
@@ -241,7 +242,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     if (appointment?.checkInToken) {
       const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
 
-      // Fallback for environments where navigator.clipboard might be restrictive
       const textArea = document.createElement("textarea");
       textArea.value = link;
       document.body.appendChild(textArea);
@@ -265,7 +265,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
   const ticketId = appointment.id.slice(-6).toUpperCase();
   const mainStaffId = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
-  const mainStaffMember = staff.find(s => s.id === mainStaffId);
+  const mainStaffMember = staff.find((s: Staff) => s.id === mainStaffId);
 
   return (
     <>
@@ -295,7 +295,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </div>
               )}
 
-              <div className="space-y-6">
+              <div className="space-y-6 text-left">
                 <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6">
                   <Avatar className={cn("border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2.5rem]", isMobile ? "w-16 h-16" : "w-24 h-24")}><AvatarImage src={client.avatarUrl} className="object-cover" /><AvatarFallback className="text-xl font-black bg-primary/10 text-primary">{(client?.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback></Avatar>
                   <div className="space-y-1.5 flex-1 min-w-0 text-left">
@@ -359,9 +359,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <p className="text-sm md:text-xl font-black text-primary tracking-tighter font-mono shrink-0">${financialData?.revenue.toFixed(2)}</p>
                     </div>
                     {(appointment.addOnIds || []).length > 0 && (
-                      <div className="space-y-3 pt-3 border-t border-dashed">
+                      <div className="space-y-3 pt-3 border-t border-dashed text-left">
                         <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40 text-left">Add-ons</p>
-                        {(appointment.addOnIds || []).map((id) => {
+                        {(appointment.addOnIds || []).map((id: string) => {
                           const s = allServices.find((svc) => svc.id === id);
                           if (!s) return null;
                           return (
@@ -384,10 +384,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       <AddAndConfigurePartsDialog
         open={isAddAndConfigureOpen}
         onOpenChange={setIsAddAndConfigureOpen}
-        appointment={appointment}
-        client={client}
-        service={service}
         onConfirm={handleAddAndConfigureConfirm}
+        allAddOns={allServices.filter(s => s.type === 'addon' && (service?.compatibleAddOnIds || []).includes(s.id))}
+        initialSelected={currentAddOns}
+        staff={staff}
+        defaultStaffId={appointment.staffId || ''}
       />
     </>
   );

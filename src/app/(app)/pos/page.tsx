@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
@@ -80,13 +79,13 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 );
 
 function POSPage() {
+    const isMobile = useIsMobile();
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
     const router = useRouter();
     const { toast } = useToast();
-    const isMobile = useIsMobile();
 
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
