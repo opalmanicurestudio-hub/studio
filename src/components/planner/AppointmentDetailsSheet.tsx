@@ -4,13 +4,11 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { format, differenceInMinutes, parseISO, differenceInSeconds } from 'date-fns';
 import {
   Award,
-  MoreHorizontal,
   DollarSign,
   Clock,
   FileText,
   Edit,
   Trash2,
-  TrendingUp,
   Mail,
   Phone,
   User as UserIcon,
@@ -51,7 +49,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Separator } from '@/components/ui/separator';
 import { cn, safeNumber } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -106,7 +104,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const { toast } = useToast();
   const { firestore } = useFirebase();
 
-  // ALL HOOKS MUST BE AT THE TOP LEVEL
+  // HOOKS MUST BE UNCONDITIONAL AT THE TOP LEVEL
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
     return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
@@ -244,9 +242,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
       navigator.clipboard.writeText(link);
       toast({ title: 'Link Copied', description: 'Guest portal URL is on your clipboard.' });
+    } else {
+      toast({ variant: 'destructive', title: 'Link Generation Failed', description: 'Check-in token not found for this record.' });
     }
   };
 
+  // CONDITIONAL RENDER GUARD AFTER ALL HOOKS
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
@@ -312,7 +313,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         {complianceInfo.pendingForms.length > 0 && (
                             <div className="space-y-2">
                                 {complianceInfo.pendingForms.map(f => (
-                                    <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-amber-700 bg-amber-500/5 p-2 rounded-lg border border-amber-200">
+                                    <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-amber-700 bg-amber-50/50 p-2 rounded-lg border border-amber-200">
                                         <span className="flex items-center gap-2 truncate text-left"><FileSignature className="w-3 h-3 opacity-40"/> {f.title}</span>
                                         <span className="shrink-0 ml-4">Required</span>
                                     </div>

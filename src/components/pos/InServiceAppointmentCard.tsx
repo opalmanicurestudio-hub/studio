@@ -102,7 +102,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                 </div>
                                 
                                 <div className="space-y-2">
-                                    {assignedTechnicians.map((tech, tIdx) => {
+                                    {assignedTechnicians.map((tech: Staff, tIdx: number) => {
                                         const techServices = Object.entries(appointment.checkoutState?.serviceStaffOverrides || {}).filter(([_, staffId]) => staffId === tech.id).map(([svcId]) => svcId);
                                         if (appointment.staffId === tech.id && !techServices.includes(appointment.serviceId)) techServices.unshift(appointment.serviceId);
                                         const isDone = techServices.length > 0 && techServices.every(id => completedIds.includes(id));
