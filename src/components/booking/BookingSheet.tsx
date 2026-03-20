@@ -73,7 +73,7 @@ type BookingFormData = z.infer<typeof bookingSchema>;
 const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, disabled?: boolean }) => {
     const isAnyStaff = staff.id === 'any';
     return (
-        <label htmlFor={`staff-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-50")}>
+        <label htmlFor={`staff-sheet-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-50")}>
             <div className={cn(
                 'relative transition-all duration-300 rounded-2xl border-2 p-4 flex flex-col items-center gap-3', 
                 isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30', 
@@ -86,7 +86,7 @@ const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { 
                     </AvatarFallback>
                 </Avatar>
                 <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name}</p>
-                <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" disabled={disabled} />
+                <RadioGroupItem value={staff.id} id={`staff-sheet-${staff.id}`} className="sr-only" disabled={disabled} />
                 {isSelected && (
                     <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5">
                         <Check className="w-3 h-3" />
@@ -668,7 +668,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     </div>
                                     <div className="space-y-6 text-left">
                                         <div className="space-y-3">
-                                            <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Legal Name</Label>
+                                            <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Full Legal Name</Label>
                                             <Input id="name" {...methods.register('clientName')} className="h-14 rounded-2xl border-2 text-lg font-bold shadow-inner" placeholder="Enter your full name" />
                                         </div>
                                         <div className="space-y-3 text-left">
@@ -689,7 +689,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         )}
                                         {bannedClient && (
                                             <motion.div key="banned" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                                                <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-xl border-4 rounded-[2rem] p-6">
+                                                <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-xl border-4 rounded-[2rem] p-6 text-left">
                                                     <Ban className="h-6 w-6" />
                                                     <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Check-in Restricted</AlertTitle>
                                                     <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">

@@ -218,7 +218,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
 
-  const handleCopyCheckInLink = () => {
+  const handleCopyLink = () => {
     if (appointment.checkInToken) {
       const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
       navigator.clipboard.writeText(link);
