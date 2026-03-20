@@ -41,7 +41,8 @@ import {
   Activity,
   PackageX,
   Zap,
-  TrendingDown
+  TrendingDown,
+  User as UserIcon
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Appointment, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn } from '@/lib/data';
@@ -84,19 +85,25 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver }: any) => {
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
-                        className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all gap-6 group"
+                        className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all gap-6 group"
                     >
-                        <div className="flex items-center gap-6 text-left w-full sm:w-auto">
+                        <div className="flex flex-col sm:flex-row items-center gap-6 text-left w-full sm:w-auto">
                             <div className="p-4 bg-primary/5 rounded-2xl shadow-inner border border-primary/10 relative">
                                 <Coffee className="w-8 h-8 text-primary" />
                                 <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-lg">
                                     <Sparkles className="w-3 h-3" />
                                 </div>
                             </div>
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-left w-full sm:w-auto">
                                 <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-                                    Guest: <span className="text-primary">{request.clientName}</span> &middot; {format(safeDate(request.requestedAt), 'h:mm a')}
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    Guest: <span className="text-primary">{request.clientName}</span>
+                                    <span className="opacity-40">&middot;</span>
+                                    <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {request.stationName || 'Station'}</span>
+                                    <span className="opacity-40">&middot;</span>
+                                    <span className="flex items-center gap-1"><UserIcon className="w-3 h-3"/> {request.staffName || 'Pro'}</span>
+                                    <span className="opacity-40">&middot;</span>
+                                    {format(safeDate(request.requestedAt), 'h:mm a')}
                                 </p>
                             </div>
                         </div>
@@ -256,6 +263,7 @@ export default function DashboardPage() {
                         inventory={inventory} 
                         user={user}
                         onDeliver={handleDeliverRefreshment} 
+                        staff={staff}
                     />
                 </section>
 

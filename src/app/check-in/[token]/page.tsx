@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -21,7 +22,7 @@ import {
     ArrowRight
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
@@ -60,7 +61,23 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
     </CardHeader>
 );
 
-const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: Tenant | null, client: Client | null, inventory: InventoryItem[], activeRequests: any[] }) => {
+const ServicingView = ({ 
+    tenant, 
+    client, 
+    inventory, 
+    activeRequests, 
+    appointment, 
+    staff, 
+    resources 
+}: { 
+    tenant: Tenant | null, 
+    client: Client | null, 
+    inventory: InventoryItem[], 
+    activeRequests: any[],
+    appointment: Appointment | null,
+    staff: Staff | null,
+    resources: Resource[]
+}) => {
     const { firestore } = useFirebase();
     const { toast } = useToast();
     const [isRequesting, setIsRequesting] = useState(false);
@@ -68,6 +85,12 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
     const refreshments = useMemo(() => 
         inventory.filter(item => item.type === 'refreshment' && item.totalStock > 0)
     , [inventory]);
+
+    const stationName = useMemo(() => {
+        if (!appointment?.requiredResourceIds?.length || !resources) return 'Station';
+        const res = resources.find(r => r.id === appointment.requiredResourceIds![0]);
+        return res?.name || 'Station';
+    }, [appointment, resources]);
 
     const handleRequest = async (item: InventoryItem) => {
         if (!firestore || !tenant || !client || isRequesting) return;
@@ -84,7 +107,9 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
             itemId: item.id,
             itemName: item.name,
             status: 'pending',
-            requestedAt: new Date().toISOString()
+            requestedAt: new Date().toISOString(),
+            stationName: stationName,
+            staffName: staff?.name || 'Unassigned'
         };
 
         try {
@@ -95,7 +120,7 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
                 id: nanoid(),
                 userId: 'all_staff',
                 type: 'refreshment_request',
-                message: `New request: ${item.name} for ${client.name}`,
+                message: `New request: ${item.name} for ${client.name} at ${stationName}`,
                 link: '/dashboard',
                 createdAt: new Date().toISOString(),
                 read: false
@@ -122,7 +147,7 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
                     <div className="space-y-2">
                         <p className="font-black text-xl uppercase tracking-tight text-slate-900">Relax & Recharge</p>
                         <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight">
-                            Your transformation is in progress. We've optimized this window for your comfort.
+                            Your transformation is in progress at <strong>{stationName}</strong>. We've optimized this window for your comfort.
                         </p>
                     </div>
                 </div>
@@ -209,6 +234,9 @@ export default function CheckInPage() {
     const inventoryQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
     const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
 
+    const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
+    const { data: resources } = useCollection<Resource>(resourcesQuery);
+
     const activeRequestsQuery = useMemoFirebase(() => {
         if (!firestore || !tenantId || !appointmentData?.clientId) return null;
         return query(
@@ -238,7 +266,17 @@ export default function CheckInPage() {
     }
     
     if (appointmentData?.status === 'servicing') {
-        return <ServicingView tenant={tenant} client={client} inventory={inventory || []} activeRequests={activeRequests || []} />;
+        return (
+            <ServicingView 
+                tenant={tenant} 
+                client={client} 
+                inventory={inventory || []} 
+                activeRequests={activeRequests || []}
+                appointment={appointmentData}
+                staff={assignedStaff}
+                resources={resources || []}
+            />
+        );
     }
     
     return (
