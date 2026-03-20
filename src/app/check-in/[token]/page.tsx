@@ -25,7 +25,9 @@ import {
     Info,
     ChevronDown,
     ChevronUp,
-    XCircle
+    XCircle,
+    Car,
+    AlertTriangle
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource } from '@/lib/data';
@@ -182,7 +184,7 @@ const ServicingView = ({
                     </div>
                     <div className="space-y-2 text-center">
                         <p className="font-black text-xl uppercase tracking-tight text-slate-900">Relax & Recharge</p>
-                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight text-center">
+                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight">
                             Your transformation is in progress at <strong>{stationName}</strong>.
                         </p>
                     </div>
@@ -331,6 +333,20 @@ export default function CheckInPage() {
     const staffDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.staffId ? null : doc(firestore, `tenants/${tenantId}/staff`, appointmentData.staffId), [firestore, tenantId, appointmentData?.staffId]);
     const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
+    const updateStatus = async (status: string, lateMinutes?: number) => {
+        if (!firestore || !token || !appointmentData) return;
+        const updateRef = doc(firestore, 'appointmentCheckIns', token);
+        const updates: any = { checkInStatus: status };
+        if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
+        
+        try {
+            await updateDocumentNonBlocking(updateRef, updates);
+            toast({ title: "Status Updated", description: "The studio has been notified." });
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Update Failed" });
+        }
+    };
+
     if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) {
         return (
             <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40">
@@ -347,7 +363,7 @@ export default function CheckInPage() {
                     <XCircle className="w-16 h-16 text-destructive mx-auto opacity-40" />
                     <div className="space-y-2">
                         <h2 className="text-2xl font-black uppercase tracking-tighter">Record Expired</h2>
-                        <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">
+                        <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-center">
                             This check-in link is no longer valid or could not be found in our manifest.
                         </p>
                     </div>
@@ -376,8 +392,8 @@ export default function CheckInPage() {
     return (
         <ViewContainer>
             <ViewHeader title="Portal Ready" subtitle="Manage your session" icon={Fingerprint} />
-            <CardContent className="p-8 text-center space-y-6">
-                <div className="p-10 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6 text-center">
+            <CardContent className="p-8 text-center space-y-8">
+                <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6 text-center">
                     <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
                     <div className="space-y-1">
                         <p className="text-[10px] font-black uppercase text-primary tracking-widest">Current Booking</p>
@@ -387,8 +403,33 @@ export default function CheckInPage() {
                 </div>
 
                 <div className="space-y-6 text-center">
-                    <p className="text-sm font-medium text-slate-500 leading-relaxed px-4 text-center">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please confirm your arrival below.</p>
+                    <p className="text-sm font-medium text-slate-500 leading-relaxed px-4 text-center">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please certifty your arrival status below.</p>
                     
+                    <div className="grid gap-3">
+                        <Button 
+                            onClick={() => updateStatus('arrived')} 
+                            className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-tight shadow-3xl shadow-primary/30 group"
+                        >
+                            I Have Arrived <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
+                        </Button>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Button 
+                                variant="outline" 
+                                onClick={() => updateStatus('on_my_way')} 
+                                className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white"
+                            >
+                                <Car className="w-4 h-4 mr-2 text-primary" /> On My Way
+                            </Button>
+                            <Button 
+                                variant="outline" 
+                                onClick={() => updateStatus('running_late', 15)} 
+                                className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white"
+                            >
+                                <AlertTriangle className="w-4 h-4 mr-2 text-amber-500" /> Running Late
+                            </Button>
+                        </div>
+                    </div>
+
                     {assignedStaff && (
                         <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
                             <Avatar className="h-12 w-12 border-2 border-background shadow-xl rounded-[1.5rem]">
@@ -401,18 +442,6 @@ export default function CheckInPage() {
                             </div>
                         </div>
                     )}
-
-                    <Button 
-                        onClick={() => {
-                            if (!firestore || !token || !appointmentData) return;
-                            const updateRef = doc(firestore, 'appointmentCheckIns', token);
-                            updateDocumentNonBlocking(updateRef, { checkInStatus: 'arrived' });
-                            toast({ title: "Arrival Certified", description: "Your professional has been notified." });
-                        }} 
-                        className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-tight shadow-3xl shadow-primary/30 group"
-                    >
-                        I Have Arrived <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
-                    </Button>
                 </div>
             </CardContent>
         </ViewContainer>

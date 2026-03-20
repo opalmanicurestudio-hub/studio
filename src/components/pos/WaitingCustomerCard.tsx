@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -100,10 +99,10 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
     return (
         <Card className={cn(
             "transition-all border-2 rounded-2xl overflow-hidden",
-            checkInStatus === 'arrived' ? "border-green-500/20 bg-green-500/[0.03] shadow-lg shadow-green-500/5" : 
-            checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/[0.03]" : 
-            checkInStatus === 'on_my_way' ? "border-blue-500/20 bg-blue-500/[0.03]" :
-            isAutoCancelled ? "border-destructive ring-4 ring-destructive/10 bg-destructive/[0.02]" :
+            checkInStatus === 'arrived' ? "border-green-500 bg-green-500/5 shadow-lg shadow-green-500/5 ring-2 ring-green-500/20" : 
+            checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/5" : 
+            checkInStatus === 'on_my_way' ? "border-blue-500/20 bg-blue-500/5" :
+            isAutoCancelled ? "border-destructive ring-4 ring-destructive/10 bg-destructive/5" :
             isPotentialAlias ? "border-destructive/40 ring-4 ring-destructive/10" : "border-border/50 bg-white"
         )}>
             <CardContent className="p-5 space-y-4" onClick={onResolve}>
@@ -183,7 +182,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                             })}
                         </div>
                         {checkInStatus === 'running_late' && <Badge className="bg-amber-500 border-none text-[9px] font-black uppercase animate-pulse">+{lateTimeMinutes}m Late</Badge>}
-                        {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest">HERE</Badge>}
+                        {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest shadow-sm">HERE</Badge>}
                         {checkInStatus === 'on_my_way' && <Badge className="bg-blue-500 border-none text-[9px] font-black uppercase tracking-widest"><Car className="w-2.5 h-2.5 mr-1" />EN ROUTE</Badge>}
                     </div>
                 )}
@@ -260,7 +259,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
             <Dialog open={isLateEntryOpen} onOpenChange={setIsLateEntryOpen}>
                 <DialogContent className="sm:max-w-[320px] rounded-[3rem] border-4 shadow-3xl" onClick={(e) => e.stopPropagation()}>
                     <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter text-left">Minutes Late</DialogTitle></DialogHeader>
-                    <div className="p-8">
+                    <div className="p-8 text-left">
                         <div className="grid grid-cols-4 gap-2 mb-6">
                             {['5', '10', '15', '20'].map(m => (
                                 <Button key={m} variant={tempLateMinutes === m ? 'default' : 'outline'} className="h-10 rounded-xl font-black" onClick={() => setTempLateMinutes(m)}>{m}</Button>
