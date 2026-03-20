@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem } from '@/lib/data';
-import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -91,7 +91,6 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
         try {
             await setDocumentNonBlocking(requestRef, payload, {});
             
-            // Dispatch notification to staff
             const notificationRef = doc(collection(firestore, `tenants/${tenant.id}/notifications`));
             await setDocumentNonBlocking(notificationRef, {
                 id: nanoid(),
@@ -123,7 +122,7 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
                     </div>
                     <div className="space-y-2">
                         <p className="font-black text-xl uppercase tracking-tight text-slate-900">Relax & Recharge</p>
-                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center">
+                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight">
                             Your transformation is in progress. We've optimized this window for your comfort.
                         </p>
                     </div>
@@ -256,8 +255,22 @@ export default function CheckInPage() {
                     </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-6">
                     <p className="text-sm font-medium text-slate-500 leading-relaxed px-4">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please confirm your arrival below.</p>
+                    
+                    {assignedStaff && (
+                        <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner">
+                            <Avatar className="h-12 w-12 border-2 border-background shadow-md rounded-xl">
+                                <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
+                                <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div className="text-left">
+                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
+                                <p className="font-black text-sm uppercase text-slate-800 leading-none">{assignedStaff.name}</p>
+                            </div>
+                        </div>
+                    )}
+
                     <Button 
                         onClick={() => {
                             if (!firestore || !token) return;

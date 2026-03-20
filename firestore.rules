@@ -8,7 +8,11 @@ service cloud.firestore {
     }
 
     function isOwner(tenantId) {
-      return isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId;
+      return isSignedIn() && (
+        request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId ||
+        exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role == 'owner'
+      );
     }
 
     function isStaff(tenantId) {
@@ -20,8 +24,8 @@ service cloud.firestore {
 
     // --- Tenant Root ---
     match /tenants/{tenantId} {
-      allow get: if true; // Critical for public portals
-      allow list: if isSignedIn();
+      allow get: if true;
+      allow list: if isSignedIn(); // Crucial for Jessica Marshall to find her studio
       allow update: if isOwner(tenantId);
     }
 
@@ -32,18 +36,20 @@ service cloud.firestore {
     }
 
     match /tenants/{tenantId}/inventory/{itemId} {
-      // Allow public to list refreshments for the concierge menu
       allow list, get: if true;
-      // Only staff can update stock levels
       allow update: if isStaff(tenantId);
-      // Admin/Owner full access
       allow write: if isStaff(tenantId);
     }
 
     match /tenants/{tenantId}/refreshmentRequests/{requestId} {
-      allow create: if true; // Guests can request
+      allow create: if true; 
       allow get: if true;
       allow list, update: if isStaff(tenantId);
+    }
+
+    match /tenants/{tenantId}/notifications/{notificationId} {
+      allow create: if true;
+      allow read, write: if isStaff(tenantId);
     }
 
     match /tenants/{tenantId}/services/{serviceId} {
@@ -55,12 +61,12 @@ service cloud.firestore {
     }
 
     match /tenants/{tenantId}/appointments/{appointmentId} {
-      allow get: if true; // Allow guests to view their own booked session
+      allow get: if true;
       allow read, write: if isStaff(tenantId);
     }
 
     match /tenants/{tenantId}/clients/{clientId} {
-      allow get: if true; // Allow guests to view their profile during check-in
+      allow get: if true;
       allow read, write: if isStaff(tenantId);
     }
 
@@ -71,6 +77,11 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /staffDirectory/{userId} {
+      allow read: if true;
+      allow write: if isSignedIn();
     }
   }
 }
