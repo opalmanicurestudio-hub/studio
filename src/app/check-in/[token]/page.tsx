@@ -131,15 +131,19 @@ const ServicingView = ({
     const [isRequesting, setIsRequesting] = useState(false);
     const [quantities, setQuantities] = useState<Record<string, number>>({});
 
-    const isMember = client?.activeMembershipId && client?.subscription?.status === 'active';
+    const isMember = useMemo(() => {
+        if (!client) return false;
+        return !!(client.activeMembershipId && client.subscription?.status === 'active');
+    }, [client]);
 
     const refreshments = useMemo(() => 
         inventory.filter(item => 
             item.type === 'refreshment' && 
             item.showInConcierge !== false && 
-            item.totalStock > 0
+            item.totalStock > 0 &&
+            (!item.isMembersOnly || isMember) // Hide members only items from non-members
         )
-    , [inventory]);
+    , [inventory, isMember]);
 
     const stationName = useMemo(() => {
         if (!appointment?.requiredResourceIds?.length || !resources) return 'Station';
@@ -282,13 +286,11 @@ const ServicingView = ({
                             {refreshments.map(item => {
                                 const qty = quantities[item.id] || 1;
                                 const isSoldOut = item.totalStock <= 0;
-                                const isLocked = item.isMembersOnly && !isMember;
                                 
                                 return (
                                     <Card key={item.id} className={cn(
                                         "rounded-[2rem] border-2 transition-all overflow-hidden text-left",
-                                        isSoldOut ? "opacity-40 grayscale" : "bg-white border-primary/10 hover:border-primary/30 shadow-sm",
-                                        isLocked && "border-indigo-500/20 bg-indigo-500/[0.02]"
+                                        isSoldOut ? "opacity-40 grayscale" : "bg-white border-primary/10 hover:border-primary/30 shadow-sm"
                                     )}>
                                         <CardContent className="p-4 flex gap-4 items-center">
                                             <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-muted/20 shrink-0 flex items-center justify-center">
@@ -297,18 +299,13 @@ const ServicingView = ({
                                                 ) : (
                                                     <Coffee className="w-10 h-10 text-primary opacity-20" />
                                                 )}
-                                                {isLocked && (
-                                                    <div className="absolute inset-0 bg-indigo-900/40 backdrop-blur-[2px] flex items-center justify-center">
-                                                        <Lock className="w-8 h-8 text-white" />
-                                                    </div>
-                                                )}
                                             </div>
                                             <div className="flex-1 min-w-0 text-left space-y-1">
                                                 <div className="flex justify-between items-start">
                                                     <div className="flex flex-col gap-1 text-left">
                                                         <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate text-left">{item.name}</p>
                                                         {item.isMembersOnly && (
-                                                            <Badge className="w-fit bg-indigo-600 text-white border-none text-[7px] h-4 px-1.5 font-black uppercase">Members Only</Badge>
+                                                            <Badge className="w-fit bg-indigo-600 text-white border-none text-[7px] h-4 px-1.5 font-black uppercase">Club Exclusive</Badge>
                                                         )}
                                                     </div>
                                                     {item.price && item.price > 0 ? (
@@ -324,29 +321,19 @@ const ServicingView = ({
                                                 )}
                                                 
                                                 <div className="flex items-center justify-between pt-3">
-                                                    <div className={cn("flex items-center gap-3 bg-muted/30 rounded-xl px-2 h-8", isLocked && "opacity-20")}>
-                                                        <button onClick={() => !isLocked && handleQuantityChange(item.id, -1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3 h-3" /></button>
+                                                    <div className={cn("flex items-center gap-3 bg-muted/30 rounded-xl px-2 h-8")}>
+                                                        <button onClick={() => handleQuantityChange(item.id, -1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3 h-3" /></button>
                                                         <span className="font-black font-mono text-xs w-4 text-center">{qty}</span>
-                                                        <button onClick={() => !isLocked && handleQuantityChange(item.id, 1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Plus className="w-3 h-3" /></button>
+                                                        <button onClick={() => handleQuantityChange(item.id, 1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Plus className="w-3 h-3" /></button>
                                                     </div>
-                                                    {isLocked ? (
-                                                        <Button 
-                                                            size="sm" 
-                                                            variant="outline"
-                                                            className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest border-indigo-500/20 text-indigo-600 bg-indigo-500/5"
-                                                        >
-                                                            Join Club
-                                                        </Button>
-                                                    ) : (
-                                                        <Button 
-                                                            size="sm" 
-                                                            disabled={isRequesting || hasActiveRequest || isSoldOut}
-                                                            onClick={() => handleRequest(item)}
-                                                            className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
-                                                        >
-                                                            {isSoldOut ? 'Sold Out' : 'Request'}
-                                                        </Button>
-                                                    )}
+                                                    <Button 
+                                                        size="sm" 
+                                                        disabled={isRequesting || hasActiveRequest || isSoldOut}
+                                                        onClick={() => handleRequest(item)}
+                                                        className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
+                                                    >
+                                                        {isSoldOut ? 'Sold Out' : 'Request'}
+                                                    </Button>
                                                 </div>
                                             </div>
                                         </CardContent>
