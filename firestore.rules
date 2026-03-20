@@ -24,7 +24,7 @@ service cloud.firestore {
     // --- Tenant Root ---
     match /tenants/{tenantId} {
       allow get: if true;
-      allow list: if isSignedIn(); 
+      allow list: if isSignedIn(); // Allow discovery of owned tenants
       allow update: if isOwner(tenantId);
     }
 

@@ -76,10 +76,10 @@ const Step1 = () => {
         <div className="space-y-10">
             <SectionHeader icon={Coffee} title="Identity & Menu Label" step={1} />
             <div className="space-y-6">
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="item-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest-Facing Name</Label>
                     <Input id="item-name" placeholder="e.g., Oat Milk Espresso" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
-                    {errors.name && <p className="text-xs font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
+                    {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
                 <div className="p-4 rounded-2xl border-2 border-dashed bg-primary/5 text-left">
                     <p className="text-[10px] font-bold text-primary uppercase leading-relaxed">
@@ -91,13 +91,13 @@ const Step1 = () => {
     );
 };
 
-const Step2 = () => {
+const Step2 = ({ locations }: { locations: Location[] }) => {
     const { control, register, watch, formState: { errors } } = useFormContext<RefreshmentFormData>();
     const costingMethod = watch('costingMethod');
     return (
         <div className="space-y-10">
             <SectionHeader icon={DollarSign} title="Yield & Stock" step={2} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <div className="space-y-6">
                     <div className="space-y-2">
                         <Label htmlFor="purchase-cost" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Landed Cost (Invoice Total)</Label>
@@ -105,10 +105,27 @@ const Step2 = () => {
                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
                             <Input id="purchase-cost" type="number" step="0.01" placeholder="0.00" {...register('purchaseCost')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" />
                         </div>
+                        {errors.purchaseCost && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.purchaseCost.message}</p>}
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="initial-stock" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Initial Stock (Full Units)</Label>
                         <Input id="initial-stock" type="number" placeholder="e.g., 12" {...register('initialStock')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
+                        {errors.initialStock && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.initialStock.message}</p>}
+                    </div>
+                    <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase text-muted-foreground ml-1">Intake Date</Label>
+                        <Controller name="purchaseDate" control={control} render={({ field }) => (
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button variant="outline" className="w-full h-12 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5 shadow-inner">
+                                        <CalendarIcon className="mr-2 h-4 w-4 opacity-40" />
+                                        {field.value ? format(field.value, 'MMM d, yyyy') : 'Pick a date'}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
+                            </Popover>
+                        )}/>
+                        {errors.purchaseDate && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.purchaseDate.message}</p>}
                     </div>
                 </div>
                 <div className="space-y-6">
@@ -145,9 +162,22 @@ const Step2 = () => {
                     ) : (
                         <div className="space-y-1.5 animate-in slide-in-from-top-2">
                             <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Est. Servings / Unit</Label>
-                            <Input type="number" placeholder="e.g., 25 servings" {...register('usesPerContainer')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
+                            <Input type="number" placeholder="e.g., 25 servings" {...register('usesPerContainer')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
                         </div>
                     )}
+                    <div className="space-y-1.5 pt-2 border-t border-dashed border-border/50">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
+                        <Controller name="primaryLocationId" control={control} render={({ field }) => (
+                            <Select onValueChange={field.onChange} value={field.value}>
+                                <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner">
+                                    <SelectValue placeholder="Select Zone" />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                    {locations.map(loc => (<SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>))}
+                                </SelectContent>
+                            </Select>
+                        )}/>
+                    </div>
                 </div>
             </div>
         </div>
@@ -164,10 +194,10 @@ export const AddRefreshmentDialog = ({
   const isMobile = useIsMobile();
   const methods = useForm<RefreshmentFormData>({ 
     resolver: zodResolver(refreshmentSchema), 
-    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment' } 
+    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date() } 
   });
 
-  useEffect(() => { if (open) { methods.reset(); setStep(1); } }, [open, methods]);
+  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date() }); setStep(1); } }, [open, methods]);
 
   const { handleSubmit, trigger } = methods;
   const onSubmit = (data: RefreshmentFormData) => {
@@ -197,7 +227,7 @@ export const AddRefreshmentDialog = ({
         <ScrollArea className="flex-1">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {step === 1 && <Step1 />}
-                {step === 2 && <Step2 />}
+                {step === 2 && <Step2 locations={locations} />}
             </div>
         </ScrollArea>
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
@@ -208,7 +238,7 @@ export const AddRefreshmentDialog = ({
               {step < totalSteps ? (
                 <Button onClick={handleNext} type="button" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group">Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" /></Button>
               ) : (
-                <Button type="submit" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">Commit to Menu</Button>
+                <Button type="submit" form="add-refreshment-wizard-form" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">Commit to Menu</Button>
               )}
             </div>
           </div>
