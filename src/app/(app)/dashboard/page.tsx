@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -69,7 +68,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const RefreshmentQueue = ({ requests, inventory, user, onDeliver }: any) => {
+const RefreshmentQueue = ({ requests, inventory, user, onDeliver, staff }: any) => {
     if (!requests || requests.length === 0) return (
         <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
             <Coffee className="w-12 h-12" />
@@ -158,12 +157,12 @@ const ActiveSessionCard = ({ appointment, service, staffMember }: { appointment:
 
 export default function DashboardPage() {
   const { firestore, user } = useFirebase();
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant } = useTenant();
   const { inventory, clients, transactions, appointments, staff, services, walkIns, isLoading: isInventoryLoading } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
-  const today = startOfDay(new Date());
+  const today = useMemo(() => startOfDay(new Date()), []);
 
   // Fetch all today's requests for KPI calculation
   const todayRequestsQuery = useMemoFirebase(() => {

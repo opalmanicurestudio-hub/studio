@@ -42,6 +42,9 @@ service cloud.firestore {
     match /tenants/{tenantId}/scheduleProfiles/{profileId} {
       allow read: if true;
     }
+    match /tenants/{tenantId}/resources/{resourceId} {
+      allow read: if true;
+    }
     match /tenants/{tenantId}/inventory/{itemId} {
       allow list, get: if true; // Critical for concierge menu
       allow write: if isStaff(tenantId);
@@ -51,7 +54,8 @@ service cloud.firestore {
     match /tenants/{tenantId}/refreshmentRequests/{requestId} {
       allow create: if true; 
       allow get: if true;
-      allow list, update: if isStaff(tenantId);
+      allow list: if true; // Allow guests to query their own requests
+      allow update: if isStaff(tenantId);
     }
 
     // --- Check-in & Public Tokens ---
