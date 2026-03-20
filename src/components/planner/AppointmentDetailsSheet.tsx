@@ -106,10 +106,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const { toast } = useToast();
   const { firestore } = useFirebase();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
+  // ALL HOOKS MUST BE AT THE TOP LEVEL
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
     return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
@@ -126,6 +123,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       if (!firestore || !tenantId || !client?.id) return null;
       return collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`);
   }, [firestore, tenantId, client?.id]);
+  
   const { data: signedConsents } = useCollection<any>(signedConsentsQuery);
 
   const complianceInfo = useMemo(() => {
@@ -217,6 +215,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const handleAddAndConfigureConfirm = (selectedAddOns: Service[], configs: any) => {
     if (!firestore || !tenantId || !appointment) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
@@ -238,7 +240,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   };
 
   const handleCopyLink = () => {
-    if (appointment.checkInToken) {
+    if (appointment?.checkInToken) {
       const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
       navigator.clipboard.writeText(link);
       toast({ title: 'Link Copied', description: 'Guest portal URL is on your clipboard.' });

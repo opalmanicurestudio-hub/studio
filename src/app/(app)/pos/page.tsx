@@ -26,7 +26,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog, type ClientFormData } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Smartphone, Cake, Printer } from 'lucide-react';
+import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Smartphone, Cake, Printer, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -44,7 +44,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { CheckInConfirmationDialog } from '@/components/pos/CheckInConfirmationDialog';
 import { PrintTicket } from '@/components/planner/PrintTicket';
 
-// HELPER FUNCTIONS
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -119,7 +118,6 @@ function POSPage() {
     const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
     const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
 
-    // DATA RESOLUTION
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointmentsFromInventory || !clients || !services || !staff) return [];
         return appointmentsFromInventory
@@ -140,8 +138,8 @@ function POSPage() {
             const checkInDate = safeDate(w.checkInTime);
             return checkInDate >= todayStart && checkInDate <= todayEnd;
         });
-        const completedWalkIns = walkInsToday.filter(w => ['servicing', 'completed', 'ready_for_checkout'].includes(w.status)) && walkInsToday.filter(w => w.serviceStartTime);
-        const waitTimes = completedWalkIns.map(w => differenceInMinutes(safeDate(w.serviceStartTime), safeDate(w.checkInTime)));
+        const walkInWithServiceStart = walkInsToday.filter(w => w.serviceStartTime);
+        const waitTimes = walkInWithServiceStart.map(w => differenceInMinutes(safeDate(w.serviceStartTime), safeDate(w.checkInTime)));
         const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
         const dailyTransactions = (transactions || []).filter(t => { const d = safeDate(t.date); return d >= todayStart && d <= todayEnd && t.type === 'income'; });
         const totalDailyGrossRevenue = dailyTransactions.reduce((acc, t) => acc + safeNumber(t.amount), 0);
@@ -213,21 +211,18 @@ function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [readyForCheckoutAppointments, selectedAppointmentIds, clients]);
 
-    // HANDLERS
     const handleSelectAppointment = useCallback((id: string) => {
         const nextIds = new Set(selectedAppointmentIds);
-        let nextClientId = selectedClientId;
         if (nextIds.has(id)) {
             nextIds.delete(id);
-            if (nextIds.size === 0) nextClientId = null;
+            if (nextIds.size === 0) setSelectedClientId(null);
         } else {
             nextIds.add(id);
             const aptData = readyForCheckoutAppointments.find(a => a.id === id);
-            if (aptData?.client?.id) nextClientId = aptData.client.id;
+            if (aptData?.client?.id) setSelectedClientId(aptData.client.id);
         }
         setSelectedAppointmentIds(nextIds);
-        setSelectedClientId(nextClientId);
-    }, [readyForCheckoutAppointments, selectedClientId, selectedAppointmentIds]);
+    }, [readyForCheckoutAppointments, selectedAppointmentIds]);
 
     const handleAddToCart = useCallback((item: any) => {
         setRetailItems(prev => {
@@ -253,7 +248,10 @@ function POSPage() {
         }
     }, [inventory, handleSelectAppointment, handleAddToCart]);
 
-    const handleFinishService = (apt: Appointment) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); };
+    const handleFinishService = (apt: Appointment) => { 
+        setAppointmentToReview(apt); 
+        setIsTechnicianReviewOpen(true); 
+    };
 
     const handleStartService = (appointmentId: string) => {
       if (!firestore || !tenantId || !appointmentsFromInventory) return;
@@ -261,10 +259,10 @@ function POSPage() {
       if (!appointment) return;
       const nowISO = new Date().toISOString();
       const batch = writeBatch(firestore);
-      batch.set(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO }, { merge: true });
-      if (appointment.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId }, { merge: true });
+      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
+      if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
       if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
-      if (appointment.isWalkIn) batch.set(doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-', '')), { status: 'servicing', serviceStartTime: nowISO }, { merge: true });
+      if (appointment.isWalkIn) batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-', '')), { status: 'servicing', serviceStartTime: nowISO });
       batch.commit().then(() => toast({ title: "Service Started" }));
     };
 
@@ -341,7 +339,7 @@ function POSPage() {
         const batch = writeBatch(firestore);
         batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
         if (walkIn?.assignedStaffId) {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { status: 'idle' }, { merge: true });
+            batch.update(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { status: 'idle' });
             batch.update(doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`), { status: 'cancelled', cancellationReason: 'late' });
         }
         batch.commit().then(() => toast({ title: "Guest Skipped" }));
@@ -353,7 +351,7 @@ function POSPage() {
         const batch = writeBatch(firestore);
         batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'waiting', assignedStaffId: deleteField(), notifiedTimestamp: deleteField() });
         if (walkIn?.assignedStaffId) {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { status: 'idle' }, { merge: true });
+            batch.update(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { status: 'idle' });
             batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`));
         }
         batch.commit().then(() => toast({ title: "Returned to Queue" }));
@@ -366,7 +364,7 @@ function POSPage() {
         batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
         batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'confirmed', actualStartTime: deleteField() });
         const apt = (appointmentsFromInventory || []).find(a => a.id === appointmentId);
-        if (apt?.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'idle' }, { merge: true });
+        if (apt?.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'idle' });
         batch.commit().then(() => toast({ title: "Reverted to Ready" }));
     };
 
@@ -375,7 +373,7 @@ function POSPage() {
         const batch = writeBatch(firestore);
         batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing', actualEndTime: deleteField() });
         const apt = (appointmentsFromInventory || []).find(a => a.id === appointmentId);
-        if (apt?.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'busy' }, { merge: true });
+        if (apt?.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'busy' });
         if (apt?.isWalkIn) batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', appointmentId.replace('apt-walkin-', '')), { status: 'servicing' });
         batch.commit().then(() => { 
             setSelectedAppointmentIds(prev => { const next = new Set(prev); next.delete(appointmentId); return next; }); 
@@ -576,7 +574,7 @@ function POSPage() {
     if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Syncing Terminal...</p></div>;
 
     return (
-        <div className="h-[100dvh] w-full flex flex-col bg-background">
+        <div className="h-[100dvh] w-full flex flex-col bg-background text-left">
             <AppHeader title="Studio POS" />
             <div className={cn("flex-1 grid transition-all duration-500 ease-in-out overflow-hidden", isCartCollapsed ? "lg:grid-cols-[1fr,80px]" : "lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px]")}>
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-32 lg:pb-10 text-left">
