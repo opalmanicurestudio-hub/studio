@@ -759,6 +759,7 @@ export const CheckoutHub = ({
                         <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalTax).toFixed(2)}</p>
                     </div>
                 )}
+                
                 {totalDiscount > 0 && (
                     <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter text-left">
                         <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>

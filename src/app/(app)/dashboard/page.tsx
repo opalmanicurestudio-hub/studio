@@ -59,6 +59,7 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
+import Image from 'next/image';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -79,42 +80,63 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, staff }: any) 
     return (
         <div className="space-y-4">
             <AnimatePresence>
-                {requests.map((request: any) => (
-                    <motion.div 
-                        key={request.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all gap-6 group"
-                    >
-                        <div className="flex flex-col sm:flex-row items-center gap-6 text-left w-full sm:w-auto">
-                            <div className="p-4 bg-primary/5 rounded-2xl shadow-inner border border-primary/10 relative">
-                                <Coffee className="w-8 h-8 text-primary" />
-                                <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-lg">
-                                    <Sparkles className="w-3 h-3" />
+                {requests.map((request: any) => {
+                    const item = inventory.find((i: any) => i.id === request.itemId);
+                    return (
+                        <motion.div 
+                            key={request.id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all gap-6 group"
+                        >
+                            <div className="flex flex-col sm:flex-row items-center gap-6 text-left w-full sm:w-auto">
+                                <div className="p-4 bg-primary/5 rounded-2xl shadow-inner border border-primary/10 relative shrink-0">
+                                    {item?.imageUrl ? (
+                                        <div className="relative w-10 h-10">
+                                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover rounded-lg" />
+                                        </div>
+                                    ) : (
+                                        <Coffee className="w-8 h-8 text-primary" />
+                                    )}
+                                    <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-lg">
+                                        <Sparkles className="w-3 h-3" />
+                                    </div>
+                                </div>
+                                <div className="space-y-1 text-left w-full sm:w-auto">
+                                    <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
+                                    
+                                    {/* RECIPE VIEW */}
+                                    {item?.formula && item.formula.length > 0 && (
+                                        <div className="flex flex-wrap gap-2 mt-2 mb-3">
+                                            {item.formula.map((f: any, idx: number) => (
+                                                <Badge key={idx} variant="outline" className="text-[8px] font-black uppercase tracking-widest bg-muted/50 border-none px-2 py-0.5">
+                                                    {f.quantityUsed}{f.unit} {f.name}
+                                                </Badge>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex flex-wrap items-center gap-x-2 gap-y-1">
+                                        Guest: <span className="text-primary">{request.clientName}</span>
+                                        <span className="opacity-40">&middot;</span>
+                                        <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {request.stationName || 'Station'}</span>
+                                        <span className="opacity-40">&middot;</span>
+                                        <span className="flex items-center gap-1"><UserIcon className="w-3 h-3"/> {request.staffName || 'Pro'}</span>
+                                        <span className="opacity-40">&middot;</span>
+                                        {format(safeDate(request.requestedAt), 'h:mm a')}
+                                    </p>
                                 </div>
                             </div>
-                            <div className="space-y-1 text-left w-full sm:w-auto">
-                                <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    Guest: <span className="text-primary">{request.clientName}</span>
-                                    <span className="opacity-40">&middot;</span>
-                                    <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {request.stationName || 'Station'}</span>
-                                    <span className="opacity-40">&middot;</span>
-                                    <span className="flex items-center gap-1"><UserIcon className="w-3 h-3"/> {request.staffName || 'Pro'}</span>
-                                    <span className="opacity-40">&middot;</span>
-                                    {format(safeDate(request.requestedAt), 'h:mm a')}
-                                </p>
-                            </div>
-                        </div>
-                        <Button 
-                            onClick={() => onDeliver(request)}
-                            className="h-12 w-full sm:w-48 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 group"
-                        >
-                            Certify Delivery <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
-                        </Button>
-                    </motion.div>
-                ))}
+                            <Button 
+                                onClick={() => onDeliver(request)}
+                                className="h-12 w-full sm:w-48 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 group"
+                            >
+                                Certify Delivery <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                            </Button>
+                        </motion.div>
+                    );
+                })}
             </AnimatePresence>
         </div>
     );
@@ -380,11 +402,11 @@ export default function DashboardPage() {
                             <p className="text-3xl font-black tracking-tighter text-slate-900">{dashboardMetrics.hospitalityWaitVelocity} <span className="text-xs uppercase opacity-40">Min</span></p>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1 p-3 rounded-xl bg-muted/20 border">
+                            <div className="space-y-1 p-3 rounded-xl bg-muted/20 border text-left">
                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Engagement</p>
                                 <p className="text-sm font-black">{dashboardMetrics.totalHospitalityRequests} <span className="text-[8px] opacity-40">Orders</span></p>
                             </div>
-                            <div className="space-y-1 p-3 rounded-xl bg-muted/20 border">
+                            <div className="space-y-1 p-3 rounded-xl bg-muted/20 border text-left">
                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Top Amenity</p>
                                 <p className="text-[10px] font-black truncate text-primary">{dashboardMetrics.topAmenity}</p>
                             </div>

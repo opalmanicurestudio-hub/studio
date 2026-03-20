@@ -126,7 +126,7 @@ const Step1 = () => {
                 
                 <div className="space-y-2 text-left">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Amenity visual</Label>
-                    <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+                    <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -136,7 +136,7 @@ const Step1 = () => {
                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                             <Input id="retail-price" type="number" step="0.01" {...register('price')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-primary/5" />
                         </div>
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 ml-1">Leave at 0.00 for complimentary amenity</p>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 ml-1 text-left">Leave at 0.00 for complimentary amenity</p>
                     </div>
                     <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner self-start">
                         <div className="space-y-1 text-left">

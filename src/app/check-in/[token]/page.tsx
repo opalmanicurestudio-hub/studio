@@ -161,7 +161,7 @@ const ServicingView = ({
                         </p>
                         <div className="p-6 rounded-[2.5rem] border-2 border-primary/10 bg-white shadow-xl space-y-4">
                             <div className="flex justify-between items-center px-1">
-                                <div className="space-y-0.5">
+                                <div className="space-y-0.5 text-left">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Network SSID</p>
                                     <p className="text-sm font-black uppercase tracking-tight">{tenant.wifiNetwork}</p>
                                 </div>
@@ -206,11 +206,11 @@ const ServicingView = ({
                                         ) : (
                                             <Coffee className="w-8 h-8 text-primary opacity-20" />
                                         )}
-                                        {item.price > 0 && (
+                                        {item.price && item.price > 0 ? (
                                             <div className="absolute top-2 right-2 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow-lg">
                                                 ${item.price.toFixed(2)}
                                             </div>
-                                        )}
+                                        ) : null}
                                     </div>
                                     <span className="text-[9px] font-black uppercase tracking-tight text-slate-900 leading-tight text-center">{item.name}</span>
                                 </button>
@@ -308,7 +308,7 @@ export default function CheckInPage() {
                     
                     {assignedStaff && (
                         <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
-                            <Avatar className="h-12 w-12 border-2 border-background shadow-md rounded-xl">
+                            <Avatar className="h-12 w-12 border-2 border-background shadow-xl rounded-[1.5rem]">
                                 <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
                                 <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
                             </Avatar>
