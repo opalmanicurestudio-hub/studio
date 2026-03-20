@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
@@ -164,7 +165,7 @@ function POSPage() {
                 const effectiveAdditional = waivedAppointmentFees.has(data.appointment.id) ? 0 : additional;
                 
                 // Add refreshments from checkoutState
-                const refreshmentsSub = (data.appointment.checkoutState?.refreshments || []).reduce((sum: number, r: any) => sum + safeNumber(r.price), 0);
+                const refreshmentsSub = (data.appointment.checkoutState?.refreshments || []).reduce((sum: number, r: any) => sum + (safeNumber(r.price) * safeNumber(r.quantity || 1)), 0);
                 
                 return acc + mainPrice + addonsPrice + effectiveAdditional + refreshmentsSub;
             }, 0);
@@ -475,11 +476,12 @@ function POSPage() {
             // Handle Amenity Revenue (Refreshments)
             const amenities = checkoutState.refreshments || [];
             amenities.forEach((amenity: any) => {
-                const amenityPrice = safeNumber(amenity.price);
+                const qty = safeNumber(amenity.quantity || 1);
+                const amenityPrice = safeNumber(amenity.price) * qty;
                 if (amenityPrice > 0) {
                     totalLtvIncrease += amenityPrice;
                     if (paymentData.paymentMethod === 'cash') totalCashIncrease += amenityPrice;
-                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Concierge: ${amenity.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Hospitality Revenue', amount: amenityPrice, paymentMethod: paymentData.paymentMethod, appointmentId: apt.id, hasReceipt: false });
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Concierge: ${amenity.name} (x${qty})`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Hospitality Revenue', amount: amenityPrice, paymentMethod: paymentData.paymentMethod, appointmentId: apt.id, hasReceipt: false });
                 }
             });
 

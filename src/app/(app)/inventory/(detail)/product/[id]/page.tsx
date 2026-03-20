@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -40,7 +41,8 @@ import {
     PackageOpen,
     Target,
     Printer,
-    Pipette
+    Pipette,
+    Coffee
 } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -77,6 +79,7 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
     const r = reason.toLowerCase();
     if (r.includes('appointment') || r.includes('service')) return <TrendingDown className="h-4 w-4 text-red-500" />;
     if (r.includes('shipment')) return <TrendingUp className="h-4 w-4 text-green-500" />;
+    if (r.includes('amenity') || r.includes('refreshment') || r.includes('recipe')) return <Coffee className="h-4 w-4 text-indigo-500" />;
     if (r.includes('manual use')) return <TrendingDown className="h-4 w-4 text-red-500" />;
     if (r.includes('retail sale')) return <TrendingDown className="h-4 w-4 text-red-500" />;
     return <RefreshCw className="h-4 w-4 text-slate-400" />;
@@ -99,7 +102,7 @@ export default function ProductDetailPage() {
     
     const productCategories = useMemo(() => {
         const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
-        return [...new Set(allCategories)];
+        setProductCategories([...new Set(allCategories)]);
     }, [inventory]);
 
     const ledgerWithRunningStock = useMemo(() => {
@@ -191,7 +194,7 @@ export default function ProductDetailPage() {
     }, [ledgerWithRunningStock, ledgerSearchTerm]);
 
     const professionalPerformance = useMemo(() => {
-        if (!product || (product.type !== 'professional' && product.type !== 'overhead') || !stockCorrections) return { consumptionYTD: 0, totalCostOfUse: 0, unit: '' };
+        if (!product || (product.type !== 'professional' && product.type !== 'overhead' && product.type !== 'refreshment') || !stockCorrections) return { consumptionYTD: 0, totalCostOfUse: 0, unit: '' };
         const yearStart = new Date(new Date().getFullYear(), 0, 1);
         const relevantCorrections = stockCorrections.filter(sc => sc.productId === product.id && sc.change < 0 && parseISO(sc.date) >= yearStart);
         const totalConsumption = relevantCorrections.reduce((acc, sc) => acc + Math.abs(sc.change), 0);
@@ -272,7 +275,7 @@ export default function ProductDetailPage() {
                             {product.description && (
                                 <div className="pt-4 space-y-1 text-left">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Operational Context</p>
-                                    <p className="text-xs md:text-sm font-medium text-slate-600 leading-relaxed italic border-l-4 border-primary/20 pl-4">
+                                    <p className="text-xs md:text-sm font-medium text-slate-600 leading-relaxed italic border-l-4 border-primary/20 pl-4 text-left">
                                         "{product.description}"
                                     </p>
                                 </div>
@@ -321,7 +324,7 @@ export default function ProductDetailPage() {
                     </Card>
                     <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
                         <CardHeader className="p-4 pb-1 text-left">
-                            {product.type === 'professional' ? (
+                            {(product.type === 'professional' || product.type === 'overhead' || product.type === 'refreshment') ? (
                                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShoppingCart className="w-3 h-3"/>Usage (YTD)</CardTitle>
                             ) : (
                                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><BarChart className="w-3 h-3"/>Yield (YTD)</CardTitle>
@@ -329,7 +332,7 @@ export default function ProductDetailPage() {
                         </CardHeader>
                         <CardContent className="p-4 pt-0 text-left">
                             <p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">
-                                {product.type === 'professional' ? `$${professionalPerformance.totalCostOfUse.toFixed(2)}` : `$${(retailPerformance?.totalProfit || 0).toFixed(2)}`}
+                                {(product.type === 'professional' || product.type === 'overhead' || product.type === 'refreshment') ? `$${professionalPerformance.totalCostOfUse.toFixed(2)}` : `$${(retailPerformance?.totalProfit || 0).toFixed(2)}`}
                             </p>
                         </CardContent>
                     </Card>
@@ -345,7 +348,7 @@ export default function ProductDetailPage() {
                             </TabsList>
                             
                             <TabsContent value="history" className="m-0 space-y-6 animate-in fade-in duration-500 text-left">
-                                <div className="relative">
+                                <div className="relative text-left">
                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                                     <Input placeholder="SEARCH LEDGER BY GUEST OR TECH..." className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner" value={ledgerSearchTerm} onChange={(e) => setLedgerSearchTerm(e.target.value)} />
                                 </div>
@@ -476,7 +479,7 @@ export default function ProductDetailPage() {
                             </CardHeader>
                             <CardContent className="p-8 pt-4 space-y-8 text-left">
                                 <div className="space-y-4">
-                                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">
                                         <span>Landed Cost</span>
                                         <span className="font-mono text-slate-900">${(product.costPerUnit || 0).toFixed(2)}</span>
                                     </div>
@@ -487,12 +490,12 @@ export default function ProductDetailPage() {
                                             <div className="p-6 rounded-[2rem] bg-primary/5 border-2 border-primary/10 space-y-4 shadow-inner">
                                                 <p className="text-[9px] font-black uppercase text-primary tracking-widest text-center">Price Strategy</p>
                                                 <div className="flex justify-between items-baseline">
-                                                    <div className="flex flex-col">
+                                                    <div className="flex flex-col text-left">
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Display Rate</span>
                                                         <span className="text-2xl font-black tracking-tighter font-mono text-slate-900">${(product.msrp || product.price || 0).toFixed(2)}</span>
                                                     </div>
-                                                    <div className="text-right flex flex-col">
-                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Unit Profit</span>
+                                                    <div className="text-right flex flex-col items-end">
+                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-right">Unit Profit</span>
                                                         <span className="text-3xl font-black tracking-tighter font-mono text-primary">${((product.msrp || product.price || 0) - (product.costPerUnit || 0)).toFixed(2)}</span>
                                                     </div>
                                                 </div>
@@ -509,12 +512,12 @@ export default function ProductDetailPage() {
                                             <div className="p-6 rounded-[2rem] bg-indigo-500/5 border-2 border-indigo-500/10 space-y-4 shadow-inner text-left">
                                                 <p className="text-[9px] font-black uppercase tracking-widest text-indigo-600 text-center">Efficiency Model</p>
                                                 <div className="flex justify-between items-baseline text-left">
-                                                    <div className="flex flex-col">
+                                                    <div className="flex flex-col text-left">
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Method</span>
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">By {product.costingMethod || 'Unit'}</span>
                                                     </div>
-                                                    <div className="text-right flex flex-col">
-                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Landed / Use</span>
+                                                    <div className="text-right flex flex-col items-end">
+                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-right">Landed / Use</span>
                                                         <span className="text-3xl font-black tracking-tighter font-mono text-indigo-600">${((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)).toFixed(2)}</span>
                                                     </div>
                                                 </div>

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -647,12 +648,19 @@ export const CheckoutHub = ({
                                         {refreshmentsInSession.length > 0 && (
                                             <div className="space-y-2 pt-2 border-t border-dashed text-left">
                                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Concierge Amenities</p>
-                                                {refreshmentsInSession.map((item: any, idx: number) => (
-                                                    <div key={idx} className="flex justify-between items-center text-left">
-                                                        <span className="text-[10px] font-bold text-slate-600 uppercase flex items-center gap-2"><Coffee className="w-3 h-3" /> {item.name}</span>
-                                                        <span className="font-mono text-[10px] text-slate-900">{safeNumber(item.price) > 0 ? `$${safeNumber(item.price).toFixed(2)}` : 'Complimentary'}</span>
-                                                    </div>
-                                                ))}
+                                                {refreshmentsInSession.map((item: any, idx: number) => {
+                                                    const qty = safeNumber(item.quantity || 1);
+                                                    return (
+                                                        <div key={idx} className="flex justify-between items-center text-left">
+                                                            <div className="flex items-center gap-2 text-left">
+                                                                <Coffee className="w-3 h-3 text-primary opacity-40" />
+                                                                <span className="text-[10px] font-bold text-slate-600 uppercase">{item.name}</span>
+                                                                {qty > 1 && <Badge variant="secondary" className="h-3.5 px-1 text-[7px] border-none font-black bg-muted/50">x{qty}</Badge>}
+                                                            </div>
+                                                            <span className="font-mono text-[10px] text-slate-900">{safeNumber(item.price) > 0 ? `$${(safeNumber(item.price) * qty).toFixed(2)}` : 'Complimentary'}</span>
+                                                        </div>
+                                                    )
+                                                })}
                                             </div>
                                         )}
 

@@ -1,7 +1,8 @@
+
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
-import { collection, doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, where, orderBy } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
   Activity,
@@ -61,7 +62,8 @@ import {
   ArrowRight,
   CheckCircle2,
   Info,
-  Coffee
+  Coffee,
+  History
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -113,7 +115,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import {
@@ -135,6 +137,7 @@ import {
   Order,
   StockCorrection,
   Staff,
+  RefreshmentRequest
 } from '@/lib/data';
 import { Transaction } from '@/lib/financial-data';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
@@ -154,6 +157,125 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+
+const HospitalityLedger = () => {
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+
+    const requestsQuery = useMemoFirebase(() => {
+        if (!firestore || !tenantId) return null;
+        return query(
+            collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
+            orderBy('requestedAt', 'desc')
+        );
+    }, [firestore, tenantId]);
+
+    const { data: requests, isLoading } = useCollection<RefreshmentRequest>(requestsQuery);
+
+    const filteredRequests = useMemo(() => {
+        if (!requests) return [];
+        return requests.filter(r => {
+            const matchesSearch = !searchTerm.trim() || 
+                r.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                r.itemName.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
+            return matchesSearch && matchesStatus;
+        });
+    }, [requests, searchTerm, statusFilter]);
+
+    return (
+        <div className="space-y-6">
+            <div className="flex flex-col md:flex-row items-center gap-4">
+                <div className="relative flex-1 w-full text-left">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                    <Input 
+                        placeholder="SEARCH GUESTS OR ITEMS..." 
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                    />
+                </div>
+                <div className="w-full md:w-auto">
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner">
+                            <SelectValue placeholder="STATUS" />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                            <SelectItem value="all" className="font-bold">ALL ENTRIES</SelectItem>
+                            <SelectItem value="pending" className="font-bold">PENDING</SelectItem>
+                            <SelectItem value="delivered" className="font-bold text-green-600">DELIVERED</SelectItem>
+                            <SelectItem value="cancelled" className="font-bold text-destructive">CANCELLED</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+
+            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <CardContent className="p-0 overflow-x-auto text-left">
+                    {isLoading ? (
+                        <div className="p-20 text-center flex flex-col items-center gap-4">
+                            <Loader className="w-8 h-8 animate-spin text-primary" />
+                            <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Syncing Registry...</p>
+                        </div>
+                    ) : (
+                        <Table>
+                            <TableHeader className="bg-muted/10 border-b-2">
+                                <TableRow>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900">Guest & Item</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Timestamp</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Location</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Status</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Qty</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredRequests.length > 0 ? filteredRequests.map(req => (
+                                    <TableRow key={req.id} className="group hover:bg-primary/[0.02]">
+                                        <TableCell className="p-6 text-left">
+                                            <div className="space-y-1">
+                                                <p className="font-black uppercase tracking-tight text-xs text-slate-900">{req.clientName}</p>
+                                                <p className="text-[10px] font-bold text-primary uppercase tracking-widest">{req.itemName}</p>
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-[10px] font-black uppercase text-slate-600">
+                                            {format(safeDate(req.requestedAt), 'MMM d, h:mm a')}
+                                        </TableCell>
+                                        <TableCell className="text-[10px] font-black uppercase text-muted-foreground">
+                                            {req.stationName || 'Lounge'}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className={cn(
+                                                "h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2",
+                                                req.status === 'delivered' ? "bg-green-50 border-green-100 text-green-700" :
+                                                req.status === 'pending' ? "bg-amber-50 border-amber-100 text-amber-700 animate-pulse" :
+                                                "bg-destructive/5 border-destructive/10 text-destructive"
+                                            )}>
+                                                {req.status}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right pr-10 font-black font-mono text-sm">
+                                            {req.quantity || 1}
+                                        </TableCell>
+                                    </TableRow>
+                                )) : (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="py-20 text-center opacity-30 uppercase font-black tracking-widest text-xs">
+                                            No hospitality events found
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
+};
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
     const getStatusVariant = (status: Order['status']) => {
@@ -355,7 +477,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                         <div className="space-y-2 p-4 rounded-[2rem] border-2 bg-muted/10 shadow-inner">
                                             {editableOrder.items.map(item => (
                                                 <div key={item.productId} className="flex justify-between items-center p-3 hover:bg-white hover:shadow-sm rounded-xl transition-all border-2 border-transparent">
-                                                    <div className="min-w-0 flex-1">
+                                                    <div className="min-w-0 flex-1 text-left">
                                                         <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.productName}</p>
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{item.quantity} units @ ${item.costPerUnit.toFixed(2)}/unit</p>
                                                     </div>
@@ -383,14 +505,14 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                         </div>
                                         {editableOrder.expectedArrivalDate && (
                                             <div className="space-y-1">
-                                                <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Estimated Arrival</p>
-                                                <p className="text-sm font-black uppercase tracking-tight text-slate-900 pt-2">{format(parseISO(editableOrder.expectedArrivalDate), 'MMMM d, yyyy')}</p>
+                                                <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 text-left">Estimated Arrival</p>
+                                                <p className="text-sm font-black uppercase tracking-tight text-slate-900 pt-2 text-left">{format(parseISO(editableOrder.expectedArrivalDate), 'MMMM d, yyyy')}</p>
                                             </div>
                                         )}
                                     </div>
                                     {editableOrder.invoiceUrl && (
                                         <div className="space-y-2">
-                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Attached Proof</p>
+                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 text-left">Attached Proof</p>
                                             <a href={editableOrder.invoiceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-3 p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] w-full group hover:bg-primary/5 transition-all">
                                                 <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><FileImage className="w-5 h-5 text-primary" /></div>
                                                 <span className="font-black text-xs uppercase tracking-tight text-primary underline">View Digital Manifest</span>
@@ -420,7 +542,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                         <div className="flex flex-col sm:flex-row gap-3 w-full">
                             <Button variant="outline" onClick={handleCancel} disabled={editableOrder.status === 'Cancelled'} className="h-12 sm:h-14 flex-1 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/5 border-destructive/20">Cancel Order</Button>
                             <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 sm:h-14 flex-1 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white">Close Summary</Button>
-                            <Button onClick={() => setIsEditing(true)} className="h-12 sm:h-14 flex-[1.5] rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-primary/20">Modify Manifest</Button>
+                            <Button onClick={() => setIsEditing(true)} className="h-12 sm:h-14 flex-[1.5] rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-primary/30">Modify Manifest</Button>
                         </div>
                     )}
                 </DialogFooter>
@@ -847,6 +969,7 @@ export default function InventoryPage() {
   const [addProductDialogType, setAddProductDialogType] = useState<'professional' | 'retail'>('professional');
   const [isAddEquipmentDialogOpen, setIsAddEquipmentDialogOpen] = useState(false);
   const [isAddOverheadDialogOpen, setIsAddOverheadDialogOpen] = useState(false);
+  const [isAddProductManualDialogOpen, setIsAddProductManualDialogOpen] = useState(false);
   const [isAddRefreshmentDialogOpen, setIsAddRefreshmentDialogOpen] = useState(false);
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
@@ -1546,7 +1669,7 @@ export default function InventoryPage() {
                                     <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner">
                                         <SelectValue placeholder="ALL DEPARTMENTS" />
                                     </SelectTrigger>
-                                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         <SelectItem value="all" className="font-bold">ALL DEPARTMENTS</SelectItem>
                                         <SelectItem value="professional" className="font-bold">PROFESSIONAL</SelectItem>
                                         <SelectItem value="retail" className="font-bold">RETAIL</SelectItem>
@@ -1559,7 +1682,7 @@ export default function InventoryPage() {
                         </div>
 
                         <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-6 md:gap-x-10 gap-y-4 md:gap-y-6">
-                            <div className="flex items-center gap-3 w-full md:w-auto">
+                            <div className="flex items-center gap-3 w-full md:w-auto text-left">
                                 <div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div>
                                 <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Base Filters</h4>
                             </div>
@@ -1590,10 +1713,11 @@ export default function InventoryPage() {
                         )}
 
                         <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8">
-                                <TabsTrigger value="products" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Manifest</TabsTrigger>
-                                <TabsTrigger value="orders" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Purchase Orders</TabsTrigger>
-                                <TabsTrigger value="locations" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Zones</TabsTrigger>
+                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 overflow-x-auto scrollbar-hide">
+                                <TabsTrigger value="products" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Manifest</TabsTrigger>
+                                <TabsTrigger value="orders" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Orders</TabsTrigger>
+                                <TabsTrigger value="hospitality" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
+                                <TabsTrigger value="locations" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Zones</TabsTrigger>
                             </TabsList>
                             
                             <TabsContent value="products" className="mt-0">
@@ -1627,6 +1751,10 @@ export default function InventoryPage() {
                             
                             <TabsContent value="orders" className="mt-0">
                                 <OrdersTab inventory={inventory || []} />
+                            </TabsContent>
+
+                            <TabsContent value="hospitality" className="mt-0 animate-in fade-in duration-500">
+                                <HospitalityLedger />
                             </TabsContent>
                             
                             <TabsContent value="locations" className="mt-0">
