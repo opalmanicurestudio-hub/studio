@@ -247,7 +247,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     setIsAddAndConfigureOpen(false);
   };
 
-  // Guard Clause now moved AFTER all hook calls
+  // Guard Clause now correctly positioned AFTER all hook calls to satisfy Rules of Hooks
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
@@ -292,7 +292,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       {client.activeMembershipId && <Badge className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest bg-indigo-600 text-white border-none shadow-md"><Award className="w-2.5 h-2.5 mr-1" /> Member</Badge>}
                     </div>
                     {isOwnerOrAdminUser && (
-                        <div className="flex flex-col gap-1 pt-2">
+                        <div className="flex flex-col gap-1 pt-2 text-left">
                             {client.email && <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center justify-center sm:justify-start gap-2"><Mail className="w-3 h-3 opacity-40" /> {client.email}</p>}
                             {client.phone && <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center justify-center sm:justify-start gap-2"><Phone className="w-3 h-3 opacity-40" /> {formatPhoneNumber(client.phone)}</p>}
                         </div>

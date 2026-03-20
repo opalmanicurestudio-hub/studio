@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -45,7 +44,10 @@ import {
     Info,
     PartyPopper,
     Box,
-    CheckCircle2
+    CheckCircle2,
+    VolumeX,
+    Ear,
+    SunDim
 } from 'lucide-react';
 import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';

@@ -120,8 +120,8 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                                             const isCon = concurrentIds.includes(sid);
                                                             return (
                                                                 <Tooltip key={`tech-tip-${tech.id}-${sid}-${sIdx}`}>
-                                                                    <TooltipTrigger>{isCon ? <Zap className="w-2.5 h-2.5 text-primary" /> : <Workflow className="w-2.5 h-2.5 text-muted-foreground opacity-40" />}</TooltipTrigger>
-                                                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">{services?.find((s: Service) => s.id === sid)?.name} ({isCon ? 'Concurrent' : 'Turn'})</TooltipContent>
+                                                                    <TooltipTrigger asChild><div className="cursor-help">{isCon ? <Zap className="w-2.5 h-2.5 text-primary" /> : <Workflow className="w-2.5 h-2.5 text-muted-foreground opacity-40" />}</div></TooltipTrigger>
+                                                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">{services?.find((s: Service) => s.id === sid)?.name} ({isCon ? 'Concurrent' : 'Turn'})</TooltipContent>
                                                                 </Tooltip>
                                                             );
                                                         })}

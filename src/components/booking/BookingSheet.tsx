@@ -440,7 +440,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     setBookedStaffId(finalStaffId);
     const signedForms = requiredForms.map(form => ({ formId: form.id, formTitle: form.title, formData: formAnswers[form.id] || {} }));
-    onConfirm(clientData, { serviceId: service.id, staffId: finalStaffId, startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(), status: 'confirmed', isWalkIn: false }, signedForms, (s) => setCurrentStepIndex(steps.indexOf(s)));
+    
+    // ATOMIC ACQUISITION TRACKING: source='online' is mandatory for yield audit logic
+    onConfirm(clientData, { 
+        serviceId: service.id, 
+        staffId: finalStaffId, 
+        startTime: startDateTime.toISOString(), 
+        endTime: endDateTime.toISOString(), 
+        status: 'confirmed', 
+        isWalkIn: false,
+        source: 'online'
+    }, signedForms, (s) => setCurrentStepIndex(steps.indexOf(s)));
   };
 
   const bookedStaff = useMemo(() => staff.find(s => s.id === bookedStaffId), [staff, bookedStaffId]);
@@ -530,7 +540,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-muted shadow-inner">
                                         <Image src={service?.imageUrl || `https://picsum.photos/seed/${service?.id}/200/200`} alt={service?.name} fill className="object-cover" />
                                     </div>
-                                    <div className="flex-1 min-w-0">
+                                    <div className="flex-1 min-w-0 text-left">
                                         <p className="font-black text-2xl uppercase tracking-tighter leading-none mb-2">{service?.name}</p>
                                         <div className="flex items-center gap-6">
                                             <div className="flex flex-col">
@@ -549,7 +559,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         
                         {currentStep === 'staff' && (
                            <div className="space-y-8">
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                         <Users className="w-6 h-6 text-primary" />
                                         Select Provider
@@ -562,7 +572,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 </RadioGroup>
                                 {selectedStaffId === 'any' && availableTiersForService.length > 0 && (
                                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-10 border-t border-dashed">
-                                        <div className="space-y-1">
+                                        <div className="space-y-1 text-left">
                                             <h4 className="font-black uppercase tracking-tight text-sm">Tiered Preference</h4>
                                             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Prices vary by professional experience level</p>
                                         </div>
@@ -590,7 +600,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
                         {currentStep === 'dateTime' && (
                              <div className="space-y-8">
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                         <Calendar className="w-6 h-6 text-primary" />
                                         Timing
@@ -649,23 +659,23 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         {currentStep === 'details' && (
                             <FormProvider {...methods}>
                                 <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)} className="space-y-10">
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 text-left">
                                         <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                             <User className="w-6 h-6 text-primary" />
                                             Guest Profile
                                         </h3>
                                         <p className="text-xs font-medium text-muted-foreground">Personalize your visit.</p>
                                     </div>
-                                    <div className="space-y-6">
+                                    <div className="space-y-6 text-left">
                                         <div className="space-y-3">
                                             <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Legal Name</Label>
                                             <Input id="name" {...methods.register('clientName')} className="h-14 rounded-2xl border-2 text-lg font-bold shadow-inner" placeholder="Enter your full name" />
                                         </div>
-                                        <div className="space-y-3">
+                                        <div className="space-y-3 text-left">
                                             <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Email for Confirmation</Label>
                                             <Input id="email" type="email" {...methods.register('clientEmail')} className="h-14 rounded-2xl border-2 text-lg font-bold shadow-inner" placeholder="jane@example.com" />
                                         </div>
-                                        <div className="space-y-3">
+                                        <div className="space-y-3 text-left">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile for Alerts</Label>
                                             <PhoneInput name="clientPhone" label="" className="h-14" />
                                         </div>
@@ -690,10 +700,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         )}
                                         {existingClientWithBalance && !bannedClient && (
                                             <motion.div key="balance" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                                                <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl">
+                                                <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl text-left">
                                                     <Wallet className="h-6 w-6" />
                                                     <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Balance Detected</AlertTitle>
-                                                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
+                                                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
                                                         Account balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Please settle at the desk to complete this booking.
                                                     </AlertDescription>
                                                 </Alert>
@@ -706,7 +716,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
                         {currentStep === 'consents' && (
                             <div className="space-y-10">
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                         <FileSignature className="w-6 h-6 text-primary" />
                                         Agreements
@@ -738,7 +748,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
                         {currentStep === 'summary' && (
                              <div className="space-y-8">
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                         <ShieldCheck className="w-6 h-6 text-primary" />
                                         Review
@@ -787,7 +797,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
                         {currentStep === 'payment' && (
                             <div className="space-y-8">
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                         <CreditCard className="w-6 h-6 text-primary" />
                                         Deposit
@@ -801,10 +811,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     </CardHeader>
                                     <CardContent className="p-10 space-y-8">
                                         <div className="space-y-4">
-                                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg" /></div>
-                                            <div className="grid grid-cols-2 gap-6"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
+                                            <div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg" /></div>
+                                            <div className="grid grid-cols-2 gap-6"><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
                                         </div>
-                                        <div className="flex items-center gap-3 p-4 bg-muted/20 rounded-2xl text-xs text-muted-foreground font-medium italic">
+                                        <div className="flex items-center gap-3 p-4 bg-muted/20 rounded-2xl text-xs text-muted-foreground font-medium italic text-left">
                                             <Lock className="w-4 h-4 shrink-0" />
                                             Your payment information is encrypted and never stored on our servers.
                                         </div>
