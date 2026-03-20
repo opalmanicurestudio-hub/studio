@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -99,21 +100,27 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, staff }: any) 
                                     ) : (
                                         <Coffee className="w-8 h-8 text-primary" />
                                     )}
-                                    <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-lg">
-                                        <Sparkles className="w-3 h-3" />
+                                    <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-lg h-6 w-6 flex items-center justify-center font-black text-[10px]">
+                                        {request.quantity || 1}
                                     </div>
                                 </div>
                                 <div className="space-y-1 text-left w-full sm:w-auto">
-                                    <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
+                                    <div className="flex items-center gap-3">
+                                        <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
+                                        <Badge variant="outline" className="h-5 px-2 bg-primary/10 text-primary border-none font-black text-[10px]">{request.quantity || 1} UNIT(S)</Badge>
+                                    </div>
                                     
                                     {/* RECIPE VIEW */}
                                     {item?.formula && item.formula.length > 0 && (
                                         <div className="flex flex-wrap gap-2 mt-2 mb-3 text-left">
-                                            {item.formula.map((f: any, idx: number) => (
-                                                <Badge key={idx} variant="outline" className="text-[8px] font-black uppercase tracking-widest bg-muted/50 border-none px-2 py-0.5">
-                                                    {f.quantityUsed}{f.unit} {f.name}
-                                                </Badge>
-                                            ))}
+                                            {item.formula.map((f: any, idx: number) => {
+                                                const totalNeeded = (f.quantityUsed || 0) * (request.quantity || 1);
+                                                return (
+                                                    <Badge key={idx} variant="outline" className="text-[8px] font-black uppercase tracking-widest bg-muted/50 border-none px-2 py-0.5">
+                                                        {totalNeeded.toFixed(1)}{f.unit} {f.name}
+                                                    </Badge>
+                                                )
+                                            })}
                                         </div>
                                     )}
 
@@ -208,6 +215,7 @@ export default function DashboardPage() {
 
       const batch = writeBatch(firestore);
       const now = new Date().toISOString();
+      const qty = request.quantity || 1;
 
       const requestRef = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, request.id);
       batch.update(requestRef, {
@@ -216,35 +224,36 @@ export default function DashboardPage() {
           deliveredBy: user?.uid || 'system'
       });
 
-      // ATOMIC FORMULA DEDUCTION
+      // ATOMIC FORMULA DEDUCTION (Multiplied by quantity)
       if (item.formula && item.formula.length > 0) {
           item.formula.forEach(ingredient => {
+              const totalDeduction = ingredient.quantityUsed * qty;
               const ingredientRef = doc(firestore, `tenants/${tenantId}/inventory`, ingredient.id);
-              batch.update(ingredientRef, { totalStock: increment(-ingredient.quantityUsed) });
+              batch.update(ingredientRef, { totalStock: increment(-totalDeduction) });
               
               const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
               batch.set(correctionRef, {
                   id: nanoid(),
                   productId: ingredient.id,
                   date: now,
-                  change: -ingredient.quantityUsed,
+                  change: -totalDeduction,
                   unit: ingredient.unit,
-                  reason: `Recipe Component: ${item.name} for ${request.clientName}`,
+                  reason: `Recipe Component: ${item.name} (x${qty}) for ${request.clientName}`,
                   requestId: request.id
               });
           });
       } else {
           const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-          batch.update(productRef, { totalStock: increment(-1) });
+          batch.update(productRef, { totalStock: increment(-qty) });
 
           const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
           batch.set(correctionRef, {
               id: nanoid(),
               productId: item.id,
               date: now,
-              change: -1,
+              change: -qty,
               unit: item.unit || 'unit',
-              reason: `Amenity Delivery: ${request.clientName}`,
+              reason: `Amenity Delivery: ${request.clientName} (x${qty})`,
               requestId: request.id
           });
       }
@@ -263,7 +272,8 @@ export default function DashboardPage() {
                   id: item.id,
                   name: item.name,
                   price: safeNumber(item.price),
-                  deliveredAt: now
+                  deliveredAt: now,
+                  quantity: qty
               })
           });
       }

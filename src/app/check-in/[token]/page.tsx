@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -19,7 +20,12 @@ import {
     Coffee,
     Activity,
     ArrowRight,
-    DollarSign
+    DollarSign,
+    Plus,
+    Minus,
+    Info,
+    ChevronDown,
+    ChevronUp
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource } from '@/lib/data';
@@ -27,7 +33,7 @@ import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBloc
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
 import Image from 'next/image';
 
@@ -82,9 +88,14 @@ const ServicingView = ({
     const { firestore } = useFirebase();
     const { toast } = useToast();
     const [isRequesting, setIsRequesting] = useState(false);
+    const [quantities, setQuantities] = useState<Record<string, number>>({});
 
     const refreshments = useMemo(() => 
-        inventory.filter(item => item.type === 'refreshment' && item.showInConcierge !== false && item.totalStock > 0)
+        inventory.filter(item => 
+            item.type === 'refreshment' && 
+            item.showInConcierge !== false && 
+            item.totalStock > 0
+        )
     , [inventory]);
 
     const stationName = useMemo(() => {
@@ -93,9 +104,30 @@ const ServicingView = ({
         return res?.name || 'Station';
     }, [appointment, resources]);
 
+    const handleQuantityChange = (itemId: string, delta: number, max: number) => {
+        setQuantities(prev => {
+            const current = prev[itemId] || 1;
+            const next = Math.max(1, Math.min(max, current + delta));
+            return { ...prev, [itemId]: next };
+        });
+    };
+
     const handleRequest = async (item: InventoryItem) => {
         if (!firestore || !tenant || !client || isRequesting) return;
         
+        const qty = quantities[item.id] || 1;
+        const totalPendingCount = activeRequests.reduce((sum, r) => sum + (r.quantity || 1), 0);
+        const limit = tenant.complimentaryAmenityLimit || 0;
+
+        if (limit > 0 && totalPendingCount + qty > limit) {
+            toast({ 
+                variant: 'destructive', 
+                title: 'Limit Reached', 
+                description: `Complimentary limit is ${limit} items per session.` 
+            });
+            return;
+        }
+
         setIsRequesting(true);
         const requestId = nanoid();
         const requestRef = doc(firestore, `tenants/${tenant.id}/refreshmentRequests`, requestId);
@@ -107,6 +139,7 @@ const ServicingView = ({
             clientName: client.name,
             itemId: item.id,
             itemName: item.name,
+            quantity: qty,
             status: 'pending',
             requestedAt: new Date().toISOString(),
             stationName: stationName,
@@ -122,13 +155,14 @@ const ServicingView = ({
                 id: nanoid(),
                 userId: 'all_staff',
                 type: 'refreshment_request',
-                message: `New request: ${item.name} for ${client.name} at ${stationName}`,
+                message: `New request: ${qty}x ${item.name} for ${client.name} at ${stationName}`,
                 link: '/dashboard',
                 createdAt: new Date().toISOString(),
                 read: false
             }, {});
 
             toast({ title: "Request Dispatched", description: "Your pro will be with you shortly." });
+            setQuantities(prev => ({ ...prev, [item.id]: 1 }));
         } catch (e) {
             toast({ variant: 'destructive', title: "Request Failed" });
         } finally {
@@ -149,7 +183,7 @@ const ServicingView = ({
                     <div className="space-y-2 text-center">
                         <p className="font-black text-xl uppercase tracking-tight text-slate-900">Relax & Recharge</p>
                         <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight text-center">
-                            Your transformation is in progress at <strong>{stationName}</strong>. We've optimized this window for your comfort.
+                            Your transformation is in progress at <strong>{stationName}</strong>.
                         </p>
                     </div>
                 </div>
@@ -186,36 +220,66 @@ const ServicingView = ({
                             <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
                                 <Coffee className="w-3.5 h-3.5" /> Hospitality Menu
                             </p>
-                            {hasActiveRequest && <Badge className="bg-primary text-white border-none font-black text-[8px] uppercase animate-pulse">Request Pending</Badge>}
+                            {tenant.complimentaryAmenityLimit ? (
+                                <Badge variant="outline" className="h-5 px-2 border-primary/20 text-primary bg-primary/5 font-black text-[8px] uppercase">Limit: {tenant.complimentaryAmenityLimit} / session</Badge>
+                            ) : null}
                         </div>
                         
-                        <div className="grid grid-cols-2 gap-4">
-                            {refreshments.map(item => (
-                                <button 
-                                    key={item.id}
-                                    onClick={() => handleRequest(item)}
-                                    disabled={isRequesting || hasActiveRequest}
-                                    className={cn(
-                                        "flex flex-col items-center justify-center p-4 rounded-[2rem] border-2 transition-all gap-3 shadow-sm relative overflow-hidden",
-                                        hasActiveRequest ? "opacity-40 grayscale cursor-not-allowed border-dashed" : "bg-white border-primary/10 hover:border-primary/40 active:scale-95"
-                                    )}
-                                >
-                                    <div className="w-full aspect-square bg-muted/20 rounded-2xl relative overflow-hidden flex items-center justify-center shadow-inner">
-                                        {item.imageUrl ? (
-                                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover" />
-                                        ) : (
-                                            <Coffee className="w-8 h-8 text-primary opacity-20" />
-                                        )}
-                                        {item.price && item.price > 0 ? (
-                                            <div className="absolute top-2 right-2 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow-lg">
-                                                ${item.price.toFixed(2)}
+                        <div className="space-y-4">
+                            {refreshments.map(item => {
+                                const qty = quantities[item.id] || 1;
+                                const isSoldOut = item.totalStock <= 0;
+                                
+                                return (
+                                    <Card key={item.id} className={cn(
+                                        "rounded-[2rem] border-2 transition-all overflow-hidden",
+                                        isSoldOut ? "opacity-40 grayscale" : "bg-white border-primary/10 hover:border-primary/30"
+                                    )}>
+                                        <CardContent className="p-4 flex gap-4 items-center">
+                                            <div className="relative w-20 h-20 rounded-2xl overflow-hidden bg-muted/20 shrink-0 flex items-center justify-center">
+                                                {item.imageUrl ? (
+                                                    <Image src={item.imageUrl} alt={item.name} fill className="object-cover" />
+                                                ) : (
+                                                    <Coffee className="w-8 h-8 text-primary opacity-20" />
+                                                )}
                                             </div>
-                                        ) : null}
-                                    </div>
-                                    <span className="text-[9px] font-black uppercase tracking-tight text-slate-900 leading-tight text-center">{item.name}</span>
-                                </button>
-                            ))}
+                                            <div className="flex-1 min-w-0 text-left space-y-1">
+                                                <div className="flex justify-between items-start">
+                                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
+                                                    {item.price && item.price > 0 ? (
+                                                        <span className="font-black font-mono text-[10px] text-primary">${item.price.toFixed(2)}</span>
+                                                    ) : (
+                                                        <span className="font-black text-[8px] text-green-600 uppercase bg-green-50 px-1.5 rounded">Comp</span>
+                                                    )}
+                                                </div>
+                                                {item.description && (
+                                                    <p className="text-[9px] font-medium text-slate-500 leading-tight line-clamp-2 uppercase italic">
+                                                        {item.description}
+                                                    </p>
+                                                )}
+                                                
+                                                <div className="flex items-center justify-between pt-2">
+                                                    <div className="flex items-center gap-3 bg-muted/30 rounded-xl px-2 h-8">
+                                                        <button onClick={() => handleQuantityChange(item.id, -1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3 h-3" /></button>
+                                                        <span className="font-black font-mono text-xs w-4 text-center">{qty}</span>
+                                                        <button onClick={() => handleQuantityChange(item.id, 1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Plus className="w-3 h-3" /></button>
+                                                    </div>
+                                                    <Button 
+                                                        size="sm" 
+                                                        disabled={isRequesting || hasActiveRequest || isSoldOut}
+                                                        onClick={() => handleRequest(item)}
+                                                        className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
+                                                    >
+                                                        {isSoldOut ? 'Sold Out' : 'Request'}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                );
+                            })}
                         </div>
+                        
                         {hasActiveRequest && (
                             <div className="p-4 rounded-2xl border-2 border-dashed bg-primary/5 flex items-center justify-center gap-3 animate-pulse">
                                 <Loader className="w-4 h-4 text-primary animate-spin" />
@@ -279,7 +343,7 @@ export default function CheckInPage() {
     if (appointmentData?.status === 'servicing') {
         return (
             <ServicingView 
-                tenant={tenant} 
+                tenant={tenant || null} 
                 client={client} 
                 inventory={inventory || []} 
                 activeRequests={activeRequests || []}

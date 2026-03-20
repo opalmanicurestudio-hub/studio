@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -37,7 +38,8 @@ import {
     FlaskConical,
     Calculator,
     Target,
-    Info
+    Info,
+    FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -78,6 +80,7 @@ import {
 
 const refreshmentSchema = z.object({
   name: z.string().min(1, 'Amenity name is required.'),
+  description: z.string().optional(),
   category: z.string().default('Refreshment'),
   price: z.coerce.number().min(0).default(0),
   showInConcierge: z.boolean().default(true),
@@ -108,7 +111,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
             <Icon className="w-5 h-5" />
         </div>
         <div className="space-y-0.5 text-left">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
     </div>
@@ -124,6 +127,11 @@ const Step1 = () => {
                     <Label htmlFor="item-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest-Facing Name</Label>
                     <Input id="item-name" placeholder="e.g., Oat Milk Espresso" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
                     {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
+                </div>
+
+                <div className="space-y-2 text-left">
+                    <Label htmlFor="item-description" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Public Description</Label>
+                    <Textarea id="item-description" placeholder="Describe flavor profiles or ingredients..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
                 </div>
                 
                 <div className="space-y-2 text-left">
@@ -397,7 +405,7 @@ export const AddRefreshmentDialog = ({
   const onSubmit = (data: RefreshmentFormData) => {
     const unitPrice = data.purchaseCost; 
     onRefreshmentAdded({
-      id: `refr-${nanoid(8)}`, name: data.name, type: 'refreshment', category: 'Refreshment', totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, showInConcierge: data.showInConcierge, price: data.price, imageUrl: data.imageUrl, formula: data.formula,
+      id: `refr-${nanoid(8)}`, name: data.name, description: data.description, type: 'refreshment', category: 'Refreshment', totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, showInConcierge: data.showInConcierge, price: data.price, imageUrl: data.imageUrl, formula: data.formula,
       batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock, costPerUnit: unitPrice, receivedDate: data.purchaseDate.toISOString() }],
     });
     onOpenChange(false);

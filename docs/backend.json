@@ -26,6 +26,7 @@
         "wifiNetwork": { "type": "string" },
         "wifiPassword": { "type": "string" },
         "refreshmentServiceEnabled": { "type": "boolean", "default": false },
+        "complimentaryAmenityLimit": { "type": "number", "default": 0, "description": "Maximum number of free refreshments allowed per guest per session." },
         "bookingPageSettings": { "type": "object" },
         "kioskSettings": { "type": "object" }
       },
@@ -37,6 +38,7 @@
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
+        "description": { "type": "string", "description": "Public-facing description for the refreshment menu." },
         "type": { "type": "string", "enum": ["professional", "retail", "equipment", "overhead", "refreshment"] },
         "category": { "type": "string" },
         "totalStock": { "type": "number" },
@@ -56,6 +58,7 @@
         "clientName": { "type": "string" },
         "itemId": { "type": "string" },
         "itemName": { "type": "string" },
+        "quantity": { "type": "number", "default": 1 },
         "status": { "type": "string", "enum": ["pending", "delivered", "cancelled"] },
         "requestedAt": { "type": "string", "format": "date-time" },
         "deliveredAt": { "type": "string", "format": "date-time" },

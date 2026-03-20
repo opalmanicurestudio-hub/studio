@@ -305,6 +305,7 @@ export type LifespanTestResult = {
 export type InventoryItem = {
   id: string;
   name: string;
+  description?: string;
   type: 'professional' | 'retail' | 'equipment' | 'overhead' | 'refreshment';
   category: string;
   status?: 'active' | 'archived';
@@ -342,6 +343,7 @@ export type InventoryItem = {
       name: string;
       quantityUsed: number;
       unit: string;
+      costPerUnit?: number;
   }[];
   markdownPrice?: number;
   wholesalePrice?: number;
@@ -365,6 +367,7 @@ export type AppointmentCheckoutState = {
         name: string;
         price: number;
         deliveredAt: string;
+        quantity?: number;
     }[];
     retailItems: any[];
     addOnServices: Service[];
@@ -701,6 +704,7 @@ export type Tenant = {
   paymentGateway?: 'none' | 'stripe' | 'square';
   gatewayApiKey?: string;
   autoProcessMemberships?: boolean;
+  complimentaryAmenityLimit?: number;
 };
 
 export type Resource = {
@@ -733,6 +737,7 @@ export type RefreshmentRequest = {
     clientName: string;
     itemId: string;
     itemName: string;
+    quantity: number;
     status: 'pending' | 'delivered' | 'cancelled';
     requestedAt: string;
     deliveredAt?: string;

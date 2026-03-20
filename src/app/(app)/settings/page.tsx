@@ -30,7 +30,8 @@ import {
   Layout,
   Fingerprint,
   Save,
-  Loader
+  Loader,
+  ShieldAlert
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -141,6 +142,21 @@ function SettingsPageImpl() {
                                 disabled={!isEditing}
                                 className="scale-125 data-[state=checked]:bg-primary"
                             />
+                        </div>
+
+                        <div className="space-y-4">
+                            <Label htmlFor="amenity-limit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Complimentary Amenity Limit</Label>
+                            <div className="relative">
+                                <Input 
+                                    id="amenity-limit"
+                                    type="number"
+                                    value={tenantData.complimentaryAmenityLimit || 0}
+                                    onChange={e => setTenantData(prev => ({...prev, complimentaryAmenityLimit: parseInt(e.target.value) || 0}))}
+                                    disabled={!isEditing}
+                                    className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 w-full sm:w-48 text-center"
+                                />
+                                <p className="text-[9px] font-bold text-muted-foreground uppercase mt-2 ml-1">Items allowed per session before charges apply or service is capped.</p>
+                            </div>
                         </div>
 
                         <Separator className="border-dashed" />
