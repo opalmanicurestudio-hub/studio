@@ -338,6 +338,7 @@ export type InventoryItem = {
   msrp?: number;
   price?: number; // Retail price for premium refreshments
   showInConcierge?: boolean;
+  isMembersOnly?: boolean; // New: Restricted to active members only
   formula?: {
       id: string;
       name: string;

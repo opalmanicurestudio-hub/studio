@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -56,7 +57,8 @@ import {
     ArrowRight,
     Edit,
     Coffee,
-    FileText
+    FileText,
+    Lock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
@@ -72,6 +74,8 @@ const editProductSchema = z.object({
   description: z.string().optional(),
   imageUrl: z.string().optional(),
   internalNotes: z.string().optional(),
+  isMembersOnly: z.boolean().default(false),
+  showInConcierge: z.boolean().default(true),
   
   totalPurchaseCost: z.coerce.number().optional(),
   numUnits: z.coerce.number().optional(),
@@ -135,7 +139,7 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
             <div className="space-y-6 text-left">
                 <div className="space-y-2">
                     <Label htmlFor="name-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Label</Label>
-                    <Input id="name-edit" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                    <Input id="name-edit" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
                     {errors.name && <p className="text-xs font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
                 <div className="space-y-2">
@@ -143,7 +147,7 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                     {isAddingCategory ? (
                         <div className="flex gap-2">
                             <Input placeholder="New category..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
-                            <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl"><Check className="h-5 w-5" /></Button>
+                            <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
                         </div>
                     ) : (
                         <div className="flex gap-2">
@@ -193,9 +197,23 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                     )}
                 />
 
+                {productType === 'refreshment' && (
+                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-inner">
+                        <div className="space-y-1">
+                            <Label htmlFor="mem-only-edit" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
+                                <Lock className="w-4 h-4" /> Members Only Access
+                            </Label>
+                            <p className="text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest">Restrict request availability to active members</p>
+                        </div>
+                        <Controller name="isMembersOnly" control={control} render={({ field }) => (
+                            <Switch id="mem-only-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-indigo-600" />
+                        )}/>
+                    </div>
+                )}
+
                 <div className="space-y-2">
                     <Label htmlFor="description-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Public Description</Label>
-                    <Textarea id="description-edit" placeholder="Public flavor profiles, ingredients, or benefit context..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
+                    <Textarea id="description-edit" placeholder="Public flavor profiles, ingredients, or benefit context..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium shadow-inner" />
                 </div>
 
                 <div className="space-y-2">
@@ -234,8 +252,8 @@ const Step2 = () => {
                     <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Base Economics</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-6">
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Amount</Label><Input type="number" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Qty</Label><Input type="number" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Amount</Label><Input type="number" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Qty</Label><Input type="number" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
                         </div>
                         <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center shadow-inner text-left">
                             <span className="text-[10px] font-black uppercase text-primary tracking-widest">Landed / Unit</span>
@@ -295,10 +313,10 @@ const Step2 = () => {
                         <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Retail Profit Architecture</CardTitle></CardHeader>
                         <CardContent className="p-6 space-y-8">
                             <div className="p-5 rounded-2xl bg-muted/10 border-2 space-y-4">
-                                <div className="flex justify-between items-center text-left"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Direct (MSRP)</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary"/><Input type="number" {...register('msrp')} className="h-10 pl-7 rounded-xl border-2 font-black text-primary font-mono text-lg"/></div></div>
+                                <div className="flex justify-between items-center text-left"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Direct (MSRP)</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary"/><Input type="number" {...register('msrp')} className="h-10 pl-7 rounded-xl border-2 font-black text-primary font-mono text-lg shadow-inner bg-white"/></div></div>
                             </div>
                             <div className="p-5 rounded-2xl bg-muted/10 border-2 space-y-4">
-                                <div className="flex justify-between items-center text-left"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Wholesale Rate</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"/><Input type="number" {...register('wholesalePrice')} className="h-10 pl-7 rounded-xl border-2 font-black text-slate-700 font-mono text-lg"/></div></div>
+                                <div className="flex justify-between items-center text-left"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Wholesale Rate</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"/><Input type="number" {...register('wholesalePrice')} className="h-10 pl-7 rounded-xl border-2 font-black text-slate-700 font-mono text-lg shadow-inner bg-white"/></div></div>
                             </div>
                         </CardContent>
                     </Card>
@@ -312,19 +330,19 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
     const { register, control, formState: { errors } } = useFormContext<ProductFormData>();
     return (
         <div className="space-y-10">
-            <SectionHeader icon={Truck} title="Logistics Dossier" step={3} />
+            <SectionHeader icon={Truck} title="Logistics & Source" step={3} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
                     <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Source Intel</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-5 text-left">
                         <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Vendor</Label><Input {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                        <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Asset SKU</Label><Input {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
+                        <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Asset SKU</Label><Input {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black shadow-inner bg-white" /></div>
                     </CardContent>
                 </Card>
                 <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
                     <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Logistics Control</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-5 text-left">
-                        <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Threshold</Label><Input type="number" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg" /></div>
+                        <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Threshold</Label><Input type="number" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg shadow-inner bg-white" /></div>
                         <div className="space-y-1.5 text-left">
                             <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
                             <div className="flex gap-2">
@@ -380,7 +398,9 @@ export const EditProductDialog: React.FC<{
             usesPerContainer: product.estimatedUses, 
             purchaseLink: product.supplierUrl, 
             expirationDate: firstBatch?.expirationDate ? parseISO(firstBatch.expirationDate) : undefined,
-            description: product.description || ''
+            description: product.description || '',
+            isMembersOnly: !!product.isMembersOnly,
+            showInConcierge: !!product.showInConcierge
         });
         setStep(1);
     }

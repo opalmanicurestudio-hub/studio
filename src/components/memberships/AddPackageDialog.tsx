@@ -33,7 +33,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
 import { type Package, type Service, type InventoryItem, type PricingTier, type Staff } from '@/lib/data';
-import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale, Zap, Shield, CheckCircle2 } from 'lucide-react';
+import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check, Percent, PlusCircle, Trash2, Box, Star, Landmark, Users, Scale, Zap, Shield, CheckCircle, CheckCircle2, Coffee } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
@@ -326,7 +326,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
           <div className="space-y-8 text-left">
               <div className="space-y-4">
                 <div className='flex items-center justify-between px-1 text-left'>
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail Perk</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail & Hospitality Perk</Label>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 p-6 rounded-[2.5rem] border-2 bg-muted/10 shadow-inner">
                     <div className="space-y-2 text-left">
@@ -341,7 +341,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                 {retailDiscount > 0 && (
                     <div className="space-y-4 pt-2">
                         <div className='flex items-center justify-between px-1 text-left'>
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Eligible Products</Label>
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Eligible Inventory</Label>
                             <Button variant="ghost" size="sm" onClick={() => setIsApplicableProductsSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Select Scope
                             </Button>
@@ -354,7 +354,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                                         <div key={pid} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                                             <div className="flex items-center gap-3 truncate flex-1 text-left">
                                                 <div className="p-2 bg-muted rounded-lg shrink-0">
-                                                    <Box className="w-3 h-3 text-muted-foreground opacity-40" />
+                                                    {p?.type === 'refreshment' ? <Coffee className="w-3 h-3 text-muted-foreground" /> : <Box className="w-3 h-3 text-muted-foreground" />}
                                                 </div>
                                                 <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{p?.name || 'Unknown Product'}</span>
                                             </div>
@@ -364,7 +364,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
                                 })}
                             </div>
                         ) : (
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-4 border-2 border-dashed rounded-xl">Applied to all retail assets</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-4 border-2 border-dashed rounded-xl">Applied to all retail & refreshment assets</p>
                         )}
                     </div>
                 )}
@@ -419,7 +419,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
             open={isApplicableProductsSelectorOpen}
             onOpenChange={setIsApplicableProductsSelectorOpen}
             onSelect={(selected) => setApplicableProductIds(selected.map(p => p.id))}
-            allProducts={inventory.filter(p => p.type === 'retail')}
+            allProducts={inventory.filter(p => p.type === 'retail' || p.type === 'refreshment')}
             initialSelected={inventory.filter(p => applicableProductIds.includes(p.id))}
         />
     </>

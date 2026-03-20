@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
-import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale, Zap, Shield, CheckCircle2 } from 'lucide-react';
+import { PlusCircle, Trash2, DollarSign, Percent, Award, Info, Sparkles, ArrowRight, ShieldCheck, Star, Activity, ListChecks, Target, Check, Landmark, Clock, Box, Users, Scale, Zap, Shield, CheckCircle2, Coffee } from 'lucide-react';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk, type PricingTier, type Staff } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -464,16 +464,21 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
 
               <div className="space-y-4">
                 <div className='flex items-center justify-between px-1 text-left'>
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail Perks (LTV)</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail & Hospitality Perks (LTV)</Label>
                     <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
-                        <PlusCircle className="w-3 h-3 mr-1.5" /> Select Products
+                        <PlusCircle className="w-3 h-3 mr-1.5" /> Select Matrix
                     </Button>
                 </div>
                 {includedProducts.length > 0 ? (
                     <div className="grid gap-2">
                     {includedProducts.map(perk => (
                         <div key={perk.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
-                            <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{perk.name}</span>
+                            <div className="flex items-center gap-3 truncate flex-1 text-left">
+                                <div className="p-2 bg-primary/5 rounded-xl shrink-0">
+                                    {inventory.find(i => i.id === perk.id)?.type === 'refreshment' ? <Coffee className="w-4 h-4 text-primary" /> : <Box className="w-4 h-4 text-primary" />}
+                                </div>
+                                <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{perk.name}</span>
+                            </div>
                             <div className="flex items-center gap-3">
                                 <div className="flex items-center gap-2">
                                     <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Qty</Label>
@@ -492,7 +497,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 ) : (
                     <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
                         <Box className="w-10 h-10" />
-                        <p className="text-[10px] font-black uppercase tracking-widest">No Retail Included</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest">No Retail/Hospitality Included</p>
                     </div>
                 )}
               </div>
@@ -638,14 +643,14 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 const existing = includedProducts.find(pk => pk.id === p.id);
                 return { id: p.id, name: p.name, quantity: existing?.quantity || 1 };
             }))}
-            allProducts={inventory.filter(p => p.type === 'retail')}
+            allProducts={inventory.filter(p => p.type === 'retail' || p.type === 'refreshment')}
             initialSelected={inventory.filter(p => includedProducts.some(pk => pk.id === p.id))}
         />
         <BrowseProductsDialog
             open={isApplicableProductsSelectorOpen}
             onOpenChange={setIsApplicableProductsSelectorOpen}
             onSelect={(selected) => setApplicableProductIds(selected.map(p => p.id))}
-            allProducts={inventory.filter(p => p.type === 'retail')}
+            allProducts={inventory.filter(p => p.type === 'retail' || p.type === 'refreshment')}
             initialSelected={inventory.filter(p => applicableProductIds.includes(p.id))}
         />
     </>

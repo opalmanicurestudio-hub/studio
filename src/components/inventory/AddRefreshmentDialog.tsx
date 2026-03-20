@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -38,7 +39,8 @@ import {
     Calculator,
     Target,
     Info,
-    FileText
+    FileText,
+    Lock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -84,6 +86,7 @@ const refreshmentSchema = z.object({
   category: z.string().default('Refreshment'),
   price: z.coerce.number().min(0).default(0),
   showInConcierge: z.boolean().default(true),
+  isMembersOnly: z.boolean().default(false),
   purchaseCost: z.coerce.number().min(0, 'Purchase cost must be a positive number.'),
   purchaseDate: z.date({ required_error: 'A purchase date is required.' }),
   costingMethod: z.enum(['size', 'uses']),
@@ -148,14 +151,27 @@ const Step1 = () => {
                         </div>
                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 ml-1 text-left">Leave at 0.00 for complimentary amenity</p>
                     </div>
-                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner self-start">
-                        <div className="space-y-1 text-left">
-                            <Label htmlFor="show-concierge" className="text-sm font-black uppercase tracking-tight">Public Menu</Label>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Visible in Guest Portal</p>
+                    <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5 shadow-inner">
+                            <div className="space-y-1 text-left">
+                                <Label htmlFor="show-concierge" className="text-sm font-black uppercase tracking-tight">Public Menu</Label>
+                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Visible in Portal</p>
+                            </div>
+                            <Controller name="showInConcierge" control={control} render={({ field }) => (
+                                <Switch id="show-concierge" checked={field.value} onCheckedChange={field.onChange} className="scale-110 data-[state=checked]:bg-primary" />
+                            )}/>
                         </div>
-                        <Controller name="showInConcierge" control={control} render={({ field }) => (
-                            <Switch id="show-concierge" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-primary" />
-                        )}/>
+                        <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-indigo-500/20 bg-indigo-500/5 shadow-inner">
+                            <div className="space-y-1 text-left">
+                                <Label htmlFor="members-only" className="text-sm font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
+                                    <Lock className="w-3 h-3" /> Members Only
+                                </Label>
+                                <p className="text-[9px] font-bold text-indigo-600/60 uppercase tracking-widest opacity-60 text-left">Restricted access item</p>
+                            </div>
+                            <Controller name="isMembersOnly" control={control} render={({ field }) => (
+                                <Switch id="members-only" checked={field.value} onCheckedChange={field.onChange} className="scale-110 data-[state=checked]:bg-indigo-600" />
+                            )}/>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -304,7 +320,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                             <Controller name="costingMethod" control={control} render={({ field }) => (
                                 <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
                                     <label htmlFor="size-rf" className="cursor-pointer">
-                                        <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                        <div className={cn("flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
                                             <Pipette className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                             <span className="text-[10px] font-black uppercase tracking-widest">By Volume</span>
                                             <RadioGroupItem value="size" id="size-rf" className="sr-only" />
@@ -396,16 +412,16 @@ export const AddRefreshmentDialog = ({
   const isMobile = useIsMobile();
   const methods = useForm<RefreshmentFormData>({ 
     resolver: zodResolver(refreshmentSchema), 
-    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, price: 0, formula: [] } 
+    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, isMembersOnly: false, price: 0, formula: [] } 
   });
 
-  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, price: 0, formula: [] }); setStep(1); } }, [open, methods]);
+  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, isMembersOnly: false, price: 0, formula: [] }); setStep(1); } }, [open, methods]);
 
   const { handleSubmit, trigger } = methods;
   const onSubmit = (data: RefreshmentFormData) => {
     const unitPrice = data.purchaseCost; 
     onRefreshmentAdded({
-      id: `refr-${nanoid(8)}`, name: data.name, description: data.description, type: 'refreshment', category: 'Refreshment', totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, showInConcierge: data.showInConcierge, price: data.price, imageUrl: data.imageUrl, formula: data.formula,
+      id: `refr-${nanoid(8)}`, name: data.name, description: data.description, type: 'refreshment', category: 'Refreshment', totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, showInConcierge: data.showInConcierge, isMembersOnly: data.isMembersOnly, price: data.price, imageUrl: data.imageUrl, formula: data.formula,
       batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock, costPerUnit: unitPrice, receivedDate: data.purchaseDate.toISOString() }],
     });
     onOpenChange(false);
