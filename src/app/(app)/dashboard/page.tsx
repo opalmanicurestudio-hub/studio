@@ -35,7 +35,8 @@ import {
   Smartphone,
   Square,
   CheckCircle2,
-  Check
+  Check,
+  ArrowRight
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Appointment, type Transaction, type Service, Staff, ActivityLog, InventoryItem } from '@/lib/data';
@@ -50,6 +51,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn, safeNumber } from '@/lib/utils';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useToast } from '@/hooks/use-toast';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -59,7 +61,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const RefreshmentQueue = ({ requests, inventory, staff, onDeliver }: any) => {
+const RefreshmentQueue = ({ requests, inventory, user, onDeliver }: any) => {
     if (!requests || requests.length === 0) return null;
 
     return (
@@ -113,9 +115,9 @@ const RefreshmentQueue = ({ requests, inventory, staff, onDeliver }: any) => {
 };
 
 export default function DashboardPage() {
-  const { firestore } = useFirebase();
-  const { selectedTenant, role } = useTenant();
-  const { inventory, staff, appointments, transactions, isLoading: isInventoryLoading } = useInventory();
+  const { firestore, user } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const { inventory, clients, transactions, isLoading: isInventoryLoading } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
@@ -139,7 +141,7 @@ export default function DashboardPage() {
       batch.update(requestRef, {
           status: 'delivered',
           deliveredAt: now,
-          deliveredBy: currentUser?.uid || 'system'
+          deliveredBy: user?.uid || 'system'
       });
 
       // 2. Atomic Inventory Deduction
@@ -149,7 +151,7 @@ export default function DashboardPage() {
       // 3. Log Stock Correction
       const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
       batch.set(correctionRef, {
-          id: correctionRef.id,
+          id: nanoid(),
           productId: item.id,
           date: now,
           change: -1,
@@ -166,11 +168,11 @@ export default function DashboardPage() {
       }
   };
 
-  const { todaysRevenue, totalOutstandingDebt, clientRetentionRate } = useMemo(() => {
+  const { todaysRevenue, totalOutstandingDebt } = useMemo(() => {
     const today = startOfDay(new Date());
     const tRevenue = (transactions || []).filter(t => t.type === 'income' && isSameDay(safeDate(t.date), today)).reduce((acc, t) => acc + t.amount, 0);
     const tDebt = (clients || []).reduce((acc, c) => acc + safeNumber(c.outstandingBalance), 0);
-    return { todaysRevenue: tRevenue, totalOutstandingDebt: tDebt, clientRetentionRate: 82 };
+    return { todaysRevenue: tRevenue, totalOutstandingDebt: tDebt };
   }, [transactions, clients]);
 
   if (isInventoryLoading) return <div className="h-screen flex items-center justify-center"><Loader className="animate-spin" /></div>;
@@ -184,7 +186,7 @@ export default function DashboardPage() {
         <RefreshmentQueue 
             requests={pendingRequests || []} 
             inventory={inventory} 
-            staff={staff} 
+            user={user}
             onDeliver={handleDeliverRefreshment} 
         />
 
@@ -202,7 +204,7 @@ export default function DashboardPage() {
         <div className="text-center py-20 border-4 border-dashed rounded-[3.5rem] opacity-30">
             <Sparkles className="w-16 h-16 mx-auto text-primary mb-4" />
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Operations Suite Active</h3>
-            <p className="text-sm font-bold uppercase tracking-widest mt-2">Jessica Marshall &middot; Master Owner</p>
+            <p className="text-sm font-bold uppercase tracking-widest mt-2">{user?.displayName || 'Studio Manager'} &middot; Active Role</p>
         </div>
       </main>
     </div>

@@ -41,6 +41,7 @@ import { useTenant } from '@/context/TenantContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { Separator } from '@/components/ui/separator';
 
 function SettingsPageImpl() {
   const { toast } = useToast();
@@ -80,7 +81,7 @@ function SettingsPageImpl() {
     { value: "integrations", label: "Integrations", icon: <Zap className="w-4 h-4" /> },
   ];
 
-  if (isTenantContextLoading) return <div className="p-8"><Loader className="animate-spin" /></div>;
+  if (isTenantContextLoading) return <div className="p-8 flex items-center justify-center h-full"><Loader className="animate-spin text-primary" /></div>;
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-slate-50/50">
@@ -131,7 +132,7 @@ function SettingsPageImpl() {
                         <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10">
                             <div className="space-y-1">
                                 <Label htmlFor="refreshment-toggle" className="text-base font-black uppercase tracking-tight text-slate-900">Activate Refreshment Menu</Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">Allows guests to request in-stock items from their portal</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Allows guests to request in-stock items from their portal</p>
                             </div>
                             <Switch 
                                 id="refreshment-toggle" 
@@ -150,7 +151,7 @@ function SettingsPageImpl() {
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Studio Connectivity</h3>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">WiFi Network SSID</Label>
                                     <Input 
                                         value={tenantData.wifiNetwork || ''} 
@@ -160,7 +161,7 @@ function SettingsPageImpl() {
                                         className="h-12 rounded-xl border-2 font-bold"
                                     />
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Access Password</Label>
                                     <Input 
                                         value={tenantData.wifiPassword || ''} 
@@ -171,7 +172,7 @@ function SettingsPageImpl() {
                                     />
                                 </div>
                             </div>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase leading-relaxed px-1 opacity-60">Credentials will be displayed securely within the "In Service" portal for active guests.</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase leading-relaxed px-1 opacity-60 text-left">Credentials will be displayed securely within the "In Service" portal for active guests.</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -187,7 +188,7 @@ function SettingsPageImpl() {
                         <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Registry identification and identity.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-8 space-y-4">
-                        <div className="space-y-2">
+                        <div className="space-y-2 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Name</Label>
                             <Input 
                                 value={tenantData.name || ''} 

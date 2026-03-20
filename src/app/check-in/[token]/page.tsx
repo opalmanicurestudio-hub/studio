@@ -1,74 +1,34 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { 
     Clock, 
-    Car, 
     MapPin, 
     Check, 
-    AlertTriangle, 
-    X, 
-    CreditCard, 
     Loader, 
-    ChevronLeft, 
-    ChevronRight, 
-    TicketIcon, 
-    User as UserIcon, 
-    Activity, 
-    CheckCircle, 
-    Wallet, 
     CheckCircle2, 
     Sparkles, 
-    Zap, 
     Calendar as CalendarIcon, 
-    ShieldCheck, 
-    Ban, 
-    XCircle, 
-    ShoppingCart, 
     Fingerprint, 
-    Star, 
-    ArrowRight, 
-    Cake, 
-    PartyPopper, 
-    Gift,
-    FileSignature,
-    ListChecks,
-    ArrowDown,
-    Lock,
-    Info,
-    ListOrdered,
-    Shield,
-    Undo2,
-    CalendarDays,
-    TrendingDown,
-    Landmark,
-    Wifi,
+    Wifi, 
     Coffee,
-    CheckSquare
+    Activity,
+    ArrowRight
 } from 'lucide-react';
-import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse, endOfDay } from 'date-fns';
-import { type Appointment, type Client, type Service, type Tenant, type Staff, type ConsentForm, type InventoryItem } from '@/lib/data';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc, setDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, getDocs, writeBatch, increment, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { format, parseISO } from 'date-fns';
+import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem } from '@/lib/data';
+import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
+import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import Image from 'next/image';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { motion, AnimatePresence } from 'framer-motion';
-import { formatPhoneNumber } from 'react-phone-number-input';
-import { Textarea } from '@/components/ui/textarea';
+import { motion } from 'framer-motion';
 import { nanoid } from 'nanoid';
-import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -107,7 +67,7 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
     const [isRequesting, setIsRequesting] = useState(false);
 
     const refreshments = useMemo(() => 
-        inventory.filter(item => item.type === 'refreshment' && item.totalStock > 0)
+        inventory.filter(item => item.category?.toLowerCase() === 'refreshment' && item.totalStock > 0)
     , [inventory]);
 
     const handleRequest = async (item: InventoryItem) => {
@@ -134,7 +94,7 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
             // Dispatch notification to staff
             const notificationRef = doc(collection(firestore, `tenants/${tenant.id}/notifications`));
             await setDocumentNonBlocking(notificationRef, {
-                id: notificationRef.id,
+                id: nanoid(),
                 userId: 'all_staff',
                 type: 'refreshment_request',
                 message: `New request: ${item.name} for ${client.name}`,
@@ -163,7 +123,7 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
                     </div>
                     <div className="space-y-2">
                         <p className="font-black text-xl uppercase tracking-tight text-slate-900">Relax & Recharge</p>
-                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto">
+                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center">
                             Your transformation is in progress. We've optimized this window for your comfort.
                         </p>
                     </div>
@@ -174,7 +134,7 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
                         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                             <Wifi className="w-3.5 h-3.5 opacity-40" /> Connectivity Hub
                         </p>
-                        <div className="p-6 rounded-[2rem] border-2 border-primary/10 bg-white shadow-xl space-y-4">
+                        <div className="p-6 rounded-[2.5rem] border-2 border-primary/10 bg-white shadow-xl space-y-4">
                             <div className="flex justify-between items-center px-1">
                                 <div className="space-y-0.5">
                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Network SSID</p>
@@ -237,7 +197,6 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
 
 export default function CheckInPage() {
     const params = useParams();
-    const router = useRouter();
     const token = params.token as string;
     const { toast } = useToast();
     const { firestore } = useFirebase();
@@ -271,27 +230,45 @@ export default function CheckInPage() {
     const staffDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.staffId ? null : doc(firestore, `tenants/${tenantId}/staff`, appointmentData.staffId), [firestore, tenantId, appointmentData?.staffId]);
     const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
-    const [hasStarted, setHasStarted] = useState(false);
-    const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
-
-    useEffect(() => { 
-        if (appointmentData?.checkInStatus) { 
-            setCurrentStatus(appointmentData.checkInStatus); 
-        } 
-    }, [appointmentData]);
-
-    if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) return <div className="flex flex-col items-center gap-4"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest opacity-60">Initializing Portal...</p></div>;
+    if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) {
+        return (
+            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40">
+                <Loader className="h-10 w-10 animate-spin text-primary" />
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mt-4">Initializing Portal...</p>
+            </div>
+        );
+    }
     
-    if (appointmentData?.status === 'servicing') return <ServicingView tenant={tenant} client={client} inventory={inventory || []} activeRequests={activeRequests || []} />;
+    if (appointmentData?.status === 'servicing') {
+        return <ServicingView tenant={tenant} client={client} inventory={inventory || []} activeRequests={activeRequests || []} />;
+    }
     
     return (
         <ViewContainer>
             <ViewHeader title="Portal Ready" subtitle="Manage your session" icon={Fingerprint} />
             <CardContent className="p-8 text-center space-y-6">
-                <p className="text-sm font-medium text-slate-500">Your appointment for <strong>{service?.name}</strong> is ready for status updates.</p>
-                <div className="p-6 bg-primary/5 rounded-[2rem] border-2 border-primary/10">
-                    <p className="text-xs font-black uppercase text-primary mb-2">Check-in Required</p>
-                    <Button onClick={() => setCurrentStatus('arrived')} className="w-full h-14 rounded-2xl font-black uppercase shadow-xl">Confirm Arrival</Button>
+                <div className="p-10 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
+                    <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
+                    <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase text-primary tracking-widest">Current Booking</p>
+                        <h3 className="text-xl font-black uppercase text-slate-900">{service?.name}</h3>
+                        <p className="text-xs font-bold text-muted-foreground uppercase">{format(safeDate(appointmentData?.startTime), 'EEEE, MMM d @ h:mm a')}</p>
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <p className="text-sm font-medium text-slate-500 leading-relaxed px-4">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please confirm your arrival below.</p>
+                    <Button 
+                        onClick={() => {
+                            if (!firestore || !token) return;
+                            const updateRef = doc(firestore, 'appointmentCheckIns', token);
+                            updateDocumentNonBlocking(updateRef, { checkInStatus: 'arrived' });
+                            toast({ title: "Arrival Certified", description: "Your professional has been notified." });
+                        }} 
+                        className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-tight shadow-3xl shadow-primary/30 group"
+                    >
+                        I Have Arrived <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
+                    </Button>
                 </div>
             </CardContent>
         </ViewContainer>
