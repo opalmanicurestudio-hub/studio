@@ -57,8 +57,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { format, parseISO, isPast } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { useInventory } from '@/context/InventoryContext';
+import { useTenant } from '@/context/TenantContext';
 import { type InventoryItem } from '@/lib/data';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useToast } from '@/hooks/use-toast';
@@ -265,9 +266,9 @@ export default function ProductDetailPage() {
                                 <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 truncate leading-none">{product.name}</h2>
                                 <div className="flex gap-2">
                                     <Badge variant="outline" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase tracking-widest border-2">{product.category}</Badge>
-                                    <Badge variant="secondary" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase tracking-widest border-none bg-primary/10 text-primary">{product.type}</Badge>
+                                    <Badge variant="secondary" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase border-none bg-primary/10 text-primary">{product.type}</Badge>
                                     {product.isMembersOnly && (
-                                        <Badge className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase tracking-widest border-none bg-indigo-600 text-white shadow-lg">
+                                        <Badge className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase border-none bg-indigo-600 text-white shadow-lg">
                                             <Award className="w-3 h-3 mr-1.5" /> Club Exclusive
                                         </Badge>
                                     )}
