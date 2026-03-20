@@ -137,7 +137,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm }: any) => {
                 </div>
                 <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
                     <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Confirm Waiver</Button>
-                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                    <Button variant="ghost" onOpenChange={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -376,7 +376,7 @@ export const CheckoutHub = ({
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
     
-    // Financial logic derived from props and memoized calculations
+    // Financial logic synchronization
     const finalSubtotal = subtotal;
     const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
     const finalTotal = total;
@@ -505,7 +505,7 @@ export const CheckoutHub = ({
                                 </ScrollArea>
                             </div>
                             {!isGroupCheckout && (
-                                <DialogFooter className="p-6 pt-0 bg-muted/5 border-t">
+                                <DialogFooter className="p-6 pt-0 bg-muted/5 border-t text-left">
                                     <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}>
                                         <UserPlus className="w-4 h-4 mr-2" />
                                         Register New Client Profile
@@ -747,7 +747,7 @@ export const CheckoutHub = ({
 
                 <div className="pt-2 text-left">
                     <Button 
-                        className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" 
+                        className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" 
                         onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
                         disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
                     >

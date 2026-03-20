@@ -57,7 +57,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '../ui/label';
 import { cn, safeNumber } from '@/lib/utils';
-import { differenceInMinutes, parseISO } from 'date-fns';
+import { format, differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Badge } from '@/components/ui/badge';
@@ -490,7 +490,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                             ))}
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-[0.2em] shadow-inner bg-muted/5 mt-2">
+                        <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5 mt-2">
                             <PlusCircle className="mr-2 h-4 w-4 text-primary opacity-40" /> Append Add-on Enhancement
                         </Button>
                   </div>
@@ -583,7 +583,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </div>
                 </div>
 
-                {/* STEP 3: HOSPITALITY VERIFICATION */}
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
                     <div className="space-y-4">
