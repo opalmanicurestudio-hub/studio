@@ -412,13 +412,7 @@ export const CheckoutHub = ({
         setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code));
     };
 
-    const amenityRevenue = useMemo(() => {
-        return appointmentsData.reduce((acc: number, data: any) => {
-            return acc + (data.appointment.checkoutState?.refreshments?.reduce((sum: number, r: any) => sum + safeNumber(r.price), 0) || 0);
-        }, 0);
-    }, [appointmentsData]);
-
-    const finalSubtotal = subtotal + amenityRevenue;
+    const finalSubtotal = subtotal;
     const finalTax = finalSubtotal * 0.07;
     const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
     const finalTotal = finalSubtotal + finalTax + tipAmount - totalDiscount;
@@ -692,7 +686,7 @@ export const CheckoutHub = ({
                                                 {amenities.map((item: any, idx: number) => (
                                                     <div key={idx} className="flex justify-between items-center text-left">
                                                         <span className="text-[10px] font-bold text-slate-600 uppercase flex items-center gap-2"><Coffee className="w-3 h-3" /> {item.name}</span>
-                                                        <span className="font-mono text-[10px] text-slate-900">${safeNumber(item.price).toFixed(2)}</span>
+                                                        <span className="font-mono text-[10px] text-slate-900">{safeNumber(item.price) > 0 ? `$${safeNumber(item.price).toFixed(2)}` : 'Complimentary'}</span>
                                                     </div>
                                                 ))}
                                             </div>

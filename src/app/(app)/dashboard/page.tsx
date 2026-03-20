@@ -249,20 +249,20 @@ export default function DashboardPage() {
           });
       }
 
-      // POS TERMINAL INTEGRATION: Append to bill if it has a price
+      // POS TERMINAL INTEGRATION: Append to bill
       const appointment = appointments.find(a => 
         a.clientId === request.clientId && 
         ['confirmed', 'servicing', 'ready_for_checkout'].includes(a.status) && 
         isToday(safeDate(a.startTime))
       );
 
-      if (appointment && item.price && item.price > 0) {
+      if (appointment) {
           const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
           batch.update(aptRef, {
               'checkoutState.refreshments': arrayUnion({
                   id: item.id,
                   name: item.name,
-                  price: item.price,
+                  price: safeNumber(item.price),
                   deliveredAt: now
               })
           });
