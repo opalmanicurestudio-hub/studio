@@ -215,16 +215,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     };
   }, [appointment?.status, appointment?.actualStartTime, service?.duration]);
 
-  const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
-
-  const handleCopyLink = () => {
-    if (appointment.checkInToken) {
-      const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
-      navigator.clipboard.writeText(link);
-      toast({ title: 'Link Copied', description: 'Guest portal URL is on your clipboard.' });
-    }
-  };
 
   const handleAddAndConfigureConfirm = (selectedAddOns: Service[], configs: any) => {
     if (!firestore || !tenantId || !appointment) return;
@@ -246,8 +237,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     setIsAddAndConfigureOpen(false);
   };
 
+  const handleCopyLink = () => {
+    if (appointment.checkInToken) {
+      const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
+      navigator.clipboard.writeText(link);
+      toast({ title: 'Link Copied', description: 'Guest portal URL is on your clipboard.' });
+    }
+  };
+
   if (!mounted || !open || !appointment || !client || !service) return null;
 
+  const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
   const ticketId = appointment.id.slice(-6).toUpperCase();
   const mainStaffId = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
   const mainStaffMember = staff.find(s => s.id === mainStaffId);
@@ -317,7 +317,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                                 ))}
                             </div>
                         )}
-                        <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyCheckInLink}>
+                        <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
                             <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
                         </Button>
                     </div>

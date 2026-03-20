@@ -283,7 +283,6 @@ export const CheckoutHub = ({
         }
     }, [allInvolvedStaff, setTipAmount, setTipAllocations]);
 
-    // Re-split tips automatically if the staff composition changes
     useEffect(() => {
         if (tipAmount > 0) {
             handleTotalTipChange(tipAmount);
