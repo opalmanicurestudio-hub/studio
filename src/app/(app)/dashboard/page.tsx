@@ -42,13 +42,14 @@ import {
   PackageX,
   Zap,
   TrendingDown,
-  User as UserIcon
+  User as UserIcon,
+  Timer
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { type Appointment, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn } from '@/lib/data';
+import { type Appointment, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn, RefreshmentRequest } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { useFirebase, useCollection, useMemoFirebase, useUser, updateDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, writeBatch, increment } from 'firebase/firestore';
+import { collection, query, where, doc, writeBatch, increment, startAt, endAt, orderBy } from 'firebase/firestore';
 import { startOfDay, endOfDay, format, isSameDay, parseISO, differenceInMinutes, isToday } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
@@ -162,11 +163,22 @@ export default function DashboardPage() {
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
-  const requestsQuery = useMemoFirebase(() => {
+  const today = startOfDay(new Date());
+
+  // Fetch all today's requests for KPI calculation
+  const todayRequestsQuery = useMemoFirebase(() => {
       if (!firestore || !tenantId) return null;
-      return query(collection(firestore, `tenants/${tenantId}/refreshmentRequests`), where("status", "==", "pending"));
-  }, [firestore, tenantId]);
-  const { data: pendingRequests } = useCollection(requestsQuery);
+      return query(
+          collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
+          where("requestedAt", ">=", today.toISOString())
+      );
+  }, [firestore, tenantId, today]);
+  
+  const { data: allTodayRequests } = useCollection<RefreshmentRequest>(todayRequestsQuery);
+
+  const pendingRequests = useMemo(() => 
+    allTodayRequests?.filter(r => r.status === 'pending') || []
+  , [allTodayRequests]);
 
   const handleDeliverRefreshment = async (request: any) => {
       if (!firestore || !tenantId || !inventory) return;
@@ -217,8 +229,35 @@ export default function DashboardPage() {
     const liveSessions = (appointments || []).filter(a => a.status === 'servicing');
     const lowStockItems = (inventory || []).filter(i => i.reorderPoint && i.totalStock <= i.reorderPoint);
 
-    return { dailyIncome, totalArrears, activeStaff, todayArrivals, liveSessions, lowStockItems };
-  }, [transactions, clients, staff, walkIns, appointments, inventory]);
+    // Hospitality Metrics
+    const deliveredToday = allTodayRequests?.filter(r => r.status === 'delivered') || [];
+    const waitTimes = deliveredToday.map(r => {
+        const req = safeDate(r.requestedAt);
+        const del = safeDate(r.deliveredAt);
+        return Math.max(0, differenceInMinutes(del, req));
+    });
+    const hospitalityWaitVelocity = waitTimes.length > 0 
+        ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length) 
+        : 0;
+
+    const itemPopularity: Record<string, number> = {};
+    allTodayRequests?.forEach(r => {
+        itemPopularity[r.itemName] = (itemPopularity[r.itemName] || 0) + 1;
+    });
+    const topAmenity = Object.entries(itemPopularity).sort((a,b) => b[1] - a[1])[0]?.[0] || 'N/A';
+
+    return { 
+        dailyIncome, 
+        totalArrears, 
+        activeStaff, 
+        todayArrivals, 
+        liveSessions, 
+        lowStockItems,
+        hospitalityWaitVelocity,
+        topAmenity,
+        totalHospitalityRequests: allTodayRequests?.length || 0
+    };
+  }, [transactions, clients, staff, walkIns, appointments, inventory, allTodayRequests]);
 
   if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="animate-spin h-10 w-10 text-primary" /><p className="text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">Syncing Operational Board...</p></div>;
 
@@ -292,6 +331,30 @@ export default function DashboardPage() {
 
             {/* RIGHT COLUMN: ANALYTICS & ALERTS */}
             <div className="space-y-10">
+                <Card className="border-4 border-primary/10 bg-white rounded-[2.5rem] shadow-xl overflow-hidden text-left">
+                    <CardHeader className="bg-muted/5 border-b p-6">
+                        <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                            <Timer className="w-3.5 h-3.5" /> Hospitality Insights
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 space-y-6 text-left">
+                        <div className="space-y-1">
+                            <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Avg. Wait Velocity</p>
+                            <p className="text-3xl font-black tracking-tighter text-slate-900">{dashboardMetrics.hospitalityWaitVelocity} <span className="text-xs uppercase opacity-40">Min</span></p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1 p-3 rounded-xl bg-muted/20 border">
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Engagement</p>
+                                <p className="text-sm font-black">{dashboardMetrics.totalHospitalityRequests} <span className="text-[8px] opacity-40">Orders</span></p>
+                            </div>
+                            <div className="space-y-1 p-3 rounded-xl bg-muted/20 border">
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Top Amenity</p>
+                                <p className="text-[10px] font-black truncate text-primary">{dashboardMetrics.topAmenity}</p>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 text-left">
                         <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldAlert className="w-3.5 h-3.5"/>Asset Safeguard</CardTitle>
