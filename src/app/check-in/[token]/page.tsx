@@ -45,6 +45,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
 import Image from 'next/image';
 import Link from 'next/link';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -58,7 +59,7 @@ const ViewContainer = ({ children }: { children: React.ReactNode }) => (
     <motion.div 
         initial={{ opacity: 0, y: 20 }} 
         animate={{ opacity: 1, y: 0 }} 
-        className="w-full max-w-lg px-2 sm:px-0"
+        className="w-full max-w-2xl px-2 sm:px-0"
     >
         <Card className="border-4 rounded-[2.5rem] md:rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl">
             {children}
@@ -112,6 +113,105 @@ const ArrivedView = ({ client, staff }: { client: Client | null, staff: Staff | 
     </ViewContainer>
 );
 
+const RefreshmentCard = ({ 
+    item, 
+    qty, 
+    onQtyChange, 
+    onRequest, 
+    isRequesting, 
+    hasActiveRequest, 
+    isMember, 
+    activeMembership 
+}: { 
+    item: InventoryItem, 
+    qty: number, 
+    onQtyChange: (delta: number) => void, 
+    onRequest: () => void, 
+    isRequesting: boolean, 
+    hasActiveRequest: boolean, 
+    isMember: boolean,
+    activeMembership: Membership | null
+}) => {
+    const isSoldOut = item.totalStock <= 0;
+    const isIncludedPerk = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
+
+    return (
+        <motion.div
+            whileTap={{ scale: 0.98 }}
+            className="shrink-0 w-64 md:w-72 h-full py-4"
+        >
+            <Card className={cn(
+                "rounded-[2.5rem] border-2 transition-all h-full flex flex-col overflow-hidden bg-white shadow-lg",
+                isSoldOut ? "opacity-40 grayscale" : "border-primary/5 hover:border-primary/30",
+                isIncludedPerk && "border-indigo-500/20 ring-1 ring-indigo-500/10",
+                item.isMembersOnly && "border-indigo-500/30"
+            )}>
+                <div className="relative aspect-square w-full bg-muted/20 flex items-center justify-center overflow-hidden border-b">
+                    {item.imageUrl ? (
+                        <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
+                    ) : (
+                        <Coffee className="w-16 h-16 text-primary opacity-20" />
+                    )}
+                    
+                    <div className="absolute top-4 left-4 flex flex-col gap-2">
+                        {item.isMembersOnly && (
+                            <Badge className="bg-indigo-600 text-white border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl">
+                                <Award className="w-3 h-3 mr-1.5" /> Club Only
+                            </Badge>
+                        )}
+                        {isIncludedPerk && (
+                            <Badge className="bg-primary text-white border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl">
+                                <Star className="w-3 h-3 mr-1.5 fill-current" /> Perk
+                            </Badge>
+                        )}
+                    </div>
+
+                    <div className="absolute bottom-4 right-4">
+                        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
+                            {isIncludedPerk ? (
+                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
+                            ) : item.price && item.price > 0 ? (
+                                <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${item.price.toFixed(2)}</p>
+                            ) : (
+                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Comp</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <CardContent className="p-6 flex-1 flex flex-col justify-between space-y-4">
+                    <div className="space-y-2 text-left">
+                        <h4 className="font-black text-lg uppercase tracking-tight text-slate-900 leading-none">{item.name}</h4>
+                        {item.description && (
+                            <p className="text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-2 italic">
+                                "{item.description}"
+                            </p>
+                        )}
+                    </div>
+
+                    <div className="pt-4 border-t border-dashed space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-1 px-3 h-10 border shadow-inner">
+                                <button onClick={() => onQtyChange(-1)} disabled={isSoldOut} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-4 h-4" /></button>
+                                <span className="font-black font-mono text-base w-6 text-center">{qty}</span>
+                                <button onClick={() => onQtyChange(1)} disabled={isSoldOut} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Plus className="w-4 h-4" /></button>
+                            </div>
+                            <Button 
+                                size="sm" 
+                                disabled={isRequesting || hasActiveRequest || isSoldOut}
+                                onClick={onRequest}
+                                className="h-10 px-6 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-95"
+                            >
+                                {isSoldOut ? 'Void' : 'Order'}
+                            </Button>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        </motion.div>
+    );
+};
+
 const ServicingView = ({ 
     tenant, 
     client, 
@@ -161,26 +261,17 @@ const ServicingView = ({
         
         refreshments.forEach(item => {
             let cat = item.category || 'Standard Selection';
-            // Automatically promote members-only items to the exclusive category
             if (item.isMembersOnly) {
                 cat = exclusiveKey;
             }
-            
             if (!grouped[cat]) grouped[cat] = [];
             grouped[cat].push(item);
         });
 
-        // Reorder to ensure Exclusive is always at the top for members
         const orderedGrouped: Record<string, InventoryItem[]> = {};
-        if (grouped[exclusiveKey]) {
-            orderedGrouped[exclusiveKey] = grouped[exclusiveKey];
-        }
-        
-        // Append other categories alphabetically
+        if (grouped[exclusiveKey]) orderedGrouped[exclusiveKey] = grouped[exclusiveKey];
         Object.keys(grouped).sort().forEach(key => {
-            if (key !== exclusiveKey) {
-                orderedGrouped[key] = grouped[key];
-            }
+            if (key !== exclusiveKey) orderedGrouped[key] = grouped[key];
         });
 
         return orderedGrouped;
@@ -192,74 +283,24 @@ const ServicingView = ({
         return res?.name || 'Station';
     }, [appointment, resources]);
 
-    const handleQuantityChange = (itemId: string, delta: number, max: number) => {
-        setQuantities(prev => {
-            const current = prev[itemId] || 1;
-            const next = Math.max(1, Math.min(max, current + delta));
-            return { ...prev, [itemId]: next };
-        });
-    };
-
     const handleRequest = async (item: InventoryItem) => {
         if (!firestore || !tenant || !client || !appointment || isRequesting) return;
-        
         const qty = quantities[item.id] || 1;
         const totalSessionCount = activeRequests.reduce((sum, r) => sum + (r.quantity || 1), 0);
         const limit = tenant.complimentaryAmenityLimit || 0;
 
-        if (item.isMembersOnly && !isMember) {
-            toast({ 
-                variant: 'destructive', 
-                title: 'Access Restricted', 
-                description: 'This premium amenity is exclusive to studio members.' 
-            });
-            return;
-        }
-
         if (limit > 0 && totalSessionCount + qty > limit) {
-            toast({ 
-                variant: 'destructive', 
-                title: 'Limit Reached', 
-                description: `Complimentary limit is ${limit} items per session.` 
-            });
+            toast({ variant: 'destructive', title: 'Limit Reached', description: `Complimentary limit is ${limit} items per session.` });
             return;
         }
 
         setIsRequesting(true);
-        const requestId = nanoid();
-        const requestRef = doc(firestore, `tenants/${tenant.id}/refreshmentRequests`, requestId);
-        
-        const payload = {
-            id: requestId,
-            tenantId: tenant.id,
-            appointmentId: appointment.id,
-            clientId: client.id,
-            clientName: client.name,
-            itemId: item.id,
-            itemName: item.name,
-            quantity: qty,
-            status: 'pending',
-            requestedAt: new Date().toISOString(),
-            stationName: stationName,
-            staffName: staff?.name || 'Unassigned',
-            priceAtRequest: item.price || 0
-        };
-
         try {
-            await setDocumentNonBlocking(requestRef, payload, {});
-            
-            const notificationRef = doc(collection(firestore, `tenants/${tenant.id}/notifications`));
-            await setDocumentNonBlocking(notificationRef, {
-                id: nanoid(),
-                userId: 'all_staff',
-                type: 'refreshment_request',
-                message: `New request: ${qty}x ${item.name} for ${client.name} at ${stationName}`,
-                link: '/dashboard',
-                createdAt: new Date().toISOString(),
-                read: false
+            const requestId = nanoid();
+            await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/refreshmentRequests`, requestId), {
+                id: requestId, tenantId: tenant.id, appointmentId: appointment.id, clientId: client.id, clientName: client.name, itemId: item.id, itemName: item.name, quantity: qty, status: 'pending', requestedAt: new Date().toISOString(), stationName, staffName: staff?.name || 'Unassigned', priceAtRequest: item.price || 0
             }, {});
-
-            toast({ title: "Request Dispatched", description: "Your pro will be with you shortly." });
+            toast({ title: "Request Dispatched" });
             setQuantities(prev => ({ ...prev, [item.id]: 1 }));
         } catch (e) {
             toast({ variant: 'destructive', title: "Request Failed" });
@@ -273,155 +314,96 @@ const ServicingView = ({
     return (
         <ViewContainer>
             <ViewHeader title="In Service" subtitle="Your session is active" icon={Clock} />
-            <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                <div className="p-8 text-center space-y-6 bg-primary/5 rounded-[2.5rem] border-2 border-primary/10 shadow-inner text-left">
-                    <div className="w-20 h-20 bg-white rounded-[2rem] flex items-center justify-center mx-auto shadow-xl border-2 border-primary/10 rotate-6">
+            <CardContent className="p-0 space-y-12">
+                <div className="p-8 text-center space-y-6 bg-primary/5 border-b-2 border-primary/10 shadow-inner">
+                    <div className="w-20 h-20 bg-white rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
                         <Activity className="w-10 h-10 text-primary -rotate-6" />
                     </div>
-                    <div className="space-y-2 text-center">
-                        <p className="font-black text-xl uppercase tracking-tight text-slate-900">Relax & Recharge</p>
-                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight">
-                            Your transformation is in progress at <strong>{stationName}</strong>.
+                    <div className="space-y-2">
+                        <p className="font-black text-2xl uppercase tracking-tighter text-slate-900">Enjoy the Flow</p>
+                        <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-widest opacity-60">
+                            Service in progress at <strong>{stationName}</strong>
                         </p>
                     </div>
                 </div>
 
-                {tenant?.wifiNetwork && (
-                    <div className="space-y-4 text-left">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left">
-                            <Wifi className="w-3.5 h-3.5 opacity-40" /> Connectivity Hub
-                        </p>
-                        <div className="p-6 rounded-[2.5rem] border-2 border-primary/10 bg-white shadow-xl space-y-4">
-                            <div className="flex justify-between items-center px-1 text-left">
-                                <div className="space-y-0.5 text-left">
-                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Network SSID</p>
-                                    <p className="text-sm font-black uppercase tracking-tight">{tenant.wifiNetwork}</p>
-                                </div>
-                                <div className="space-y-0.5 text-right">
-                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Access Key</p>
-                                    <p className="text-sm font-black tracking-tight font-mono text-primary select-all">{tenant.wifiPassword}</p>
-                                </div>
-                            </div>
-                            <Button variant="outline" className="w-full h-10 rounded-xl font-black uppercase tracking-widest text-[9px] border-2" onClick={() => {
-                                navigator.clipboard.writeText(tenant.wifiPassword || '');
-                                toast({ title: "Key Copied" });
-                            }}>
-                                Copy Password
-                            </Button>
-                        </div>
-                    </div>
-                )}
-
-                {tenant?.refreshmentServiceEnabled && refreshments.length > 0 && (
-                    <div className="space-y-10 text-left">
-                        <div className="flex items-center justify-between px-1 text-left">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                <Coffee className="w-3.5 h-3.5" /> Hospitality Menu
-                            </p>
-                            {tenant.complimentaryAmenityLimit ? (
-                                <Badge variant="outline" className="h-5 px-2 border-primary/20 text-primary bg-primary/5 font-black text-[8px] uppercase">Limit: {tenant.complimentaryAmenityLimit} / session</Badge>
-                            ) : null}
-                        </div>
-                        
-                        <div className="space-y-12 text-left">
-                            {Object.entries(refreshmentsByCategory).map(([category, items]) => {
-                                const isExclusiveCategory = category === 'Club Exclusive Selection';
-                                
-                                return (
-                                    <div key={category} className="space-y-6">
-                                        <div className="flex items-center gap-3 px-1">
-                                            <div className={cn("h-px flex-1", isExclusiveCategory ? "bg-gradient-to-r from-transparent to-indigo-500/20" : "bg-gradient-to-r from-transparent to-border/50")} />
-                                            <span className={cn(
-                                                "text-[10px] font-black uppercase tracking-[0.25em]",
-                                                isExclusiveCategory ? "text-indigo-600" : "text-muted-foreground opacity-40"
-                                            )}>
-                                                {isExclusiveCategory && <Award className="inline-block w-3 h-3 mr-2 -mt-0.5" />}
-                                                {category}
-                                            </span>
-                                            <div className={cn("h-px flex-1", isExclusiveCategory ? "bg-gradient-to-l from-transparent to-indigo-500/20" : "bg-gradient-to-l from-transparent to-border/50")} />
-                                        </div>
-                                        <div className="space-y-4 text-left">
-                                            {items.map(item => {
-                                                const qty = quantities[item.id] || 1;
-                                                const isSoldOut = item.totalStock <= 0;
-                                                const isIncludedPerk = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
-                                                
-                                                return (
-                                                    <Card key={item.id} className={cn(
-                                                        "rounded-[2rem] border-2 transition-all overflow-hidden text-left",
-                                                        isSoldOut ? "opacity-40 grayscale" : "bg-white border-primary/10 hover:border-primary/30 shadow-sm",
-                                                        isIncludedPerk && "border-indigo-500/20 bg-indigo-500/[0.01]",
-                                                        item.isMembersOnly && "border-indigo-500/30 ring-1 ring-indigo-500/10"
-                                                    )}>
-                                                        <CardContent className="p-4 flex gap-4 items-center">
-                                                            <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-muted/20 shrink-0 flex items-center justify-center border-2 border-white shadow-sm">
-                                                                {item.imageUrl ? (
-                                                                    <Image src={item.imageUrl} alt={item.name} fill className="object-cover" />
-                                                                ) : (
-                                                                    <Coffee className="w-10 h-10 text-primary opacity-20" />
-                                                                )}
-                                                            </div>
-                                                            <div className="flex-1 min-w-0 text-left space-y-1">
-                                                                <div className="flex justify-between items-start">
-                                                                    <div className="flex flex-col gap-1 text-left">
-                                                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate text-left">{item.name}</p>
-                                                                        <div className="flex flex-wrap gap-1">
-                                                                            {item.isMembersOnly && (
-                                                                                <Badge className="bg-indigo-600 text-white border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Club Exclusive</Badge>
-                                                                            )}
-                                                                            {isIncludedPerk && (
-                                                                                <Badge className="bg-primary/10 text-primary border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Club Perk</Badge>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                    {isIncludedPerk ? (
-                                                                        <span className="font-black text-[8px] text-green-600 uppercase bg-green-50 px-1.5 rounded border border-green-100 shadow-sm">COMP</span>
-                                                                    ) : item.price && item.price > 0 ? (
-                                                                        <span className="font-black font-mono text-[10px] text-primary">${item.price.toFixed(2)}</span>
-                                                                    ) : (
-                                                                        <span className="font-black text-[8px] text-green-600 uppercase bg-green-50 px-1.5 rounded">Comp</span>
-                                                                    )}
-                                                                </div>
-                                                                {item.description && (
-                                                                    <p className="text-[10px] font-medium text-slate-500 leading-relaxed tracking-tight italic opacity-80 text-left">
-                                                                        {item.description}
-                                                                    </p>
-                                                                )}
-                                                                
-                                                                <div className="flex items-center justify-between pt-3">
-                                                                    <div className={cn("flex items-center gap-3 bg-muted/30 rounded-xl px-2 h-8")}>
-                                                                        <button onClick={() => handleQuantityChange(item.id, -1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3 h-3" /></button>
-                                                                        <span className="font-black font-mono text-xs w-4 text-center">{qty}</span>
-                                                                        <button onClick={() => handleQuantityChange(item.id, 1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Plus className="w-3 h-3" /></button>
-                                                                    </div>
-                                                                    <Button 
-                                                                        size="sm" 
-                                                                        disabled={isRequesting || hasActiveRequest || isSoldOut}
-                                                                        onClick={() => handleRequest(item)}
-                                                                        className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
-                                                                    >
-                                                                        {isSoldOut ? 'Sold Out' : 'Request'}
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
-                                                        </CardContent>
-                                                    </Card>
-                                                );
-                                            })}
-                                        </div>
+                <div className="space-y-16 py-8">
+                    {Object.entries(refreshmentsByCategory).map(([category, items], catIdx) => {
+                        const isExclusive = category === 'Club Exclusive Selection';
+                        return (
+                            <section key={category} className="space-y-6">
+                                <div className="flex items-center justify-between px-8 text-left">
+                                    <h3 className={cn(
+                                        "text-xs md:text-sm font-black uppercase tracking-[0.3em]",
+                                        isExclusive ? "text-indigo-600" : "text-muted-foreground opacity-40"
+                                    )}>
+                                        {isExclusive && <Award className="inline-block w-4 h-4 mr-2 -mt-1" />}
+                                        {category}
+                                    </h3>
+                                    <div className="flex gap-1">
+                                        <div className="w-1 h-1 rounded-full bg-border" />
+                                        <div className="w-1 h-1 rounded-full bg-border" />
+                                        <div className="w-1 h-1 rounded-full bg-border" />
                                     </div>
-                                );
-                            })}
-                        </div>
-                        
-                        {hasActiveRequest && (
-                            <div className="p-4 rounded-2xl border-2 border-dashed bg-primary/5 flex items-center justify-center gap-3 animate-pulse">
-                                <Loader className="w-4 h-4 text-primary animate-spin" />
-                                <span className="text-[10px] font-black uppercase text-primary tracking-widest">Protocol Fulfillment Underway</span>
+                                </div>
+
+                                <ScrollArea className="w-full">
+                                    <div className="flex gap-6 px-8 pb-6">
+                                        {items.map((item, idx) => (
+                                            <motion.div
+                                                key={item.id}
+                                                initial={{ opacity: 0, x: 20 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                transition={{ delay: (catIdx * 0.1) + (idx * 0.05) }}
+                                            >
+                                                <RefreshmentCard 
+                                                    item={item} 
+                                                    qty={quantities[item.id] || 1}
+                                                    onQtyChange={(delta) => {
+                                                        const current = quantities[item.id] || 1;
+                                                        setQuantities(p => ({...p, [item.id]: Math.max(1, Math.min(item.totalStock, current + delta))}));
+                                                    }}
+                                                    onRequest={() => handleRequest(item)}
+                                                    isRequesting={isRequesting}
+                                                    hasActiveRequest={hasActiveRequest}
+                                                    isMember={isMember}
+                                                    activeMembership={activeMembership}
+                                                />
+                                            </motion.div>
+                                        ))}
+                                    </div>
+                                    <ScrollBar orientation="horizontal" className="hidden" />
+                                </ScrollArea>
+                            </section>
+                        );
+                    })}
+                </div>
+
+                <div className="p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-8">
+                    {tenant?.wifiNetwork && (
+                        <div className="p-6 rounded-[2rem] border-2 bg-white shadow-xl flex items-center justify-between gap-6 text-left">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-primary/10 rounded-2xl text-primary shadow-inner">
+                                    <Wifi className="w-6 h-6" />
+                                </div>
+                                <div className="text-left">
+                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-40">Private WiFi</p>
+                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900">{tenant.wifiNetwork}</p>
+                                </div>
                             </div>
-                        )}
-                    </div>
-                )}
+                            <div className="text-right">
+                                <Badge variant="outline" className="font-mono font-black text-xs h-10 px-4 border-2 shadow-sm rounded-xl select-all">{tenant.wifiPassword}</Badge>
+                            </div>
+                        </div>
+                    )}
+
+                    {hasActiveRequest && (
+                        <div className="p-6 rounded-[2rem] border-4 border-primary/20 bg-primary/5 flex items-center justify-center gap-4 animate-pulse shadow-2xl">
+                            <Loader className="w-6 h-6 text-primary animate-spin" />
+                            <span className="text-[11px] font-black uppercase text-primary tracking-[0.2em]">Protocol Fulfillment Active</span>
+                        </div>
+                    )}
+                </div>
             </CardContent>
         </ViewContainer>
     );
@@ -483,9 +465,9 @@ export default function CheckInPage() {
 
     if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) {
         return (
-            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40 text-left text-left">
+            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mt-4 text-left">Initializing Portal...</p>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mt-4">Initializing Portal...</p>
             </div>
         );
     }
@@ -543,7 +525,7 @@ export default function CheckInPage() {
                     </div>
                 </div>
 
-                <div className="space-y-6 text-center text-left text-left">
+                <div className="space-y-6 text-center">
                     <p className="text-sm font-medium text-slate-500 leading-relaxed px-4 text-center">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please certifty your arrival status below.</p>
                     
                     <div className="grid gap-3">
