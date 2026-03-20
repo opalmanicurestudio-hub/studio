@@ -18,7 +18,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { PlusCircle, Calendar as CalendarIcon, DollarSign, Recycle, Sparkles, ArrowRight, Pipette, CheckCircle, Check, Building, Truck } from 'lucide-react';
+import { PlusCircle, Calendar as CalendarIcon, DollarSign, Recycle, Sparkles, ArrowRight, Pipette, CheckCircle, Check, Building, Truck, FileText } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,10 +40,13 @@ import { format } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { ScrollArea } from '../ui/scroll-area';
 import { Progress } from '../ui/progress';
+import { Textarea } from '../ui/textarea';
+import { nanoid } from 'nanoid';
 
 const overheadSchema = z.object({
   name: z.string().min(1, 'Item name is required.'),
   category: z.string().min(1, 'Category is required.'),
+  description: z.string().optional(),
   purchaseCost: z.coerce.number().min(0, 'Purchase cost must be a positive number.'),
   purchaseDate: z.date({ required_error: 'A purchase date is required.' }),
   costingMethod: z.enum(['size', 'uses']),
@@ -58,12 +61,12 @@ const overheadSchema = z.object({
 type OverheadFormData = z.infer<typeof overheadSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number }) => (
-    <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+    <div className="flex items-center gap-4 mb-6 text-left">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
-        <div className="space-y-0.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
     </div>
@@ -86,16 +89,16 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[], onNewCateg
     return (
         <div className="space-y-10">
             <SectionHeader icon={Recycle} title="Identity & Consumable" step={1} />
-            <div className="space-y-6">
+            <div className="space-y-6 text-left">
                 <div className="space-y-2">
-                    <Label htmlFor="item-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Label</Label>
-                    <Input id="item-name" placeholder="e.g., Disinfectant Wipes" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                    <Label htmlFor="item-name-ov" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Label</Label>
+                    <Input id="item-name-ov" placeholder="e.g., Disinfectant Wipes" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                     {errors.name && <p className="text-xs font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Department</Label>
+                    <Label htmlFor="category-ov" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Department</Label>
                     {isAddingCategory ? (
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 text-left">
                             <Input placeholder="New category..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl"><Check className="h-5 w-5" /></Button>
                         </div>
@@ -113,6 +116,10 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[], onNewCateg
                         </div>
                     )}
                 </div>
+                <div className="space-y-2 text-left">
+                    <Label htmlFor="item-description-ov" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Description</Label>
+                    <Textarea id="item-description-ov" placeholder="Internal details regarding this overhead supply..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
+                </div>
             </div>
         </div>
     );
@@ -124,22 +131,22 @@ const Step2 = () => {
     return (
         <div className="space-y-10">
             <SectionHeader icon={DollarSign} title="Yield & Costing" step={2} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <div className="space-y-6">
-                    <div className="space-y-2">
-                        <Label htmlFor="purchase-cost" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Total Payout</Label>
+                    <div className="space-y-2 text-left">
+                        <Label htmlFor="purchase-cost-ov" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Total Payout</Label>
                         <div className="relative">
                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
-                            <Input id="purchase-cost" type="number" step="0.01" placeholder="0.00" {...register('purchaseCost')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" />
+                            <Input id="purchase-cost-ov" type="number" step="0.01" placeholder="0.00" {...register('purchaseCost')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" />
                         </div>
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="initial-stock" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Unit Count (Containers)</Label>
-                        <Input id="initial-stock" type="number" placeholder="e.g., 12" {...register('initialStock')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
+                    <div className="space-y-2 text-left">
+                        <Label htmlFor="initial-stock-ov" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Unit Count (Containers)</Label>
+                        <Input id="initial-stock-ov" type="number" placeholder="e.g., 12" {...register('initialStock')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
                     </div>
                 </div>
                 <div className="space-y-6">
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Consumption Logic</Label>
                         <Controller name="costingMethod" control={control} render={({ field }) => (
                             <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
@@ -161,18 +168,18 @@ const Step2 = () => {
                         )}/>
                     </div>
                     {costingMethod === 'size' ? (
-                        <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label><Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
+                        <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 text-left">
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label><Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
                                 <Controller name="containerUnit" control={control} render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem><SelectItem value="sheets" className="font-bold">SHEETS</SelectItem></SelectContent></Select>
+                                    <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl shadow-xl border-2"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem><SelectItem value="sheets" className="font-bold">SHEETS</SelectItem></SelectContent></Select>
                                 )}/>
                             </div>
                         </div>
                     ) : (
-                        <div className="space-y-1.5 animate-in slide-in-from-top-2">
+                        <div className="space-y-1.5 animate-in slide-in-from-top-2 text-left">
                             <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Est. Uses / Container</Label>
-                            <Input type="number" placeholder="e.g., 100 wipes" {...register('usesPerContainer')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
+                            <Input type="number" placeholder="e.g., 100 wipes" {...register('usesPerContainer')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
                         </div>
                     )}
                 </div>
@@ -186,9 +193,9 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
     return (
         <div className="space-y-10">
             <SectionHeader icon={Building} title="Logistics & Zone" step={3} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <div className="space-y-6">
-                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
+                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
                         <div className="flex gap-2">
                             <Controller name="primaryLocationId" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
@@ -199,10 +206,10 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                             <Button variant="outline" size="icon" type="button" className="h-11 w-11 rounded-xl border-2 shrink-0"><PlusCircle className="h-5 w-5" /></Button>
                         </div>
                     </div>
-                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Source / Supplier</Label><Input placeholder="e.g., Uline" {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Source / Supplier</Label><Input placeholder="e.g., Uline" {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
                 </div>
                 <div className="space-y-6">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Intake Date</Label>
                         <Controller name="purchaseDate" control={control} render={({ field }) => (
                             <Popover>
@@ -229,13 +236,13 @@ export const AddOverheadDialog = ({
   const isMobile = useIsMobile();
   const methods = useForm<OverheadFormData>({ resolver: zodResolver(overheadSchema), defaultValues: { costingMethod: 'uses', initialStock: 1 } });
 
-  useEffect(() => { if (open) { methods.reset(); setStep(1); } }, [open, methods]);
+  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, purchaseDate: new Date() }); setStep(1); } }, [open, methods]);
 
   const { handleSubmit, trigger } = methods;
   const onSubmit = (data: OverheadFormData) => {
     const unitPrice = data.initialStock > 0 ? (data.purchaseCost / data.initialStock) : 0;
     onOverheadAdded({
-      id: `ovhd-${nanoid(8)}`, name: data.name, type: 'overhead', category: data.category, totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer,
+      id: `ovhd-${nanoid(8)}`, name: data.name, description: data.description, type: 'overhead', category: data.category, totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer,
       batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock, costPerUnit: unitPrice, receivedDate: data.purchaseDate.toISOString() }],
     });
     onOpenChange(false);
@@ -250,7 +257,7 @@ export const AddOverheadDialog = ({
         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
           </div>
           <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Overhead Supply</DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Log consumable studio supplies into the manifest.</DialogDescription>

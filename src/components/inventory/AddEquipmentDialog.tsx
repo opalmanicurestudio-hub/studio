@@ -18,7 +18,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { ArrowLeft, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, ArrowRight, Clock, ShieldCheck, Tag, Building } from 'lucide-react';
+import { ArrowLeft, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, ArrowRight, Clock, ShieldCheck, Tag, Building, FileText } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,10 +41,12 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { ScrollArea } from '../ui/scroll-area';
 import { nanoid } from 'nanoid';
 import { Progress } from '@/components/ui/progress';
+import { Textarea } from '../ui/textarea';
 
 const equipmentSchema = z.object({
   name: z.string().min(1, 'Equipment name is required.'),
   category: z.string().min(1, 'Category is required.'),
+  description: z.string().optional(),
   purchaseCost: z.coerce.number().min(0, 'Purchase cost must be a positive number.'),
   lifespanYears: z.coerce.number().min(0, 'Lifespan must be a positive number.'),
   purchaseDate: z.date({ required_error: 'A purchase date is required.' }),
@@ -59,7 +61,7 @@ const equipmentSchema = z.object({
 type EquipmentFormData = z.infer<typeof equipmentSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number }) => (
-    <div className="flex items-center gap-4 mb-6">
+    <div className="flex items-center gap-4 mb-6 text-left">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
             <Icon className="w-5 h-5" />
         </div>
@@ -87,7 +89,7 @@ const Step1 = ({ equipmentCategories, onNewCategory }: { equipmentCategories: st
     return (
         <div className="space-y-10">
             <SectionHeader icon={Hammer} title="Identity & Category" step={1} />
-            <div className="space-y-6">
+            <div className="space-y-6 text-left">
                 <div className="space-y-2">
                     <Label htmlFor="equipment-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Label</Label>
                     <Input id="equipment-name" placeholder="e.g., Hydraulic Styling Chair" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
@@ -114,6 +116,12 @@ const Step1 = ({ equipmentCategories, onNewCategory }: { equipmentCategories: st
                         </div>
                     )}
                 </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="equipment-description" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Public Description</Label>
+                    <Textarea id="equipment-description" placeholder="Guest-facing details for premium bookable assets..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
+                </div>
+
                 <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Identity (SKU)</Label>
                     <Input placeholder="Hardware identifier..." {...register('sku')} className="h-12 rounded-xl border-2 font-mono font-black uppercase text-sm" />
@@ -132,9 +140,9 @@ const Step2 = () => {
     return (
         <div className="space-y-10">
             <SectionHeader icon={DollarSign} title="Capital Investment" step={2} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <div className="space-y-6">
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label htmlFor="purchase-cost" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Purchase Cost (Per Unit)</Label>
                         <div className="relative">
                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
@@ -142,18 +150,18 @@ const Step2 = () => {
                         </div>
                         {errors.purchaseCost && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.purchaseCost.message}</p>}
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label htmlFor="quantity" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Unit Count</Label>
-                        <Input id="quantity" type="number" placeholder="1" {...register('quantity')} className="h-12 rounded-xl border-2 font-black text-lg" />
+                        <Input id="quantity" type="number" placeholder="1" {...register('quantity')} className="h-12 rounded-xl border-2 font-black text-lg shadow-inner bg-muted/5 text-center" />
                     </div>
                 </div>
                 <div className="space-y-6">
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label htmlFor="lifespan" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Depreciation Lifecycle (Years)</Label>
                         <Input id="lifespan" type="number" placeholder="e.g., 5" {...register('lifespanYears')} className="h-14 rounded-2xl border-2 font-black text-xl" />
                         {errors.lifespanYears && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.lifespanYears.message}</p>}
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-left">
                         <Label className="text-[10px] font-black uppercase text-muted-foreground ml-1">Investment Date</Label>
                         <Controller name="purchaseDate" control={control} render={({ field }) => (
                             <Popover>
@@ -178,13 +186,13 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
     return (
         <div className="space-y-10">
             <SectionHeader icon={Building} title="Logistics & Source" step={3} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <div className="space-y-6">
-                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Supplier / Manufacturer</Label><Input placeholder="e.g., Belvedere" {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder URL</Label><Input placeholder="https://..." {...register('supplierUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Supplier / Manufacturer</Label><Input placeholder="e.g., Belvedere" {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder URL</Label><Input placeholder="https://..." {...register('supplierUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
                 </div>
                 <div className="space-y-6">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                         <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
                         <div className="flex gap-2">
                             <Controller name="primaryLocationId" control={control} render={({ field }) => (
@@ -227,7 +235,7 @@ export const AddEquipmentDialog = ({
         const uniqueId = `equip-${nanoid()}`;
         const equipmentName = quantity > 1 ? `${data.name} #${i + 1}` : data.name;
         onEquipmentAdded({
-          id: uniqueId, name: equipmentName, type: 'equipment', category: data.category, totalStock: 1, costPerUnit: data.purchaseCost, lifespanYears: data.lifespanYears, supplier: data.supplier || '', supplierUrl: data.supplierUrl, primaryLocationId: data.primaryLocationId, imageUrl: data.imageUrl, sku: data.sku,
+          id: uniqueId, name: equipmentName, type: 'equipment', category: data.category, description: data.description, totalStock: 1, costPerUnit: data.purchaseCost, lifespanYears: data.lifespanYears, supplier: data.supplier || '', supplierUrl: data.supplierUrl, primaryLocationId: data.primaryLocationId, imageUrl: data.imageUrl, sku: data.sku,
           batches: [{ id: `batch-${nanoid()}`, stock: 1, costPerUnit: data.purchaseCost, receivedDate: data.purchaseDate.toISOString() }],
         });
     }

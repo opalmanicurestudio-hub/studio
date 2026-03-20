@@ -149,6 +149,14 @@ export const ProductCard = ({
                     </div>
                 </div>
 
+                {item.description && (
+                    <div className="px-1 text-left">
+                        <p className="text-[10px] font-medium text-slate-500 leading-relaxed line-clamp-2 uppercase italic opacity-60">
+                            {item.description}
+                        </p>
+                    </div>
+                )}
+
                 <div className={cn("grid gap-4 mt-auto", partialDisplay ? "grid-cols-2" : "grid-cols-1")}>
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Full Stock</p>

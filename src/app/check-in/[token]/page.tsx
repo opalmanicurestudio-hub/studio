@@ -181,7 +181,7 @@ const ServicingView = ({
         <ViewContainer>
             <ViewHeader title="In Service" subtitle="Your session is active" icon={Clock} />
             <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                <div className="p-8 text-center space-y-6 bg-primary/5 rounded-[2.5rem] border-2 border-primary/10 shadow-inner">
+                <div className="p-8 text-center space-y-6 bg-primary/5 rounded-[2.5rem] border-2 border-primary/10 shadow-inner text-left">
                     <div className="w-20 h-20 bg-white rounded-[2rem] flex items-center justify-center mx-auto shadow-xl border-2 border-primary/10 rotate-6">
                         <Activity className="w-10 h-10 text-primary -rotate-6" />
                     </div>
@@ -258,7 +258,7 @@ const ServicingView = ({
                                                     )}
                                                 </div>
                                                 {item.description && (
-                                                    <p className="text-[9px] font-medium text-slate-500 leading-tight line-clamp-2 uppercase italic">
+                                                    <p className="text-[10px] font-medium text-slate-500 leading-tight line-clamp-3 uppercase tracking-tight italic">
                                                         {item.description}
                                                     </p>
                                                 )}
@@ -352,9 +352,9 @@ export default function CheckInPage() {
 
     if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) {
         return (
-            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40">
+            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40 text-left">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mt-4">Initializing Portal...</p>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mt-4 text-left">Initializing Portal...</p>
             </div>
         );
     }
