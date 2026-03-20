@@ -1,3 +1,4 @@
+
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -334,6 +335,14 @@ export type InventoryItem = {
   maintenanceHistory?: MaintenanceRecord[];
   
   msrp?: number;
+  price?: number; // Retail price for premium refreshments
+  showInConcierge?: boolean;
+  formula?: {
+      id: string;
+      name: string;
+      quantityUsed: number;
+      unit: string;
+  }[];
   markdownPrice?: number;
   wholesalePrice?: number;
   packagingCost?: number;
@@ -350,6 +359,12 @@ export type AppointmentCheckoutState = {
         quantity: number;
         unit: string;
         costPerUnit: number;
+    }[];
+    refreshments?: {
+        id: string;
+        name: string;
+        price: number;
+        deliveredAt: string;
     }[];
     retailItems: any[];
     addOnServices: Service[];
@@ -709,6 +724,22 @@ export type SpoilageItem = {
   stock: number;
   costPerUnit: number;
   expirationDate: string;
+};
+
+export type RefreshmentRequest = {
+    id: string;
+    tenantId: string;
+    clientId: string;
+    clientName: string;
+    itemId: string;
+    itemName: string;
+    status: 'pending' | 'delivered' | 'cancelled';
+    requestedAt: string;
+    deliveredAt?: string;
+    deliveredBy?: string;
+    stationName?: string;
+    staffName?: string;
+    priceAtRequest?: number;
 };
 
 export type Discount = {

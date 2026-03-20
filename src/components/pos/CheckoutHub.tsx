@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -47,7 +48,8 @@ import {
     CheckCircle2,
     VolumeX,
     Ear,
-    SunDim
+    SunDim,
+    Coffee
 } from 'lucide-react';
 import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -411,6 +413,16 @@ export const CheckoutHub = ({
         setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code));
     };
 
+    const amenityRevenue = useMemo(() => {
+        return appointmentsData.reduce((acc: number, data: any) => {
+            return acc + (data.appointment.checkoutState?.refreshments?.reduce((sum: number, r: any) => sum + safeNumber(r.price), 0) || 0);
+        }, 0);
+    }, [appointmentsData]);
+
+    const finalSubtotal = subtotal + amenityRevenue;
+    const finalTax = finalSubtotal * 0.07;
+    const finalTotal = finalSubtotal + finalTax + tipAmount - discount - membershipDiscount;
+
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 
     return (
@@ -624,6 +636,7 @@ export const CheckoutHub = ({
                         {appointmentsData.map((data: any) => {
                             const isRedeemed = redeemedOffer?.itemId === data.service.id;
                             const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
+                            const amenities = data.appointment.checkoutState?.refreshments || [];
                             
                             const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
                             const mainStaffId = overrides[data.service.id] || data.appointment.staffId;
@@ -670,6 +683,18 @@ export const CheckoutHub = ({
                                                         </div>
                                                     );
                                                 })}
+                                            </div>
+                                        )}
+
+                                        {amenities.length > 0 && (
+                                            <div className="space-y-2 pt-2 border-t border-dashed text-left">
+                                                <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Concierge Amenities</p>
+                                                {amenities.map((item: any, idx: number) => (
+                                                    <div key={idx} className="flex justify-between items-center text-left">
+                                                        <span className="text-[10px] font-bold text-slate-600 uppercase flex items-center gap-2"><Coffee className="w-3 h-3" /> {item.name}</span>
+                                                        <span className="font-mono text-[10px] text-slate-900">${safeNumber(item.price).toFixed(2)}</span>
+                                                    </div>
+                                                ))}
                                             </div>
                                         )}
 
@@ -724,80 +749,22 @@ export const CheckoutHub = ({
             </div>
 
             <div className="space-y-4">
-                <div className="flex items-center gap-2 px-1 text-left">
-                    <Tag className="w-4 h-4 text-primary" />
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Incentive Architecture</h3>
-                </div>
-                <div className="flex gap-3">
-                    <div className="relative flex-1 text-left">
-                        <Tag className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                        <Input placeholder="MANUAL CODE..." value={promoCodeInput} onChange={e => setPromoCodeInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleApplyDiscount(promoCodeInput)} className="pl-10 h-11 md:h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-muted/5 shadow-inner" />
-                    </div>
-                    <Button variant="outline" size="icon" className="h-11 h-11 md:h-12 md:w-12 rounded-2xl border-2 shadow-sm shrink-0 bg-white" onClick={() => setIsDiscountBrowserOpen(true)}><Users className="w-5 h-5" /></Button>
-                </div>
-
-                {appliedDiscountCodes.length > 0 && (
-                    <div className="space-y-2">
-                        {appliedDiscountCodes.map((code: string) => (
-                            <div key={code} className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between animate-in zoom-in-95 text-left shadow-sm">
-                                <div className="flex items-center gap-2 px-1 text-left">
-                                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                                    <p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{code}</p>
-                                </div>
-                                <Button variant="ghost" size="icon" className="h-7 i-7 md:h-8 md:w-8 text-primary hover:bg-primary/10 rounded-xl" onClick={() => handleRemoveDiscount(code)}><X className="h-4 w-4" /></Button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {suggestedDiscounts.length > 0 && (
-                    <div className="space-y-3 pt-2 text-left">
-                        <p className="text-[9px] font-black uppercase text-amber-600 tracking-[0.2em] flex items-center gap-2 px-1"><Wand2 className="h-3 w-3" /> System Recommendation</p>
-                        {suggestedDiscounts.map((d: any) => (
-                            <Button key={d.id} variant="outline" className="w-full justify-between h-auto py-3 md:py-4 px-4 md:px-5 border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/10 border-2 rounded-2xl md:rounded-[1.5rem] group transition-all shadow-sm" onClick={() => handleApplyDiscount(d.code)}>
-                                <div className="text-left min-w-0 flex-1">
-                                    <p className="text-[11px] md:text-xs font-black uppercase tracking-widest text-amber-700">{d.code}</p>
-                                    <p className="text-[9px] md:text-[10px] text-muted-foreground font-bold truncate opacity-60 uppercase">{d.description}</p>
-                                </div>
-                                <div className="text-right ml-4 shrink-0">
-                                    <p className="text-xs md:sm font-black text-amber-700">{d.type === 'percentage' ? `${d.value}%` : `$${safeNumber(d.value)}`} OFF</p>
-                                </div>
-                            </Button>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            <div className="space-y-4 pt-6 border-t border-dashed text-left">
                 <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
-                    <p>Subtotal</p>
-                    <p className="font-mono text-[11px] md:text-xs">${safeNumber(subtotal).toFixed(2)}</p>
+                    <p>Subtotal (Incl. Amenities)</p>
+                    <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalSubtotal).toFixed(2)}</p>
                 </div>
-                {(discount + membershipDiscount) > 0 && (
+                {finalTotal > 0 && (
+                    <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
+                        <p>Studio Tax (7%)</p>
+                        <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalTax).toFixed(2)}</p>
+                    </div>
+                )}
+                {totalDiscount > 0 && (
                     <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter text-left">
                         <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
-                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(discount + membershipDiscount).toFixed(2)}</span>
+                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
                     </div>
                 )}
-                {appliedAdjustments.size > 0 && (
-                    <div className="flex justify-between items-center text-[10px] text-destructive font-black uppercase tracking-tighter text-left">
-                        <span className="flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Debt Consolidation</span>
-                        <span className="font-mono text-[11px] md:text-xs">+{safeNumber(Array.from(appliedAdjustments).reduce((sum, id) => {
-                            const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
-                            return sum + safeNumber(fee?.feeAmount);
-                        }, 0)).toFixed(2)}</span>
-                    </div>
-                )}
-                {redeemedOffer && (
-                    <div className="flex justify-between items-center text-[10px] text-indigo-600 font-black uppercase tracking-tighter text-left">
-                        <span className="flex items-center gap-2"><Award className="w-3.5 h-3.5" /> Entitlement Active</span>
-                        <span className="font-black">REDEEMED</span>
-                    </div>
-                )}
-                <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
-                    <p>Studio Tax (7%)</p>
-                    <p className="font-mono text-[11px] md:text-xs">${safeNumber(tax).toFixed(2)}</p>
-                </div>
                 
                 <div className="flex justify-between items-center py-1 md:py-2 text-left">
                     <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
@@ -813,133 +780,22 @@ export const CheckoutHub = ({
                     </div>
                 </div>
 
-                {allInvolvedStaff.length > 1 && (
-                    <div className="p-3 md:p-4 rounded-xl md:rounded-[1.5rem] border-2 bg-muted/10 space-y-2 md:space-y-3 text-left">
-                        <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 x-3" /> Distribution Matrix</p>
-                        {allInvolvedStaff.map((member: any) => (
-                            <div key={member.id} className="flex items-center gap-3">
-                                <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
-                                    <Avatar className="h-5 w-5 md:h-6 md:w-6 border-2 border-white shadow-sm rounded-lg">
-                                        <AvatarImage src={member.avatarUrl} className="object-cover" />
-                                        <AvatarFallback className="font-black text-[7px] md:text-[8px]">{(member.name || 'S')[0]}</AvatarFallback>
-                                    </Avatar>
-                                    <span className="text-[9px] font-black uppercase tracking-tight truncate text-slate-700">{member.name.split(' ')[0]}</span>
-                                </div>
-                                <div className="relative w-24 md:w-32">
-                                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
-                                    <Input 
-                                        type="number" 
-                                        value={tipAllocations[member.id] || ''} 
-                                        onChange={(e) => handleIndividualTipChange(member.id, parseFloat(e.target.value) || 0)} 
-                                        className="h-7 md:h-8 text-right text-[10px] pr-2 pl-5 font-bold rounded-lg border-primary/10 focus-visible:ring-primary/20" 
-                                    />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
                 <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4 border-t border-border/50 text-left">
                     <div className="space-y-0.5 text-left">
                         <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
                         <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
                     </div>
-                    <p className="font-mono text-2xl md:text-4xl">${safeNumber(total).toFixed(2)}</p>
+                    <p className="font-mono text-2xl md:text-4xl">${safeNumber(finalTotal).toFixed(2)}</p>
                 </div>
 
-                <AnimatePresence>
-                    {amountTendered > total && paymentTab === 'cash' && (
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="pt-2">
-                            <Button 
-                                variant="outline" 
-                                className="w-full h-12 rounded-2xl border-2 border-green-500/20 bg-green-500/5 hover:bg-green-500/10 text-green-700 font-black uppercase text-[10px] tracking-widest shadow-sm"
-                                onClick={() => handleTotalTipChange(tipAmount + (amountTendered - total))}
-                            >
-                                <Sparkles className="w-3.5 h-3.5 mr-2" />
-                                Keep Full Change as Tip (${(amountTendered - total).toFixed(2)})
-                            </Button>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                <div className="space-y-3 md:space-y-4 pt-6 text-left">
-                    <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-                        <div>
-                            <RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" disabled={!activeTill} />
-                            <RadioLabel htmlFor="hub-pay-cash" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !activeTill && "opacity-40 grayscale")}>
-                                <Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />
-                                Cash
-                            </RadioLabel>
-                        </div>
-                        <div>
-                            <RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" />
-                            <RadioLabel htmlFor="hub-pay-card" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm")}>
-                                <CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />
-                                Card
-                            </RadioLabel>
-                        </div>
-                        <div>
-                            <RadioGroupItem value="card_on_file" id="hub-pay-cof" className="peer sr-only" disabled={!hasCardOnFile}/>
-                            <RadioLabel htmlFor="hub-pay-cof" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !hasCardOnFile && "opacity-40 grayscale")}>
-                                <ShieldCheck className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />
-                                Vaulted
-                            </RadioLabel>
-                        </div>
-                        <div>
-                            <RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" />
-                            <RadioLabel htmlFor="hub-pay-scan" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm")}>
-                                <ScanIcon className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />
-                                Scan
-                            </RadioLabel>
-                        </div>
-                    </RadioGroup>
-
-                    {paymentTab === 'cash' && (
-                        <div className="space-y-3 md:space-y-4 pt-1 md:pt-2 animate-in slide-in-from-top-4 duration-500 text-left">
-                            <div className="grid grid-cols-2 gap-3 md:gap-4">
-                                <div className="space-y-1.5 text-left">
-                                    <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-2">Tendered</Label>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 h-4 w-4 md:h-5 md:w-5 text-muted-foreground font-black" />
-                                        <Input type="number" value={amountTendered || ''} onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)} className="pl-8 md:pl-10 h-12 md:h-14 font-black text-lg md:text-2xl border-2 rounded-xl md:rounded-2xl shadow-inner bg-muted/5 focus-visible:ring-primary/20" />
-                                    </div>
-                                </div>
-                                {amountTendered > total && (
-                                    <div className="space-y-1.5 text-left">
-                                        <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600 ml-2">Change Due</Label>
-                                        <div className="h-12 md:h-14 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
-                                            <p className="font-black text-lg md:text-2xl text-green-600 font-mono tracking-tighter">-${safeNumber(amountTendered - total).toFixed(2)}</p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide text-left">
-                                {quickTenderOptions.map((val: any) => (
-                                    <Button key={val} variant="outline" size="sm" className="flex-1 font-black h-9 md:h-11 rounded-xl text-[10px] md:text-xs shrink-0 border-2 bg-background hover:bg-primary/5" onClick={() => setAmountTendered(val)}>${val}</Button>
-                                ))}
-                                <Button variant="outline" size="sm" className="flex-1 font-black h-9 md:h-11 rounded-xl border-2 border-primary text-primary text-[9px] md:text-xs shrink-0 hover:bg-primary/5" onClick={() => setAmountTendered(total)}>EXACT AMOUNT</Button>
-                            </div>
-                        </div>
-                    )}
-
-                    {!activeTill && (
-                        <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3 text-left shadow-inner">
-                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                            <p className="text-[9px] font-bold text-amber-700 uppercase leading-relaxed text-left">
-                                Cash payments disabled. Please open a till session to reconcile physical currency.
-                            </p>
-                        </div>
-                    )}
-
-                    <div className="pt-2 text-left">
-                        <Button 
-                            className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tight" 
-                            onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
-                            disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
-                        >
-                            {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (total <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(total).toFixed(2)}`)}
-                        </Button>
-                    </div>
+                <div className="pt-2 text-left">
+                    <Button 
+                        className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tight" 
+                        onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
+                        disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
+                    >
+                        {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (finalTotal <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`)}
+                    </Button>
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />

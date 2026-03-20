@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -18,7 +19,8 @@ import {
     Wifi, 
     Coffee,
     Activity,
-    ArrowRight
+    ArrowRight,
+    DollarSign
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource } from '@/lib/data';
@@ -28,6 +30,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { nanoid } from 'nanoid';
+import Image from 'next/image';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -82,7 +85,7 @@ const ServicingView = ({
     const [isRequesting, setIsRequesting] = useState(false);
 
     const refreshments = useMemo(() => 
-        inventory.filter(item => item.type === 'refreshment' && item.totalStock > 0)
+        inventory.filter(item => item.type === 'refreshment' && item.showInConcierge !== false && item.totalStock > 0)
     , [inventory]);
 
     const stationName = useMemo(() => {
@@ -108,7 +111,8 @@ const ServicingView = ({
             status: 'pending',
             requestedAt: new Date().toISOString(),
             stationName: stationName,
-            staffName: staff?.name || 'Unassigned'
+            staffName: staff?.name || 'Unassigned',
+            priceAtRequest: item.price || 0
         };
 
         try {
@@ -193,14 +197,23 @@ const ServicingView = ({
                                     onClick={() => handleRequest(item)}
                                     disabled={isRequesting || hasActiveRequest}
                                     className={cn(
-                                        "flex flex-col items-center justify-center p-6 rounded-[2.5rem] border-2 transition-all gap-3 shadow-sm",
+                                        "flex flex-col items-center justify-center p-4 rounded-[2rem] border-2 transition-all gap-3 shadow-sm relative overflow-hidden",
                                         hasActiveRequest ? "opacity-40 grayscale cursor-not-allowed border-dashed" : "bg-white border-primary/10 hover:border-primary/40 active:scale-95"
                                     )}
                                 >
-                                    <div className="p-3 bg-muted/30 rounded-2xl shadow-inner group-hover:bg-primary/5">
-                                        <Coffee className="w-6 h-6 text-primary opacity-40" />
+                                    <div className="w-full aspect-square bg-muted/20 rounded-2xl relative overflow-hidden flex items-center justify-center shadow-inner">
+                                        {item.imageUrl ? (
+                                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover" />
+                                        ) : (
+                                            <Coffee className="w-8 h-8 text-primary opacity-20" />
+                                        )}
+                                        {item.price > 0 && (
+                                            <div className="absolute top-2 right-2 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow-lg">
+                                                ${item.price.toFixed(2)}
+                                            </div>
+                                        )}
                                     </div>
-                                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-900">{item.name}</span>
+                                    <span className="text-[9px] font-black uppercase tracking-tight text-slate-900 leading-tight text-center">{item.name}</span>
                                 </button>
                             ))}
                         </div>
@@ -282,7 +295,7 @@ export default function CheckInPage() {
         <ViewContainer>
             <ViewHeader title="Portal Ready" subtitle="Manage your session" icon={Fingerprint} />
             <CardContent className="p-8 text-center space-y-6">
-                <div className="p-10 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
+                <div className="p-10 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6 text-center">
                     <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
                     <div className="space-y-1">
                         <p className="text-[10px] font-black uppercase text-primary tracking-widest">Current Booking</p>
@@ -295,7 +308,7 @@ export default function CheckInPage() {
                     <p className="text-sm font-medium text-slate-500 leading-relaxed px-4">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please confirm your arrival below.</p>
                     
                     {assignedStaff && (
-                        <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner">
+                        <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
                             <Avatar className="h-12 w-12 border-2 border-background shadow-md rounded-xl">
                                 <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
                                 <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>

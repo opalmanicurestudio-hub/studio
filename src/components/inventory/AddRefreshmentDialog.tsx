@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -18,7 +19,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { PlusCircle, Calendar as CalendarIcon, DollarSign, Coffee, Sparkles, ArrowRight, Pipette, CheckCircle, Check, Building, Truck } from 'lucide-react';
+import { PlusCircle, Calendar as CalendarIcon, DollarSign, Coffee, Sparkles, ArrowRight, Pipette, CheckCircle, Check, Building, Truck, Tag, Trash2, ListChecks, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,10 +42,16 @@ import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { ScrollArea } from '../ui/scroll-area';
 import { Progress } from '../ui/progress';
 import { nanoid } from 'nanoid';
+import { ImageUpload } from '../shared/ImageUpload';
+import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
+import { useInventory } from '@/context/InventoryContext';
+import { Separator } from '../ui/separator';
 
 const refreshmentSchema = z.object({
   name: z.string().min(1, 'Amenity name is required.'),
   category: z.string().default('Refreshment'),
+  price: z.coerce.number().min(0).default(0),
+  showInConcierge: z.boolean().default(true),
   purchaseCost: z.coerce.number().min(0, 'Purchase cost must be a positive number.'),
   purchaseDate: z.date({ required_error: 'A purchase date is required.' }),
   costingMethod: z.enum(['size', 'uses']),
@@ -54,12 +61,19 @@ const refreshmentSchema = z.object({
   initialStock: z.coerce.number().min(1, 'Initial stock must be at least 1.'),
   supplier: z.string().optional(),
   primaryLocationId: z.string().optional(),
+  imageUrl: z.string().optional(),
+  formula: z.array(z.object({
+      id: z.string(),
+      name: z.string(),
+      quantityUsed: z.coerce.number(),
+      unit: z.string()
+  })).optional(),
 });
 
 type RefreshmentFormData = z.infer<typeof refreshmentSchema>;
 
-const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number }) => (
-    <div className="flex items-center gap-4 mb-6">
+const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
+    <div className="flex items-center gap-4 mb-6 text-left">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
@@ -71,20 +85,40 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
 );
 
 const Step1 = () => {
-    const { register, formState: { errors } } = useFormContext<RefreshmentFormData>();
+    const { register, control, formState: { errors } } = useFormContext<RefreshmentFormData>();
     return (
         <div className="space-y-10">
             <SectionHeader icon={Coffee} title="Identity & Menu Label" step={1} />
             <div className="space-y-6">
                 <div className="space-y-2 text-left">
                     <Label htmlFor="item-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest-Facing Name</Label>
-                    <Input id="item-name" placeholder="e.g., Oat Milk Espresso" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                    <Input id="item-name" placeholder="e.g., Oat Milk Espresso" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
                     {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
-                <div className="p-4 rounded-2xl border-2 border-dashed bg-primary/5 text-left">
-                    <p className="text-[10px] font-bold text-primary uppercase leading-relaxed">
-                        Tip: This name is exactly what guests will see in their Concierge portal. Use evocative descriptors like "Freshly Brewed" or "Artisan Blend".
-                    </p>
+                
+                <div className="space-y-2 text-left">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Amenity visual</Label>
+                    <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="space-y-2 text-left">
+                        <Label htmlFor="retail-price" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Retail Price ($)</Label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                            <Input id="retail-price" type="number" step="0.01" {...register('price')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-primary/5" />
+                        </div>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 ml-1">Leave at 0.00 for complimentary amenity</p>
+                    </div>
+                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner self-start">
+                        <div className="space-y-1 text-left">
+                            <Label htmlFor="show-concierge" className="text-sm font-black uppercase tracking-tight">Public Menu</Label>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Visible in Guest Portal</p>
+                        </div>
+                        <Controller name="showInConcierge" control={control} render={({ field }) => (
+                            <Switch id="show-concierge" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-primary" />
+                        )}/>
+                    </div>
                 </div>
             </div>
         </div>
@@ -92,28 +126,155 @@ const Step1 = () => {
 };
 
 const Step2 = ({ locations }: { locations: Location[] }) => {
-    const { control, register, watch, formState: { errors } } = useFormContext<RefreshmentFormData>();
+    const { inventory } = useInventory();
+    const { control, register, watch, setValue, formState: { errors } } = useFormContext<RefreshmentFormData>();
+    const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+    
     const costingMethod = watch('costingMethod');
+    const formula = watch('formula') || [];
+
+    const handleAddIngredients = (products: InventoryItem[]) => {
+        const newIngredients = products.map(p => ({
+            id: p.id,
+            name: p.name,
+            quantityUsed: 1,
+            unit: p.costingMethod === 'size' ? (p.unit || 'ml') : (p.useUnit || 'uses')
+        }));
+        setValue('formula', [...formula, ...newIngredients.filter(ni => !formula.find(f => f.id === ni.id))], { shouldDirty: true });
+        setIsProductBrowserOpen(false);
+    };
+
     return (
         <div className="space-y-10">
-            <SectionHeader icon={DollarSign} title="Yield & Stock" step={2} />
+            <SectionHeader icon={FlaskConical} title="Yield & Technical Recipe" step={2} />
+            <div className="space-y-8">
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between px-1">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Technical Recipe (Ingredients)</Label>
+                        <Button variant="ghost" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                            <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
+                        </Button>
+                    </div>
+                    {formula.length > 0 ? (
+                        <div className="grid gap-2">
+                            {formula.map((item, index) => (
+                                <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
+                                    <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{item.name}</span>
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
+                                            <Input 
+                                                type="number" 
+                                                value={item.quantityUsed} 
+                                                onChange={e => {
+                                                    const next = [...formula];
+                                                    next[index].quantityUsed = parseFloat(e.target.value) || 0;
+                                                    setValue('formula', next, { shouldDirty: true });
+                                                }}
+                                                className="w-16 h-9 rounded-lg border-2 text-center font-black font-mono text-xs" 
+                                                step="0.1" 
+                                            />
+                                            <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60 text-left truncate">{item.unit}</span>
+                                        </div>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('formula', formula.filter(f => f.id !== item.id))}><Trash2 className="w-4 h-4" /></Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                            <Activity className="w-10 h-10" />
+                            <p className="text-[10px] font-black uppercase tracking-widest">Pure Stock (No Recipe)</p>
+                        </div>
+                    )}
+                </div>
+
+                <Separator className="border-dashed" />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
+                    <div className="space-y-6">
+                        <div className="space-y-2">
+                            <Label htmlFor="purchase-cost" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Landed Cost (Unit Basis)</Label>
+                            <div className="relative">
+                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                <Input id="purchase-cost" type="number" step="0.01" placeholder="0.00" {...register('purchaseCost')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="initial-stock" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Initial Stock (Units)</Label>
+                            <Input id="initial-stock" type="number" placeholder="e.g., 12" {...register('initialStock')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
+                        </div>
+                    </div>
+                    <div className="space-y-6">
+                        <div className="space-y-2 text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Deduction Protocol</Label>
+                            <Controller name="costingMethod" control={control} render={({ field }) => (
+                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                                    <label htmlFor="size-rf" className="cursor-pointer">
+                                        <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                            <Pipette className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase tracking-widest">By Volume</span>
+                                            <RadioGroupItem value="size" id="size-rf" className="sr-only" />
+                                        </div>
+                                    </label>
+                                    <label htmlFor="uses-rf" className="cursor-pointer">
+                                        <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                            <CheckCircle className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase tracking-widest">By Portions</span>
+                                            <RadioGroupItem value="uses" id="uses-rf" className="sr-only" />
+                                        </div>
+                                    </label>
+                                </RadioGroup>
+                            )}/>
+                        </div>
+                        {costingMethod === 'size' ? (
+                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Capacity</Label><Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
+                                    <Controller name="containerUnit" control={control} render={({ field }) => (
+                                        <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl shadow-xl border-2"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem></SelectContent></Select>
+                                    )}/>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-1.5 animate-in slide-in-from-top-2 text-left">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Est. Servings / Unit</Label>
+                                <Input type="number" placeholder="e.g., 25 servings" {...register('usesPerContainer')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddIngredients} allProducts={inventory.filter(p => p.type === 'professional' || p.type === 'overhead')} initialSelected={[]} />
+        </div>
+    )
+};
+
+const Step3 = ({ locations }: { locations: Location[] }) => {
+    const { register, control, formState: { errors } } = useFormContext<RefreshmentFormData>();
+    return (
+        <div className="space-y-10">
+            <SectionHeader icon={Building} title="Logistics & Zone" step={3} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <div className="space-y-6">
-                    <div className="space-y-2">
-                        <Label htmlFor="purchase-cost" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Landed Cost (Invoice Total)</Label>
-                        <div className="relative">
-                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
-                            <Input id="purchase-cost" type="number" step="0.01" placeholder="0.00" {...register('purchaseCost')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" />
-                        </div>
-                        {errors.purchaseCost && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.purchaseCost.message}</p>}
+                    <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
+                        <Controller name="primaryLocationId" control={control} render={({ field }) => (
+                            <Select onValueChange={field.onChange} value={field.value}>
+                                <SelectTrigger className="h-14 rounded-2xl border-2 font-bold uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner">
+                                    <SelectValue placeholder="Select Zone" />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                    {locations.map(loc => (<SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>))}
+                                </SelectContent>
+                            </Select>
+                        )}/>
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="initial-stock" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Initial Stock (Full Units)</Label>
-                        <Input id="initial-stock" type="number" placeholder="e.g., 12" {...register('initialStock')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
-                        {errors.initialStock && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.initialStock.message}</p>}
-                    </div>
-                    <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase text-muted-foreground ml-1">Intake Date</Label>
+                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Source / Supplier</Label><Input placeholder="e.g., Whole Foods" {...register('supplier')} className="h-12 rounded-xl border-2 font-bold" /></div>
+                </div>
+                <div className="space-y-6">
+                    <div className="space-y-1.5 text-left">
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Intake Date</Label>
                         <Controller name="purchaseDate" control={control} render={({ field }) => (
                             <Popover>
                                 <PopoverTrigger asChild>
@@ -125,64 +286,12 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                                 <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
                             </Popover>
                         )}/>
-                        {errors.purchaseDate && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.purchaseDate.message}</p>}
-                    </div>
-                </div>
-                <div className="space-y-6">
-                    <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Consumption Logic</Label>
-                        <Controller name="costingMethod" control={control} render={({ field }) => (
-                            <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                                <label htmlFor="size-rf" className="cursor-pointer">
-                                    <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
-                                        <Pipette className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                        <span className="text-[10px] font-black uppercase tracking-widest">By Volume</span>
-                                        <RadioGroupItem value="size" id="size-rf" className="sr-only" />
-                                    </div>
-                                </label>
-                                <label htmlFor="uses-rf" className="cursor-pointer">
-                                    <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
-                                        <CheckCircle className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                        <span className="text-[10px] font-black uppercase tracking-widest">By Portions</span>
-                                        <RadioGroupItem value="uses" id="uses-rf" className="sr-only" />
-                                    </div>
-                                </label>
-                            </RadioGroup>
-                        )}/>
-                    </div>
-                    {costingMethod === 'size' ? (
-                        <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Capacity</Label><Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
-                                <Controller name="containerUnit" control={control} render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem></SelectContent></Select>
-                                )}/>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-1.5 animate-in slide-in-from-top-2">
-                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Est. Servings / Unit</Label>
-                            <Input type="number" placeholder="e.g., 25 servings" {...register('usesPerContainer')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
-                        </div>
-                    )}
-                    <div className="space-y-1.5 pt-2 border-t border-dashed border-border/50">
-                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
-                        <Controller name="primaryLocationId" control={control} render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner">
-                                    <SelectValue placeholder="Select Zone" />
-                                </SelectTrigger>
-                                <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                    {locations.map(loc => (<SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>))}
-                                </SelectContent>
-                            </Select>
-                        )}/>
                     </div>
                 </div>
             </div>
         </div>
     )
-};
+}
 
 export const AddRefreshmentDialog = ({
   open, onOpenChange, onRefreshmentAdded, locations,
@@ -190,26 +299,26 @@ export const AddRefreshmentDialog = ({
   open: boolean; onOpenChange: (open: boolean) => void; onRefreshmentAdded: (item: InventoryItem) => void; locations: Location[];
 }) => {
   const [step, setStep] = useState(1);
-  const totalSteps = 2;
+  const totalSteps = 3;
   const isMobile = useIsMobile();
   const methods = useForm<RefreshmentFormData>({ 
     resolver: zodResolver(refreshmentSchema), 
-    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date() } 
+    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, price: 0 } 
   });
 
-  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date() }); setStep(1); } }, [open, methods]);
+  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, price: 0 }); setStep(1); } }, [open, methods]);
 
   const { handleSubmit, trigger } = methods;
   const onSubmit = (data: RefreshmentFormData) => {
     const unitPrice = data.initialStock > 0 ? (data.purchaseCost / data.initialStock) : 0;
     onRefreshmentAdded({
-      id: `refr-${nanoid(8)}`, name: data.name, type: 'refreshment', category: 'Refreshment', totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer,
+      id: `refr-${nanoid(8)}`, name: data.name, type: 'refreshment', category: 'Refreshment', totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, showInConcierge: data.showInConcierge, price: data.price, imageUrl: data.imageUrl, formula: data.formula,
       batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock, costPerUnit: unitPrice, receivedDate: data.purchaseDate.toISOString() }],
     });
     onOpenChange(false);
   };
 
-  const handleNext = async (e: any) => { e.preventDefault(); if (await trigger(['name'])) setStep(step + 1); };
+  const handleNext = async (e: any) => { e.preventDefault(); if (await trigger(step === 1 ? ['name'] : [])) setStep(step + 1); };
   const handleBack = (e: any) => { e.preventDefault(); setStep(step - 1); };
 
   const formBody = (
@@ -220,14 +329,15 @@ export const AddRefreshmentDialog = ({
             <Sparkles className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Refreshment</DialogTitle>
-          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Add items to your hospitality menu and asset manifest.</DialogDescription>
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Amenity</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Configure guest-facing refreshments and recipe logic.</DialogDescription>
           <div className="pt-6"><Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" /></div>
         </DialogHeader>
         <ScrollArea className="flex-1">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {step === 1 && <Step1 />}
                 {step === 2 && <Step2 locations={locations} />}
+                {step === 3 && <Step3 locations={locations} />}
             </div>
         </ScrollArea>
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>

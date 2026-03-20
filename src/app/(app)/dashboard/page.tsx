@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -164,7 +165,6 @@ export default function DashboardPage() {
 
   const today = useMemo(() => startOfDay(new Date()), []);
 
-  // Fetch all today's requests for KPI calculation
   const todayRequestsQuery = useMemoFirebase(() => {
       if (!firestore || !tenantId) return null;
       return query(
@@ -179,8 +179,8 @@ export default function DashboardPage() {
     allTodayRequests?.filter(r => r.status === 'pending') || []
   , [allTodayRequests]);
 
-  const handleDeliverRefreshment = async (request: any) => {
-      if (!firestore || !tenantId || !inventory) return;
+  const handleDeliverRefreshment = async (request: RefreshmentRequest) => {
+      if (!firestore || !tenantId || !inventory || !appointments) return;
       
       const item = inventory.find(i => i.id === request.itemId);
       if (!item) return;
@@ -195,23 +195,62 @@ export default function DashboardPage() {
           deliveredBy: user?.uid || 'system'
       });
 
-      const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-      batch.update(productRef, { totalStock: increment(-1) });
+      // ATOMIC FORMULA DEDUCTION logic
+      if (item.formula && item.formula.length > 0) {
+          item.formula.forEach(ingredient => {
+              const ingredientRef = doc(firestore, `tenants/${tenantId}/inventory`, ingredient.id);
+              const actualIngredient = inventory.find(i => i.id === ingredient.id);
+              if (!actualIngredient) return;
 
-      const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-      batch.set(correctionRef, {
-          id: nanoid(),
-          productId: item.id,
-          date: now,
-          change: -1,
-          unit: item.unit || 'unit',
-          reason: `Hospitality Fulfillment: ${request.clientName}`,
-          requestId: request.id
-      });
+              batch.update(ingredientRef, { totalStock: increment(-ingredient.quantityUsed) });
+              
+              const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+              batch.set(correctionRef, {
+                  id: nanoid(),
+                  productId: ingredient.id,
+                  date: now,
+                  change: -ingredient.quantityUsed,
+                  unit: ingredient.unit,
+                  reason: `Recipe Component for: ${item.name} (Guest: ${request.clientName})`,
+                  requestId: request.id
+              });
+          });
+      } else {
+          // Direct Deduction for non-recipe items
+          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+          batch.update(productRef, { totalStock: increment(-1) });
+
+          const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+          batch.set(correctionRef, {
+              id: nanoid(),
+              productId: item.id,
+              date: now,
+              change: -1,
+              unit: item.unit || 'unit',
+              reason: `Amenity Delivery: ${request.clientName}`,
+              requestId: request.id
+          });
+      }
+
+      // POS TERMINAL INTEGRATION: Append to bill if it has a price
+      if (item.price && item.price > 0) {
+          const appointment = appointments.find(a => a.clientId === request.clientId && (a.status === 'servicing' || a.status === 'ready_for_checkout' || (isToday(safeDate(a.startTime)) && a.status === 'confirmed')));
+          if (appointment) {
+              const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
+              batch.update(aptRef, {
+                  'checkoutState.refreshments': arrayUnion({
+                      id: item.id,
+                      name: item.name,
+                      price: item.price,
+                      deliveredAt: now
+                  })
+              });
+          }
+      }
 
       try {
           await batch.commit();
-          toast({ title: "Delivery Certified", description: `Stock reconciled for ${request.clientName}.` });
+          toast({ title: "Delivery Certified", description: `Stock reconciled and dossier updated for ${request.clientName}.` });
       } catch (e) {
           toast({ variant: 'destructive', title: "Process Error" });
       }
