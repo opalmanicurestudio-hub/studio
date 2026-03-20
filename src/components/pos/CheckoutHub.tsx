@@ -194,7 +194,7 @@ export const CheckoutHub = ({
     const { appointments: allAppointments, services, inventory } = useInventory();
     const { toast } = useToast();
 
-    const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
+    const [isWaiveAuthOpen, setIsPointOfSaleWaiveAuthOpen] = useState(false);
     const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
     const [clientSearch, setClientSearch] = useState('');
 
@@ -202,13 +202,13 @@ export const CheckoutHub = ({
 
     const handleWaiveClick = (aptId: string) => {
         setPendingWaiveAptId(aptId);
-        setIsWaiveAuthOpen(true);
+        setIsPointOfSaleWaiveAuthOpen(true);
     };
 
     const handleConfirmWaive = (authorizer: Staff, reason: string) => {
         if (pendingWaiveAptId) {
             onWaiveFeeToggle(pendingWaiveAptId, true, authorizer.id, reason);
-            setIsWaiveAuthOpen(false);
+            setIsPointOfSaleWaiveAuthOpen(false);
             setPendingWaiveAptId(null);
             toast({ title: "Fees Absorbed" });
         }
@@ -289,13 +289,6 @@ export const CheckoutHub = ({
             handleTotalTipChange(tipAmount);
         }
     }, [allInvolvedStaff.length, handleTotalTipChange, tipAmount]);
-
-    const handleIndividualTipChange = (staffId: string, value: number) => {
-        const nextAllocations = { ...tipAllocations, [staffId]: safeNumber(value) };
-        setTipAllocations(nextAllocations);
-        const nextTotal = Object.values(nextAllocations).reduce((sum: number, val: any) => sum + safeNumber(val), 0);
-        setTipAmount(Number(nextTotal.toFixed(2)));
-    };
 
     const handleApplyDiscount = (code: string) => {
         const codeUpper = code.trim().toUpperCase();
@@ -381,42 +374,10 @@ export const CheckoutHub = ({
         toast({ title: 'Entitlement Applied', description: `${entitlement.label} redeemed.` });
     };
 
-    const suggestedDiscounts = useMemo(() => {
-        if (!selectedClient || !discounts) return [];
-        const completedCount = allAppointments.filter(a => a.clientId === selectedClient.id && a.status === 'completed').length;
-        return discounts.filter(d => {
-            if (!d.isActive || d.automation?.trigger === 'none' || appliedDiscountCodes.includes(d.code)) return false;
-            if (d.limitOnePerCustomer && d.usedByClientIds?.includes(selectedClient.id)) return false;
-            const isComp = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || (d.applicableServiceIds.some(id => cartServiceIds.includes(id)));
-            if (!isComp) return false;
-            const trig = d.automation?.trigger;
-            if (trig === 'birthday' && selectedClient.birthday) return isSameMonth(new Date(), safeDate(selectedClient.birthday));
-            if (trig === 'loyalty' && d.automation?.appointmentThreshold) return (completedCount + 1) % d.automation.appointmentThreshold === 0;
-            if (trig === 'new_client') return completedCount === 0;
-            const lastAptDate = selectedClient.lastAppointment ? safeDate(selectedClient.lastAppointment) : null;
-            const daysSince = lastAptDate ? differenceInDays(new Date(), lastAptDate) : 0;
-            if (trig === 're_engagement' && d.automation?.daysSinceLastVisit && lastAptDate) return daysSince >= d.automation.daysSinceLastVisit;
-            return false;
-        });
-    }, [selectedClient, discounts, appliedDiscountCodes, allAppointments, cartServiceIds]);
-    
-    const quickTenderOptions = useMemo(() => {
-        const options = new Set<number>();
-        if (total <= 0) return [];
-        const roundUp = (num: number, multiple: number) => Math.ceil(num / multiple) * multiple;
-        [5, 10, 20, 50, 100].forEach(m => { const r = roundUp(total, m); if (r > total) options.add(r); });
-        return Array.from(options).sort((a,b) => a - b).slice(0, 3);
-    }, [total]);
-
-    const handleRemoveDiscount = (code: string) => {
-        setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code));
-    };
-
-    // FINANCIAL PARAMETERS SYNC
+    const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
     const finalSubtotal = subtotal;
     const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
     const finalTotal = total;
-    const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 
     return (
         <div className="flex flex-col space-y-6 md:space-y-10">
@@ -445,7 +406,7 @@ export const CheckoutHub = ({
                                 onClick={() => setIsPayerDialogOpen(true)}
                             >
                                 {selectedClient ? (
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-3 text-left">
                                         <div className="relative shrink-0">
                                             <Avatar className="h-7 v-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
                                                 <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
@@ -475,7 +436,7 @@ export const CheckoutHub = ({
                                 <ChevronDown className="h-4 w-4 opacity-40 ml-2 shrink-0" />
                             </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 overflow-hidden shadow-3xl">
+                        <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 overflow-hidden shadow-3xl bg-background">
                             <DialogHeader className="p-6 pb-4 border-b bg-muted/5 text-left">
                                 <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">
                                     {isGroupCheckout ? 'Identify Group Payer' : 'Guest Search'}
@@ -516,7 +477,7 @@ export const CheckoutHub = ({
                                                     key={c.id} 
                                                     className={cn(
                                                         "w-full text-left p-4 transition-all flex items-center gap-4 border-2 rounded-2xl",
-                                                        selectedClientId === c.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-primary/[0.03] hover:border-primary/10"
+                                                        selectedClientId === c.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-primary/5 hover:border-primary/10"
                                                     )}
                                                     onClick={() => { setSelectedClientId(c.id); setIsPayerDialogOpen(false); }}
                                                 >
@@ -548,8 +509,9 @@ export const CheckoutHub = ({
                                         Register New Client Profile
                                     </Button>
                                 </DialogFooter>
-                            </DialogContent>
-                        </Dialog>
+                            )}
+                        </DialogContent>
+                    </Dialog>
                     <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" onClick={onScanClick}><QrCode className="w-6 h-6 opacity-40" /></Button>
                 </div>
             </div>
@@ -635,7 +597,7 @@ export const CheckoutHub = ({
                             const mainStaffMember = staff.find((s: any) => s.id === mainStaffId);
 
                             return (
-                                <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all text-left", isRedeemed ? "border-primary bg-primary/[0.03] shadow-lg" : "border-border/50 bg-muted/5")}>
+                                <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all text-left", isRedeemed ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-muted/5")}>
                                     <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4 text-left">
                                         <div className="flex justify-between items-start gap-4">
                                             <div className="flex-1 min-w-0 text-left w-full">
@@ -678,7 +640,6 @@ export const CheckoutHub = ({
                                             </div>
                                         )}
 
-                                        {/* CONCIERGE AMENITIES ITEMIZATION */}
                                         {refreshments.length > 0 && (
                                             <div className="space-y-2 pt-2 border-t border-dashed text-left">
                                                 <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Concierge Amenities</p>
@@ -726,7 +687,7 @@ export const CheckoutHub = ({
                         {Array.from(appliedAdjustments).map(id => {
                             const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
                             return (
-                                <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/[0.02] flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 text-left shadow-sm">
+                                <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/5 flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 text-left shadow-sm">
                                     <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
                                     <div className="flex-1 min-w-0 text-left">
                                         <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p>
@@ -793,7 +754,7 @@ export const CheckoutHub = ({
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
+            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
         </div>
     );
 };
