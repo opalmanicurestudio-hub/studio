@@ -420,8 +420,8 @@ export const CheckoutHub = ({
 
     const finalSubtotal = subtotal + amenityRevenue;
     const finalTax = finalSubtotal * 0.07;
-    const totalDiscountValue = safeNumber(discount) + safeNumber(membershipDiscount);
-    const finalTotal = finalSubtotal + finalTax + tipAmount - totalDiscountValue;
+    const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
+    const finalTotal = finalSubtotal + finalTax + tipAmount - totalDiscount;
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 
@@ -759,10 +759,10 @@ export const CheckoutHub = ({
                         <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalTax).toFixed(2)}</p>
                     </div>
                 )}
-                {totalDiscountValue > 0 && (
+                {totalDiscount > 0 && (
                     <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter text-left">
                         <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
-                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscountValue).toFixed(2)}</span>
+                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
                     </div>
                 )}
                 

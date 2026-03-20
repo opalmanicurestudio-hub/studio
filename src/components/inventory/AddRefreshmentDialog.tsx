@@ -67,6 +67,12 @@ import { useInventory } from '@/context/InventoryContext';
 import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
 import { Badge } from '../ui/badge';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
 const refreshmentSchema = z.object({
   name: z.string().min(1, 'Amenity name is required.'),
@@ -170,8 +176,8 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
         const newIngredients = products.map(p => {
             let unit = p.costingMethod === 'size' ? (p.unit || 'ml') : (p.useUnit || 'uses');
             let cpu = p.costPerUnit || 0;
-            if (p.costingMethod === 'size' && p.size) cpu = cpu / p.size;
-            else if (p.costingMethod === 'uses' && p.estimatedUses) cpu = cpu / p.estimatedUses;
+            if (p.costingMethod === 'size' && p.size) cpu = (p.costPerUnit || 0) / p.size;
+            else if (p.costingMethod === 'uses' && p.estimatedUses) cpu = (p.costPerUnit || 0) / p.estimatedUses;
 
             return {
                 id: p.id,
@@ -261,7 +267,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                     <div className="space-y-6">
-                        <div className="space-y-2">
+                        <div className="space-y-2 text-left">
                             <Label htmlFor="purchase-cost" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Landed Cost (Unit Basis)</Label>
                             <div className="relative">
                                 <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
@@ -277,7 +283,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                             </div>
                             {formula.length > 0 && <p className="text-[8px] font-bold text-primary uppercase ml-1">Locked: Value derived from formula</p>}
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-2 text-left">
                             <Label htmlFor="initial-stock" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Initial Stock (Units)</Label>
                             <Input id="initial-stock" type="number" placeholder="e.g., 12" {...register('initialStock')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
                         </div>
@@ -347,7 +353,7 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
                             </Select>
                         )}/>
                     </div>
-                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Source / Supplier</Label><Input placeholder="e.g., Whole Foods" {...register('supplier')} className="h-12 rounded-xl border-2 font-bold" /></div>
+                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Source / Supplier</Label><Input placeholder="e.g., Whole Foods" {...register('supplier')} className="h-12 rounded-xl border-2 font-bold" /></div>
                 </div>
                 <div className="space-y-6">
                     <div className="space-y-1.5 text-left">
