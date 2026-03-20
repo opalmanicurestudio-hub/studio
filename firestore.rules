@@ -3,81 +3,62 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Core Identity Helpers ---
-
     function isSignedIn() {
       return request.auth != null;
     }
 
-    /**
-     * @description Master Owner Protocol.
-     * Directly verifies the userId field on the Tenant document.
-     */
     function isOwner(tenantId) {
       return isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId;
     }
 
-    /**
-     * @description Admin Protocol.
-     * Inherits from ownership or verifies admin role in directory.
-     */
-    function isAdmin(tenantId) {
-      return isSignedIn() && (
-        isOwner(tenantId) ||
-        (exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role in ['owner', 'admin'])
-      );
-    }
-
     function isStaff(tenantId) {
       return isSignedIn() && (
-        isAdmin(tenantId) ||
+        isOwner(tenantId) ||
         exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid))
       );
     }
 
-    // --- STRATEGIC DATA ACCESS ---
-
-    // Master rule for all studio data subcollections (Inventory, Quotes, Ledger, etc.)
-    // Recursively grants read/write to authorized members.
-    match /tenants/{tenantId}/{allSubcollections=**} {
-      allow read, write: if isAdmin(tenantId);
-      allow read: if isStaff(tenantId);
-    }
-
-    // Public Quote Access (Allows guests to view their specific proposal)
-    match /tenants/{tenantId}/quotes/{quoteId} {
-      allow get: if true;
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'declinedAt']);
-    }
-
-    // Tenant Profile Access
+    // --- Tenant Root ---
     match /tenants/{tenantId} {
-      allow get: if true;
-      allow create: if isSignedIn();
-      allow update: if isAdmin(tenantId);
+      allow get: if true; // Critical for public portals
+      allow list: if isSignedIn();
+      allow update: if isOwner(tenantId);
     }
 
-    // Identity & Access Mapping
-    match /users/{userId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
-    }
-
-    match /staffDirectory/{staffId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn(); 
-    }
-
-    // Public Terminal & Check-in Logic
+    // --- Public Portals (Check-in & Concierge) ---
     match /appointmentCheckIns/{token} {
       allow read: if true;
-      allow create: if isSignedIn();
       allow update: if true;
     }
-    
-    // Till Session Access
-    match /tenants/{tenantId}/tillSessions/{sessionId} {
+
+    match /tenants/{tenantId}/inventory/{itemId} {
+      // Allow public to list refreshments for the concierge menu
+      allow list, get: if true;
+      // Only staff can update stock levels
+      allow write: if isStaff(tenantId);
+    }
+
+    match /tenants/{tenantId}/refreshmentRequests/{requestId} {
+      allow create: if true; // Guests can request
+      allow get: if true;
+      allow list, update: if isStaff(tenantId);
+    }
+
+    match /tenants/{tenantId}/services/{serviceId} {
+      allow read: if true;
+    }
+
+    match /tenants/{tenantId}/staff/{staffId} {
+      allow read: if true;
+    }
+
+    // --- Master Admin Access ---
+    match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isStaff(tenantId);
+    }
+
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
   }
 }
