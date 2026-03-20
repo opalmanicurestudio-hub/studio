@@ -191,7 +191,7 @@ export const CheckoutHub = ({
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
     const [isPayerDialogOpen, setIsPayerDialogOpen] = useState(false);
-    const { appointments: allAppointments, services, inventory } = useInventory();
+    const { services, inventory } = useInventory();
     const { toast } = useToast();
 
     const [isWaiveAuthOpen, setIsPointOfSaleWaiveAuthOpen] = useState(false);
@@ -375,6 +375,8 @@ export const CheckoutHub = ({
     };
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
+    
+    // Financial logic derived from props and memoized calculations
     const finalSubtotal = subtotal;
     const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
     const finalTotal = total;
@@ -517,7 +519,7 @@ export const CheckoutHub = ({
             </div>
 
             {selectedClient && isBirthdayToday && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 text-left">
                     <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5 text-left">
                         <Cake className="h-5 w-5 text-pink-500" />
                         <AlertTitle className="text-[10px] font-black uppercase text-pink-600 tracking-widest text-left">Birthday Protocol Active</AlertTitle>
@@ -543,7 +545,7 @@ export const CheckoutHub = ({
                                 onClick={() => handleRedeem(ent)}
                                 className={cn(
                                     "h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all",
-                                    redeemedOffer?.itemId === ent.itemId ? "bg-green-500/10 border-green-500/20 text-green-700" : 
+                                    redeemedOffer?.itemId === ent.itemId ? "bg-green-500/5 border-green-500/20 text-green-700" : 
                                     ent.exhausted ? "opacity-50 bg-muted/30 grayscale border-dashed cursor-not-allowed" : "bg-white border-indigo-500/10 hover:border-primary/30 shadow-sm"
                                 )}
                             >
@@ -580,9 +582,9 @@ export const CheckoutHub = ({
                 {isCartEmpty ? (
                     <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[3rem] md:rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                         <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
-                        <div className="space-y-1">
+                        <div className="space-y-1 text-center">
                             <p className="text-sm font-black uppercase tracking-widest">Cart Idle</p>
-                            <p className="text-[10px] font-bold uppercase tracking-tight px-4 text-center">Scan a ticket or select retail items</p>
+                            <p className="text-[10px] font-bold uppercase tracking-tight px-4 text-center leading-relaxed">Scan a ticket or select retail items from the catalog.</p>
                         </div>
                     </div>
                 ) : (
@@ -590,7 +592,7 @@ export const CheckoutHub = ({
                         {appointmentsData.map((data: any) => {
                             const isRedeemed = redeemedOffer?.itemId === data.service.id;
                             const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
-                            const refreshments = data.appointment.checkoutState?.refreshments || [];
+                            const refreshmentsInSession = data.appointment.checkoutState?.refreshments || [];
                             
                             const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
                             const mainStaffId = overrides[data.service.id] || data.appointment.staffId;
@@ -640,10 +642,10 @@ export const CheckoutHub = ({
                                             </div>
                                         )}
 
-                                        {refreshments.length > 0 && (
+                                        {refreshmentsInSession.length > 0 && (
                                             <div className="space-y-2 pt-2 border-t border-dashed text-left">
-                                                <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Concierge Amenities</p>
-                                                {refreshments.map((item: any, idx: number) => (
+                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Concierge Amenities</p>
+                                                {refreshmentsInSession.map((item: any, idx: number) => (
                                                     <div key={idx} className="flex justify-between items-center text-left">
                                                         <span className="text-[10px] font-bold text-slate-600 uppercase flex items-center gap-2"><Coffee className="w-3 h-3" /> {item.name}</span>
                                                         <span className="font-mono text-[10px] text-slate-900">{safeNumber(item.price) > 0 ? `$${safeNumber(item.price).toFixed(2)}` : 'Complimentary'}</span>
@@ -655,7 +657,7 @@ export const CheckoutHub = ({
                                         {safeNumber(data.appointment.checkoutState?.additionalCharge) > 0 && (
                                             <div className="pt-3 border-t border-dashed flex justify-between items-center text-left">
                                                 <span className="text-[10px] font-black uppercase text-muted-foreground">Audit Overage</span>
-                                                <div className="flex items-center gap-3">
+                                                <div className="flex items-center gap-3 text-left">
                                                     <span className={cn("font-black font-mono text-xs", waivedAppointmentFees.has(data.appointment.id) ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${safeNumber(data.appointment.checkoutState.additionalCharge).toFixed(2)}</span>
                                                     {isOwnerOrAdmin && (waivedAppointmentFees.has(data.appointment.id) ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
                                                 </div>
@@ -702,7 +704,7 @@ export const CheckoutHub = ({
                 )}
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 text-left">
                 <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
                     <p>Gross Manifest Value</p>
                     <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalSubtotal).toFixed(2)}</p>
@@ -745,7 +747,7 @@ export const CheckoutHub = ({
 
                 <div className="pt-2 text-left">
                     <Button 
-                        className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tight" 
+                        className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" 
                         onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
                         disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
                     >

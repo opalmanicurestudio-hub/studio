@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -47,7 +46,8 @@ import {
     FileSignature,
     Calculator,
     Pipette,
-    Ear
+    Ear,
+    Coffee
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -56,11 +56,11 @@ import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '../ui/label';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Badge } from '../ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -86,6 +86,13 @@ type EditableFormulaItem = {
     unit: string;
     costPerUnit: number;
     isCustom?: boolean;
+};
+
+type ReviewRefreshmentItem = {
+    id: string;
+    name: string;
+    price: number;
+    deliveredAt: string;
 };
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
@@ -136,6 +143,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const [reviewNotes, setReviewNotes] = useState('');
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+  const [isRefreshmentBrowserOpen, setIsRefreshmentBrowserOpen] = useState(false);
+  const [refreshments, setRefreshments] = useState<ReviewRefreshmentItem[]>([]);
   
   const [saveAsCustomFormula, setSaveAsCustomFormula] = useState(false);
   const [customFormulaName, setCustomFormulaName] = useState('');
@@ -143,6 +152,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   useEffect(() => {
     if (open && service && appointment) {
         const checkoutState = appointment.checkoutState;
+        
         const initialFormula = checkoutState?.formula || service.products?.map(p => {
             const product = inventory.find(i => i.id === p.id);
             let baseCpu = product?.costPerUnit || 0;
@@ -203,6 +213,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setReviewNotes(checkoutState?.reviewNotes || '');
         setSaveAsCustomFormula(false);
         setCustomFormulaName('');
+        setRefreshments(checkoutState?.refreshments || []);
     }
   }, [service, appointment, open, allServices, inventory, currentUser]);
 
@@ -260,6 +271,17 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       });
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
       setIsProductBrowserOpen(false);
+  };
+
+  const handleAddRefreshments = (products: InventoryItem[]) => {
+      const newItems: ReviewRefreshmentItem[] = products.map(p => ({
+          id: p.id,
+          name: p.name,
+          price: safeNumber(p.price || 0),
+          deliveredAt: new Date().toISOString()
+      }));
+      setRefreshments(prev => [...prev, ...newItems.filter(ni => !prev.find(p => p.id === ni.id))]);
+      setIsRefreshmentBrowserOpen(false);
   };
   
   const removeProduct = (productId: string) => {
@@ -329,6 +351,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         formula: editableFormula,
         retailItems: appointment.checkoutState?.retailItems || [],
         addOnServices: selectedAddOns,
+        refreshments: refreshments,
         actualDuration,
         reviewNotes,
         serviceStaffOverrides,
@@ -366,7 +389,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </DialogHeader>
             <ScrollArea className="flex-1">
               <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
-                <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden text-left">
+                <Card className="border-4 border-primary/10 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden text-left">
                     <CardContent className="p-6 flex items-center gap-6">
                         <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2rem] shrink-0">
                             <AvatarImage src={client.avatarUrl} className="object-cover" />
@@ -379,7 +402,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardContent>
                 </Card>
 
-                {/* GUEST INTEL ALERT */}
                 <div className="mt-8 space-y-3">
                     {client.sensoryNeeds && (
                         <Alert className="border-2 rounded-xl bg-blue-500/5 border-blue-200">
@@ -412,7 +434,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                         />
                                         <div className="min-w-0 text-left">
                                             <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{service.name}</Label>
-                                            <p className="text-[9px] font-black uppercase text-primary tracking-widest opacity-60">Main Service</p>
+                                            <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60">Main Service</p>
                                         </div>
                                     </div>
                                     <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
@@ -478,11 +500,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
                     <div className="space-y-8 text-left">
                         <div className="space-y-3 text-left">
-                          <Label htmlFor="actual-duration-review-manual" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+                          <Label htmlFor="actual-duration-review" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
                               <Clock className="w-3.5 h-3.5 opacity-40" /> Actual Duration (Minutes)
                           </Label>
                           <Input 
-                              id="actual-duration-review-manual"
+                              id="actual-duration-review"
                               type="number"
                               value={actualDuration}
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
@@ -561,28 +583,66 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </div>
                 </div>
 
+                {/* STEP 3: HOSPITALITY VERIFICATION */}
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
-                    <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={3} />
+                    <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between px-1">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refreshments Served</Label>
+                            <Button variant="ghost" size="sm" onClick={() => setIsRefreshmentBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                                <PlusCircle className="w-3 h-3 mr-1.5" /> Append Amenity
+                            </Button>
+                        </div>
+                        
+                        {refreshments.length > 0 ? (
+                            <div className="grid gap-2">
+                                {refreshments.map((ref, idx) => (
+                                    <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
+                                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                                            <div className="p-2 bg-primary/5 rounded-xl"><Coffee className="w-4 h-4 text-primary" /></div>
+                                            <div className="min-w-0 text-left">
+                                                <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{ref.name}</p>
+                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-4 shrink-0">
+                                            <p className="font-black font-mono text-xs text-primary">${safeNumber(ref.price).toFixed(2)}</p>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setRefreshments(prev => prev.filter((_, i) => i !== idx))}><Trash2 className="w-4 h-4" /></Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                                <Coffee className="w-10 h-10" />
+                                <p className="text-[10px] font-black uppercase tracking-widest">No Amenities Served</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="space-y-8 pt-10 border-t border-dashed text-left">
+                    <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={4} />
                     <div className="space-y-6 text-left">
-                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner transition-all">
+                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all">
                             <div className="space-y-1 text-left">
-                                <Label htmlFor="save-formula-toggle-review-manual" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                                <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
                                     <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
                                 </Label>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Register this recipe in guest dossier</p>
                             </div>
-                            <Switch id="save-formula-toggle-review-manual" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125 data-[state=checked]:bg-primary" />
+                            <Switch id="save-formula-toggle" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125 data-[state=checked]:bg-primary" />
                         </div>
 
                         <AnimatePresence>
                             {saveAsCustomFormula && (
                                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                                     <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
-                                        <Label htmlFor="custom-formula-name-review-manual" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
+                                        <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
                                             <Tag className="w-3.5 h-3.5" /> Formula Identifier
                                         </Label>
                                         <Input 
-                                            id="custom-formula-name-review-manual" 
+                                            id="custom-formula-name" 
                                             placeholder="e.g., WINTER GLOSS MIX" 
                                             value={customFormulaName} 
                                             onChange={e => setCustomFormulaName(e.target.value.toUpperCase())}
@@ -594,11 +654,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </AnimatePresence>
 
                         <div className="space-y-3 text-left">
-                            <Label htmlFor="review-notes-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                                 <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
                             </Label>
                             <Textarea 
-                                id="review-notes-manual"
+                                id="review-notes"
                                 placeholder="Audit notes regarding treatment outcomes, reactions, or client requests..." 
                                 value={reviewNotes}
                                 onChange={(e) => setReviewNotes(e.target.value)}
@@ -624,8 +684,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </DialogFooter>
         </ContentComponent>
       </DialogComponent>
-      <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
+      <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon' && (service?.compatibleAddOnIds || []).includes(s.id))} initialSelected={selectedAddOns} staff={staff} defaultStaffId={appointment.staffId || ''} />
       <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
+      <BrowseProductsDialog open={isRefreshmentBrowserOpen} onOpenChange={setIsRefreshmentBrowserOpen} onSelect={handleAddRefreshments} allProducts={inventory.filter(i => i.type === 'refreshment')} initialSelected={[]} />
     </>
   );
 };
