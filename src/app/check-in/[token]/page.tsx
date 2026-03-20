@@ -115,13 +115,15 @@ const ServicingView = ({
     };
 
     const handleRequest = async (item: InventoryItem) => {
-        if (!firestore || !tenant || !client || isRequesting) return;
+        if (!firestore || !tenant || !client || !appointment || isRequesting) return;
         
         const qty = quantities[item.id] || 1;
-        const totalPendingCount = activeRequests.reduce((sum, r) => sum + (r.quantity || 1), 0);
+        
+        // Count all items ever requested during this appointment session
+        const totalSessionCount = activeRequests.reduce((sum, r) => sum + (r.quantity || 1), 0);
         const limit = tenant.complimentaryAmenityLimit || 0;
 
-        if (limit > 0 && totalPendingCount + qty > limit) {
+        if (limit > 0 && totalSessionCount + qty > limit) {
             toast({ 
                 variant: 'destructive', 
                 title: 'Limit Reached', 
@@ -137,6 +139,7 @@ const ServicingView = ({
         const payload = {
             id: requestId,
             tenantId: tenant.id,
+            appointmentId: appointment.id,
             clientId: client.id,
             clientName: client.name,
             itemId: item.id,
@@ -206,7 +209,7 @@ const ServicingView = ({
                                     <p className="text-sm font-black tracking-tight font-mono text-primary select-all">{tenant.wifiPassword}</p>
                                 </div>
                             </div>
-                            <Button variant="outline" className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-widest border-2" onClick={() => {
+                            <Button variant="outline" className="w-full h-10 rounded-xl font-black uppercase tracking-widest text-[9px] border-2" onClick={() => {
                                 navigator.clipboard.writeText(tenant.wifiPassword || '');
                                 toast({ title: "Key Copied" });
                             }}>
@@ -314,14 +317,14 @@ export default function CheckInPage() {
     const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
     const { data: resources } = useCollection<Resource>(resourcesQuery);
 
+    // Track ALL requests for this specific appointment session
     const activeRequestsQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !appointmentData?.clientId) return null;
+        if (!firestore || !tenantId || !appointmentData?.id) return null;
         return query(
             collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
-            where('clientId', '==', appointmentData.clientId),
-            where('status', '==', 'pending')
+            where('appointmentId', '==', appointmentData.id)
         );
-    }, [firestore, tenantId, appointmentData?.clientId]);
+    }, [firestore, tenantId, appointmentData?.id]);
     const { data: activeRequests } = useCollection(activeRequestsQuery);
 
     const clientDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.clientId ? null : doc(firestore, `tenants/${tenantId}/clients`, appointmentData.clientId), [firestore, tenantId, appointmentData?.clientId]);

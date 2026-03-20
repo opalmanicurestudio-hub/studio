@@ -70,6 +70,7 @@ const editProductSchema = z.object({
   category: z.string().min(1, 'Category is required'),
   imageUrl: z.string().optional(),
   internalNotes: z.string().optional(),
+  description: z.string().optional(),
   
   totalPurchaseCost: z.coerce.number().optional(),
   numUnits: z.coerce.number().optional(),
@@ -112,9 +113,10 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
 );
 
 const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCategory: (cat: string) => void }) => {
-    const { register, control, setValue, formState: { errors } } = useFormContext<ProductFormData>();
+    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const productType = watch('type');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -190,13 +192,20 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                     )}
                 />
 
+                {productType === 'refreshment' && (
+                    <div className="space-y-2 animate-in slide-in-from-top-2">
+                        <Label htmlFor="description-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Public Description (Concierge)</Label>
+                        <Textarea id="description-edit" placeholder="Public flavor profiles or ingredients..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
+                    </div>
+                )}
+
                 <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dossier Visual</Label>
                     <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="notes-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Internal Log</Label>
-                    <Textarea id="notes-edit" {...register('internalNotes')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
+                    <Textarea id="notes-edit" {...register('internalNotes')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
                 </div>
             </div>
         </div>
@@ -301,7 +310,7 @@ const Step2 = () => {
 };
 
 const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAddLocationClick: () => void }) => {
-    const { register, control } = useFormContext<ProductFormData>();
+    const { register, control, formState: { errors } } = useFormContext<ProductFormData>();
     return (
         <div className="space-y-10">
             <SectionHeader icon={Truck} title="Logistics Dossier" step={3} />
@@ -322,7 +331,9 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                             <div className="flex gap-2">
                                 <Controller name="primaryLocationId" control={control} render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest flex-1 bg-muted/5 shadow-inner"><SelectValue placeholder="Select Zone" /></SelectTrigger>
+                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest flex-1 bg-muted/5 shadow-inner">
+                                            <SelectValue placeholder="Select Zone" />
+                                        </SelectTrigger>
                                         <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             {locations.map(loc => (<SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>))}
                                         </SelectContent>
@@ -336,7 +347,7 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
             </div>
         </div>
     )
-}
+};
 
 export const EditProductDialog: React.FC<{
   open: boolean;
@@ -358,7 +369,20 @@ export const EditProductDialog: React.FC<{
   useEffect(() => {
     if (product && open) {
         const firstBatch = product.batches?.[0];
-        methods.reset({ ...product, totalPurchaseCost: product.costPerUnit || 0, numUnits: 1, shippingCost: 0, taxCost: 0, discounts: 0, containerSize: product.size, containerUnit: product.unit, usesPerContainer: product.estimatedUses, purchaseLink: product.supplierUrl, expirationDate: firstBatch?.expirationDate ? parseISO(firstBatch.expirationDate) : undefined });
+        methods.reset({ 
+            ...product, 
+            totalPurchaseCost: product.costPerUnit || 0, 
+            numUnits: 1, 
+            shippingCost: 0, 
+            taxCost: 0, 
+            discounts: 0, 
+            containerSize: product.size, 
+            containerUnit: product.unit, 
+            usesPerContainer: product.estimatedUses, 
+            purchaseLink: product.supplierUrl, 
+            expirationDate: firstBatch?.expirationDate ? parseISO(firstBatch.expirationDate) : undefined,
+            description: product.description || ''
+        });
         setStep(1);
     }
   }, [product, open, methods]);
