@@ -296,7 +296,7 @@ export default function DashboardPage() {
     };
   }, [transactions, clients, staff, walkIns, appointments, inventory, allTodayRequests]);
 
-  if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="animate-spin h-10 w-10 text-primary" /><p className="text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">Syncing Operational Board...</p></div>;
+  if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">Syncing Operational Board...</p></div>;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">

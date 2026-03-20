@@ -34,7 +34,10 @@ import {
     Trash2, 
     ListChecks, 
     Activity,
-    FlaskConical
+    FlaskConical,
+    Calculator,
+    Target,
+    Info
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,7 +55,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { type InventoryItem, type Location } from '@/lib/data';
 import { Calendar } from '../ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { format } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { ScrollArea } from '../ui/scroll-area';
@@ -63,6 +66,7 @@ import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
+import { Badge } from '../ui/badge';
 
 const refreshmentSchema = z.object({
   name: z.string().min(1, 'Amenity name is required.'),
@@ -83,7 +87,8 @@ const refreshmentSchema = z.object({
       id: z.string(),
       name: z.string(),
       quantityUsed: z.coerce.number(),
-      unit: z.string()
+      unit: z.string(),
+      costPerUnit: z.coerce.number().optional()
   })).optional(),
 });
 
@@ -130,7 +135,7 @@ const Step1 = () => {
                     <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner self-start">
                         <div className="space-y-1 text-left">
                             <Label htmlFor="show-concierge" className="text-sm font-black uppercase tracking-tight">Public Menu</Label>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Visible in Guest Portal</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Visible in Guest Portal</p>
                         </div>
                         <Controller name="showInConcierge" control={control} render={({ field }) => (
                             <Switch id="show-concierge" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-primary" />
@@ -149,17 +154,38 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
     
     const costingMethod = watch('costingMethod');
     const formula = watch('formula') || [];
+    const retailPrice = watch('price') || 0;
+
+    const calculatedFormulaCost = useMemo(() => {
+        return formula.reduce((sum, item) => sum + (safeNumber(item.quantityUsed) * safeNumber(item.costPerUnit)), 0);
+    }, [formula]);
+
+    useEffect(() => {
+        if (formula.length > 0) {
+            setValue('purchaseCost', Number(calculatedFormulaCost.toFixed(2)), { shouldDirty: true });
+        }
+    }, [calculatedFormulaCost, formula.length, setValue]);
 
     const handleAddIngredients = (products: InventoryItem[]) => {
-        const newIngredients = products.map(p => ({
-            id: p.id,
-            name: p.name,
-            quantityUsed: 1,
-            unit: p.costingMethod === 'size' ? (p.unit || 'ml') : (p.useUnit || 'uses')
-        }));
+        const newIngredients = products.map(p => {
+            let unit = p.costingMethod === 'size' ? (p.unit || 'ml') : (p.useUnit || 'uses');
+            let cpu = p.costPerUnit || 0;
+            if (p.costingMethod === 'size' && p.size) cpu = cpu / p.size;
+            else if (p.costingMethod === 'uses' && p.estimatedUses) cpu = cpu / p.estimatedUses;
+
+            return {
+                id: p.id,
+                name: p.name,
+                quantityUsed: 1,
+                unit,
+                costPerUnit: cpu
+            };
+        });
         setValue('formula', [...formula, ...newIngredients.filter(ni => !formula.find(f => f.id === ni.id))], { shouldDirty: true });
         setIsProductBrowserOpen(false);
     };
+
+    const profitMargin = retailPrice > 0 ? ((retailPrice - calculatedFormulaCost) / retailPrice) * 100 : 0;
 
     return (
         <div className="space-y-10">
@@ -176,7 +202,10 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                         <div className="grid gap-2">
                             {formula.map((item, index) => (
                                 <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
-                                    <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{item.name}</span>
+                                    <div className="min-w-0 flex-1 text-left">
+                                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
+                                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Basis: ${(item.costPerUnit || 0).toFixed(4)} / {item.unit}</p>
+                                    </div>
                                     <div className="flex items-center gap-3">
                                         <div className="flex items-center gap-2">
                                             <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
@@ -206,6 +235,28 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                     )}
                 </div>
 
+                {formula.length > 0 && (
+                    <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-xl shadow-primary/5 overflow-hidden">
+                        <CardHeader className="p-6 pb-2 border-b bg-white/50 backdrop-blur-sm text-left">
+                            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                <Calculator className="w-3.5 h-3.5" /> Recipe Yield Analysis
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-6 grid grid-cols-2 gap-6">
+                            <div className="space-y-1 text-left">
+                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Calculated Cost</p>
+                                <p className="text-3xl font-black font-mono tracking-tighter text-slate-900">${calculatedFormulaCost.toFixed(2)}</p>
+                            </div>
+                            <div className="space-y-1 text-right">
+                                <p className="text-[9px] font-black uppercase text-primary tracking-widest">Net Margin</p>
+                                <p className={cn("text-3xl font-black font-mono tracking-tighter", profitMargin >= 0 ? "text-primary" : "text-destructive")}>
+                                    {profitMargin.toFixed(0)}%
+                                </p>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
                 <Separator className="border-dashed" />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
@@ -214,8 +265,17 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                             <Label htmlFor="purchase-cost" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Landed Cost (Unit Basis)</Label>
                             <div className="relative">
                                 <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                <Input id="purchase-cost" type="number" step="0.01" placeholder="0.00" {...register('purchaseCost')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" />
+                                <Input 
+                                    id="purchase-cost" 
+                                    type="number" 
+                                    step="0.01" 
+                                    placeholder="0.00" 
+                                    {...register('purchaseCost')} 
+                                    className={cn("h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner", formula.length > 0 ? "bg-muted/20" : "bg-white")} 
+                                    readOnly={formula.length > 0}
+                                />
                             </div>
+                            {formula.length > 0 && <p className="text-[8px] font-bold text-primary uppercase ml-1">Locked: Value derived from formula</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="initial-stock" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Initial Stock (Units)</Label>
@@ -320,14 +380,14 @@ export const AddRefreshmentDialog = ({
   const isMobile = useIsMobile();
   const methods = useForm<RefreshmentFormData>({ 
     resolver: zodResolver(refreshmentSchema), 
-    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, price: 0 } 
+    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, price: 0, formula: [] } 
   });
 
-  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, price: 0 }); setStep(1); } }, [open, methods]);
+  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, price: 0, formula: [] }); setStep(1); } }, [open, methods]);
 
   const { handleSubmit, trigger } = methods;
   const onSubmit = (data: RefreshmentFormData) => {
-    const unitPrice = data.initialStock > 0 ? (data.purchaseCost / data.initialStock) : 0;
+    const unitPrice = data.purchaseCost; 
     onRefreshmentAdded({
       id: `refr-${nanoid(8)}`, name: data.name, type: 'refreshment', category: 'Refreshment', totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, showInConcierge: data.showInConcierge, price: data.price, imageUrl: data.imageUrl, formula: data.formula,
       batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock, costPerUnit: unitPrice, receivedDate: data.purchaseDate.toISOString() }],

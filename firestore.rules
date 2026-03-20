@@ -24,7 +24,7 @@ service cloud.firestore {
     // --- Tenant Root ---
     match /tenants/{tenantId} {
       allow get: if true;
-      allow list: if isSignedIn(); // Allow discovery of owned tenants
+      allow list: if isSignedIn(); // Crucial for Jessica Marshall account discovery
       allow update: if isOwner(tenantId);
     }
 

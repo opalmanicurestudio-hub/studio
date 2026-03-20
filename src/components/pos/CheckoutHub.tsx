@@ -420,8 +420,8 @@ export const CheckoutHub = ({
 
     const finalSubtotal = subtotal + amenityRevenue;
     const finalTax = finalSubtotal * 0.07;
-    const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
-    const finalTotal = finalSubtotal + finalTax + tipAmount - totalDiscount;
+    const totalDiscountValue = safeNumber(discount) + safeNumber(membershipDiscount);
+    const finalTotal = finalSubtotal + finalTax + tipAmount - totalDiscountValue;
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 
@@ -657,7 +657,7 @@ export const CheckoutHub = ({
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <p className={cn("font-black font-mono text-base md:text-lg tracking-tighter", isRedeemed ? "line-through text-muted-foreground opacity-40" : "text-slate-900")}>${safeNumber(getServicePrice(data.service, data.staff)).toFixed(2)}</p>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                                <Button variant="ghost" size="icon" className="h-7 h-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                             </div>
                                         </div>
                                         
@@ -759,10 +759,10 @@ export const CheckoutHub = ({
                         <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalTax).toFixed(2)}</p>
                     </div>
                 )}
-                {totalDiscount > 0 && (
+                {totalDiscountValue > 0 && (
                     <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter text-left">
                         <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
-                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
+                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscountValue).toFixed(2)}</span>
                     </div>
                 )}
                 
