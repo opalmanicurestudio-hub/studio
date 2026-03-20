@@ -146,7 +146,7 @@ const ServicingView = ({
                     <div className="w-20 h-20 bg-white rounded-[2rem] flex items-center justify-center mx-auto shadow-xl border-2 border-primary/10 rotate-6">
                         <Activity className="w-10 h-10 text-primary -rotate-6" />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 text-center">
                         <p className="font-black text-xl uppercase tracking-tight text-slate-900">Relax & Recharge</p>
                         <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight">
                             Your transformation is in progress at <strong>{stationName}</strong>. We've optimized this window for your comfort.
@@ -303,7 +303,7 @@ export default function CheckInPage() {
                     </div>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-6 text-center">
                     <p className="text-sm font-medium text-slate-500 leading-relaxed px-4 text-center">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please confirm your arrival below.</p>
                     
                     {assignedStaff && (

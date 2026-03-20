@@ -18,7 +18,24 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { PlusCircle, Calendar as CalendarIcon, DollarSign, Coffee, Sparkles, ArrowRight, Pipette, CheckCircle, Check, Building, Truck, Tag, Trash2, ListChecks, Activity } from 'lucide-react';
+import { 
+    PlusCircle, 
+    Calendar as CalendarIcon, 
+    DollarSign, 
+    Coffee, 
+    Sparkles, 
+    ArrowRight, 
+    Pipette, 
+    CheckCircle, 
+    Check, 
+    Building, 
+    Truck, 
+    Tag, 
+    Trash2, 
+    ListChecks, 
+    Activity,
+    FlaskConical
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
