@@ -18,7 +18,8 @@ import {
   Tag, 
   ArrowRight,
   FlaskConical,
-  ShoppingCart
+  ShoppingCart,
+  FileText
 } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
@@ -129,7 +130,7 @@ export const ProductCard = ({
                                     {item.sku || item.id.slice(-6).toUpperCase()}
                                 </div>
                                 {isOrdered && (
-                                    <Badge className="bg-blue-500 text-white border-none text-[8px] h-4 font-black uppercase tracking-widest">
+                                    <Badge className="bg-blue-500 text-white border-none text-[7px] h-4 font-black uppercase tracking-widest">
                                         <Truck className="w-2.5 h-2.5 mr-1" /> ON ORDER
                                     </Badge>
                                 )}
@@ -210,11 +211,21 @@ export const ProductCard = ({
                         </Tooltip>
                     </TooltipProvider>
                 </div>
-                <Button variant="ghost" asChild className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn">
-                    <Link href={detailHref} onClick={e => e.stopPropagation()}>
-                        Inventory Dossier <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
-                    </Link>
-                </Button>
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" asChild className="h-10 w-10 sm:w-auto sm:flex-1 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn px-0 sm:px-4">
+                                <Link href={detailHref} onClick={e => e.stopPropagation()}>
+                                    <span className="hidden sm:inline mr-2">Dossier</span>
+                                    <ArrowRight className="h-4 w-4 transition-transform group-hover:btn:translate-x-1" />
+                                </Link>
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="sm:hidden font-black uppercase text-[10px] tracking-widest border-2">
+                            Open Dossier
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             </div>
         </Card>
     )
