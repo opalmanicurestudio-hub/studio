@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -305,7 +304,7 @@ export default function CheckInPage() {
                 </div>
 
                 <div className="space-y-6">
-                    <p className="text-sm font-medium text-slate-500 leading-relaxed px-4">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please confirm your arrival below.</p>
+                    <p className="text-sm font-medium text-slate-500 leading-relaxed px-4 text-center">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please confirm your arrival below.</p>
                     
                     {assignedStaff && (
                         <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">

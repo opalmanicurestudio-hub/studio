@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -421,7 +420,8 @@ export const CheckoutHub = ({
 
     const finalSubtotal = subtotal + amenityRevenue;
     const finalTax = finalSubtotal * 0.07;
-    const finalTotal = finalSubtotal + finalTax + tipAmount - discount - membershipDiscount;
+    const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
+    const finalTotal = finalSubtotal + finalTax + tipAmount - totalDiscount;
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 

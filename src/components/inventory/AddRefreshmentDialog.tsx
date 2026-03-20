@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -46,6 +45,7 @@ import { ImageUpload } from '../shared/ImageUpload';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Separator } from '../ui/separator';
+import { Switch } from '../ui/switch';
 
 const refreshmentSchema = z.object({
   name: z.string().min(1, 'Amenity name is required.'),

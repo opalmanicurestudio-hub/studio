@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -49,7 +48,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Appointment, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn, RefreshmentRequest } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { useFirebase, useCollection, useMemoFirebase, useUser, updateDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, writeBatch, increment, startAt, endAt, orderBy } from 'firebase/firestore';
+import { collection, query, where, doc, writeBatch, increment, startAt, endAt, orderBy, arrayUnion } from 'firebase/firestore';
 import { startOfDay, endOfDay, format, isSameDay, parseISO, differenceInMinutes, isToday } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
