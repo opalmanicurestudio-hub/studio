@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -65,6 +64,7 @@ import { format, parseISO } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
 import { ScrollArea } from '../ui/scroll-area';
+import { Switch } from '../ui/switch';
 
 const editProductSchema = z.object({
   id: z.string(),
@@ -145,30 +145,38 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                 <div className="space-y-2">
                     <Label htmlFor="category-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Department</Label>
                     {isAddingCategory ? (
-                        <div className="flex gap-2">
-                            <Input placeholder="New category..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+                        <div className="flex gap-2 text-left">
+                            <Input
+                                placeholder="New category name..."
+                                value={newCategoryName}
+                                onChange={(e) => setNewCategoryName(e.target.value)}
+                                className="h-12 rounded-xl border-2 font-bold uppercase text-xs"
+                            />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
                         </div>
                     ) : (
-                        <div className="flex gap-2">
+                        <div className="flex gap-3">
                             <Controller name="category" control={control} render={({ field }) => (
                                 <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5"><SelectValue placeholder="Select category" /></SelectTrigger>
+                                    <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5">
+                                        <SelectValue placeholder="Select a category" />
+                                    </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                                         {categories.map(cat => (<SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem>))}
                                     </SelectContent>
                                 </Select>
                             )}/>
-                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2"><PlusCircle className="h-5 w-5"/></Button>
+                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2"> <PlusCircle className="h-5 w-5" /> </Button>
                         </div>
                     )}
+                    {errors.category && <p className="text-xs font-bold text-destructive uppercase ml-1">{errors.category.message}</p>}
                 </div>
                 
                 <Controller
                     name="type"
                     control={control}
                     render={({ field }) => (
-                        <div className="space-y-2">
+                        <div className="space-y-2 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Role</Label>
                             <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-3">
                                 <label htmlFor="professional-e" className="cursor-pointer">
@@ -197,13 +205,13 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                     )}
                 />
 
-                {productType === 'refreshment' && (
+                {(productType === 'refreshment' || productType === 'professional') && (
                     <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-inner">
-                        <div className="space-y-1">
+                        <div className="space-y-1 text-left">
                             <Label htmlFor="mem-only-edit" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
                                 <Lock className="w-4 h-4" /> Members Only Access
                             </Label>
-                            <p className="text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest">Restrict request availability to active members</p>
+                            <p className="text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest text-left">Restrict request availability to active members</p>
                         </div>
                         <Controller name="isMembersOnly" control={control} render={({ field }) => (
                             <Switch id="mem-only-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-indigo-600" />
@@ -211,16 +219,16 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                     </div>
                 )}
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="description-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Public Description</Label>
                     <Textarea id="description-edit" placeholder="Public flavor profiles, ingredients, or benefit context..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium shadow-inner" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dossier Visual</Label>
                     <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     <Label htmlFor="notes-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Internal Log</Label>
                     <Textarea id="notes-edit" {...register('internalNotes')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
                 </div>
