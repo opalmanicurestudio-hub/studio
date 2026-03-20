@@ -304,7 +304,7 @@ export type LifespanTestResult = {
 export type InventoryItem = {
   id: string;
   name: string;
-  type: 'professional' | 'retail' | 'equipment' | 'overhead';
+  type: 'professional' | 'retail' | 'equipment' | 'overhead' | 'refreshment';
   category: string;
   status?: 'active' | 'archived';
   totalStock: number; 

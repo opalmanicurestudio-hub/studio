@@ -60,7 +60,8 @@ import {
   Loader,
   ArrowRight,
   CheckCircle2,
-  Info
+  Info,
+  Coffee
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -72,6 +73,7 @@ import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
+import { AddRefreshmentDialog } from '@/components/inventory/AddRefreshmentDialog';
 import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
 import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
@@ -328,7 +330,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                                     <span className="flex-1 text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{item.productName}</span>
                                                     <div className="flex items-center gap-2">
                                                         <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-9 rounded-lg border-2 text-center font-black" />
-                                                        <div className="relative">
+                                                        <div className="relative w-24">
                                                             <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
                                                             <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-24 h-9 pl-6 rounded-lg border-2 font-mono text-center" />
                                                         </div>
@@ -617,7 +619,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
               const newBatchData: Omit<Batch, 'id'> & {id: string} = {
                 id: `batch-${nanoid()}`,
                 stock: item.quantityReceived,
-                costPerUnit: item.costPerUnit,
+                costPerUnit: item.quantityReceived > 0 ? (item.costPerUnit || 0) : 0,
                 receivedDate: new Date().toISOString(),
                 expirationDate: item.expirationDate ? item.expirationDate.toISOString() : undefined,
               };
@@ -699,8 +701,8 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
             <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
-                        <CardTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter">Purchase Orders</CardTitle>
-                        <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Procurement & landed cost ledger.</CardDescription>
+                        <CardTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-left">Purchase Orders</CardTitle>
+                        <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60 text-left">Procurement & landed cost ledger.</CardDescription>
                     </div>
                     <Button onClick={() => setIsAddOrderOpen(true)} className="h-12 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full sm:w-auto">
                         <PlusCircle className="mr-2 h-4 w-4"/> Initiate Order
@@ -828,12 +830,11 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
-    staff,
     isLoading: isInventoryLoading
   } = useInventory();
   
   const { toast } = useToast();
-  const { firestore, user: currentUser } = useFirebase();
+  const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   
@@ -846,6 +847,7 @@ export default function InventoryPage() {
   const [addProductDialogType, setAddProductDialogType] = useState<'professional' | 'retail'>('professional');
   const [isAddEquipmentDialogOpen, setIsAddEquipmentDialogOpen] = useState(false);
   const [isAddOverheadDialogOpen, setIsAddOverheadDialogOpen] = useState(false);
+  const [isAddRefreshmentDialogOpen, setIsAddRefreshmentDialogOpen] = useState(false);
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
@@ -1003,6 +1005,17 @@ export default function InventoryPage() {
     const sanitizedData = JSON.parse(JSON.stringify(newOverhead));
     setDocumentNonBlocking(newOverheadRef, sanitizedData, {});
   };
+
+  const handleRefreshmentAdded = (newItem: InventoryItem) => {
+    if (!firestore || !tenantId) return;
+    const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', newItem.id);
+    const sanitizedData = JSON.parse(JSON.stringify(newItem));
+    setDocumentNonBlocking(itemRef, sanitizedData, {});
+    toast({
+        title: "Amenity Registered",
+        description: `${newItem.name} is now available in your hospitality manifest.`
+    });
+  };
   
   const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
   
@@ -1086,13 +1099,12 @@ export default function InventoryPage() {
 
     updateDocumentNonBlocking(productRef, updatedData);
     
-    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
       date: new Date().toISOString(),
       change: -quantity,
       unit: product.unit || 'units',
-      reason: `Write-off: ${reason} by ${currentStaff?.name || 'Staff'}`,
+      reason: `Write-off: ${reason}`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
@@ -1116,7 +1128,7 @@ export default function InventoryPage() {
     });
 
     return { success: true, message: "Write-off successful." };
-  }, [inventory, firestore, tenantId, toast, currentUser, staff]);
+  }, [inventory, firestore, tenantId, toast]);
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
@@ -1145,7 +1157,7 @@ export default function InventoryPage() {
         updateData.totalStock = currentStock;
         updateData.partialContainerUses = currentUses;
 
-    } else if (product.costingMethod === 'size') {
+    } else if (product.costingMethod === 'size' && product.size) {
         unit = product.unit || 'ml';
         let currentSize = product.partialContainerSize || 0;
         let currentStock = product.totalStock;
@@ -1173,13 +1185,12 @@ export default function InventoryPage() {
     
     updateDocumentNonBlocking(productDocRef, updateData);
 
-    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const newCorrection: Omit<StockCorrection, 'id'> = {
         productId: productId,
         date: new Date().toISOString(),
         change: -quantity,
         unit: unit,
-        reason: notes || `Manual Use Log by ${currentStaff?.name || 'Staff'}`,
+        reason: notes || `Manual Use Log`,
     };
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
@@ -1215,13 +1226,12 @@ export default function InventoryPage() {
       batches: sortedBatches,
     });
     
-    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
       date: new Date().toISOString(),
       change: -quantity,
       unit: 'units',
-      reason: `Manual Retail Sale by ${currentStaff?.name || 'Staff'}`,
+      reason: `Manual Retail Sale`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
@@ -1460,7 +1470,7 @@ export default function InventoryPage() {
                 <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Supply, retail & equipment pulse</p>
             </div>
             <div className="flex items-center gap-3 w-full md:w-auto">
-                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
+                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm">
                     <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" /> Reports</Link>
                 </Button>
                 <DropdownMenu>
@@ -1474,6 +1484,7 @@ export default function InventoryPage() {
                         <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Store className="mr-3 h-4 w-4 text-primary" />Retail Product</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Hammer className="mr-3 h-4 w-4 text-primary" />Equipment Asset</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Recycle className="mr-3 h-4 w-4 text-primary" />Overhead Supply</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsAddRefreshmentDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3 text-indigo-600"><Coffee className="mr-3 h-4 w-4" />Refreshment Amenity</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
@@ -1541,6 +1552,7 @@ export default function InventoryPage() {
                                         <SelectItem value="retail" className="font-bold">RETAIL</SelectItem>
                                         <SelectItem value="equipment" className="font-bold">EQUIPMENT</SelectItem>
                                         <SelectItem value="overhead" className="font-bold">OVERHEAD</SelectItem>
+                                        <SelectItem value="refreshment" className="font-bold">REFRESHMENT</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -1677,6 +1689,13 @@ export default function InventoryPage() {
         locations={locations || []}
       />
 
+      <AddRefreshmentDialog
+        open={isAddRefreshmentDialogOpen}
+        onOpenChange={setIsAddRefreshmentDialogOpen}
+        onRefreshmentAdded={handleRefreshmentAdded}
+        locations={locations || []}
+      />
+
         {editingItem && editingItem.type === 'equipment' && (
             <EditEquipmentDialog
                 open={isEditDialogOpen}
@@ -1689,7 +1708,7 @@ export default function InventoryPage() {
             />
         )}
         
-        {editingItem && (editingItem.type === 'professional' || editingItem.type === 'retail') && (
+        {editingItem && (editingItem.type === 'professional' || editingItem.type === 'retail' || editingItem.type === 'overhead' || editingItem.type === 'refreshment') && (
             <EditProductDialog
                 open={isEditDialogOpen}
                 onOpenChange={setIsEditDialogOpen}
@@ -1780,7 +1799,7 @@ export default function InventoryPage() {
                 </AlertDialogHeader>
                 <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                     <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Assets</Button>
-                    <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
+                    <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

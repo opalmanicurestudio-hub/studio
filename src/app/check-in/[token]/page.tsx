@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -67,7 +66,7 @@ const ServicingView = ({ tenant, client, inventory, activeRequests }: { tenant: 
     const [isRequesting, setIsRequesting] = useState(false);
 
     const refreshments = useMemo(() => 
-        inventory.filter(item => item.category?.toLowerCase() === 'refreshment' && item.totalStock > 0)
+        inventory.filter(item => item.type === 'refreshment' && item.totalStock > 0)
     , [inventory]);
 
     const handleRequest = async (item: InventoryItem) => {

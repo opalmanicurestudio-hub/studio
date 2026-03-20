@@ -54,7 +54,8 @@ import {
     CheckCircle,
     Calendar as CalendarIcon,
     ArrowRight,
-    Edit
+    Edit,
+    Coffee
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
@@ -65,7 +66,7 @@ import { ScrollArea } from '../ui/scroll-area';
 const editProductSchema = z.object({
   id: z.string(),
   name: z.string().min(1, 'Product name is required'),
-  type: z.enum(['professional', 'retail', 'equipment', 'overhead']),
+  type: z.enum(['professional', 'retail', 'equipment', 'overhead', 'refreshment']),
   category: z.string().min(1, 'Category is required'),
   imageUrl: z.string().optional(),
   internalNotes: z.string().optional(),
@@ -155,6 +156,40 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                         </div>
                     )}
                 </div>
+                
+                <Controller
+                    name="type"
+                    control={control}
+                    render={({ field }) => (
+                        <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Role</Label>
+                            <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-3">
+                                <label htmlFor="professional-e" className="cursor-pointer">
+                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'professional' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
+                                        <Package className={cn("mb-1 h-5 w-5", field.value === 'professional' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                        <span className="text-[9px] font-black uppercase">Professional</span>
+                                        <RadioGroupItem value="professional" id="professional-e" className="sr-only" />
+                                    </div>
+                                </label>
+                                <label htmlFor="retail-e" className="cursor-pointer">
+                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'retail' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
+                                        <ShoppingCart className={cn("mb-1 h-5 w-5", field.value === 'retail' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                        <span className="text-[9px] font-black uppercase">Retail</span>
+                                        <RadioGroupItem value="retail" id="retail-e" className="sr-only" />
+                                    </div>
+                                </label>
+                                <label htmlFor="refreshment-e" className="cursor-pointer">
+                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'refreshment' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
+                                        <Coffee className={cn("mb-1 h-5 w-5", field.value === 'refreshment' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                        <span className="text-[9px] font-black uppercase">Amenity</span>
+                                        <RadioGroupItem value="refreshment" id="refreshment-e" className="sr-only" />
+                                    </div>
+                                </label>
+                            </RadioGroup>
+                        </div>
+                    )}
+                />
+
                 <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dossier Visual</Label>
                     <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
@@ -186,13 +221,13 @@ const Step2 = () => {
     return (
         <div className="space-y-10">
             <SectionHeader icon={Calculator} title="Yield & Pricing Model" step={2} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
                     <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Base Economics</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-6">
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Amount</Label><Input type="number" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Qty</Label><Input type="number" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Amount</Label><Input type="number" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Qty</Label><Input type="number" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold" /></div>
                         </div>
                         <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center shadow-inner">
                             <span className="text-[10px] font-black uppercase text-primary tracking-widest">Landed / Unit</span>
@@ -201,14 +236,14 @@ const Step2 = () => {
                     </CardContent>
                 </Card>
 
-                {productType === 'professional' ? (
+                {productType === 'professional' || productType === 'overhead' || productType === 'refreshment' ? (
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Professional Logics</CardTitle></CardHeader>
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Consumption Logic</CardTitle></CardHeader>
                         <CardContent className="p-6 space-y-6">
                             <Controller name="costingMethod" control={control} render={({ field }) => (
                                 <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
                                     <label htmlFor="size-e" className="cursor-pointer">
-                                        <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                        <div className={cn("flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
                                             <Pipette className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                             <span className="text-[10px] font-black uppercase tracking-widest">Volumetric</span>
                                             <RadioGroupItem value="size" id="size-e" className="sr-only" />
@@ -225,26 +260,38 @@ const Step2 = () => {
                             )}/>
                             {costingMethod === 'size' && (
                                 <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label><Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
+                                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label><Input type="number" placeholder="1000" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
                                         <Controller name="containerUnit" control={control} render={({ field }) => (
                                             <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem></SelectContent></Select>
                                         )}/>
                                     </div>
                                 </div>
                             )}
-                            <div className="space-y-1.5 pt-2 border-t border-dashed border-border/50">
-                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Restocking Markup (%)</Label>
-                                <Input type="number" {...register('restockingMarkup')} className="h-11 rounded-xl border-2 font-bold" />
-                            </div>
+                            {costingMethod === 'uses' && (
+                                <div className="space-y-1.5 animate-in slide-in-from-top-2 text-left">
+                                    <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Est. Uses / Container</Label>
+                                    <Input type="number" placeholder="e.g., 50" {...register('usesPerContainer')} className="h-11 rounded-xl border-2 font-bold" />
+                                </div>
+                            )}
+                            {productType === 'professional' && (
+                                <div className="space-y-1.5 pt-2 border-t border-dashed border-border/50 text-left">
+                                    <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Restocking Markup (%)</Label>
+                                    <Input type="number" placeholder="e.g., 5" {...register('restockingMarkup')} className="h-11 rounded-xl border-2 font-bold" />
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 ) : (
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
                         <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Retail Profit Architecture</CardTitle></CardHeader>
-                        <CardContent className="p-6 space-y-6">
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Direct MSRP</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary"/><Input type="number" {...register('msrp')} className="h-12 pl-8 rounded-xl border-2 font-black text-primary font-mono text-lg"/></div></div>
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Wholesale Rate</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"/><Input type="number" {...register('wholesalePrice')} className="h-12 pl-8 rounded-xl border-2 font-black text-slate-700 font-mono text-lg"/></div></div>
+                        <CardContent className="p-6 space-y-8">
+                            <div className="p-5 rounded-2xl bg-muted/10 border-2 space-y-4">
+                                <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Direct (MSRP)</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary"/><Input type="number" {...register('msrp')} className="h-10 pl-7 rounded-xl border-2 font-black text-primary font-mono text-lg"/></div></div>
+                            </div>
+                            <div className="p-5 rounded-2xl bg-muted/10 border-2 space-y-4">
+                                <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Wholesale Rate</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"/><Input type="number" {...register('wholesalePrice')} className="h-10 pl-7 rounded-xl border-2 font-black text-slate-700 font-mono text-lg"/></div></div>
+                            </div>
                         </CardContent>
                     </Card>
                 )}
@@ -258,19 +305,19 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
     return (
         <div className="space-y-10">
             <SectionHeader icon={Truck} title="Logistics Dossier" step={3} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Source Intel</CardTitle></CardHeader>
+                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Source Intel</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-5">
                         <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Vendor</Label><Input {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
                         <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Asset SKU</Label><Input {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
                     </CardContent>
                 </Card>
                 <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Logistics Control</CardTitle></CardHeader>
+                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Logistics Control</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-5">
-                        <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Threshold</Label><Input type="number" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg" /></div>
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Threshold</Label><Input type="number" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg" /></div>
+                        <div className="space-y-1.5 text-left">
                             <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
                             <div className="flex gap-2">
                                 <Controller name="primaryLocationId" control={control} render={({ field }) => (
@@ -291,7 +338,16 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
     )
 }
 
-export const EditProductDialog: React.FC<EditProductDialogProps> = ({
+export const EditProductDialog: React.FC<{
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  product: InventoryItem;
+  onProductUpdated: (product: InventoryItem) => void;
+  categories: string[];
+  onNewCategory: (category: string) => void;
+  locations: Location[];
+  onAddLocationClick: () => void;
+}> = ({
   open, onOpenChange, product, onProductUpdated, categories, onNewCategory, locations, onAddLocationClick,
 }) => {
   const [step, setStep] = useState(1);

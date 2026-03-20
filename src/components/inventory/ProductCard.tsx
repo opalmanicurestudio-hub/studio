@@ -19,7 +19,8 @@ import {
   ArrowRight,
   FlaskConical,
   ShoppingCart,
-  FileText
+  FileText,
+  Coffee
 } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
@@ -84,6 +85,15 @@ export const ProductCard = ({
         partialDisplay = null;
     }
     
+    const TypeIcon = useMemo(() => {
+        switch(item.type) {
+            case 'refreshment': return Coffee;
+            case 'retail': return ShoppingCart;
+            case 'equipment': return Hammer;
+            default: return Package;
+        }
+    }, [item.type]);
+
     return (
         <Card className={cn(
             "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col",
@@ -105,7 +115,7 @@ export const ProductCard = ({
                                 {item.imageUrl ? (
                                     <Image src={item.imageUrl} alt={item.name} fill className='object-cover' />
                                 ) : (
-                                    <Package className="w-8 h-8 md:w-10 md:h-10 text-muted-foreground/30" />
+                                    <TypeIcon className="w-8 h-8 md:w-10 md:h-10 text-muted-foreground/30" />
                                 )}
                             </div>
                             {item.isExperimentActive && (
@@ -116,7 +126,7 @@ export const ProductCard = ({
                         </Link>
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                                <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none">{item.name}</p>
+                                <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none text-left">{item.name}</p>
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{item.category}</p>
@@ -140,7 +150,7 @@ export const ProductCard = ({
                 </div>
 
                 <div className={cn("grid gap-4 mt-auto", partialDisplay ? "grid-cols-2" : "grid-cols-1")}>
-                    <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all">
+                    <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Full Stock</p>
                         <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{item.totalStock}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">UNT</span></p>
                     </div>
@@ -151,7 +161,7 @@ export const ProductCard = ({
             <div className="p-3 border-t bg-muted/5 flex items-center justify-between gap-4">
                 <div className="flex gap-2">
                     <TooltipProvider>
-                        {(item.type === 'professional' || item.type === 'overhead') && (
+                        {(item.type === 'professional' || item.type === 'overhead' || item.type === 'refreshment') && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button 
