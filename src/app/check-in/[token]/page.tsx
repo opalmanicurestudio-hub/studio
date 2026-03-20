@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -25,7 +24,8 @@ import {
     Minus,
     Info,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    XCircle
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource } from '@/lib/data';
@@ -339,6 +339,25 @@ export default function CheckInPage() {
             </div>
         );
     }
+
+    if (!appointmentData) {
+        return (
+            <ViewContainer>
+                <div className="p-12 text-center space-y-6">
+                    <XCircle className="w-16 h-16 text-destructive mx-auto opacity-40" />
+                    <div className="space-y-2">
+                        <h2 className="text-2xl font-black uppercase tracking-tighter">Record Expired</h2>
+                        <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">
+                            This check-in link is no longer valid or could not be found in our manifest.
+                        </p>
+                    </div>
+                    <Button asChild className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px]">
+                        <Link href="/">Return to Registry</Link>
+                    </Button>
+                </div>
+            </ViewContainer>
+        );
+    }
     
     if (appointmentData?.status === 'servicing') {
         return (
@@ -385,7 +404,7 @@ export default function CheckInPage() {
 
                     <Button 
                         onClick={() => {
-                            if (!firestore || !token) return;
+                            if (!firestore || !token || !appointmentData) return;
                             const updateRef = doc(firestore, 'appointmentCheckIns', token);
                             updateDocumentNonBlocking(updateRef, { checkInStatus: 'arrived' });
                             toast({ title: "Arrival Certified", description: "Your professional has been notified." });

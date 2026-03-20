@@ -30,20 +30,20 @@ service cloud.firestore {
 
     // --- Public Whitelist for Portal/Check-in ---
     match /tenants/{tenantId}/services/{serviceId} {
-      allow read: if true;
+      allow get, list: if true;
     }
     match /tenants/{tenantId}/staff/{staffId} {
       allow get: if true;
-      allow read, write: if isStaff(tenantId);
+      allow list, write: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/consentForms/{formId} {
-      allow read: if true;
+      allow get, list: if true;
     }
     match /tenants/{tenantId}/resources/{resourceId} {
-      allow read: if true;
+      allow get, list: if true;
     }
     match /tenants/{tenantId}/inventory/{itemId} {
-      allow list, get: if true; // Critical for concierge menu
+      allow get, list: if true; // Critical for concierge menu
       allow write: if isStaff(tenantId);
     }
 
@@ -57,24 +57,23 @@ service cloud.firestore {
 
     // --- Check-in & Public Tokens ---
     match /appointmentCheckIns/{token} {
-      allow read: if true;
-      allow update: if true;
+      allow read, write: if true; // Token is the secret key
     }
 
     match /tenants/{tenantId}/notifications/{notificationId} {
-      allow create: if true;
-      allow read, write: if isStaff(tenantId);
+      allow create: if true; 
+      allow get, list, update, delete: if isStaff(tenantId);
     }
 
     match /tenants/{tenantId}/appointments/{appointmentId} {
       allow get: if true;
-      allow read, write: if isStaff(tenantId);
+      allow list, write: if isStaff(tenantId);
     }
 
     match /tenants/{tenantId}/clients/{clientId} {
       allow get: if true;
       allow create: if true;
-      allow read, write: if isStaff(tenantId);
+      allow list, write: if isStaff(tenantId);
     }
 
     // --- Master Admin Access ---
