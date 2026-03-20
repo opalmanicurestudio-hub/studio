@@ -20,7 +20,8 @@ import {
   FlaskConical,
   ShoppingCart,
   FileText,
-  Coffee
+  Coffee,
+  Award
 } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
@@ -128,11 +129,16 @@ export const ProductCard = ({
                             <div className="flex items-center gap-2 mb-1">
                                 <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none text-left">{item.name}</p>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{item.category}</p>
                                 <Badge variant="outline" className={cn("h-4 px-1.5 font-black text-[8px] uppercase border-2", stockStatus.className)}>
                                     {stockStatus.label}
                                 </Badge>
+                                {item.isMembersOnly && (
+                                    <Badge className="bg-indigo-600 text-white border-none h-4 px-1.5 font-black text-[7px] uppercase tracking-widest shadow-sm">
+                                        <Award className="w-2 h-2 mr-1" /> EXCLUSIVE
+                                    </Badge>
+                                )}
                             </div>
                             <div className="flex items-center gap-3 mt-3">
                                 <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">
