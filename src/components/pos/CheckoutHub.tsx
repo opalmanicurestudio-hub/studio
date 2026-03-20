@@ -412,7 +412,10 @@ export const CheckoutHub = ({
         setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code));
     };
 
+    // FINANCIAL PARAMETERS SYNC
+    const finalSubtotal = subtotal;
     const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
+    const finalTotal = total;
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 
     return (
@@ -545,9 +548,8 @@ export const CheckoutHub = ({
                                         Register New Client Profile
                                     </Button>
                                 </DialogFooter>
-                            )}
-                        </DialogContent>
-                    </Dialog>
+                            </DialogContent>
+                        </Dialog>
                     <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" onClick={onScanClick}><QrCode className="w-6 h-6 opacity-40" /></Button>
                 </div>
             </div>
