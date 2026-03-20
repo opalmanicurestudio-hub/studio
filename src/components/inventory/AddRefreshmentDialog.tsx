@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -44,6 +43,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -208,7 +208,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
             <SectionHeader icon={FlaskConical} title="Yield & Technical Recipe" step={2} />
             <div className="space-y-8">
                 <div className="space-y-4">
-                    <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center justify-between px-1 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Technical Recipe (Ingredients)</Label>
                         <Button variant="ghost" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                             <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
@@ -219,7 +219,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                             {formula.map((item, index) => (
                                 <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
                                     <div className="min-w-0 flex-1 text-left">
-                                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
+                                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{item.name}</p>
                                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Basis: ${(item.costPerUnit || 0).toFixed(4)} / {item.unit}</p>
                                     </div>
                                     <div className="flex items-center gap-3">

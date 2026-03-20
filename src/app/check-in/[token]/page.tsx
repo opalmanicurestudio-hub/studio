@@ -293,7 +293,7 @@ const ServicingView = ({
                                                     )}
                                                 </div>
                                                 {item.description && (
-                                                    <p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight italic opacity-80">
+                                                    <p className="text-[10px] font-medium text-slate-500 leading-relaxed tracking-tight italic opacity-80">
                                                         {item.description}
                                                     </p>
                                                 )}
