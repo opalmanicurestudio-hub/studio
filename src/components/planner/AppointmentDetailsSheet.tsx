@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { format, differenceInMinutes, parseISO, differenceInSeconds } from 'date-fns';
 import {
   Award,
@@ -50,7 +51,6 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Separator } from '@/components/ui/separator';
 import { cn, safeNumber } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { type Appointment, type Client, type Service, type Staff, AppointmentCheckoutState, ConsentForm } from '@/lib/data';
@@ -62,15 +62,15 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
-import { doc, increment, collection } from 'firebase/firestore';
+import { collection, doc, increment, writeBatch } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
+import { Separator } from '@/components/ui/separator';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
   if (val instanceof Date) return val;
-  if (typeof val?.toDate === 'function') return val.toDate();
   if (typeof val === 'string') return parseISO(val);
   if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
   return new Date(val);
@@ -105,6 +105,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const { firestore } = useFirebase();
 
   // HOOKS MUST BE UNCONDITIONAL AT THE TOP LEVEL
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
     return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
@@ -118,22 +122,22 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   }, [appointment?.addOnIds, allServices]);
 
   const signedConsentsQuery = useMemoFirebase(() => {
-      if (!firestore || !tenantId || !client?.id) return null;
-      return collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`);
+    if (!firestore || !tenantId || !client?.id) return null;
+    return collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`);
   }, [firestore, tenantId, client?.id]);
-  
+
   const { data: signedConsents } = useCollection<any>(signedConsentsQuery);
 
   const complianceInfo = useMemo(() => {
-      if (!service || !consentForms) return { requiredForms: [], pendingForms: [], allCertified: true };
-      const requiredIds = service.requiredFormIds || [];
-      const requiredForms = consentForms.filter(f => requiredIds.includes(f.id));
-      const pendingForms = requiredForms.filter(rf => !signedConsents?.some(sc => sc.formId === rf.id));
-      return {
-          requiredForms,
-          pendingForms,
-          allCertified: pendingForms.length === 0
-      };
+    if (!service || !consentForms) return { requiredForms: [], pendingForms: [], allCertified: true };
+    const requiredIds = service.requiredFormIds || [];
+    const requiredForms = consentForms.filter(f => requiredIds.includes(f.id));
+    const pendingForms = requiredForms.filter(rf => !signedConsents?.some(sc => sc.formId === rf.id));
+    return {
+      requiredForms,
+      pendingForms,
+      allCertified: pendingForms.length === 0
+    };
   }, [service, consentForms, signedConsents]);
 
   const financialData = useMemo(() => {
@@ -152,11 +156,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         if (!product) return acc;
         let costPerBaseUnit = 0;
         if (product.costingMethod === 'size' && product.size) {
-            costPerBaseUnit = (product.costPerUnit || 0) / product.size;
+          costPerBaseUnit = (product.costPerUnit || 0) / product.size;
         } else if (product.costingMethod === 'uses' && product.estimatedUses) {
-            costPerBaseUnit = (product.costPerUnit || 0) / product.estimatedUses;
+          costPerBaseUnit = (product.costPerUnit || 0) / product.estimatedUses;
         } else {
-            costPerBaseUnit = product.costPerUnit || 0;
+          costPerBaseUnit = product.costPerUnit || 0;
         }
         return acc + costPerBaseUnit * (p.quantityUsed || 1);
       }, 0);
@@ -171,22 +175,22 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const breakEven = timeCost + productCost;
     const revenue = isCompleted
       ? transactions
-          .filter((t: any) => t.appointmentId === appointment.id && t.category === 'Service Revenue')
-          .reduce((acc: any, t: any) => acc + t.amount, 0)
+        .filter((t: any) => t.appointmentId === appointment.id && t.category === 'Service Revenue')
+        .reduce((acc: any, t: any) => acc + t.amount, 0)
       : allServicesInApt.reduce(
-          (acc, s) =>
-            acc +
-            (s.serviceTiers?.find((t) => t.tierId === assignedStaffMember?.pricingTierId)?.price ||
-              s.price),
-          0
-        );
+        (acc, s) =>
+          acc +
+          (s.serviceTiers?.find((t) => t.tierId === assignedStaffMember?.pricingTierId)?.price ||
+            s.price),
+        0
+      );
 
     return { revenue, breakEven, profit: revenue - breakEven };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
-  
+
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
     if (appointment?.status === 'servicing' && appointment.actualStartTime) {
@@ -213,10 +217,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   const handleAddAndConfigureConfirm = (selectedAddOns: Service[], configs: any) => {
     if (!firestore || !tenantId || !appointment) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
@@ -237,15 +237,27 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     setIsAddAndConfigureOpen(false);
   };
 
-  const handleCopyLink = () => {
+  const handleCopyLink = useCallback(() => {
     if (appointment?.checkInToken) {
       const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
-      navigator.clipboard.writeText(link);
-      toast({ title: 'Link Copied', description: 'Guest portal URL is on your clipboard.' });
+
+      // Fallback for environments where navigator.clipboard might be restrictive
+      const textArea = document.createElement("textarea");
+      textArea.value = link;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        toast({ title: 'Link Copied', description: 'Guest portal URL is on your clipboard.' });
+      } catch (err) {
+        console.error('Fallback copy failed', err);
+        toast({ variant: 'destructive', title: 'Copy Failed', description: 'Could not copy link to clipboard.' });
+      }
+      document.body.removeChild(textArea);
     } else {
       toast({ variant: 'destructive', title: 'Link Generation Failed', description: 'Check-in token not found for this record.' });
     }
-  };
+  }, [appointment?.checkInToken, toast]);
 
   // CONDITIONAL RENDER GUARD AFTER ALL HOOKS
   if (!mounted || !open || !appointment || !client || !service) return null;
@@ -272,7 +284,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <div className={cn("space-y-8 pb-32", isMobile ? "p-5" : "p-8")}>
               {appointment.status === 'confirmed' && (
                 <div className="flex justify-center">
-                    <Button onClick={() => onStartService(appointment.id)} className={cn("w-full max-w-xs rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20 transition-all active:scale-95", isMobile ? "h-12 text-sm" : "h-16 text-lg")} size="lg"><Play className="mr-3 h-5 w-5" /> Start Session</Button>
+                  <Button onClick={() => onStartService(appointment.id)} className={cn("w-full max-w-xs rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20 transition-all active:scale-95", isMobile ? "h-12 text-sm" : "h-16 text-lg")} size="lg"><Play className="mr-3 h-5 w-5" /> Start Session</Button>
                 </div>
               )}
 
@@ -293,37 +305,37 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       {client.activeMembershipId && <Badge className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest bg-indigo-600 text-white border-none shadow-md"><Award className="w-2.5 h-2.5 mr-1" /> Member</Badge>}
                     </div>
                     {isOwnerOrAdminUser && (
-                        <div className="flex flex-col gap-1 pt-2 text-left">
-                            {client.email && <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center justify-center sm:justify-start gap-2"><Mail className="w-3 h-3 opacity-40" /> {client.email}</p>}
-                            {client.phone && <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center justify-center sm:justify-start gap-2"><Phone className="w-3 h-3 opacity-40" /> {formatPhoneNumber(client.phone)}</p>}
-                        </div>
+                      <div className="flex flex-col gap-1 pt-2 text-left">
+                        {client.email && <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center justify-center sm:justify-start gap-2"><Mail className="w-3 h-3 opacity-40" /> {client.email}</p>}
+                        {client.phone && <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center justify-center sm:justify-start gap-2"><Phone className="w-3 h-3 opacity-40" /> {formatPhoneNumber(client.phone)}</p>}
+                      </div>
                     )}
                   </div>
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-dashed text-left">
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Compliance & Digital Intake</h3>
-                    <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-4 shadow-inner">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-black uppercase text-muted-foreground">Certified Status</span>
-                            <Badge variant={complianceInfo.allCertified ? "default" : "outline"} className={cn("text-[8px] font-black uppercase h-5 px-2", complianceInfo.allCertified ? "bg-green-500 text-white border-none" : "bg-white text-amber-600 border-amber-200")}>
-                                {complianceInfo.allCertified ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Protocol Certified</> : <><Clock className="w-2 h-2 mr-1" /> Signature Pending</>}
-                            </Badge>
-                        </div>
-                        {complianceInfo.pendingForms.length > 0 && (
-                            <div className="space-y-2">
-                                {complianceInfo.pendingForms.map(f => (
-                                    <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-amber-700 bg-amber-50/50 p-2 rounded-lg border border-amber-200">
-                                        <span className="flex items-center gap-2 truncate text-left"><FileSignature className="w-3 h-3 opacity-40"/> {f.title}</span>
-                                        <span className="shrink-0 ml-4">Required</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
-                            <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
-                        </Button>
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Compliance & Digital Intake</h3>
+                  <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-4 shadow-inner">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-black uppercase text-muted-foreground">Certified Status</span>
+                      <Badge variant={complianceInfo.allCertified ? "default" : "outline"} className={cn("text-[8px] font-black uppercase h-5 px-2", complianceInfo.allCertified ? "bg-green-500 text-white border-none" : "bg-white text-amber-600 border-amber-200")}>
+                        {complianceInfo.allCertified ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Protocol Certified</> : <><Clock className="w-2 h-2 mr-1" /> Signature Pending</>}
+                      </Badge>
                     </div>
+                    {complianceInfo.pendingForms.length > 0 && (
+                      <div className="space-y-2">
+                        {complianceInfo.pendingForms.map(f => (
+                          <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-amber-700 bg-amber-50/50 p-2 rounded-lg border border-amber-200">
+                            <span className="flex items-center gap-2 truncate text-left"><FileSignature className="w-3 h-3 opacity-40" /> {f.title}</span>
+                            <span className="shrink-0 ml-4">Required</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
+                      <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
+                    </Button>
+                  </div>
                 </div>
 
                 {client.outstandingBalance && client.outstandingBalance > 0 && (
@@ -343,7 +355,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <Card className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden text-left">
                   <CardContent className={isMobile ? "p-4 space-y-4" : "p-5 space-y-4"}>
                     <div className="flex justify-between items-start gap-4">
-                      <div className="space-y-1 min-w-0 text-left"><p className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p><div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest"><Clock className="w-2.5 h-2.5" /> {service.duration}m</div><div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-primary/10 text-left"><Avatar className="h-5 w-5 border shadow-sm"><AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback></Avatar><span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span></div></div>
+                      <div className="space-y-1 min-w-0 text-left"><p className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p><div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest "><Clock className="w-2.5 h-2.5" /> {service.duration}m</div><div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-primary/10 text-left"><Avatar className="h-5 w-5 border shadow-sm"><AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback></Avatar><span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span></div></div>
                       <p className="text-sm md:text-xl font-black text-primary tracking-tighter font-mono shrink-0">${financialData?.revenue.toFixed(2)}</p>
                     </div>
                     {(appointment.addOnIds || []).length > 0 && (
@@ -352,10 +364,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         {(appointment.addOnIds || []).map((id) => {
                           const s = allServices.find((svc) => svc.id === id);
                           if (!s) return null;
-                          const addonStaffId = appointment.checkoutState?.serviceStaffOverrides?.[id] || appointment.staffId;
-                          const addonStaff = staff.find(st => st.id === addonStaffId);
                           return (
-                            <div key={id} className="space-y-1.5 p-2 rounded-xl bg-background border shadow-sm text-left"><div className="flex justify-between text-[9px] font-black uppercase tracking-tight text-slate-600"><span className="truncate mr-2">+ {s.name}</span><span className="font-mono shrink-0">${s.price.toFixed(2)}</span></div><div className="flex items-center gap-1.5 opacity-60 text-left"><Avatar className="h-4 w-4 border shadow-inner"><AvatarImage src={addonStaff?.avatarUrl} className="object-cover" /><AvatarFallback className="text-[6px] font-black">{(addonStaff?.name || 'S')[0]}</AvatarFallback></Avatar><span className="text-[8px] font-black uppercase tracking-widest">{addonStaff?.name?.split(' ')[0] || 'Unassigned'}</span></div></div>
+                            <div key={id} className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground bg-muted/10 p-2 rounded-lg border border-muted/20">
+                              <span className="truncate flex items-center gap-2"><Sparkles className="w-3 h-3" /> {s.name}</span>
+                              <span className="shrink-0 text-primary font-mono">${s.price.toFixed(2)}</span>
+                            </div>
                           );
                         })}
                       </div>
@@ -364,58 +377,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </Card>
               </div>
 
-              {isOwnerOrAdminUser && financialData && (
-                <div className="space-y-4">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Yield Analysis</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-1 text-left"><p className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60">Gross Yield</p><p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary">${financialData.revenue.toFixed(2)}</p></div>
-                    <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 space-y-1 text-right"><p className="text-[8px] font-black uppercase tracking-widest text-destructive opacity-60">Est. COGS</p><p className="text-base md:text-xl font-black font-mono tracking-tighter text-destructive">${financialData.breakEven.toFixed(2)}</p></div>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-4">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Health & Intel</h3>
-                <div className="space-y-3">
-                  {client.sensoryNeeds && (
-                    <Alert className="border-2 rounded-xl bg-blue-500/5 border-blue-200">
-                        <Ear className="h-4 w-4 text-blue-600" />
-                        <AlertTitle className="text-[9px] font-black uppercase text-left text-blue-700">Special Accommodations</AlertTitle>
-                        <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left text-blue-600">{client.sensoryNeeds}</AlertDescription>
-                    </Alert>
-                  )}
-                  {appointment.notes && (
-                    <Alert className="border-2 rounded-xl bg-primary/5 border-primary/20">
-                        <MessageSquare className="h-4 w-4 text-primary" />
-                        <AlertTitle className="text-[9px] font-black uppercase text-left text-primary">Arrival Intel</AlertTitle>
-                        <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left text-slate-600">{appointment.notes}</AlertDescription>
-                    </Alert>
-                  )}
-                  {client.medicalNotes && (
-                    <Alert variant="destructive" className="border-2 rounded-xl bg-red-500/5"><ShieldAlert className="h-4 w-4" /><AlertTitle className="text-[9px] font-black uppercase text-left">Medical Alert</AlertTitle><AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left">{client.medicalNotes}</AlertDescription></Alert>
-                  )}
-                  {client.allergyNotes && (
-                    <Alert variant="destructive" className="border-2 rounded-xl bg-amber-500/5 text-amber-700 border-amber-200"><AlertTriangle className="h-4 w-4" /><AlertTitle className="text-[9px] font-black uppercase text-left">Allergy Warning</AlertTitle><AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left">{client.allergyNotes}</AlertDescription></Alert>
-                  )}
-                  <Card className="rounded-[1.5rem] border-2 bg-muted/5">
-                    <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><FileText className="w-3 h-3" /> Discovery Notes</CardTitle></CardHeader>
-                    <CardContent className="p-4 pt-0 text-left"><p className="text-[11px] font-medium text-slate-600 leading-relaxed italic">"{client.notes?.general || 'No session notes provided.'}"</p></CardContent>
-                  </Card>
-                </div>
-              </div>
             </div>
           </ScrollArea>
-          
-          <SheetFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
-            <div className="grid grid-cols-2 gap-3 w-full">
-              <Button variant="outline" className="h-12 rounded-xl font-black uppercase text-[9px] tracking-widest border-2" onClick={() => { onOpenChange(false); setTimeout(() => onReschedule(appointment), 150); }}><Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule</Button>
-              <Button variant="outline" className="h-12 rounded-xl font-black uppercase text-[9px] tracking-widest border-2" onClick={() => { onOpenChange(false); setTimeout(() => onEdit(appointment), 150); }}><Edit className="mr-2 h-3.5 w-3.5" /> Edit Record</Button>
-            </div>
-          </SheetFooter>
         </SheetContent>
       </Sheet>
-
-      <AddAndConfigurePartsDialog open={isAddAndConfigureOpen} onOpenChange={setIsAddAndConfigureOpen} allAddOns={allServices.filter((s) => s.type === 'addon')} initialSelected={currentAddOns} staff={staff} defaultStaffId={appointment.staffId} onConfirm={handleAddAndConfigureConfirm} />
+      <AddAndConfigurePartsDialog
+        open={isAddAndConfigureOpen}
+        onOpenChange={setIsAddAndConfigureOpen}
+        appointment={appointment}
+        client={client}
+        service={service}
+        onConfirm={handleAddAndConfigureConfirm}
+      />
     </>
   );
 };
