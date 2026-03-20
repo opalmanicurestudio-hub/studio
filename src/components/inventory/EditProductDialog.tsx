@@ -206,16 +206,31 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                 />
 
                 {(productType === 'refreshment' || productType === 'professional') && (
-                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-inner">
-                        <div className="space-y-1 text-left">
-                            <Label htmlFor="mem-only-edit" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
-                                <Lock className="w-4 h-4" /> Members Only Access
-                            </Label>
-                            <p className="text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest text-left">Restrict request availability to active members</p>
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-inner">
+                            <div className="space-y-1 text-left">
+                                <Label htmlFor="mem-only-edit" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
+                                    <Lock className="w-4 h-4" /> Members Only Access
+                                </Label>
+                                <p className="text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest text-left">Restrict request availability to active members</p>
+                            </div>
+                            <Controller name="isMembersOnly" control={control} render={({ field }) => (
+                                <Switch id="mem-only-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-indigo-600" />
+                            )}/>
                         </div>
-                        <Controller name="isMembersOnly" control={control} render={({ field }) => (
-                            <Switch id="mem-only-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-indigo-600" />
-                        )}/>
+                        {productType === 'refreshment' && (
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-inner">
+                                <div className="space-y-1 text-left">
+                                    <Label htmlFor="concierge-toggle-edit" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2">
+                                        <Coffee className="w-4 h-4" /> Visible in Concierge
+                                    </Label>
+                                    <p className="text-[10px] font-bold text-primary/60 uppercase tracking-widest text-left">Display this item on the guest-facing menu</p>
+                                </div>
+                                <Controller name="showInConcierge" control={control} render={({ field }) => (
+                                    <Switch id="concierge-toggle-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125" />
+                                )}/>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -297,7 +312,16 @@ const Step2 = () => {
                                     <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label><Input type="number" placeholder="1000" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
                                     <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
                                         <Controller name="containerUnit" control={control} render={({ field }) => (
-                                            <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem></SelectContent></Select>
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <SelectTrigger className="h-11 rounded-xl border-2 font-bold">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent className="rounded-xl">
+                                                    <SelectItem value="ml" className="font-bold">ML</SelectItem>
+                                                    <SelectItem value="oz" className="font-bold">OZ</SelectItem>
+                                                    <SelectItem value="g" className="font-bold">G</SelectItem>
+                                                </SelectContent>
+                                            </Select>
                                         )}/>
                                     </div>
                                 </div>
@@ -408,7 +432,8 @@ export const EditProductDialog: React.FC<{
             expirationDate: firstBatch?.expirationDate ? parseISO(firstBatch.expirationDate) : undefined,
             description: product.description || '',
             isMembersOnly: !!product.isMembersOnly,
-            showInConcierge: !!product.showInConcierge
+            showInConcierge: !!product.showInConcierge,
+            internalNotes: product.internalNotes || '',
         });
         setStep(1);
     }
@@ -419,7 +444,14 @@ export const EditProductDialog: React.FC<{
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : product.costPerUnit;
     const updatedBatches = [...product.batches];
     if (updatedBatches.length > 0) updatedBatches[0] = { ...updatedBatches[0], costPerUnit, expirationDate: data.expirationDate?.toISOString() };
-    onProductUpdated({ ...product, ...data, costPerUnit, batches: updatedBatches, supplierUrl: data.purchaseLink });
+    
+    onProductUpdated({ 
+        ...product, 
+        ...data, 
+        costPerUnit, 
+        batches: updatedBatches, 
+        supplierUrl: data.purchaseLink 
+    });
     onOpenChange(false);
   };
 

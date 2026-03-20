@@ -66,6 +66,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { doc } from 'firebase/firestore';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -88,6 +90,8 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
 export default function ProductDetailPage() {
     const { id } = useParams<{ id: string }>();
     const { inventory, stockCorrections, locations, services, transactions, appointments, clients, isLoading: isInventoryLoading } = useInventory();
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
     const { toast } = useToast();
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [isQrModalOpen, setIsQrModalOpen] = useState(false);
@@ -97,6 +101,10 @@ export default function ProductDetailPage() {
     const product = useMemo(() => inventory.find((p) => p.id === id), [inventory, id]);
 
     const handleProductUpdate = (updatedProduct: InventoryItem) => {
+        if (!firestore || !selectedTenant) return;
+        const itemRef = doc(firestore, 'tenants', selectedTenant.id, 'inventory', updatedProduct.id);
+        updateDocumentNonBlocking(itemRef, updatedProduct);
+        toast({ title: "Dossier Synchronized", description: "Record updates committed to ledger." });
         setIsEditDialogOpen(false);
     };
     
