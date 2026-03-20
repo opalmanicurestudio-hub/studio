@@ -102,7 +102,7 @@ export default function ProductDetailPage() {
     
     const productCategories = useMemo(() => {
         const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
-        setProductCategories([...new Set(allCategories)]);
+        return [...new Set(allCategories)];
     }, [inventory]);
 
     const ledgerWithRunningStock = useMemo(() => {
