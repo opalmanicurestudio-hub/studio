@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -6,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
 import { parseISO, differenceInSeconds, differenceInMinutes } from 'date-fns';
-import { User, Clock, CheckCircle, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square, Activity, Award, Repeat } from 'lucide-react';
+import { User, Clock, CheckCircle, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square, Activity, Award, Repeat, Trash2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
@@ -23,7 +22,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services, staff, onSendToCheckout, onViewDetails }) => {
+export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services, staff, onSendToCheckout, onViewDetails, onCancel }) => {
     const { clients } = useInventory();
     const mainService = services?.find((s: any) => s.id === appointment.serviceId);
     const addOnServices = (appointment.addOnIds || []).map((id: any) => services?.find((s: any) => s.id === id)).filter((s: any): s is Service => !!s);
@@ -102,7 +101,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                 </div>
                                 
                                 <div className="space-y-2">
-                                    {assignedTechnicians.map(tech => {
+                                    {assignedTechnicians.map((tech, tIdx) => {
                                         const techServices = Object.entries(appointment.checkoutState?.serviceStaffOverrides || {}).filter(([_, staffId]) => staffId === tech.id).map(([svcId]) => svcId);
                                         if (appointment.staffId === tech.id && !techServices.includes(appointment.serviceId)) techServices.unshift(appointment.serviceId);
                                         const isDone = techServices.length > 0 && techServices.every(id => completedIds.includes(id));
@@ -112,7 +111,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                             return (svcId === appointment.serviceId) || concurrentIds.includes(svcId) || primaryDone;
                                         });
                                         return (
-                                            <div key={`tech-card-${tech.id}`} className={cn("flex items-center gap-2 p-2 rounded-xl border-2 bg-background transition-all", isDone && "opacity-40 grayscale")}>
+                                            <div key={`tech-card-${tech.id}-${tIdx}`} className={cn("flex items-center gap-2 p-2 rounded-xl border-2 bg-background transition-all", isDone && "opacity-40 grayscale")}>
                                                 <Avatar className="h-7 w-7 border shadow-sm rounded-lg"><AvatarImage src={tech.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-[9px] uppercase">{(tech.name||'S')[0]}</AvatarFallback></Avatar>
                                                 <div className="min-w-0 flex-1 text-left">
                                                     <p className="text-[10px] font-black uppercase tracking-tight truncate leading-tight">{tech.name.split(' ')[0]}</p>
@@ -150,11 +149,19 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                         )}
                     </CardContent>
                     
-                    <div className="p-2 pt-0 grid grid-cols-1 gap-2">
-                        <Button size="sm" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-primary/20" onClick={(e) => { e.stopPropagation(); onSendToCheckout(); }} disabled={isReady}>
+                    <div className="p-2 pt-0 flex gap-2">
+                        <Button size="sm" className="flex-1 h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-primary/20" onClick={(e) => { e.stopPropagation(); onSendToCheckout(); }} disabled={isReady}>
                             <Square className="w-4 h-4 mr-2" />
                             Finish & Checkout
                         </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-12 w-12 rounded-xl border-2 text-destructive hover:bg-destructive/5 border-destructive/10" onClick={(e) => { e.stopPropagation(); onCancel(); }}>
+                                    <Trash2 className="h-5 w-5" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px]">Terminate Session</TooltipContent>
+                        </Tooltip>
                     </div>
                 </Card>
             </div>

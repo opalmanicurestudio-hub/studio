@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -54,7 +53,7 @@ import {
 } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { type Appointment, type Client, type Service, type Staff, AppointmentCheckoutState, ConsentForm } from '@/lib/data';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -332,7 +331,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
                 <div className="grid grid-cols-2 gap-3 text-left">
                   <Button variant="outline" className="h-10 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest" asChild><Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-3.5 w-3.5" /> Profile</Link></Button>
-                  <Button variant="outline" className="h-10 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onCancel(appointment.id); }}><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel</Button>
+                  <Button variant="outline" className="h-10 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }}><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel</Button>
                 </div>
               </div>
 
