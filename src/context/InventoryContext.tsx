@@ -26,6 +26,7 @@ import {
     type TillSession,
     type SubscriptionInstance,
     type Redemption,
+    type RefreshmentRequest,
 } from '@/lib/data';
 import {
     type BillDefinition as Bill,
@@ -76,6 +77,7 @@ interface InventoryContextType {
   tillSessions: TillSession[];
   subscriptionInstances: SubscriptionInstance[];
   redemptions: Redemption[];
+  refreshmentRequests: RefreshmentRequest[];
   scheduleProfiles: any[];
   lifestyleProfiles: any[];
   businessProfiles: any[];
@@ -117,8 +119,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'scheduleProfiles') : null, [firestore, tenantId]));
   const { data: tillSessions, isLoading: tillSessionsLoading } = useCollection<TillSession>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'tillSessions') : null, [firestore, tenantId]));
   const { data: rawSubInstances, isLoading: subInstancesLoading } = useCollection<SubscriptionInstance>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'subscriptionInstances') : null, [firestore, tenantId]));
+  const { data: refreshmentRequests, isLoading: refreshmentRequestsLoading } = useCollection<RefreshmentRequest>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'refreshmentRequests') : null, [firestore, tenantId]));
   
-  // Use collection group to find redemptions across all clients for this tenant
   const { data: redemptions, isLoading: redemptionsLoading } = useCollection<Redemption>(useMemoFirebase(() => !firestore || !tenantId ? null : collectionGroup(firestore, 'redemptions'), [firestore, tenantId]));
 
   const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
@@ -211,7 +213,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         const nextBilling = client.subscription?.nextBillingDate ? safeDate(client.subscription.nextBillingDate) : null;
         if (!nextBilling) return;
 
-        // If billing date is in past or today, and no PAID instance exists for this month
         const monthStr = format(nextBilling, 'yyyy-MM');
         const hasPaidInstance = existing.some(e => e.clientId === client.id && e.status === 'paid' && e.dueDate.startsWith(monthStr));
 
@@ -276,7 +277,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     }));
   }, [rawEvents]);
 
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading;
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading || refreshmentRequestsLoading;
   
   const value = {
     inventory: inventory || [],
@@ -303,6 +304,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     tillSessions: tillSessions || [],
     subscriptionInstances: subscriptionInstances || [],
     redemptions: redemptions || [],
+    refreshmentRequests: refreshmentRequests || [],
     scheduleProfiles: scheduleProfiles || [],
     lifestyleProfiles: lifestyleProfiles || [],
     businessProfiles: businessProfiles || [],

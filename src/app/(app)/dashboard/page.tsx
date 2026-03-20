@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -187,28 +186,18 @@ const ActiveSessionCard = ({ appointment, service, staffMember }: { appointment:
 export default function DashboardPage() {
   const { firestore, user } = useFirebase();
   const { selectedTenant } = useTenant();
-  const { inventory, clients, transactions, appointments, staff, services, walkIns, isLoading: isInventoryLoading } = useInventory();
+  const { inventory, clients, transactions, appointments, staff, services, walkIns, refreshmentRequests, isLoading: isInventoryLoading } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
   const today = useMemo(() => startOfDay(new Date()), []);
 
-  const todayRequestsQuery = useMemoFirebase(() => {
-      if (!firestore || !tenantId) return null;
-      return query(
-          collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
-          where("requestedAt", ">=", today.toISOString())
-      );
-  }, [firestore, tenantId, today]);
-  
-  const { data: allTodayRequests } = useCollection<RefreshmentRequest>(todayRequestsQuery);
-
   const pendingRequests = useMemo(() => 
-    allTodayRequests?.filter(r => r.status === 'pending') || []
-  , [allTodayRequests]);
+    refreshmentRequests?.filter(r => r.status === 'pending' && safeDate(r.requestedAt) >= today) || []
+  , [refreshmentRequests, today]);
 
   const handleDeliverRefreshment = async (request: RefreshmentRequest) => {
-      if (!firestore || !tenantId || !inventory || !appointments) return;
+      if (!firestore || !tenantId || !inventory) return;
       
       const item = inventory.find(i => i.id === request.itemId);
       if (!item) return;
@@ -258,15 +247,9 @@ export default function DashboardPage() {
           });
       }
 
-      // POS TERMINAL INTEGRATION: Append to bill
-      const appointment = appointments.find(a => 
-        a.clientId === request.clientId && 
-        ['confirmed', 'servicing', 'ready_for_checkout'].includes(a.status) && 
-        isToday(safeDate(a.startTime))
-      );
-
-      if (appointment) {
-          const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
+      // POS TERMINAL INTEGRATION: Append to bill using the request's specific appointmentId
+      if (request.appointmentId) {
+          const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, request.appointmentId);
           batch.update(aptRef, {
               'checkoutState.refreshments': arrayUnion({
                   id: item.id,
@@ -297,7 +280,7 @@ export default function DashboardPage() {
     const liveSessions = (appointments || []).filter(a => a.status === 'servicing');
     const lowStockItems = (inventory || []).filter(i => i.reorderPoint && i.totalStock <= i.reorderPoint);
 
-    const deliveredToday = allTodayRequests?.filter(r => r.status === 'delivered') || [];
+    const deliveredToday = refreshmentRequests?.filter(r => r.status === 'delivered' && safeDate(r.requestedAt) >= todayStart) || [];
     const waitTimes = deliveredToday.map(r => {
         const req = safeDate(r.requestedAt);
         const del = safeDate(r.deliveredAt);
@@ -308,7 +291,7 @@ export default function DashboardPage() {
         : 0;
 
     const itemPopularity: Record<string, number> = {};
-    allTodayRequests?.forEach(r => {
+    refreshmentRequests?.filter(r => safeDate(r.requestedAt) >= todayStart).forEach(r => {
         itemPopularity[r.itemName] = (itemPopularity[r.itemName] || 0) + 1;
     });
     const topAmenity = Object.entries(itemPopularity).sort((a,b) => b[1] - a[1])[0]?.[0] || 'N/A';
@@ -322,9 +305,9 @@ export default function DashboardPage() {
         lowStockItems,
         hospitalityWaitVelocity,
         topAmenity,
-        totalHospitalityRequests: allTodayRequests?.length || 0
+        totalHospitalityRequests: refreshmentRequests?.filter(r => safeDate(r.requestedAt) >= todayStart).length || 0
     };
-  }, [transactions, clients, staff, walkIns, appointments, inventory, allTodayRequests]);
+  }, [transactions, clients, staff, walkIns, appointments, inventory, refreshmentRequests]);
 
   if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">Syncing Operational Board...</p></div>;
 

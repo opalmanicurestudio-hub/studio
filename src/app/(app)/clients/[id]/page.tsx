@@ -48,7 +48,8 @@ import {
     Star,
     History,
     CheckCircle,
-    Database
+    Database,
+    Coffee
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -67,7 +68,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, writeBatch, increment, getDocs, query, where } from 'firebase/firestore';
-import type { Client, Appointment, Service, CustomFormula, Membership, Redemption } from '@/lib/data';
+import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -132,7 +133,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                 )}
                  {client.sensoryNeeds && (
                     <div className="flex items-center gap-3 text-left">
-                        <div className="p-2 bg-blue-500/10 rounded-xl border border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div>
+                        <div className="p-2 bg-blue-500/10 rounded-xl border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest">Sensory Intel</span>
                     </div>
                 )}
@@ -190,7 +191,7 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages, transactions: allTransactions } = useInventory();
+  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, refreshmentRequests: allRequests, packages, transactions: allTransactions } = useInventory();
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -206,6 +207,7 @@ export default function ClientDetailPage() {
 
   const appointmentsForThisClient = useMemo(() => (allAppointments || []).filter(apt => apt.clientId === clientId).map(apt => ({ ...apt, service: services.find(s => s.id === apt.serviceId) })), [clientId, allAppointments, services]);
   const clientRedemptions = useMemo(() => (allRedemptions || []).filter(r => r.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allRedemptions]);
+  const clientRefreshments = useMemo(() => (allRequests || []).filter(r => r.clientId === clientId).sort((a,b) => safeDate(b.requestedAt).getTime() - safeDate(a.requestedAt).getTime()), [clientId, allRequests]);
 
   const activeMembership = useMemo(() => {
     const mId = client?.subscription?.membershipId || client?.activeMembershipId;
@@ -413,6 +415,7 @@ export default function ClientDetailPage() {
                             <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max">
                                 <TabsTrigger value="overview" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
                                 <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
+                                <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
                                 <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Technical Archive</TabsTrigger>
                                 <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
                             </TabsList>
@@ -519,6 +522,47 @@ export default function ClientDetailPage() {
                             </div>
                         </TabsContent>
 
+                        <TabsContent value="hospitality" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
+                            <div className="space-y-6">
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
+                                    <Coffee className="w-5 h-5" />
+                                    Concierge Service Log
+                                </h3>
+                                
+                                {clientRefreshments.length > 0 ? (
+                                    <div className="grid gap-3">
+                                        {clientRefreshments.map((req) => (
+                                            <Card key={req.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left group">
+                                                <CardContent className="p-5 flex items-center justify-between gap-4">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className={cn("p-2.5 rounded-xl shadow-inner", req.status === 'delivered' ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
+                                                            <Coffee className="w-5 h-5" />
+                                                        </div>
+                                                        <div className="min-w-0 text-left">
+                                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{req.itemName}</p>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Served {format(safeDate(req.requestedAt), 'MMM d, h:mm a')}</p>
+                                                                <Badge variant="outline" className={cn("h-4 px-1 text-[7px] font-black uppercase border-none", req.status === 'delivered' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>{req.status}</Badge>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <p className="font-black text-sm font-mono text-slate-900">x{req.quantity || 1}</p>
+                                                        {req.priceAtRequest && req.priceAtRequest > 0 ? <p className="text-[8px] font-black uppercase text-primary">${(req.priceAtRequest * (req.quantity || 1)).toFixed(2)}</p> : <p className="text-[8px] font-black uppercase text-green-600">COMP</p>}
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                        <Coffee className="w-16 h-16" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-center px-8 leading-relaxed">No concierge requests logged. Hospitality events appear here as they are certified in-session.</p>
+                                    </div>
+                                )}
+                            </div>
+                        </TabsContent>
+
                         <TabsContent value="archive" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                             <div className="space-y-6">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
@@ -556,7 +600,7 @@ export default function ClientDetailPage() {
                                                     {formula.notes && (
                                                         <div className="pt-2 text-left">
                                                             <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1">Audit Notes</p>
-                                                            <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3">"{String(formula.notes)}"</p>
+                                                            <p className="text-10px font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3">"{String(formula.notes)}"</p>
                                                         </div>
                                                     )}
                                                 </CardContent>

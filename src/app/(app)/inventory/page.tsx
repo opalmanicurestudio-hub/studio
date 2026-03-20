@@ -1,4 +1,3 @@
-
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
@@ -159,33 +158,28 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') return parseISO(val);
+    return new Date(val);
+};
+
 const HospitalityLedger = () => {
-    const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
-    const tenantId = selectedTenant?.id;
+    const { refreshmentRequests, isLoading } = useInventory();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
 
-    const requestsQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId) return null;
-        return query(
-            collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
-            orderBy('requestedAt', 'desc')
-        );
-    }, [firestore, tenantId]);
-
-    const { data: requests, isLoading } = useCollection<RefreshmentRequest>(requestsQuery);
-
     const filteredRequests = useMemo(() => {
-        if (!requests) return [];
-        return requests.filter(r => {
+        if (!refreshmentRequests) return [];
+        return refreshmentRequests.filter(r => {
             const matchesSearch = !searchTerm.trim() || 
                 r.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 r.itemName.toLowerCase().includes(searchTerm.toLowerCase());
             const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
             return matchesSearch && matchesStatus;
         });
-    }, [requests, searchTerm, statusFilter]);
+    }, [refreshmentRequests, searchTerm, statusFilter]);
 
     return (
         <div className="space-y-6">
@@ -952,6 +946,7 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
+    refreshmentRequests,
     isLoading: isInventoryLoading
   } = useInventory();
   
@@ -969,7 +964,6 @@ export default function InventoryPage() {
   const [addProductDialogType, setAddProductDialogType] = useState<'professional' | 'retail'>('professional');
   const [isAddEquipmentDialogOpen, setIsAddEquipmentDialogOpen] = useState(false);
   const [isAddOverheadDialogOpen, setIsAddOverheadDialogOpen] = useState(false);
-  const [isAddProductManualDialogOpen, setIsAddProductManualDialogOpen] = useState(false);
   const [isAddRefreshmentDialogOpen, setIsAddRefreshmentDialogOpen] = useState(false);
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
@@ -1653,7 +1647,7 @@ export default function InventoryPage() {
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
                         <div className="flex flex-col md:flex-row items-center gap-4">
                             <div className="relative flex-1 w-full">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                                 <Input 
                                     placeholder="SEARCH BY NAME, SKU, OR ID..." 
                                     className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
