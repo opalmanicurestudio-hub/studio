@@ -121,7 +121,20 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
 );
 
 const Step1 = () => {
-    const { register, control, formState: { errors } } = useFormContext<RefreshmentFormData>();
+    const { register, control, setValue, formState: { errors } } = useFormContext<RefreshmentFormData>();
+    const [isAddingCategory, setIsAddingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+
+    const refreshmentCategories = ['Artisanal Beverages', 'Premium Spirits', 'Gourmet Snacks', 'Seasonal Special', 'Healthy Essentials'];
+
+    const handleAddNewCategory = () => {
+        if (newCategoryName.trim()) {
+            setValue('category', newCategoryName.trim());
+            setIsAddingCategory(false);
+            setNewCategoryName('');
+        }
+    };
+
     return (
         <div className="space-y-10">
             <SectionHeader icon={Coffee} title="Identity & Menu Label" step={1} />
@@ -130,6 +143,30 @@ const Step1 = () => {
                     <Label htmlFor="item-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest-Facing Name</Label>
                     <Input id="item-name" placeholder="e.g., Oat Milk Espresso" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
                     {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
+                </div>
+
+                <div className="space-y-2 text-left">
+                    <Label htmlFor="category-rf" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Menu Category</Label>
+                    {isAddingCategory ? (
+                        <div className="flex gap-2">
+                            <Input placeholder="New category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+                            <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl"><Check className="h-5 w-5" /></Button>
+                        </div>
+                    ) : (
+                        <div className="flex gap-3">
+                            <Controller name="category" control={control} render={({ field }) => (
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5">
+                                        <SelectValue placeholder="Select category" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                        {refreshmentCategories.map(cat => (<SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem>))}
+                                    </SelectContent>
+                                </Select>
+                            )}/>
+                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2"> <PlusCircle className="h-5 w-5" /> </Button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="space-y-2 text-left">
@@ -327,7 +364,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                                         </div>
                                     </label>
                                     <label htmlFor="uses-rf" className="cursor-pointer">
-                                        <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                        <div className={cn("flex flex-col items-center justify-center p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
                                             <CheckCircle className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                             <span className="text-[10px] font-black uppercase tracking-widest">By Portions</span>
                                             <RadioGroupItem value="uses" id="uses-rf" className="sr-only" />
@@ -412,22 +449,22 @@ export const AddRefreshmentDialog = ({
   const isMobile = useIsMobile();
   const methods = useForm<RefreshmentFormData>({ 
     resolver: zodResolver(refreshmentSchema), 
-    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, isMembersOnly: false, price: 0, formula: [] } 
+    defaultValues: { costingMethod: 'uses', initialStock: 1, category: 'Artisanal Beverages', purchaseDate: new Date(), showInConcierge: true, isMembersOnly: false, price: 0, formula: [] } 
   });
 
-  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Refreshment', purchaseDate: new Date(), showInConcierge: true, isMembersOnly: false, price: 0, formula: [] }); setStep(1); } }, [open, methods]);
+  useEffect(() => { if (open) { methods.reset({ costingMethod: 'uses', initialStock: 1, category: 'Artisanal Beverages', purchaseDate: new Date(), showInConcierge: true, isMembersOnly: false, price: 0, formula: [] }); setStep(1); } }, [open, methods]);
 
   const { handleSubmit, trigger } = methods;
   const onSubmit = (data: RefreshmentFormData) => {
     const unitPrice = data.purchaseCost; 
     onRefreshmentAdded({
-      id: `refr-${nanoid(8)}`, name: data.name, description: data.description, type: 'refreshment', category: 'Refreshment', totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, showInConcierge: data.showInConcierge, isMembersOnly: data.isMembersOnly, price: data.price, imageUrl: data.imageUrl, formula: data.formula,
+      id: `refr-${nanoid(8)}`, name: data.name, description: data.description, type: 'refreshment', category: data.category, totalStock: data.initialStock, costPerUnit: unitPrice, supplier: data.supplier || '', primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, showInConcierge: data.showInConcierge, isMembersOnly: data.isMembersOnly, price: data.price, imageUrl: data.imageUrl, formula: data.formula,
       batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock, costPerUnit: unitPrice, receivedDate: data.purchaseDate.toISOString() }],
     });
     onOpenChange(false);
   };
 
-  const handleNext = async (e: any) => { e.preventDefault(); if (await trigger(step === 1 ? ['name'] : [])) setStep(step + 1); };
+  const handleNext = async (e: any) => { e.preventDefault(); if (await trigger(step === 1 ? ['name', 'category'] : [])) setStep(step + 1); };
   const handleBack = (e: any) => { e.preventDefault(); setStep(step - 1); };
 
   const formBody = (

@@ -30,10 +30,13 @@ import {
     Car,
     AlertTriangle,
     Users,
-    Lock
+    Lock,
+    Star,
+    Zap,
+    Award
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
-import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
@@ -116,7 +119,8 @@ const ServicingView = ({
     activeRequests, 
     appointment, 
     staff, 
-    resources 
+    resources,
+    memberships
 }: { 
     tenant: Tenant | null, 
     client: Client | null, 
@@ -124,7 +128,8 @@ const ServicingView = ({
     activeRequests: any[],
     appointment: Appointment | null,
     staff: Staff | null,
-    resources: Resource[]
+    resources: Resource[],
+    memberships: Membership[]
 }) => {
     const { firestore } = useFirebase();
     const { toast } = useToast();
@@ -136,14 +141,29 @@ const ServicingView = ({
         return !!(client.activeMembershipId && client.subscription?.status === 'active');
     }, [client]);
 
+    const activeMembership = useMemo(() => {
+        if (!isMember || !client?.activeMembershipId || !memberships) return null;
+        return memberships.find(m => m.id === client.activeMembershipId);
+    }, [isMember, client, memberships]);
+
     const refreshments = useMemo(() => 
         inventory.filter(item => 
             item.type === 'refreshment' && 
             item.showInConcierge !== false && 
             item.totalStock > 0 &&
-            (!item.isMembersOnly || isMember) // Hide members only items from non-members
+            (!item.isMembersOnly || isMember)
         )
     , [inventory, isMember]);
+
+    const refreshmentsByCategory = useMemo(() => {
+        const grouped: Record<string, InventoryItem[]> = {};
+        refreshments.forEach(item => {
+            const cat = item.category || 'Standard Selection';
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(item);
+        });
+        return grouped;
+    }, [refreshments]);
 
     const stationName = useMemo(() => {
         if (!appointment?.requiredResourceIds?.length || !resources) return 'Station';
@@ -272,7 +292,7 @@ const ServicingView = ({
                 )}
 
                 {tenant?.refreshmentServiceEnabled && refreshments.length > 0 && (
-                    <div className="space-y-6 text-left">
+                    <div className="space-y-10 text-left">
                         <div className="flex items-center justify-between px-1 text-left">
                             <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
                                 <Coffee className="w-3.5 h-3.5" /> Hospitality Menu
@@ -282,64 +302,84 @@ const ServicingView = ({
                             ) : null}
                         </div>
                         
-                        <div className="space-y-4 text-left">
-                            {refreshments.map(item => {
-                                const qty = quantities[item.id] || 1;
-                                const isSoldOut = item.totalStock <= 0;
-                                
-                                return (
-                                    <Card key={item.id} className={cn(
-                                        "rounded-[2rem] border-2 transition-all overflow-hidden text-left",
-                                        isSoldOut ? "opacity-40 grayscale" : "bg-white border-primary/10 hover:border-primary/30 shadow-sm"
-                                    )}>
-                                        <CardContent className="p-4 flex gap-4 items-center">
-                                            <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-muted/20 shrink-0 flex items-center justify-center">
-                                                {item.imageUrl ? (
-                                                    <Image src={item.imageUrl} alt={item.name} fill className="object-cover" />
-                                                ) : (
-                                                    <Coffee className="w-10 h-10 text-primary opacity-20" />
-                                                )}
-                                            </div>
-                                            <div className="flex-1 min-w-0 text-left space-y-1">
-                                                <div className="flex justify-between items-start">
-                                                    <div className="flex flex-col gap-1 text-left">
-                                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate text-left">{item.name}</p>
-                                                        {item.isMembersOnly && (
-                                                            <Badge className="w-fit bg-indigo-600 text-white border-none text-[7px] h-4 px-1.5 font-black uppercase">Club Exclusive</Badge>
-                                                        )}
-                                                    </div>
-                                                    {item.price && item.price > 0 ? (
-                                                        <span className="font-black font-mono text-[10px] text-primary">${item.price.toFixed(2)}</span>
-                                                    ) : (
-                                                        <span className="font-black text-[8px] text-green-600 uppercase bg-green-50 px-1.5 rounded">Comp</span>
-                                                    )}
-                                                </div>
-                                                {item.description && (
-                                                    <p className="text-[10px] font-medium text-slate-500 leading-relaxed tracking-tight italic opacity-80 text-left">
-                                                        {item.description}
-                                                    </p>
-                                                )}
-                                                
-                                                <div className="flex items-center justify-between pt-3">
-                                                    <div className={cn("flex items-center gap-3 bg-muted/30 rounded-xl px-2 h-8")}>
-                                                        <button onClick={() => handleQuantityChange(item.id, -1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3 h-3" /></button>
-                                                        <span className="font-black font-mono text-xs w-4 text-center">{qty}</span>
-                                                        <button onClick={() => handleQuantityChange(item.id, 1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Plus className="w-3 h-3" /></button>
-                                                    </div>
-                                                    <Button 
-                                                        size="sm" 
-                                                        disabled={isRequesting || hasActiveRequest || isSoldOut}
-                                                        onClick={() => handleRequest(item)}
-                                                        className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
-                                                    >
-                                                        {isSoldOut ? 'Sold Out' : 'Request'}
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                );
-                            })}
+                        <div className="space-y-12 text-left">
+                            {Object.entries(refreshmentsByCategory).map(([category, items]) => (
+                                <div key={category} className="space-y-6">
+                                    <div className="flex items-center gap-3 px-1">
+                                        <div className="h-px flex-1 bg-gradient-to-r from-transparent to-border/50" />
+                                        <span className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-40">{category}</span>
+                                        <div className="h-px flex-1 bg-gradient-to-l from-transparent to-border/50" />
+                                    </div>
+                                    <div className="space-y-4 text-left">
+                                        {items.map(item => {
+                                            const qty = quantities[item.id] || 1;
+                                            const isSoldOut = item.totalStock <= 0;
+                                            const isIncludedPerk = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
+                                            
+                                            return (
+                                                <Card key={item.id} className={cn(
+                                                    "rounded-[2rem] border-2 transition-all overflow-hidden text-left",
+                                                    isSoldOut ? "opacity-40 grayscale" : "bg-white border-primary/10 hover:border-primary/30 shadow-sm",
+                                                    isIncludedPerk && "border-indigo-500/20 bg-indigo-500/[0.01]"
+                                                )}>
+                                                    <CardContent className="p-4 flex gap-4 items-center">
+                                                        <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-muted/20 shrink-0 flex items-center justify-center border-2 border-white shadow-sm">
+                                                            {item.imageUrl ? (
+                                                                <Image src={item.imageUrl} alt={item.name} fill className="object-cover" />
+                                                            ) : (
+                                                                <Coffee className="w-10 h-10 text-primary opacity-20" />
+                                                            )}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0 text-left space-y-1">
+                                                            <div className="flex justify-between items-start">
+                                                                <div className="flex flex-col gap-1 text-left">
+                                                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate text-left">{item.name}</p>
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {item.isMembersOnly && (
+                                                                            <Badge className="bg-indigo-600 text-white border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Club Exclusive</Badge>
+                                                                        )}
+                                                                        {isIncludedPerk && (
+                                                                            <Badge className="bg-primary/10 text-primary border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Club Perk</Badge>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                {isIncludedPerk ? (
+                                                                    <span className="font-black text-[8px] text-green-600 uppercase bg-green-50 px-1.5 rounded border border-green-100 shadow-sm">COMP</span>
+                                                                ) : item.price && item.price > 0 ? (
+                                                                    <span className="font-black font-mono text-[10px] text-primary">${item.price.toFixed(2)}</span>
+                                                                ) : (
+                                                                    <span className="font-black text-[8px] text-green-600 uppercase bg-green-50 px-1.5 rounded">Comp</span>
+                                                                )}
+                                                            </div>
+                                                            {item.description && (
+                                                                <p className="text-[10px] font-medium text-slate-500 leading-relaxed tracking-tight italic opacity-80 text-left">
+                                                                    {item.description}
+                                                                </p>
+                                                            )}
+                                                            
+                                                            <div className="flex items-center justify-between pt-3">
+                                                                <div className={cn("flex items-center gap-3 bg-muted/30 rounded-xl px-2 h-8")}>
+                                                                    <button onClick={() => handleQuantityChange(item.id, -1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3 h-3" /></button>
+                                                                    <span className="font-black font-mono text-xs w-4 text-center">{qty}</span>
+                                                                    <button onClick={() => handleQuantityChange(item.id, 1, item.totalStock)} className="p-1 hover:text-primary transition-colors"><Plus className="w-3 h-3" /></button>
+                                                                </div>
+                                                                <Button 
+                                                                    size="sm" 
+                                                                    disabled={isRequesting || hasActiveRequest || isSoldOut}
+                                                                    onClick={() => handleRequest(item)}
+                                                                    className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
+                                                                >
+                                                                    {isSoldOut ? 'Sold Out' : 'Request'}
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                         
                         {hasActiveRequest && (
@@ -370,6 +410,9 @@ export default function CheckInPage() {
     
     const inventoryQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
     const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
+
+    const membershipsQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/memberships`), [firestore, tenantId]);
+    const { data: memberships } = useCollection<Membership>(membershipsQuery);
 
     const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
     const { data: resources } = useCollection<Resource>(resourcesQuery);
@@ -444,6 +487,7 @@ export default function CheckInPage() {
                 appointment={appointmentData}
                 staff={assignedStaff || null}
                 resources={resources || []}
+                memberships={memberships || []}
             />
         );
     }
