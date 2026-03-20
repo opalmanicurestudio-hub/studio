@@ -108,7 +108,7 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, staff }: any) 
                                     
                                     {/* RECIPE VIEW */}
                                     {item?.formula && item.formula.length > 0 && (
-                                        <div className="flex flex-wrap gap-2 mt-2 mb-3">
+                                        <div className="flex flex-wrap gap-2 mt-2 mb-3 text-left">
                                             {item.formula.map((f: any, idx: number) => (
                                                 <Badge key={idx} variant="outline" className="text-[8px] font-black uppercase tracking-widest bg-muted/50 border-none px-2 py-0.5">
                                                     {f.quantityUsed}{f.unit} {f.name}
@@ -216,13 +216,10 @@ export default function DashboardPage() {
           deliveredBy: user?.uid || 'system'
       });
 
-      // ATOMIC FORMULA DEDUCTION logic
+      // ATOMIC FORMULA DEDUCTION
       if (item.formula && item.formula.length > 0) {
           item.formula.forEach(ingredient => {
               const ingredientRef = doc(firestore, `tenants/${tenantId}/inventory`, ingredient.id);
-              const actualIngredient = inventory.find(i => i.id === ingredient.id);
-              if (!actualIngredient) return;
-
               batch.update(ingredientRef, { totalStock: increment(-ingredient.quantityUsed) });
               
               const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
@@ -232,12 +229,11 @@ export default function DashboardPage() {
                   date: now,
                   change: -ingredient.quantityUsed,
                   unit: ingredient.unit,
-                  reason: `Recipe Component for: ${item.name} (Guest: ${request.clientName})`,
+                  reason: `Recipe Component: ${item.name} for ${request.clientName}`,
                   requestId: request.id
               });
           });
       } else {
-          // Direct Deduction for non-recipe items
           const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
           batch.update(productRef, { totalStock: increment(-1) });
 
@@ -254,7 +250,6 @@ export default function DashboardPage() {
       }
 
       // POS TERMINAL INTEGRATION: Append to bill if it has a price
-      // We look for any active session for this client to append the refreshment cost
       const appointment = appointments.find(a => 
         a.clientId === request.clientId && 
         ['confirmed', 'servicing', 'ready_for_checkout'].includes(a.status) && 
@@ -292,7 +287,6 @@ export default function DashboardPage() {
     const liveSessions = (appointments || []).filter(a => a.status === 'servicing');
     const lowStockItems = (inventory || []).filter(i => i.reorderPoint && i.totalStock <= i.reorderPoint);
 
-    // Hospitality Metrics
     const deliveredToday = allTodayRequests?.filter(r => r.status === 'delivered') || [];
     const waitTimes = deliveredToday.map(r => {
         const req = safeDate(r.requestedAt);
@@ -329,7 +323,6 @@ export default function DashboardPage() {
       <AppHeader title="Command Hub" />
       <main className="flex-1 p-4 md:p-10 max-w-7xl mx-auto w-full space-y-10">
         
-        {/* ALPHA METRICS GRID */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><TrendingUp className="w-3 h-3"/>Today's Gross</CardTitle></CardHeader>
@@ -350,8 +343,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-            {/* LEFT COLUMN: PRIORITY OPERATIONS */}
-            <div className="lg:col-span-2 space-y-10">
+            <div className="lg:col-span-2 space-y-10 text-left">
                 <section className="space-y-6">
                     <div className="flex items-center justify-between px-1">
                         <div className="flex items-center gap-3">
@@ -392,8 +384,7 @@ export default function DashboardPage() {
                 </section>
             </div>
 
-            {/* RIGHT COLUMN: ANALYTICS & ALERTS */}
-            <div className="space-y-10">
+            <div className="space-y-10 text-left">
                 <Card className="border-4 border-primary/10 bg-white rounded-[2.5rem] shadow-xl overflow-hidden text-left">
                     <CardHeader className="bg-muted/5 border-b p-6">
                         <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
@@ -439,7 +430,7 @@ export default function DashboardPage() {
                                 </Button>
                             </div>
                         ) : (
-                            <div className="py-10 text-center opacity-30 space-y-3">
+                            <div className="py-10 text-center opacity-30 space-y-3 mx-auto">
                                 <CheckCircle2 className="w-10 h-10 mx-auto text-green-500" />
                                 <p className="text-[10px] font-black uppercase tracking-widest">Manifest Optimized</p>
                             </div>

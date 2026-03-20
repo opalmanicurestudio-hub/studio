@@ -73,6 +73,7 @@ import {
   CardHeader,
   CardTitle,
   CardFooter,
+  CardDescription
 } from '@/components/ui/card';
 
 const refreshmentSchema = z.object({
