@@ -430,7 +430,7 @@ export const CheckoutHub = ({
             <div className="flex-shrink-0 text-left">
                 {isGroupCheckout && !selectedClientId && !isCartEmpty && (
                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
-                        <Alert variant="destructive" className="border-2 border-primary/20 bg-primary/5 rounded-2xl p-4 shadow-xl shadow-primary/5">
+                        <Alert variant="destructive" className="border-2 border-primary/20 bg-primary/5 rounded-2xl p-4 shadow-xl shadow-primary/5 text-left">
                             <Users className="h-5 w-5 text-primary" />
                             <AlertTitle className="text-[10px] font-black uppercase text-primary tracking-widest text-left">Group Protocol Required</AlertTitle>
                             <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1 text-left">

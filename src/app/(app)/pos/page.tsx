@@ -162,7 +162,11 @@ function POSPage() {
                 }, 0);
                 const additional = safeNumber(data.appointment.checkoutState?.additionalCharge);
                 const effectiveAdditional = waivedAppointmentFees.has(data.appointment.id) ? 0 : additional;
-                return acc + mainPrice + addonsPrice + effectiveAdditional;
+                
+                // New: Include refreshment amenity prices from appointment state
+                const refreshmentsSub = (data.appointment.checkoutState?.refreshments || []).reduce((sum: number, r: any) => sum + safeNumber(r.price), 0);
+                
+                return acc + mainPrice + addonsPrice + effectiveAdditional + refreshmentsSub;
             }, 0);
         const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => {
@@ -467,6 +471,18 @@ function POSPage() {
                 totalLtvIncrease += addonPrice; if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice;
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
             });
+
+            // Handle Amenity Revenue (Refreshments)
+            const amenities = checkoutState.refreshments || [];
+            amenities.forEach((amenity: any) => {
+                const amenityPrice = safeNumber(amenity.price);
+                if (amenityPrice > 0) {
+                    totalLtvIncrease += amenityPrice;
+                    if (paymentData.paymentMethod === 'cash') totalCashIncrease += amenityPrice;
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: `Concierge: ${amenity.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Hospitality Revenue', amount: amenityPrice, paymentMethod: paymentData.paymentMethod, appointmentId: apt.id, hasReceipt: false });
+                }
+            });
+
             batch.update(appointmentRef, { status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now });
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
             const involvedIds = new Set<string>(); if (apt.staffId) involvedIds.add(apt.staffId); if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });

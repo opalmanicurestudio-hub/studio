@@ -48,7 +48,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Appointment, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn, RefreshmentRequest } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { useFirebase, useCollection, useMemoFirebase, useUser, updateDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, writeBatch, increment, startAt, endAt, orderBy, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { startOfDay, endOfDay, format, isSameDay, parseISO, differenceInMinutes, isToday } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
@@ -159,7 +159,7 @@ const ActiveSessionCard = ({ appointment, service, staffMember }: { appointment:
 
     return (
         <div className={cn("p-4 rounded-2xl border-2 bg-white flex items-center justify-between transition-all", isOver ? "border-destructive ring-2 ring-destructive/10" : "border-border/50")}>
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3 min-w-0 text-left">
                 <Avatar className="h-10 w-10 border-2 rounded-xl shadow-sm">
                     <AvatarImage src={staffMember?.avatarUrl} className="object-cover" />
                     <AvatarFallback className="font-black text-xs">{(staffMember?.name || 'S')[0]}</AvatarFallback>
@@ -254,19 +254,23 @@ export default function DashboardPage() {
       }
 
       // POS TERMINAL INTEGRATION: Append to bill if it has a price
-      if (item.price && item.price > 0) {
-          const appointment = appointments.find(a => a.clientId === request.clientId && (a.status === 'servicing' || a.status === 'ready_for_checkout' || (isToday(safeDate(a.startTime)) && a.status === 'confirmed')));
-          if (appointment) {
-              const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
-              batch.update(aptRef, {
-                  'checkoutState.refreshments': arrayUnion({
-                      id: item.id,
-                      name: item.name,
-                      price: item.price,
-                      deliveredAt: now
-                  })
-              });
-          }
+      // We look for any active session for this client to append the refreshment cost
+      const appointment = appointments.find(a => 
+        a.clientId === request.clientId && 
+        ['confirmed', 'servicing', 'ready_for_checkout'].includes(a.status) && 
+        isToday(safeDate(a.startTime))
+      );
+
+      if (appointment && item.price && item.price > 0) {
+          const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
+          batch.update(aptRef, {
+              'checkoutState.refreshments': arrayUnion({
+                  id: item.id,
+                  name: item.name,
+                  price: item.price,
+                  deliveredAt: now
+              })
+          });
       }
 
       try {
@@ -366,7 +370,7 @@ export default function DashboardPage() {
                 </section>
 
                 <section className="space-y-6">
-                    <div className="flex items-center gap-3 px-1">
+                    <div className="flex items-center gap-3 px-1 text-left">
                         <div className="p-2 bg-indigo-500/10 rounded-xl"><Zap className="w-5 h-5 text-indigo-600" /></div>
                         <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Live Studio Pulse</h3>
                     </div>
@@ -451,12 +455,12 @@ export default function DashboardPage() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="p-8 pt-0 space-y-6 text-left">
-                        <div className="space-y-1">
+                        <div className="space-y-1 text-left">
                             <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Daily Trajectory</p>
                             <p className="text-4xl font-black text-indigo-700 tracking-tighter leading-none">${dashboardMetrics.dailyIncome.toFixed(0)}</p>
                         </div>
                         <div className="pt-4 border-t border-indigo-500/10">
-                            <p className="text-[10px] font-medium text-indigo-600 leading-relaxed uppercase tracking-tight">
+                            <p className="text-[10px] font-medium text-indigo-600 leading-relaxed uppercase tracking-tight text-left">
                                 Business orchestration is active. You are currently tracking {walkIns?.length || 0} walk-ins and {appointments?.filter(a => isToday(safeDate(a.startTime))).length || 0} scheduled sessions.
                             </p>
                         </div>

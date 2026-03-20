@@ -72,6 +72,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 
 const refreshmentSchema = z.object({
@@ -210,7 +211,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                                 <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
                                     <div className="min-w-0 flex-1 text-left">
                                         <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
-                                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Basis: ${(item.costPerUnit || 0).toFixed(4)} / {item.unit}</p>
+                                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Basis: ${(item.costPerUnit || 0).toFixed(4)} / {item.unit}</p>
                                     </div>
                                     <div className="flex items-center gap-3">
                                         <div className="flex items-center gap-2">
@@ -311,7 +312,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                             )}/>
                         </div>
                         {costingMethod === 'size' ? (
-                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 text-left">
                                 <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Capacity</Label><Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
                                 <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
                                     <Controller name="containerUnit" control={control} render={({ field }) => (
@@ -334,7 +335,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
 };
 
 const Step3 = ({ locations }: { locations: Location[] }) => {
-    const { register, control, formState: { errors } } = useFormContext<RefreshmentFormData>();
+    const { register, control } = useFormContext<RefreshmentFormData>();
     return (
         <div className="space-y-10">
             <SectionHeader icon={Building} title="Logistics & Zone" step={3} />
@@ -410,7 +411,7 @@ export const AddRefreshmentDialog = ({
         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
           </div>
           <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Amenity</DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Configure guest-facing refreshments and recipe logic.</DialogDescription>

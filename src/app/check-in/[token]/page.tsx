@@ -148,7 +148,7 @@ const ServicingView = ({
                     </div>
                     <div className="space-y-2 text-center">
                         <p className="font-black text-xl uppercase tracking-tight text-slate-900">Relax & Recharge</p>
-                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight">
+                        <p className="text-xs font-medium text-slate-500 leading-relaxed max-w-xs mx-auto text-center uppercase tracking-tight text-center">
                             Your transformation is in progress at <strong>{stationName}</strong>. We've optimized this window for your comfort.
                         </p>
                     </div>
