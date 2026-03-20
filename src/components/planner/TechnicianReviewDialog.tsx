@@ -187,8 +187,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         }
         
         initialAddons.forEach(addon => {
-            if (!initialOverrides[addon.id]) {
-                initialOverrides[addon.id] = appointment.staffId || '';
+            if (!nextOverrides[addon.id]) {
+                nextOverrides[addon.id] = appointment.staffId || '';
             }
         });
         setServiceStaffOverrides(initialOverrides);
@@ -395,7 +395,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             <AvatarImage src={client.avatarUrl} className="object-cover" />
                             <AvatarFallback className="font-black bg-primary/10 text-primary text-xl">{(client.name || 'G').substring(0,2).toUpperCase()}</AvatarFallback>
                         </Avatar>
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0 flex-1 text-left">
                             <p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
                             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5">{service.name}</p>
                         </div>
@@ -425,7 +425,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         <div className="space-y-3">
                             <div className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
                                 <div className="flex items-center justify-between gap-4">
-                                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                                    <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
                                         <Checkbox 
                                             id={`complete-review-${service.id}`} 
                                             checked={completedServiceIds.includes(service.id)} 
@@ -433,7 +433,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                             className="h-6 w-6 rounded-full border-2"
                                         />
                                         <div className="min-w-0 text-left">
-                                            <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{service.name}</Label>
+                                            <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{service.name}</Label>
                                             <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60">Main Service</p>
                                         </div>
                                     </div>
@@ -457,7 +457,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             {selectedAddOns.map(addon => (
                                 <div key={addon.id} className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
                                     <div className="flex items-center justify-between gap-4">
-                                        <div className="flex items-center gap-4 min-w-0 flex-1">
+                                        <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
                                             <Checkbox 
                                                 id={`complete-review-${addon.id}`} 
                                                 checked={completedServiceIds.includes(addon.id)} 
@@ -465,7 +465,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                                 className="h-6 w-6 rounded-full border-2"
                                             />
                                             <div className="min-w-0 text-left">
-                                                <Label htmlFor={`complete-review-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate">{addon.name}</Label>
+                                                <Label htmlFor={`complete-review-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{addon.name}</Label>
                                                 <Badge variant="outline" className={cn("text-[8px] h-5 px-2 uppercase font-black tracking-widest cursor-pointer border-2 shadow-sm transition-all", (concurrentServiceIds.includes(addon.id)) ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
                                                     {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2.5 h-2.5 mr-1" /> Concurrent</> : <><Workflow className="w-2.5 h-2.5 mr-1" /> Sequential</>}
                                                 </Badge>
@@ -586,7 +586,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center justify-between px-1 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refreshments Served</Label>
                             <Button variant="ghost" size="sm" onClick={() => setIsRefreshmentBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Append Amenity
@@ -597,11 +597,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             <div className="grid gap-2">
                                 {refreshments.map((ref, idx) => (
                                     <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
-                                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                                            <div className="p-2 bg-primary/5 rounded-xl"><Coffee className="w-4 h-4 text-primary" /></div>
+                                        <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                                            <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
                                             <div className="min-w-0 text-left">
-                                                <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{ref.name}</p>
-                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
+                                                <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
+                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-4 shrink-0">

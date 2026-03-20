@@ -140,7 +140,7 @@ export const ProductCard = ({
                                     {item.sku || item.id.slice(-6).toUpperCase()}
                                 </div>
                                 {isOrdered && (
-                                    <Badge className="bg-blue-500 text-white border-none text-[7px] h-4 font-black uppercase tracking-widest">
+                                    <Badge className="bg-blue-500 text-white border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">
                                         <Truck className="w-2.5 h-2.5 mr-1" /> ON ORDER
                                     </Badge>
                                 )}

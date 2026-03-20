@@ -27,7 +27,8 @@ import {
     ChevronUp,
     XCircle,
     Car,
-    AlertTriangle
+    AlertTriangle,
+    Users
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource } from '@/lib/data';
@@ -38,6 +39,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
 import Image from 'next/image';
+import Link from 'next/link';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -68,6 +70,41 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
         <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
+);
+
+const ArrivedView = ({ client, staff }: { client: Client | null, staff: Staff | null }) => (
+    <ViewContainer>
+        <ViewHeader title="Check-in Confirmed" subtitle="You are in the active queue" icon={CheckCircle2} />
+        <CardContent className="p-8 text-center space-y-10">
+            <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
+                <CheckCircle2 className="w-12 h-12 text-green-500 -rotate-6" />
+            </div>
+            <div className="space-y-3">
+                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">We see you, {client?.name.split(' ')[0]}!</h3>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto">
+                    Take a seat and relax. Your professional will be with you shortly to begin your session.
+                </p>
+            </div>
+
+            {staff && (
+                <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
+                    <Avatar className="h-12 w-12 border-2 border-background shadow-xl rounded-[1.5rem]">
+                        <AvatarImage src={staff.avatarUrl} className="object-cover" />
+                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staff.name || 'S').charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <div className="text-left">
+                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
+                        <p className="font-black text-sm uppercase text-slate-800 leading-none">{staff.name}</p>
+                    </div>
+                </div>
+            )}
+
+            <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 flex items-center justify-center gap-3 animate-pulse">
+                <Loader className="w-4 h-4 text-primary animate-spin" />
+                <span className="text-[10px] font-black uppercase text-primary tracking-widest">Awaiting Technician Signal</span>
+            </div>
+        </CardContent>
+    </ViewContainer>
 );
 
 const ServicingView = ({ 
@@ -118,8 +155,6 @@ const ServicingView = ({
         if (!firestore || !tenant || !client || !appointment || isRequesting) return;
         
         const qty = quantities[item.id] || 1;
-        
-        // Count all items ever requested during this appointment session
         const totalSessionCount = activeRequests.reduce((sum, r) => sum + (r.quantity || 1), 0);
         const limit = tenant.complimentaryAmenityLimit || 0;
 
@@ -317,7 +352,6 @@ export default function CheckInPage() {
     const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
     const { data: resources } = useCollection<Resource>(resourcesQuery);
 
-    // Track ALL requests for this specific appointment session
     const activeRequestsQuery = useMemoFirebase(() => {
         if (!firestore || !tenantId || !appointmentData?.id) return null;
         return query(
@@ -382,13 +416,19 @@ export default function CheckInPage() {
         return (
             <ServicingView 
                 tenant={tenant || null} 
-                client={client} 
+                client={client || null} 
                 inventory={inventory || []} 
                 activeRequests={activeRequests || []}
                 appointment={appointmentData}
-                staff={assignedStaff}
+                staff={assignedStaff || null}
                 resources={resources || []}
             />
+        );
+    }
+
+    if (appointmentData?.checkInStatus === 'arrived') {
+        return (
+            <ArrivedView client={client || null} staff={assignedStaff || null} />
         );
     }
     
