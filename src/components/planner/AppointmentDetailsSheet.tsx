@@ -63,12 +63,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { doc, increment, collection } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
-import { useCollection, useMemoFirebase } from '@/firebase';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -247,7 +246,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     setIsAddAndConfigureOpen(false);
   };
 
-  // Guard Clause now correctly positioned AFTER all hook calls to satisfy Rules of Hooks
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
