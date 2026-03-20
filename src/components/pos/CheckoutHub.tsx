@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
@@ -412,11 +412,7 @@ export const CheckoutHub = ({
         setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code));
     };
 
-    const finalSubtotal = subtotal;
-    const finalTax = finalSubtotal * 0.07;
     const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
-    const finalTotal = finalSubtotal + finalTax + tipAmount - totalDiscount;
-
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 
     return (
@@ -630,7 +626,7 @@ export const CheckoutHub = ({
                         {appointmentsData.map((data: any) => {
                             const isRedeemed = redeemedOffer?.itemId === data.service.id;
                             const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
-                            const amenities = data.appointment.checkoutState?.refreshments || [];
+                            const refreshments = data.appointment.checkoutState?.refreshments || [];
                             
                             const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
                             const mainStaffId = overrides[data.service.id] || data.appointment.staffId;
@@ -680,10 +676,11 @@ export const CheckoutHub = ({
                                             </div>
                                         )}
 
-                                        {amenities.length > 0 && (
+                                        {/* CONCIERGE AMENITIES ITEMIZATION */}
+                                        {refreshments.length > 0 && (
                                             <div className="space-y-2 pt-2 border-t border-dashed text-left">
                                                 <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Concierge Amenities</p>
-                                                {amenities.map((item: any, idx: number) => (
+                                                {refreshments.map((item: any, idx: number) => (
                                                     <div key={idx} className="flex justify-between items-center text-left">
                                                         <span className="text-[10px] font-bold text-slate-600 uppercase flex items-center gap-2"><Coffee className="w-3 h-3" /> {item.name}</span>
                                                         <span className="font-mono text-[10px] text-slate-900">{safeNumber(item.price) > 0 ? `$${safeNumber(item.price).toFixed(2)}` : 'Complimentary'}</span>
@@ -744,13 +741,13 @@ export const CheckoutHub = ({
 
             <div className="space-y-4">
                 <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
-                    <p>Subtotal (Incl. Amenities)</p>
+                    <p>Gross Manifest Value</p>
                     <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalSubtotal).toFixed(2)}</p>
                 </div>
                 {finalTotal > 0 && (
                     <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left">
                         <p>Studio Tax (7%)</p>
-                        <p className="font-mono text-[11px] md:text-xs">${safeNumber(finalTax).toFixed(2)}</p>
+                        <p className="font-mono text-[11px] md:text-xs">${(finalSubtotal * 0.07).toFixed(2)}</p>
                     </div>
                 )}
                 

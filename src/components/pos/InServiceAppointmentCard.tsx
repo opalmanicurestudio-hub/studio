@@ -5,10 +5,20 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
 import { parseISO, differenceInSeconds, differenceInMinutes } from 'date-fns';
-import { User, Clock, CheckCircle, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square, Activity, Award, Repeat, Trash2 } from 'lucide-react';
+import { 
+    Clock, 
+    Check, 
+    Square, 
+    Award, 
+    Repeat, 
+    Trash2,
+    Coffee,
+    Zap,
+    Workflow
+} from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
@@ -36,12 +46,9 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
 
     const client = useMemo(() => clients?.find(c => c.id === appointment.clientId), [appointment.clientId, clients]);
 
-    const isBirthdayToday = useMemo(() => {
-        if (!client?.birthday) return false;
-        const birth = safeDate(client.birthday);
-        const today = new Date();
-        return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
-    }, [client]);
+    // Hospitality Tracking
+    const refreshments = appointment.checkoutState?.refreshments || [];
+    const hasRefreshments = refreshments.length > 0;
 
     const isMember = !!(client?.activeMembershipId || client?.subscription);
     const hasPackage = (client?.activePackages?.length || 0) > 0;
@@ -87,7 +94,6 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                         <div className="flex justify-between items-start gap-3 cursor-pointer">
                             <div className="space-y-4 flex-1 min-w-0 text-left">
                                 <div className="flex items-center gap-2 flex-wrap text-left">
-                                    {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-bounce shrink-0" />}
                                     <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{appointment.clientName}</p>
                                     {isMember && (
                                         <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
@@ -98,6 +104,18 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                         <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
                                             <Repeat className="w-2 h-2 mr-0.5" /> PKG
                                         </Badge>
+                                    )}
+                                    {hasRefreshments && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                                    <Coffee className="w-2 h-2 mr-1" /> {refreshments.length}
+                                                </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                                                Amenities served during session
+                                            </TooltipContent>
+                                        </Tooltip>
                                     )}
                                 </div>
                                 

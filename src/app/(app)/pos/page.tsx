@@ -163,7 +163,7 @@ function POSPage() {
                 const additional = safeNumber(data.appointment.checkoutState?.additionalCharge);
                 const effectiveAdditional = waivedAppointmentFees.has(data.appointment.id) ? 0 : additional;
                 
-                // New: Include refreshment amenity prices from appointment state
+                // Add refreshments from checkoutState
                 const refreshmentsSub = (data.appointment.checkoutState?.refreshments || []).reduce((sum: number, r: any) => sum + safeNumber(r.price), 0);
                 
                 return acc + mainPrice + addonsPrice + effectiveAdditional + refreshmentsSub;
