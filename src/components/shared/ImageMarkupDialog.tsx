@@ -129,11 +129,11 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [textSize, setTextSize] = useState<TextSize>('md');
   const [penStyle, setPenStyle] = useState<PenStyle>('solid');
   
-  // View State (iPhone-like Pan/Zoom)
+  // View State
   const [viewTransform, setViewTransform] = useState({ scale: 1, x: 0, y: 0 });
-  const [lastPinchDist, setLastPinchDist] = useState<number | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [lastPanPos, setLastPanPos] = useState({ x: 0, y: 0 });
+  const [lastPinchDist, setLastPinchDist] = useState<number | null>(null);
 
   // Data State
   const [paths, setPaths] = useState<Path[]>([]);
@@ -157,7 +157,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       ctx.scale(s.scale, s.scale);
       ctx.strokeStyle = s.color;
       ctx.fillStyle = s.color;
-      ctx.lineWidth = 2 / (viewTransform.scale || 1);
+      ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
@@ -235,11 +235,11 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     ctx.scale(viewTransform.scale * dpr, viewTransform.scale * dpr);
 
     // 1. Base Image
-    const dw = canvas.width / (dpr * viewTransform.scale);
-    const dh = canvas.height / (dpr * viewTransform.scale);
+    const dw = canvas.width / dpr;
+    const dh = canvas.height / dpr;
     ctx.drawImage(img, 0, 0, dw, dh);
 
-    // 2. Magnification Lenses
+    // 2. Magnifier Lenses
     annotations.filter(a => a.type === 'lens').forEach(lens => {
         const l = lens as MagnifierLens;
         const r = l.r;
@@ -266,9 +266,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         );
 
         ctx.strokeStyle = l.color;
-        ctx.lineWidth = 2 / viewTransform.scale;
+        ctx.lineWidth = 2;
         if (selectedId === l.id) {
-            ctx.setLineDash([5 / viewTransform.scale, 5 / viewTransform.scale]);
+            ctx.setLineDash([5, 5]);
         }
         ctx.stroke();
         ctx.restore();
@@ -284,13 +284,13 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             ctx.lineTo(path.points[i].x, path.points[i].y);
         }
         ctx.strokeStyle = path.color;
-        ctx.lineWidth = path.width / viewTransform.scale;
+        ctx.lineWidth = path.width;
         
         if (path.style === 'dashed') {
-            ctx.setLineDash([5 / viewTransform.scale, 5 / viewTransform.scale]);
+            ctx.setLineDash([5, 5]);
         } else if (path.style === 'highlighter') {
             ctx.globalAlpha = 0.4;
-            ctx.lineWidth = (path.width * 5) / viewTransform.scale;
+            ctx.lineWidth = path.width * 5;
         }
 
         ctx.lineCap = 'round';
@@ -305,7 +305,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         if (sticker.id === selectedId) {
             ctx.save();
             ctx.strokeStyle = '#7955c4';
-            ctx.setLineDash([4/viewTransform.scale, 4/viewTransform.scale]);
+            ctx.setLineDash([4, 4]);
             ctx.strokeRect(sticker.x - 25, sticker.y - 25, 50, 50);
             ctx.restore();
         }
@@ -319,12 +319,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.save();
         ctx.translate(text.x, text.y);
         ctx.rotate(text.rotation);
-        ctx.font = `black ${fontSize / viewTransform.scale}px Figtree, sans-serif`;
+        ctx.font = `black ${fontSize}px Figtree, sans-serif`;
         ctx.fillStyle = text.color;
         ctx.textAlign = 'left';
         
         if (text.id === selectedId) {
-            ctx.shadowBlur = 10 / viewTransform.scale;
+            ctx.shadowBlur = 10;
             ctx.shadowColor = 'rgba(121, 85, 196, 0.4)';
         }
         
@@ -382,14 +382,14 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             const ctx = contextRef.current;
             if (!ctx) return false;
             const text = a as TextAnnotation;
-            const fs = (text.size === 'sm' ? 14 : text.size === 'lg' ? 28 : 18) / viewTransform.scale;
+            const fs = text.size === 'sm' ? 14 : text.size === 'lg' ? 28 : 18;
             ctx.font = `black ${fs}px Figtree`;
             const metrics = ctx.measureText(text.text.toUpperCase());
             return x >= text.x && x <= text.x + metrics.width && y >= text.y - fs && y <= text.y;
         }
         if (a.type === 'sticker') {
             const dist = Math.sqrt(Math.pow(x - a.x, 2) + Math.pow(y - a.y, 2));
-            return dist < (30 * a.scale) / viewTransform.scale;
+            return dist < (30 * a.scale);
         }
         if (a.type === 'lens') {
             const l = a as MagnifierLens;
