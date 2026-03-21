@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -14,7 +15,10 @@ import {
     Undo2, 
     Cake,
     Award,
-    Repeat
+    Repeat,
+    Car,
+    MapPin,
+    AlertTriangle
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
@@ -31,12 +35,22 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartService, onSkip, onCancel, onReturnToQueue }) => {
+const statusOptions = [
+    { value: 'pending', label: 'Reset to Pending', icon: Clock, color: 'text-slate-400' },
+    { value: 'on_my_way', label: 'Mark as On My Way', icon: Car, color: 'text-blue-500' },
+    { value: 'arrived', label: 'Mark as Arrived', icon: MapPin, color: 'text-green-500' },
+    { value: 'running_late', label: 'Mark as Running Late', icon: AlertTriangle, color: 'text-amber-500' },
+];
+
+export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartService, onSkip, onCancel, onReturnToQueue, onUpdateStatus }) => {
     const { selectedTenant } = useTenant();
     const { clients } = useInventory();
     const [timeSinceNotified, setTimeSinceNotified] = useState('');
     const [isOverTime, setIsOverTime] = useState(false);
     
+    // NOTIFIED QUEUE is always Walk-In
+    const isWalkIn = true;
+
     useEffect(() => {
         if (walkIn.notifiedTimestamp) {
             const updateTimer = () => {
@@ -98,12 +112,39 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
                                 <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
                                 <AvatarFallback className="text-[9px] font-black">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
                             </Avatar>
-                            <div className="min-w-0 pr-2">
+                            <div className="min-w-0 pr-2 text-left">
                                 <p className="text-[8px] font-black uppercase text-muted-foreground leading-none mb-0.5">Professional</p>
                                 <p className="text-[11px] font-black text-primary uppercase tracking-tight truncate">{assignedStaff.name.split(' ')[0]}</p>
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <div className="flex gap-1.5 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
+                    {statusOptions.map((status) => {
+                        const Icon = status.icon;
+                        const isActive = walkIn.status === status.value;
+                        return (
+                            <TooltipProvider key={status.value}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button 
+                                            variant={isActive ? 'default' : 'outline'} 
+                                            size="icon" 
+                                            className={cn("h-8 w-8 rounded-xl border-2 transition-all", isActive ? "shadow-md" : "text-muted-foreground/40 hover:border-primary/20")} 
+                                            onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                onUpdateStatus(walkIn.id, isWalkIn, status.value); 
+                                            }}
+                                        >
+                                            <Icon className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest">{status.label}</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        );
+                    })}
                 </div>
             </CardContent>
             
@@ -116,7 +157,7 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2" onClick={() => onReturnToQueue(walkIn.id)}>
+                                <Button variant="outline" size="icon" className="h-10 rounded-lg border-2 w-full" onClick={() => onReturnToQueue(walkIn.id)}>
                                     <Users className="w-4 h-4" />
                                 </Button>
                             </TooltipTrigger>
@@ -125,7 +166,7 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
 
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-amber-600 hover:bg-amber-50" onClick={() => onSkip(walkIn.id)}>
+                                <Button variant="outline" size="icon" className="h-10 rounded-lg border-2 text-amber-600 hover:bg-amber-50 w-full" onClick={() => onSkip(walkIn.id)}>
                                     <SkipForward className="w-4 h-4" />
                                 </Button>
                             </TooltipTrigger>
@@ -134,7 +175,7 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
 
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-destructive hover:bg-destructive/5" onClick={() => onCancel(walkIn.id)}>
+                                <Button variant="outline" size="icon" className="h-10 rounded-lg border-2 text-destructive hover:bg-destructive/5 w-full" onClick={() => onCancel(walkIn.id)}>
                                     <XCircle className="w-4 h-4" />
                                 </Button>
                             </TooltipTrigger>

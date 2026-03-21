@@ -286,18 +286,27 @@ function POSPage() {
     const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
         if (!firestore || !tenantId || !selectedTenant) return;
         
-        // RECONCILE DOC REFERENCE: 
-        // 1. If flagged as Walk-In, use WalkIns collection. 
-        // 2. If Appointment, check for apt-walkin prefix.
-        const docRef = isWalkIn 
-            ? doc(firestore, 'tenants', tenantId, 'walkIns', id) 
-            : doc(firestore, 'tenants', tenantId, 'appointments', id);
+        let targetId = id;
+        let targetIsWalkIn = isWalkIn;
+
+        // COLLECTION RECONCILIATION:
+        // Ensure we are targeting the correct collection based on the ID and flag.
+        if (!targetIsWalkIn && !appointmentsFromInventory?.find(a => a.id === id)) {
+            // If ID wasn't found in appointments, check if it's a walk-in being treated as an appointment.
+            if (walkIns?.find(w => w.id === id)) {
+                targetIsWalkIn = true;
+            }
+        }
+
+        const docRef = targetIsWalkIn 
+            ? doc(firestore, 'tenants', tenantId, 'walkIns', targetId) 
+            : doc(firestore, 'tenants', tenantId, 'appointments', targetId);
             
         const tmhrValue = selectedTenant.tmhr || 50;
         const premium = selectedTenant.lateInconveniencePremium || 0;
 
-        if (status === 'running_late' && lateMinutes && !isWalkIn) {
-            const apt = appointmentsFromInventory?.find(a => a.id === id);
+        if (status === 'running_late' && lateMinutes && !targetIsWalkIn) {
+            const apt = appointmentsFromInventory?.find(a => a.id === targetId);
             if (apt) {
                 const grace = selectedTenant.lateArrivalGracePeriod || 15;
                 const autoCancel = selectedTenant.autoCancelLateArrivals === true;
@@ -345,7 +354,7 @@ function POSPage() {
         const batch = writeBatch(firestore);
         batch.update(docRef, sanitizeForFirestore(updates));
         
-        const apt = !isWalkIn ? appointmentsFromInventory?.find(a => a.id === id) : null;
+        const apt = !targetIsWalkIn ? appointmentsFromInventory?.find(a => a.id === targetId) : null;
         if (apt?.checkInToken) {
             batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ ...updates, tenantId }));
         }
@@ -450,9 +459,17 @@ function POSPage() {
     };
 
     const handleCancelAction = (id: string, isWalkIn: boolean) => {
-        const item = isWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
+        // RESILIENT LOOKUP: Handles IDs with/without prefixes across collections
+        let item = isWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
+        
+        if (!item && isWalkIn) {
+            // Secondary check if it's an assigned walk-in appointment incorrectly flagged
+            item = appointmentsFromInventory?.find(a => a.id === `apt-walkin-${id}`);
+        }
+
         if (item) {
-            setSelectedAppointment({ ...item, isWalkIn } as any);
+            const finalIsWalkIn = 'isWalkIn' in item ? !!item.isWalkIn : isWalkIn;
+            setSelectedAppointment({ ...item, isWalkIn: finalIsWalkIn } as any);
             setIsCancelDialogOpen(true);
         }
     };

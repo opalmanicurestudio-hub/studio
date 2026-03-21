@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -7,7 +8,7 @@ import { NotifiedCustomerCard } from './NotifiedCustomerCard';
 import { type WalkIn, type Staff, type Service, type Appointment, type Client } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { Button } from '../ui/button';
-import { Sparkles, TrendingUp, Users, Clock, CheckCircle, Activity, QrCode, Play, ShoppingCart, DollarSign } from 'lucide-react';
+import { Sparkles, TrendingUp, Users, Clock, CheckCircle, Activity, QrCode, Play, ShoppingBag, DollarSign } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { InServiceAppointmentCard } from './InServiceAppointmentCard';
@@ -145,7 +146,17 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                     <ScrollArea className="flex-1">
                         <div className="p-4 md:p-6 space-y-4">
                             {notifiedQueue.length > 0 ? notifiedQueue.map(walkIn => (
-                                <NotifiedCustomerCard key={walkIn.id} walkIn={walkIn} services={services} staff={staff} onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)} onSkip={onSkip} onCancel={(id) => onCancel(id, true)} onReturnToQueue={onReturnToQueue} />
+                                <NotifiedCustomerCard 
+                                    key={walkIn.id} 
+                                    walkIn={walkIn} 
+                                    services={services} 
+                                    staff={staff} 
+                                    onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)} 
+                                    onSkip={onSkip} 
+                                    onCancel={(id) => onCancel(id, true)} 
+                                    onReturnToQueue={onReturnToQueue} 
+                                    onUpdateStatus={onUpdateStatus}
+                                />
                             )) : (
                                 <div className="text-center py-16 md:py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
                                     <Clock className="w-8 h-8 md:w-10 md:h-10" />
