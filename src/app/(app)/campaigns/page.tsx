@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -40,7 +41,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 
 const AudienceIcon = ({ audience }: { audience: Campaign['targetAudience'] }) => {
     switch (audience) {
@@ -112,11 +113,11 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSe
             <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="p-3 rounded-xl bg-muted/20 border shadow-inner">
                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-0.5">Reach</p>
-                    <p className="font-black font-mono text-sm">{campaign.status === 'sent' ? (campaign.recipientCount || 0) : '—'}</p>
+                    <p className="font-black font-mono text-sm">{campaign.status === 'sent' ? safeNumber(campaign.recipientCount) : '—'}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner">
                     <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Yield</p>
-                    <p className="font-black font-mono text-sm text-primary">${(campaign.generatedRevenue || 0).toFixed(0)}</p>
+                    <p className="font-black font-mono text-sm text-primary">${safeNumber(campaign.generatedRevenue).toFixed(0)}</p>
                 </div>
             </div>
 
@@ -177,12 +178,12 @@ export default function CampaignsPage() {
     if (!campaigns) return { totalCampaigns: 0, totalRecipients: 0, avgOpenRate: 0, totalRevenue: 0 };
     
     const sentCampaigns = campaigns.filter(c => c.status === 'sent');
-    const totalRecipients = sentCampaigns.reduce((sum, c) => sum + (c.recipientCount || 0), 0);
-    const totalRevenue = sentCampaigns.reduce((sum, c) => sum + (c.generatedRevenue || 0), 0);
+    const totalRecipients = sentCampaigns.reduce((sum, c) => sum + safeNumber(c.recipientCount), 0);
+    const totalRevenue = sentCampaigns.reduce((sum, c) => sum + safeNumber(c.generatedRevenue), 0);
     
     const campaignsWithOpenRate = sentCampaigns.filter(c => typeof c.openRate === 'number');
     const avgOpenRate = campaignsWithOpenRate.length > 0
-      ? campaignsWithOpenRate.reduce((sum, c) => sum + (c.openRate || 0), 0) / campaignsWithOpenRate.length
+      ? campaignsWithOpenRate.reduce((sum, c) => sum + safeNumber(c.openRate), 0) / campaignsWithOpenRate.length
       : 0;
 
     return {
@@ -245,7 +246,7 @@ export default function CampaignsPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {sortedCampaigns.map(campaign => (
+                            {sortedQuotes.map(campaign => (
                                 <TableRow key={campaign.id} className="group hover:bg-primary/[0.02] transition-colors border-b">
                                     <TableCell className="p-6">
                                         <div className="flex items-center gap-2">
@@ -272,8 +273,8 @@ export default function CampaignsPage() {
                                             <span>{audienceText[campaign.targetAudience]}</span>
                                         </div>
                                     </TableCell>
-                                    <TableCell className="font-black font-mono text-sm text-slate-700">{campaign.status === 'sent' ? (campaign.recipientCount || '0') : '—'}</TableCell>
-                                    <TableCell className="font-black font-mono text-sm text-primary">{campaign.status === 'sent' ? `$${(campaign.generatedRevenue || 0).toFixed(0)}` : '—'}</TableCell>
+                                    <TableCell className="font-black font-mono text-sm text-slate-700">{campaign.status === 'sent' ? safeNumber(campaign.recipientCount) : '—'}</TableCell>
+                                    <TableCell className="font-black font-mono text-sm text-primary">{campaign.status === 'sent' ? `$${safeNumber(campaign.generatedRevenue).toFixed(0)}` : '—'}</TableCell>
                                     <TableCell>
                                         <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status}</Badge>
                                     </TableCell>
@@ -298,7 +299,7 @@ export default function CampaignsPage() {
                     </Table>
                 </div>
                 <div className="md:hidden space-y-4 p-5">
-                    {sortedCampaigns.map(campaign => (
+                    {sortedQuotes.map(campaign => (
                         <CampaignCard key={campaign.id} campaign={campaign} onSend={handleSendCampaign} onDelete={handleDeleteClick} />
                     ))}
                 </div>

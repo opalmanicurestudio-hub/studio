@@ -45,7 +45,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { useInventory } from '@/context/InventoryContext';
 import { useRouter } from 'next/navigation';
 
@@ -121,11 +121,11 @@ const QuoteCard = ({ quote, onBookEvent, onDelete }: { quote: QuoteType, onBookE
             <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="p-3 rounded-xl bg-muted/20 border shadow-inner">
                     <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40 mb-0.5">Value</p>
-                    <p className="font-black font-mono text-sm">${(quote.lineItems.reduce((acc, i) => acc + (i.price * i.quantity), 0) + quote.travelExpenses).toFixed(0)}</p>
+                    <p className="font-black font-mono text-sm">${(quote.lineItems.reduce((acc, i) => acc + (safeNumber(i.price) * safeNumber(i.quantity)), 0) + safeNumber(quote.travelExpenses)).toFixed(0)}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner">
                     <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Retainer</p>
-                    <p className="font-black font-mono text-sm text-primary">${quote.depositAmount?.toFixed(0) || '0'}</p>
+                    <p className="font-black font-mono text-sm text-primary">${safeNumber(quote.depositAmount).toFixed(0)}</p>
                 </div>
             </div>
         </CardContent>
@@ -173,8 +173,8 @@ export default function QuotesPage() {
     
     const acceptedQuotes = quotes.filter(q => q.status === 'accepted' || q.status === 'booked');
     const totalValue = acceptedQuotes.reduce((sum, q) => {
-        const itemsTotal = q.lineItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-        return sum + itemsTotal + q.travelExpenses;
+        const itemsTotal = q.lineItems.reduce((acc, i) => acc + (safeNumber(i.price) * safeNumber(i.quantity)), 0);
+        return sum + itemsTotal + safeNumber(q.travelExpenses);
     }, 0);
     
     const conversionRate = quotes.length > 0 ? (acceptedQuotes.length / quotes.length) * 100 : 0;
@@ -238,7 +238,7 @@ export default function QuotesPage() {
                         </TableHeader>
                         <TableBody>
                             {sortedQuotes.map(quote => {
-                                const totalValue = quote.lineItems.reduce((acc, i) => acc + (i.price * i.quantity), 0) + quote.travelExpenses;
+                                const totalValue = quote.lineItems.reduce((acc, i) => acc + (safeNumber(i.price) * safeNumber(i.quantity)), 0) + safeNumber(quote.travelExpenses);
                                 return (
                                     <TableRow key={quote.id} className="group hover:bg-primary/[0.02] transition-colors border-b text-left">
                                         <TableCell className="p-6">
@@ -250,7 +250,7 @@ export default function QuotesPage() {
                                         </TableCell>
                                         <TableCell className="font-black font-mono text-sm text-slate-700">${totalValue.toFixed(2)}</TableCell>
                                         <TableCell>
-                                            <Badge variant={quote.status === 'accepted' ? 'default' : quote.status === 'booked' ? 'outline' : 'secondary'} className={cn("h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm", quote.status === 'booked' && "bg-green-500 text-white")}>
+                                            <Badge variant={quote.status === 'accepted' ? 'default' : quote.status === 'booked' ? 'outline' : 'secondary'} className={cn("h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm", quote.status === 'booked' && "bg-green-50 text-white")}>
                                                 {quote.status}
                                             </Badge>
                                         </TableCell>
