@@ -11,26 +11,17 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
-import { format, parseISO, subMonths, isAfter, subYears, startOfMonth, addMonths } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, startOfMonth } from 'date-fns';
 import { 
     Award, 
-    Repeat, 
     Calendar, 
-    DollarSign, 
     Loader, 
     Clock, 
-    User, 
-    Heart, 
     Star, 
-    CheckCircle, 
-    Percent, 
-    TicketIcon, 
-    History, 
-    AlertTriangle, 
     Zap, 
     CheckCircle2, 
     ArrowRight, 
-    Tag, 
+    History, 
     Sparkles, 
     Wallet,
     ListChecks,
@@ -41,13 +32,17 @@ import {
     TrendingUp,
     HeartHandshake,
     Flame,
-    PartyPopper
+    PartyPopper,
+    User,
+    Repeat,
+    Box
 } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount } from '@/lib/data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn, safeNumber } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -69,6 +64,7 @@ const safeDate = (val: any): Date => {
 export default function ClientPortalPage() {
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
     const { firestore } = useFirebase();
+    const { toast } = useToast();
 
     const clientRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/clients/${clientId}`), [firestore, tenantId, clientId]);
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientRef);
@@ -103,7 +99,6 @@ export default function ClientPortalPage() {
         return memberships.find(m => m.id === mId);
     }, [client, memberships]);
 
-    // --- Unified Cycle Audit Logic ---
     const cycleStart = useMemo(() => {
         if (!client?.subscription?.nextBillingDate || !activeMembership) return startOfMonth(new Date());
         const nextBilling = safeDate(client.subscription.nextBillingDate);
@@ -149,28 +144,18 @@ export default function ClientPortalPage() {
         return items;
     }, [activeMembership, currentCycleActivity]);
 
-    // --- Loyalty Intelligence ---
     const loyaltyHubData = useMemo(() => {
         if (!client || !appointments || !discounts) return null;
 
         const completedApts = appointments.filter(a => a.status === 'completed');
         const visitCount = completedApts.length;
 
-        // Find relevant loyalty protocol
         const loyaltyProtocol = discounts.find(d => d.automation?.trigger === 'loyalty' && d.isActive);
         const threshold = loyaltyProtocol?.automation?.appointmentThreshold || 10;
         
         const progressToNextReward = (visitCount % threshold) / threshold * 100;
         const visitsToNext = threshold - (visitCount % threshold);
 
-        // Status Rank Logic
-        const ltv = safeNumber(client.lifetimeValue);
-        let rank = { label: 'Bronze', color: 'text-amber-700', bg: 'bg-amber-100', icon: Trophy };
-        if (ltv > 5000) rank = { label: 'Platinum', color: 'text-slate-900', bg: 'bg-slate-200', icon: ShieldCheck };
-        else if (ltv > 2500) rank = { label: 'Gold', color: 'text-amber-500', bg: 'bg-amber-50', icon: Star };
-        else if (ltv > 1000) rank = { label: 'Silver', color: 'text-slate-500', bg: 'bg-slate-50', icon: Award };
-
-        // Cycle ROI (Member Savings)
         let cycleSavings = 0;
         if (activeMembership) {
             currentCycleActivity.services.forEach(r => {
@@ -187,7 +172,6 @@ export default function ClientPortalPage() {
             visitsToNext,
             progressToNextReward,
             loyaltyProtocol,
-            rank,
             cycleSavings,
             referralCount: client.successfulReferrals?.length || 0,
             referralEarnings: safeNumber(client.walletCredit)
@@ -236,16 +220,11 @@ export default function ClientPortalPage() {
                 <div className="space-y-2 flex-1 min-w-0">
                     <div className="flex items-center justify-center md:justify-start gap-3">
                         <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Hello, {client.name.split(' ')[0]}!</h1>
-                        {loyaltyHubData && (
-                            <Badge className={cn("hidden md:flex font-black text-[9px] uppercase tracking-widest border-none px-3 h-6", loyaltyHubData.rank.bg, loyaltyHubData.rank.color)}>
-                                <loyaltyHubData.rank.icon className="w-3 h-3 mr-1.5" /> {loyaltyHubData.rank.label} Status
-                            </Badge>
-                        )}
                     </div>
                     <p className="text-xs md:sm font-bold text-muted-foreground uppercase tracking-widest opacity-60">{tenant?.name} &middot; Verified Guest</p>
                 </div>
                 <div className="shrink-0 flex gap-3">
-                    <Button asChild variant="outline" className="h-14 px-6 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white/50 backdrop-blur-sm">
+                    <Button asChild variant="outline" className="h-14 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest border-border/50 bg-white/50 backdrop-blur-sm">
                         <Link href={`/book/${tenantId}`}>
                             Menu
                         </Link>
@@ -279,7 +258,7 @@ export default function ClientPortalPage() {
 
                 <TabsContent value="appointments" className="space-y-12 animate-in fade-in duration-500 text-left">
                     <div className="space-y-6">
-                        <div className="flex items-center gap-3 px-1">
+                        <div className="flex items-center gap-3 px-1 text-left">
                             <Calendar className="w-5 h-5 text-primary" />
                             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Agenda Matrix</h3>
                         </div>
@@ -373,8 +352,8 @@ export default function ClientPortalPage() {
                                                         <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                             <span>Consumption Progress</span>
                                                             <div className="flex items-center gap-1">
-                                                                <span>{safeNumber(perk.used)} / {perk.quantity}</span>
-                                                                <span className="text-primary">({perk.quantity - perk.used} Remaining)</span>
+                                                                <span>Used {safeNumber(perk.used)} / {perk.quantity}</span>
+                                                                <span className="text-primary font-black">({perk.quantity - perk.used} Remaining)</span>
                                                             </div>
                                                         </div>
                                                         <Progress value={perk.progress} className={cn("h-2 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
@@ -407,7 +386,7 @@ export default function ClientPortalPage() {
                                                         </div>
                                                         <div className="min-w-0 text-left">
                                                             <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{isRefreshment ? item.itemName : item.serviceName}</p>
-                                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Drawn from membership allotment</p>
+                                                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Drawn from membership allotment</p>
                                                         </div>
                                                     </div>
                                                     <div className="text-right shrink-0 ml-4">
@@ -421,7 +400,7 @@ export default function ClientPortalPage() {
                                 ) : (
                                     <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                                         <History className="w-12 h-12" />
-                                        <p className="text-[10px] font-black uppercase tracking-widest">No redemptions this cycle</p>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-center">No redemptions this cycle</p>
                                     </div>
                                 )}
                             </section>
@@ -429,7 +408,7 @@ export default function ClientPortalPage() {
                     ) : (
                         <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                             <Award className="w-16 h-16" />
-                            <p className="text-[10px] font-black uppercase tracking-widest">No active membership found</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-center">No active membership found</p>
                         </div>
                     )}
                 </TabsContent>
@@ -437,7 +416,7 @@ export default function ClientPortalPage() {
                 <TabsContent value="rewards" className="space-y-10 animate-in fade-in duration-500 text-left">
                     {loyaltyHubData ? (
                         <div className="space-y-10">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 gap-6">
                                 <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
                                     <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Flame className="w-32 h-32 text-primary" /></div>
                                     <CardHeader className="p-8 pb-2 text-left">
@@ -454,27 +433,6 @@ export default function ClientPortalPage() {
                                                 <span>Active Progress</span>
                                                 <span>{Math.round(loyaltyHubData.progressToNextReward)}% Path</span>
                                             </div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                <Card className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm flex flex-col">
-                                    <CardHeader className="p-8 pb-2 text-left bg-muted/5 border-b">
-                                        <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Trophy className="w-3.5 h-3.5 text-primary" /> Status Rank</CardTitle>
-                                    </CardHeader>
-                                    <CardContent className="p-8 flex-1 flex flex-col justify-center gap-6">
-                                        <div className="flex items-center gap-6">
-                                            <div className={cn("w-20 h-20 rounded-[2rem] flex items-center justify-center shadow-2xl shadow-primary/5 border-2", loyaltyHubData.rank.bg, loyaltyHubData.rank.color)}>
-                                                <loyaltyHubData.rank.icon className="w-10 h-10" />
-                                            </div>
-                                            <div className="text-left space-y-1">
-                                                <p className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{loyaltyHubData.rank.label}</p>
-                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Lifetime Status Ranking</p>
-                                            </div>
-                                        </div>
-                                        <div className="pt-6 border-t border-dashed space-y-1 text-left">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Lifetime Investment</p>
-                                            <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${safeNumber(client.lifetimeValue).toFixed(2)}</p>
                                         </div>
                                     </CardContent>
                                 </Card>
@@ -527,7 +485,7 @@ export default function ClientPortalPage() {
                     ) : (
                         <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                             <Trophy className="w-16 h-16" />
-                            <p className="text-[10px] font-black uppercase tracking-widest">Loyalty profile loading...</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-center">Loyalty profile loading...</p>
                         </div>
                     )}
                 </TabsContent>
