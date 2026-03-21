@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
 import { doc, collection, query, where } from 'firebase/firestore';
@@ -11,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
-import { format, parseISO, subMonths, isAfter, subYears, startOfMonth } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, startOfMonth, addMonths } from 'date-fns';
 import { 
     Award, 
     Repeat, 
@@ -90,7 +89,7 @@ export default function ClientPortalPage() {
     const { data: packages } = useCollection<Package>(packagesQuery);
 
     const activeMembership = useMemo(() => {
-        const mId = client?.subscription?.membershipId || client?.activeMembershipId;
+        const mId = client?.activeMembershipId || client?.subscription?.membershipId;
         if (!mId || !memberships) return null;
         return memberships.find(m => m.id === mId);
     }, [client, memberships]);
@@ -146,6 +145,13 @@ export default function ClientPortalPage() {
         return appointments
             .filter(a => a.status !== 'cancelled' && safeDate(a.startTime) > new Date())
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
+    }, [appointments]);
+
+    const pastAppointments = useMemo(() => {
+        if (!appointments) return [];
+        return appointments
+            .filter(a => safeDate(a.startTime) <= new Date())
+            .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
     }, [appointments]);
 
     if (clientLoading || appointmentsLoading || redemptionsLoading || requestsLoading) {
@@ -350,7 +356,7 @@ export default function ClientPortalPage() {
                                                         <div className="space-y-2">
                                                             <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Allotment Usage</span>
-                                                                <span>{perk.used} / {perk.quantity}</span>
+                                                                <span>{safeNumber(perk.used)} / {perk.quantity}</span>
                                                             </div>
                                                             <Progress value={perk.progress} className={cn("h-2 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
@@ -391,7 +397,7 @@ export default function ClientPortalPage() {
                                                         <div className="space-y-2">
                                                             <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Sessions Remaining</span>
-                                                                <span>{pack.sessionsRemaining} / {details?.sessions}</span>
+                                                                <span>{safeNumber(pack.sessionsRemaining)} / {details?.sessions}</span>
                                                             </div>
                                                             <Progress value={progress} className="h-2 rounded-full bg-muted [&>div]:bg-teal-500" />
                                                         </div>
