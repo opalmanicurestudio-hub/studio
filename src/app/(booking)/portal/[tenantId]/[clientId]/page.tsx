@@ -258,21 +258,11 @@ export default function ClientPortalPage() {
 
                             <motion.button 
                                 onClick={() => setEntered(true)}
-                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95"
+                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95 text-muted-foreground"
                             >
-                                <span className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] text-primary opacity-60 group-hover:opacity-100 transition-opacity">Access Dashboard</span>
-                                <ArrowDown className="w-6 h-6 md:w-8 md:h-8 text-primary animate-bounce opacity-40 group-hover:opacity-100" />
+                                <span className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] opacity-40 group-hover:opacity-100 transition-opacity">Access Dashboard</span>
+                                <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce opacity-40 group-hover:opacity-100" />
                             </motion.button>
-                        </motion.div>
-
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ delay: 1.2, duration: 1 }}
-                            className="absolute bottom-12 flex flex-col items-center gap-2 text-muted-foreground"
-                        >
-                            <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-40">Private secure tunnel</p>
-                            <ArrowDown className="w-4 h-4 animate-bounce" />
                         </motion.div>
                     </motion.div>
                 )}
@@ -629,3 +619,4 @@ export default function ClientPortalPage() {
         </div>
     );
 }
+
