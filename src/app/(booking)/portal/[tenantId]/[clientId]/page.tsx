@@ -323,10 +323,15 @@ export default function ClientPortalPage() {
                                 <div className="flex items-center justify-between px-1">
                                     <div className="flex items-center gap-3">
                                         <ShieldCheck className="w-5 h-5 text-indigo-600" />
-                                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Active Allotment Matrix</h3>
+                                        <div className="text-left">
+                                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 leading-tight">Active Allotment Matrix</h3>
+                                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
+                                                Cycle: {format(cycleStart, 'MMM d')} - {client?.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMM d, yyyy') : '...'}
+                                            </p>
+                                        </div>
                                     </div>
                                     {loyaltyHubData && (
-                                        <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-green-500/5 border-2 border-green-500/10">
+                                        <div className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-2xl bg-green-500/5 border-2 border-green-500/10">
                                             <TrendingUp className="w-3.5 h-3.5 text-green-600" />
                                             <span className="text-[10px] font-black uppercase text-green-700">Cycle Value Secured: ${loyaltyHubData.cycleSavings.toFixed(0)}</span>
                                         </div>
