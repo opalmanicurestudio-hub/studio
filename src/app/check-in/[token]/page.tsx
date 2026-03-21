@@ -125,7 +125,7 @@ const RefreshmentCard = ({
     onQtyChange, 
     onRequest, 
     isRequesting, 
-    hasActiveRequest, 
+    hasPendingRequest, 
     isMember, 
     activeMembership,
     remainingPerkUses
@@ -135,7 +135,7 @@ const RefreshmentCard = ({
     onQtyChange: (delta: number) => void, 
     onRequest: () => void, 
     isRequesting: boolean, 
-    hasActiveRequest: boolean, 
+    hasPendingRequest: boolean, 
     isMember: boolean,
     activeMembership: Membership | null,
     remainingPerkUses: number
@@ -164,7 +164,7 @@ const RefreshmentCard = ({
         >
             <Card className={cn(
                 "rounded-[2.5rem] border-2 transition-all h-full flex flex-col overflow-hidden bg-white shadow-lg",
-                isSoldOut ? "opacity-40 grayscale" : "border-primary/5 hover:border-primary/30",
+                (isSoldOut || hasPendingRequest) ? "opacity-40" : "border-primary/5 hover:border-primary/30",
                 isPerkAvailable && "border-indigo-500/20 ring-1 ring-indigo-500/10",
                 item.isMembersOnly && "border-indigo-500/30"
             )}>
@@ -214,17 +214,17 @@ const RefreshmentCard = ({
                     <div className="pt-4 border-t border-dashed space-y-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-1 px-3 h-10 border shadow-inner">
-                                <button onClick={() => onQtyChange(-1)} disabled={isSoldOut} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-4 h-4" /></button>
+                                <button onClick={() => onQtyChange(-1)} disabled={isSoldOut || hasPendingRequest} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-4 h-4" /></button>
                                 <span className="font-black font-mono text-base w-6 text-center">{qty}</span>
-                                <button onClick={() => onQtyChange(1)} disabled={isSoldOut} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Plus className="w-4 h-4" /></button>
+                                <button onClick={() => onQtyChange(1)} disabled={isSoldOut || hasPendingRequest} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Plus className="w-4 h-4" /></button>
                             </div>
                             <Button 
                                 size="sm" 
-                                disabled={isRequesting || hasActiveRequest || isSoldOut}
+                                disabled={isRequesting || hasPendingRequest || isSoldOut}
                                 onClick={onRequest}
                                 className="h-10 px-6 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-95"
                             >
-                                {isSoldOut ? 'Void' : 'Order'}
+                                {hasPendingRequest ? 'Pending' : isSoldOut ? 'Void' : 'Order'}
                             </Button>
                         </div>
                     </div>
@@ -277,7 +277,6 @@ const ServicingView = ({
         const usageCount = safeNumber(client.subscription.perkUsage?.[itemId]);
         const limit = safeNumber(perkDef.quantity);
 
-        // Check if reset is needed based on cycle
         if (!client.subscription.nextBillingDate || !client.subscription.perkLastUsed) {
             return Math.max(0, limit - usageCount);
         }
@@ -287,7 +286,7 @@ const ServicingView = ({
         const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
 
         if (!isAfter(lastUsed, cycleStart)) {
-            return limit; // Fresh cycle detected
+            return limit; 
         }
 
         return Math.max(0, limit - usageCount);
@@ -465,29 +464,32 @@ const ServicingView = ({
 
                                 <ScrollArea className="w-full">
                                     <div className="flex gap-6 px-8 pb-6">
-                                        {items.map((item, idx) => (
-                                            <motion.div
-                                                key={item.id}
-                                                initial={{ opacity: 0, x: 20 }}
-                                                animate={{ opacity: 1, x: 0 }}
-                                                transition={{ delay: (catIdx * 0.1) + (idx * 0.05) }}
-                                            >
-                                                <RefreshmentCard 
-                                                    item={item} 
-                                                    qty={quantities[item.id] || 1}
-                                                    onQtyChange={(delta) => {
-                                                        const current = quantities[item.id] || 1;
-                                                        setQuantities(p => ({...p, [item.id]: Math.max(1, Math.min(item.totalStock, current + delta))}));
-                                                    }}
-                                                    onRequest={() => handleRequest(item)}
-                                                    isRequesting={isRequesting}
-                                                    hasActiveRequest={false} 
-                                                    isMember={isMember}
-                                                    activeMembership={activeMembership}
-                                                    remainingPerkUses={getRemainingPerkUses(item.id)}
-                                                />
-                                            </motion.div>
-                                        ))}
+                                        {items.map((item, idx) => {
+                                            const hasPendingRequest = pendingRequests.some(r => r.itemId === item.id);
+                                            return (
+                                                <motion.div
+                                                    key={item.id}
+                                                    initial={{ opacity: 0, x: 20 }}
+                                                    animate={{ opacity: 1, x: 0 }}
+                                                    transition={{ delay: (catIdx * 0.1) + (idx * 0.05) }}
+                                                >
+                                                    <RefreshmentCard 
+                                                        item={item} 
+                                                        qty={quantities[item.id] || 1}
+                                                        onQtyChange={(delta) => {
+                                                            const current = quantities[item.id] || 1;
+                                                            setQuantities(p => ({...p, [item.id]: Math.max(1, Math.min(item.totalStock, current + delta))}));
+                                                        }}
+                                                        onRequest={() => handleRequest(item)}
+                                                        isRequesting={isRequesting}
+                                                        hasPendingRequest={hasPendingRequest} 
+                                                        isMember={isMember}
+                                                        activeMembership={activeMembership}
+                                                        remainingPerkUses={getRemainingPerkUses(item.id)}
+                                                    />
+                                                </motion.div>
+                                            )
+                                        })}
                                     </div>
                                     <ScrollBar orientation="horizontal" className="hidden" />
                                 </ScrollArea>
