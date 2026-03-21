@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
@@ -39,7 +40,10 @@ import {
   AlertTriangle,
   Settings as SettingsIcon,
   Unlock,
-  DollarSign
+  DollarSign,
+  Scale,
+  Percent,
+  Target
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -56,6 +60,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion, AnimatePresence } from 'framer-motion';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     <div className="flex items-center gap-3 mb-6 text-left">
@@ -360,11 +365,57 @@ function SettingsPageImpl() {
             <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
-                        <SectionHeader icon={ShieldCheck} title="Studio Governance" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Define policies for cancellations and late arrivals.</CardDescription>
+                        <SectionHeader icon={ShieldCheck} title="Studio Governance & Logic" />
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Define global recovery protocols for late shifts and cancellations.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-6">
+                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary ml-1">Default Recovery Strategy</Label>
+                            <Controller
+                                name="defaultCancellationMode"
+                                control={control}
+                                defaultValue={tenantData.defaultCancellationMode || 'matrix'}
+                                render={({ field }) => (
+                                    <RadioGroup onValueChange={(v: any) => setTenantData(p => ({...p, defaultCancellationMode: v}))} value={tenantData.defaultCancellationMode || 'matrix'} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <label htmlFor="mode-matrix" className="cursor-pointer h-full">
+                                            <div className={cn(
+                                                "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full text-center",
+                                                (tenantData.defaultCancellationMode || 'matrix') === 'matrix' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
+                                            )}>
+                                                <Scale className={cn("mb-2 h-8 w-8", (tenantData.defaultCancellationMode || 'matrix') === 'matrix' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                <span className="text-[10px] font-black uppercase tracking-widest leading-tight">Recovery Matrix</span>
+                                                <p className="text-[8px] font-bold opacity-40 mt-1 uppercase">Time + Materials</p>
+                                                <RadioGroupItem value="matrix" id="mode-matrix" className="sr-only" disabled={!isEditing} />
+                                            </div>
+                                        </label>
+                                        <label htmlFor="mode-percent" className="cursor-pointer h-full">
+                                            <div className={cn(
+                                                "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full text-center",
+                                                tenantData.defaultCancellationMode === 'percentage' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
+                                            )}>
+                                                <Percent className={cn("mb-2 h-8 w-8", tenantData.defaultCancellationMode === 'percentage' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                <span className="text-[10px] font-black uppercase tracking-widest leading-tight">Service Percentage</span>
+                                                <p className="text-[8px] font-bold opacity-40 mt-1 uppercase">Price Pro-Rata</p>
+                                                <RadioGroupItem value="percentage" id="mode-percent" className="sr-only" disabled={!isEditing} />
+                                            </div>
+                                        </label>
+                                        <label htmlFor="mode-flat" className="cursor-pointer h-full">
+                                            <div className={cn(
+                                                "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full text-center",
+                                                tenantData.defaultCancellationMode === 'flat' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
+                                            )}>
+                                                <DollarSign className={cn("mb-2 h-8 w-8", tenantData.defaultCancellationMode === 'flat' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                <span className="text-[10px] font-black uppercase tracking-widest leading-tight">Fixed Rate</span>
+                                                <p className="text-[8px] font-bold opacity-40 mt-1 uppercase">Uniform Fee</p>
+                                                <RadioGroupItem value="flat" id="mode-flat" className="sr-only" disabled={!isEditing} />
+                                            </div>
+                                        </label>
+                                    </RadioGroup>
+                                )}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-dashed">
                             <div className="space-y-3">
                                 <Label htmlFor="cancel-window" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Window (Hours)</Label>
                                 <Input 
@@ -377,7 +428,7 @@ function SettingsPageImpl() {
                                 />
                             </div>
                             <div className="space-y-3">
-                                <Label htmlFor="cancel-fee" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Default Late Fee ($)</Label>
+                                <Label htmlFor="cancel-fee" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Flat Fee ($)</Label>
                                 <div className="relative">
                                     <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                                     <Input 
@@ -385,8 +436,8 @@ function SettingsPageImpl() {
                                         type="number"
                                         value={tenantData.cancellationFee || 0}
                                         onChange={e => setTenantData(prev => ({...prev, cancellationFee: parseFloat(e.target.value) || 0}))}
-                                        disabled={!isEditing}
-                                        className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-primary"
+                                        disabled={!isEditing || tenantData.defaultCancellationMode !== 'flat'}
+                                        className={cn("h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-primary", tenantData.defaultCancellationMode !== 'flat' && "opacity-40")}
                                     />
                                 </div>
                             </div>

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -31,12 +32,15 @@ import {
   Landmark,
   Zap,
   Loader,
-  Clock
+  Clock,
+  Scale,
+  PackageOpen
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { differenceInHours, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
+import { nanoid } from 'nanoid';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -264,7 +268,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
                     <AnimatePresence>
                         {chargeFee && finalFeeAmount > 0 && (
-                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}>
+                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, y: 10 }}>
                                 <div className="space-y-6">
                                     <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5">
                                         <div className="space-y-0.5 text-left">
@@ -286,7 +290,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
                                     <div className="space-y-4 pt-2 text-left">
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Protocol</Label>
-                                        <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-3">
+                                        <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-2 gap-3">
                                             <label htmlFor="pay-vault-cancel" className={cn("cursor-pointer h-full", !hasCardOnFile && "opacity-40 grayscale")}>
                                                 <RadioGroupItem value="card_on_file" id="pay-vault-cancel" className="peer sr-only" disabled={!hasCardOnFile} />
                                                 <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white shadow-sm")}>

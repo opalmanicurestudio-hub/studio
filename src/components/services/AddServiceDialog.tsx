@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -54,7 +55,7 @@ import { collection, query, where, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Service name is required'),

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -38,7 +39,8 @@ import {
     Unlock, 
     Workflow,
     Loader,
-    PackageOpen
+    PackageOpen,
+    Scale
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
@@ -68,7 +70,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '../ui/badge';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -148,7 +150,7 @@ const RescheduleAppointmentForm = ({
         return hoursUntil < requiredWindow;
     }, [appointment, tenant, service]);
 
-    // SIMPLIFIED RECOVERY LOGIC: Overhead + Materials
+    // RECOVERY LOGIC: Overhead + Materials (Matrix Suggestion)
     const recoveryMetrics = useMemo(() => {
         if (!tenant?.tmhr || !service) return { overhead: 0, materials: 0, total: 0 };
         
@@ -168,12 +170,22 @@ const RescheduleAppointmentForm = ({
             return acc + (cpu * (p.quantityUsed || 1));
         }, 0);
 
-        const total = Number((overhead + materials).toFixed(2));
+        // STRATEGY LOGIC: Percentage vs Flat vs Matrix
+        let strategyAmount = 0;
+        if (tenant.defaultCancellationMode === 'percentage') {
+            strategyAmount = service.price * (safeNumber(tenant.cancellationFeePercent) / 100);
+        } else if (tenant.defaultCancellationMode === 'flat') {
+            strategyAmount = tenant.cancellationFee || 0;
+        } else {
+            strategyAmount = overhead + materials;
+        }
+
+        const total = Number((service.customCancellationFee || strategyAmount).toFixed(2));
 
         return { 
             overhead, 
             materials, 
-            total: service.customCancellationFee || total 
+            total 
         };
     }, [tenant, service, inventory]);
 
@@ -275,10 +287,10 @@ const RescheduleAppointmentForm = ({
                                 <div className="flex items-center justify-between">
                                     <div className="space-y-1 text-left">
                                         <Label className="text-base font-black uppercase tracking-tight flex items-center gap-2">
-                                            <Landmark className="w-4 h-4 text-primary" />
-                                            House Floor Recovery
+                                            <Scale className="w-4 h-4 text-primary" />
+                                            Recovery Floor Suggestion
                                         </Label>
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Overhead & Materials Coverage</p>
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Calculated via Studio Profit Matrix</p>
                                     </div>
                                     <div className="flex flex-col items-end gap-2">
                                         <span className={cn("text-2xl font-black font-mono tracking-tighter", applyFee ? "text-primary" : "text-muted-foreground opacity-40")}>
@@ -293,11 +305,11 @@ const RescheduleAppointmentForm = ({
                                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="p-3 rounded-xl bg-white border shadow-sm text-left">
-                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><Clock className="w-2 h-2"/> Overhead</p>
+                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><Clock className="w-2 h-2"/> Time Overhead</p>
                                                     <p className="font-black font-mono text-xs text-slate-900">${recoveryMetrics.overhead.toFixed(2)}</p>
                                                 </div>
                                                 <div className="p-3 rounded-xl bg-white border shadow-sm text-left">
-                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><PackageOpen className="w-2 h-2"/> Products</p>
+                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><PackageOpen className="w-2 h-2"/> Product Cost</p>
                                                     <p className="font-black font-mono text-xs text-slate-900">${recoveryMetrics.materials.toFixed(2)}</p>
                                                 </div>
                                             </div>

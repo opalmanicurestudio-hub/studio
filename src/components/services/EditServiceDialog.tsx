@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -140,67 +141,47 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
     </div>
 );
 
-const RecoveryTargetMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, staff }: { pricingTiers: PricingTier[], currentValues: any, tmhr: number, taxBurden: number, staff: Staff[] }) => {
-    const { inventory } = useInventory();
-    
-    const materialCost = useMemo(() => {
-        return (currentValues.products || []).reduce((acc: number, p: any) => {
-            const product = inventory.find(i => i.id === p.id);
-            let cpu = 0;
-            if (product) {
-                if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
-                else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
-                else cpu = product.costPerUnit || 0;
+const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
+    const { watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
+    const serviceTiers = watch('serviceTiers') || [];
+    const tierData = serviceTiers.find(t => t.tierId === tier.id);
+    const isEnabled = !!tierData;
+
+    const handleToggle = (checked: boolean) => {
+        let next = [...serviceTiers];
+        if (checked) {
+            if (!next.find(t => t.tierId === tier.id)) {
+                next.push({ tierId: tier.id, price: 0, durationMinutes: watch('duration') || 60 });
             }
-            return acc + (cpu * (p.quantityUsed || 1));
-        }, 0);
-    }, [currentValues.products, inventory]);
+        } else {
+            next = next.filter(t => t.tierId !== tier.id);
+        }
+        setValue('serviceTiers', next, { shouldDirty: true });
+    };
 
-    const tierAnalysis = useMemo(() => {
-        return pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
-            const tierConfig = currentValues.serviceTiers?.find((t: any) => t.tierId === tier.id);
-            const price = tierConfig ? tierConfig.price : (currentValues.price || 0);
-            const duration = tierConfig ? tierConfig.durationMinutes : (currentValues.duration || 60);
-            
-            const timeValue = (duration / 60) * tmhr;
-            
-            const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
-            const avgLaborRecovery = relevantStaff.reduce((acc, s) => {
-                let labor = 0;
-                if (s.payStructure === 'commission') labor = price * (s.commissionRate / 100);
-                else if (s.payStructure === 'hourly' && s.hourlyRate) labor = (duration / 60) * s.hourlyRate;
-                return acc + (labor * (1 + (taxBurden / 100)));
-            }, 0) / (relevantStaff.length || 1);
-
-            return {
-                id: tier.id,
-                name: tier.name,
-                target: timeValue + materialCost + avgLaborRecovery,
-                breakdown: { timeValue, materialCost, labor: avgLaborRecovery }
-            };
-        });
-    }, [pricingTiers, currentValues, tmhr, materialCost, staff, taxBurden]);
+    const handleFieldChange = (field: 'price' | 'durationMinutes', value: number) => {
+        const next = serviceTiers.map(t => t.tierId === tier.id ? {...t, [field]: value} : t);
+        setValue('serviceTiers', next, { shouldDirty: true });
+    };
 
     return (
-        <Card className="border-2 rounded-[2rem] bg-muted/10 overflow-hidden shadow-inner">
-            <CardHeader className="p-6 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><Target className="w-3.5 h-3.5"/>Recommended Recovery Protocol</CardTitle></CardHeader>
-            <CardContent className="p-6 pt-0 space-y-4">
-                <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">The matrix suggests a fee that covers studio time value, materials, and intended staff earnings.</p>
-                <div className="grid gap-2">
-                    {tierAnalysis.map(tier => (
-                        <div key={tier.id} className="flex justify-between items-center bg-white p-3 rounded-xl border-2 border-transparent hover:border-primary/10 transition-all shadow-sm">
-                            <div className="text-left">
-                                <p className="text-[10px] font-black uppercase text-slate-900">{tier.name}</p>
-                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Basis: Time + Mats + Labor</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="font-black font-mono text-primary text-sm">${tier.target.toFixed(2)}</p>
-                                <p className="text-[8px] font-black uppercase text-primary/40">Target Recovery</p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </CardContent>
+        <Card className={cn("transition-all border-2 rounded-[1.5rem] overflow-hidden", isEnabled ? "border-primary bg-primary/[0.02]" : "opacity-60 bg-muted/10")}>
+            <CardHeader className="p-4 border-b flex flex-row items-center justify-between bg-muted/5">
+                <CardTitle className="text-xs font-black uppercase tracking-widest text-left">{tier.name}</CardTitle>
+                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
+            </CardHeader>
+            {isEnabled && (
+                <CardContent className="p-4 grid grid-cols-2 gap-3 text-left">
+                    <div className="space-y-1">
+                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Tier Price</Label>
+                        <div className="relative"><DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary"/><Input type="number" step="0.01" value={tierData?.price || ''} onChange={e => handleFieldChange('price', parseFloat(e.target.value) || 0)} className="h-9 pl-6 rounded-lg border-2 font-black font-mono text-xs" /></div>
+                    </div>
+                    <div className="space-y-1">
+                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Duration</Label>
+                        <div className="relative"><Input type="number" value={tierData?.durationMinutes || ''} onChange={e => handleFieldChange('durationMinutes', parseInt(e.target.value) || 0)} className="h-9 pr-6 rounded-lg border-2 font-black font-mono text-xs text-center" /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-muted-foreground">M</span></div>
+                    </div>
+                </CardContent>
+            )}
         </Card>
     );
 };
@@ -231,7 +212,7 @@ const Step1 = ({
             <SectionHeader icon={Activity} title="Identity & Type" step={1} />
             <div className="space-y-6 text-left">
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/[0.03] border-primary/10 shadow-sm transition-all has-[:checked]:bg-primary/5 has-[:checked]:border-primary/20">
-                    <div className='space-y-1 text-left'>
+                    <div className='space-y-1'>
                         <Label htmlFor="is-addon-edit" className="text-base font-black uppercase tracking-tight">Add-on Enhancement</Label>
                         <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Appendable to primary treatments</p>
                     </div>
@@ -745,7 +726,7 @@ const Step4 = ({ consentForms, pricingTiers, breakEvenCost }: { consentForms: Co
                     </div>
 
                     <div className="space-y-4">
-                        <div className='flex items-center justify-between px-1'>
+                        <div className='flex items-center justify-between px-1 text-left'>
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                 <ListChecks className="w-3.5 h-3.5 opacity-40" /> Required Agreements
                             </Label>
