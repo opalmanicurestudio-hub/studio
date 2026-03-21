@@ -19,7 +19,8 @@ import {
   Sparkles,
   Repeat,
   AlertTriangle,
-  Undo2
+  Undo2,
+  Scale
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -31,7 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { type Appointment, type Client, type Service, Staff } from '@/lib/data';
 import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -59,7 +60,7 @@ export function AppointmentCard({
   onViewDetails,
   onFinishService,
 }: any) {
-  const { services, clients, staff } = useInventory();
+  const { staff } = useInventory();
   const { toast } = useToast();
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
@@ -118,6 +119,8 @@ export function AppointmentCard({
       return null;
   }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.startTime]);
 
+  const hasDeferredFee = safeNumber(appointment.checkoutState?.additionalCharge) > 0;
+
   const checkInIndicator = useMemo(() => {
     if (appointment.status === 'servicing' || appointment.status === 'completed') return null;
     switch (appointment.checkInStatus) {
@@ -144,8 +147,8 @@ export function AppointmentCard({
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   const totalDuration = service.duration + totalPadding;
 
-  const isMember = !!(client.activeMembershipId || client.subscription);
-  const hasPackage = (client.activePackages?.length || 0) > 0;
+  const isMember = !!(client?.activeMembershipId || client?.subscription);
+  const hasPackage = (client?.activePackages?.length || 0) > 0;
 
   const involvedStaff = useMemo(() => {
     const ids = new Set<string>();
@@ -175,6 +178,18 @@ export function AppointmentCard({
                     {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
                     {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Award className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />MEM</Badge>}
                     {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Repeat className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PKG</Badge>}
+                    {hasDeferredFee && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Badge className="bg-amber-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
+                                        <Scale className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />FEE
+                                    </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Deferred Protocol Fee Attached</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
                     {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
                     {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
                 </div>
@@ -221,7 +236,7 @@ export function AppointmentCard({
           )}
 
           <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
-            <div className="flex items-center gap-1 sm:gap-1.5">
+            <div className="flex items-center gap-1.5 sm:gap-1.5">
                 <div className={cn("w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
                 <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">
                     {appointment.checkInStatus === 'running_late' && estimatedArrival 
