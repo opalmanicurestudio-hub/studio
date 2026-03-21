@@ -61,6 +61,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { useForm, Controller } from 'react-hook-form';
 
 const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     <div className="flex items-center gap-3 mb-6 text-left">
@@ -135,6 +136,8 @@ function SettingsPageImpl() {
   const [isEditing, setIsEditing] = useState(false);
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   
+  const { control } = useForm();
+
   const activeProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
   const [localSchedule, setLocalSchedule] = useState<any>(null);
   const [localKioskSchedule, setLocalKioskSchedule] = useState<any>(null);
