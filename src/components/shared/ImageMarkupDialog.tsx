@@ -30,7 +30,15 @@ import {
     Move,
     Hand,
     Circle,
-    Maximize
+    Maximize,
+    ArrowUpRight,
+    AlertCircle,
+    Star,
+    Zap,
+    Minus,
+    MousePointer2,
+    Highlighter,
+    GripVertical
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -58,8 +66,10 @@ const colors = [
     { name: 'Black', value: '#000000' },   
 ];
 
-type ToolType = 'pencil' | 'text' | 'magnifier' | 'select' | 'pan';
+type ToolType = 'pencil' | 'text' | 'magnifier' | 'select' | 'pan' | 'sticker';
 type TextSize = 'sm' | 'md' | 'lg';
+type PenStyle = 'solid' | 'dashed' | 'highlighter';
+type StickerType = 'arrow' | 'star' | 'alert' | 'check' | 'cross';
 
 interface TextAnnotation {
     id: string;
@@ -68,6 +78,15 @@ interface TextAnnotation {
     y: number;
     color: string;
     size: TextSize;
+}
+
+interface Sticker {
+    id: string;
+    type: StickerType;
+    x: number;
+    y: number;
+    color: string;
+    scale: number;
 }
 
 interface MagnifierLens {
@@ -83,6 +102,7 @@ interface Path {
     points: { x: number, y: number }[];
     color: string;
     width: number;
+    style: PenStyle;
 }
 
 export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
@@ -105,6 +125,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [color, setColor] = useState(colors[0].value);
   const [brushSize, setBrushSize] = useState(3);
   const [textSize, setTextSize] = useState<TextSize>('md');
+  const [penStyle, setPenStyle] = useState<PenStyle>('solid');
   
   // View State (Zoom/Pan)
   const [scale, setScale] = useState(1);
@@ -117,12 +138,67 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [paths, setPaths] = useState<Path[]>([]);
   const [annotations, setAnnotations] = useState<TextAnnotation[]>([]);
   const [lenses, setLenses] = useState<MagnifierLens[]>([]);
-  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
-  const [isDraggingText, setIsDraggingText] = useState(false);
+  const [stickers, setStickers] = useState<Sticker[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const [activeLens, setActiveLens] = useState<MagnifierLens | null>(null);
   const [textInput, setTextInput] = useState<{ x: number, y: number, value: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const drawSticker = (ctx: CanvasRenderingContext2D, s: Sticker, sScale: number) => {
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.scale(s.scale / sScale, s.scale / sScale);
+      ctx.strokeStyle = s.color;
+      ctx.fillStyle = s.color;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (s.type === 'arrow') {
+          ctx.beginPath();
+          ctx.moveTo(-15, 0);
+          ctx.lineTo(15, 0);
+          ctx.lineTo(5, -10);
+          ctx.moveTo(15, 0);
+          ctx.lineTo(5, 10);
+          ctx.stroke();
+      } else if (s.type === 'star') {
+          ctx.beginPath();
+          for (let i = 0; i < 5; i++) {
+              ctx.rotate(Math.PI / 5);
+              ctx.lineTo(0, -15);
+              ctx.rotate(Math.PI / 5);
+              ctx.lineTo(0, -7);
+          }
+          ctx.closePath();
+          ctx.fill();
+      } else if (s.type === 'alert') {
+          ctx.beginPath();
+          ctx.moveTo(0, -15);
+          ctx.lineTo(15, 12);
+          ctx.lineTo(-15, 12);
+          ctx.closePath();
+          ctx.stroke();
+          ctx.fillRect(-1, -5, 2, 8);
+          ctx.fillRect(-1, 6, 2, 2);
+      } else if (s.type === 'check') {
+          ctx.beginPath();
+          ctx.moveTo(-12, 0);
+          ctx.lineTo(-3, 10);
+          ctx.lineTo(15, -10);
+          ctx.stroke();
+      } else if (s.type === 'cross') {
+          ctx.beginPath();
+          ctx.moveTo(-10, -10);
+          ctx.lineTo(10, 10);
+          ctx.moveTo(10, -10);
+          ctx.lineTo(-10, 10);
+          ctx.stroke();
+      }
+      ctx.restore();
+  };
 
   const drawAll = useCallback(() => {
     const canvas = canvasRef.current;
@@ -134,14 +210,13 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Apply Global View Transform
     ctx.translate(offset.x * dpr, offset.y * dpr);
     ctx.scale(scale * dpr, scale * dpr);
 
     // Layer 1: Base Image
     ctx.drawImage(img, 0, 0, canvas.width / (dpr * scale), canvas.height / (dpr * scale));
 
-    // Layer 2: Localized Magnifier Lenses
+    // Layer 2: Magnifier Lenses
     lenses.forEach(lens => {
         const r = lens.r;
         if (r <= 0) return;
@@ -169,13 +244,21 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
         ctx.strokeStyle = lens.color;
         ctx.lineWidth = 2 / scale;
+        if (selectedId === lens.id) {
+            ctx.setLineDash([5 / scale, 5 / scale]);
+            ctx.shadowBlur = 10 / scale;
+            ctx.shadowColor = lens.color;
+        }
         ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.shadowBlur = 0;
         ctx.restore();
     });
 
     // Layer 3: Freehand Paths
     paths.forEach(path => {
         if (path.points.length < 2) return;
+        ctx.save();
         ctx.beginPath();
         ctx.moveTo(path.points[0].x, path.points[0].y);
         for (let i = 1; i < path.points.length; i++) {
@@ -183,14 +266,37 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         }
         ctx.strokeStyle = path.color;
         ctx.lineWidth = path.width / scale;
+        
+        if (path.style === 'dashed') {
+            ctx.setLineDash([5 / scale, 5 / scale]);
+        } else if (path.style === 'highlighter') {
+            ctx.globalAlpha = 0.4;
+            ctx.lineWidth = (path.width * 4) / scale;
+        }
+
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.stroke();
+        ctx.restore();
     });
 
-    // Layer 4: Text Annotations
+    // Layer 4: Stickers
+    stickers.forEach(s => {
+        const isSelected = s.id === selectedId;
+        if (isSelected) {
+            ctx.save();
+            ctx.shadowBlur = 10 / scale;
+            ctx.shadowColor = s.color;
+            ctx.setLineDash([2 / scale, 2 / scale]);
+            ctx.strokeRect(s.x - (20 * s.scale)/scale, s.y - (20 * s.scale)/scale, (40 * s.scale)/scale, (40 * s.scale)/scale);
+            ctx.restore();
+        }
+        drawSticker(ctx, s, scale);
+    });
+
+    // Layer 5: Text Annotations
     annotations.forEach(anno => {
-        const isSelected = anno.id === selectedTextId;
+        const isSelected = anno.id === selectedId;
         const fontSize = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
         ctx.font = `bold ${fontSize / scale}px Figtree, sans-serif`;
         ctx.fillStyle = anno.color;
@@ -214,7 +320,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         }
     });
 
-    // Layer 5: Transient Active Lens
+    // Layer 6: Transient Active Lens
     if (activeLens) {
         ctx.setLineDash([5 / scale, 5 / scale]);
         ctx.strokeStyle = color;
@@ -223,7 +329,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
     }
-  }, [annotations, lenses, paths, selectedTextId, activeLens, color, tool, scale, offset]);
+  }, [annotations, lenses, paths, stickers, selectedId, activeLens, color, tool, scale, offset]);
 
   const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -234,21 +340,17 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     img.crossOrigin = "anonymous";
     img.onload = () => {
       baseImageRef.current = img;
-      
-      const padding = 20;
+      const padding = 40;
       const availW = container.clientWidth - padding;
       const availH = container.clientHeight - padding;
       const imgScale = Math.min(availW / img.width, availH / img.height);
-      
       const dw = img.width * imgScale;
       const dh = img.height * imgScale;
       const dpr = window.devicePixelRatio || 1;
-      
       canvas.width = dw * dpr;
       canvas.height = dh * dpr;
       canvas.style.width = `${dw}px`;
       canvas.style.height = `${dh}px`;
-      
       contextRef.current = canvas.getContext('2d');
       setScale(1);
       setOffset({ x: 0, y: 0 });
@@ -257,21 +359,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     img.src = imageUrl;
   }, [imageUrl]);
 
-  useEffect(() => {
-    if (open) {
-        setIsLoading(true);
-        setPaths([]);
-        setAnnotations([]);
-        setLenses([]);
-        setSelectedTextId(null);
-        setActiveLens(null);
-        setTimeout(initCanvas, 100);
-    }
-  }, [open, imageUrl, initCanvas]);
-
-  useEffect(() => {
-      if (!isLoading) drawAll();
-  }, [drawAll, isLoading]);
+  useEffect(() => { if (open) { setIsLoading(true); setPaths([]); setAnnotations([]); setLenses([]); setStickers([]); setSelectedId(null); setActiveLens(null); setScale(1); setOffset({ x: 0, y: 0 }); setTimeout(initCanvas, 150); } }, [open, imageUrl, initCanvas]);
+  useEffect(() => { if (!isLoading) drawAll(); }, [drawAll, isLoading]);
 
   const getCoordinates = (e: any) => {
     const canvas = canvasRef.current;
@@ -279,16 +368,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     const rect = canvas.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    
-    // Coordinates relative to canvas DOM element
     const x = (clientX - rect.left);
     const y = (clientY - rect.top);
-
-    // Map to transformed image space
-    return {
-      x: (x - offset.x) / scale,
-      y: (y - offset.y) / scale,
-    };
+    return { x: (x - offset.x) / scale, y: (y - offset.y) / scale };
   };
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
@@ -309,8 +391,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         return;
     }
 
-    // Text Selection
-    const clickedText = [...annotations].reverse().find(anno => {
+    // Hit Detection for Selection/Dragging
+    const hitText = [...annotations].reverse().find(anno => {
         const ctx = contextRef.current;
         if (!ctx) return false;
         const fontSize = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
@@ -320,29 +402,31 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         return x >= anno.x && x <= anno.x + metrics.width && y >= anno.y - h && y <= anno.y;
     });
 
-    if (clickedText) {
-        setSelectedTextId(clickedText.id);
-        setIsDraggingText(true);
-        setTool('select');
+    const hitSticker = [...stickers].reverse().find(s => {
+        const dist = Math.sqrt(Math.pow(x - s.x, 2) + Math.pow(y - s.y, 2));
+        return dist < (20 * s.scale) / scale;
+    });
+
+    const hitLens = [...lenses].reverse().find(l => {
+        const dist = Math.sqrt(Math.pow(x - l.x, 2) + Math.pow(y - l.y, 2));
+        return dist < l.r;
+    });
+
+    const hit = hitText || hitSticker || hitLens;
+
+    if (hit) {
+        setSelectedId(hit.id);
+        setIsDragging(true);
+        if (tool !== 'select') setTool('select');
         return;
     }
 
-    if (tool === 'text') {
-        setTextInput({ x, y, value: '' });
-        return;
-    }
-
-    if (tool === 'magnifier') {
-        setActiveLens({ id: nanoid(), x, y, r: 0, color });
-        return;
-    }
-
-    if (tool === 'pencil') {
-        setIsDrawing(true);
-        setPaths(prev => [...prev, { id: nanoid(), color, width: brushSize, points: [coords] }]);
-    }
+    if (tool === 'text') { setTextInput({ x, y, value: '' }); return; }
+    if (tool === 'magnifier') { setActiveLens({ id: nanoid(), x, y, r: 0, color }); return; }
+    if (tool === 'pencil') { setIsDrawing(true); setPaths(prev => [...prev, { id: nanoid(), color, width: brushSize, style: penStyle, points: [coords] }]); }
+    if (tool === 'sticker') { setStickers(prev => [...prev, { id: nanoid(), type: 'arrow', x, y, color, scale: 1 }]); }
     
-    setSelectedTextId(null);
+    setSelectedId(null);
   };
 
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
@@ -370,8 +454,10 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
     const coords = getCoordinates(e);
 
-    if (isDraggingText && selectedTextId) {
-        setAnnotations(prev => prev.map(a => a.id === selectedTextId ? { ...a, x: coords.x, y: coords.y } : a));
+    if (isDragging && selectedId) {
+        setAnnotations(prev => prev.map(a => a.id === selectedId ? { ...a, x: coords.x, y: coords.y } : a));
+        setStickers(prev => prev.map(s => s.id === selectedId ? { ...s, x: coords.x, y: coords.y } : s));
+        setLenses(prev => prev.map(l => l.id === selectedId ? { ...l, x: coords.x, y: coords.y } : l));
         return;
     }
 
@@ -391,39 +477,22 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   };
 
   const handleMouseUp = () => {
-    if (activeLens && activeLens.r > 10) {
-        setLenses(prev => [...prev, activeLens]);
-    }
-    setActiveLens(null);
-    setIsDrawing(false);
-    setIsDraggingText(false);
-    setIsPanning(false);
-    setLastPinchDist(null);
+    if (activeLens && activeLens.r > 10) setLenses(prev => [...prev, activeLens]);
+    setActiveLens(null); setIsDrawing(false); setIsDragging(false); setIsPanning(false); setLastPinchDist(null);
   };
 
   const handleTextSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textInput || !textInput.value.trim()) {
-        setTextInput(null);
-        return;
-    }
-    const newAnnotation: TextAnnotation = {
-        id: nanoid(),
-        text: textInput.value,
-        x: textInput.x,
-        y: textInput.y,
-        color: color,
-        size: textSize
-    };
+    if (!textInput || !textInput.value.trim()) { setTextInput(null); return; }
+    const newAnnotation: TextAnnotation = { id: nanoid(), text: textInput.value, x: textInput.x, y: textInput.y, color: color, size: textSize };
     setAnnotations(prev => [...prev, newAnnotation]);
-    setTextInput(null);
-    setTool('select');
-    setSelectedTextId(newAnnotation.id);
+    setTextInput(null); setTool('select'); setSelectedId(newAnnotation.id);
   };
 
   const handleUndo = () => {
       if (lenses.length > 0) setLenses(prev => prev.slice(0, -1));
       else if (annotations.length > 0) setAnnotations(prev => prev.slice(0, -1));
+      else if (stickers.length > 0) setStickers(prev => prev.slice(0, -1));
       else if (paths.length > 0) setPaths(prev => prev.slice(0, -1));
       else { setScale(1); setOffset({ x: 0, y: 0 }); }
   };
@@ -431,13 +500,20 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const handleSave = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    setSelectedTextId(null);
+    setSelectedId(null);
     setTool('select');
-    // Draw one last frame without selection boxes before capturing
     requestAnimationFrame(() => {
         onSave(canvas.toDataURL('image/png'));
         onOpenChange(false);
     });
+  };
+
+  const deleteSelected = () => {
+      if (!selectedId) return;
+      setAnnotations(prev => prev.filter(a => a.id !== selectedId));
+      setStickers(prev => prev.filter(s => s.id !== selectedId));
+      setLenses(prev => prev.filter(l => l.id !== selectedId));
+      setSelectedId(null);
   };
 
   return (
@@ -494,7 +570,13 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                 </Tooltip>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('select')} className="h-10 w-10 rounded-xl"><Maximize className="w-4 h-4" /></Button>
+                                        <Button variant={tool === 'sticker' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('sticker')} className="h-10 w-10 rounded-xl"><Target className="w-4 h-4" /></Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="font-black uppercase text-[9px] border-2">Stickers</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('select')} className="h-10 w-10 rounded-xl"><MousePointer2 className="w-4 h-4" /></Button>
                                     </TooltipTrigger>
                                     <TooltipContent className="font-black uppercase text-[9px] border-2">Select / Move</TooltipContent>
                                 </Tooltip>
@@ -509,26 +591,52 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
                         <Separator orientation="vertical" className="h-8 mx-2" />
 
-                        <div className="flex items-center gap-1.5">
-                            {(['sm', 'md', 'lg'] as TextSize[]).map(size => (
-                                <Button
-                                    key={size}
-                                    variant={textSize === size ? 'secondary' : 'ghost'}
-                                    size="sm"
-                                    onClick={() => {
-                                        setTextSize(size);
-                                        if (selectedTextId) {
-                                            setAnnotations(prev => prev.map(a => a.id === selectedTextId ? { ...a, size } : a));
-                                        }
-                                    }}
-                                    className="h-8 px-3 rounded-lg font-black uppercase text-[9px]"
-                                >
-                                    {size}
-                                </Button>
-                            ))}
-                        </div>
+                        {tool === 'pencil' && (
+                            <div className="flex items-center gap-1.5">
+                                <Button variant={penStyle === 'solid' ? 'secondary' : 'ghost'} size="sm" onClick={() => setPenStyle('solid')} className="h-8 px-3 rounded-lg"><Minus className="w-4 h-4"/></Button>
+                                <Button variant={penStyle === 'dashed' ? 'secondary' : 'ghost'} size="sm" onClick={() => setPenStyle('dashed')} className="h-8 px-3 rounded-lg"><GripVertical className="w-4 h-4 rotate-90" /></Button>
+                                <Button variant={penStyle === 'highlighter' ? 'secondary' : 'ghost'} size="sm" onClick={() => setPenStyle('highlighter')} className="h-8 px-3 rounded-lg"><Highlighter className="w-4 h-4" /></Button>
+                            </div>
+                        )}
+
+                        {tool === 'sticker' && (
+                            <div className="flex items-center gap-1.5">
+                                {(['arrow', 'star', 'alert', 'check', 'cross'] as StickerType[]).map(t => (
+                                    <Button key={t} variant="ghost" size="sm" onClick={() => setStickers(prev => [...prev, { id: nanoid(), type: t, x: 100, y: 100, color, scale: 1 }])} className="h-8 px-3 rounded-lg">
+                                        {t === 'arrow' && <ArrowUpRight className="w-4 h-4" />}
+                                        {t === 'star' && <Star className="w-4 h-4" />}
+                                        {t === 'alert' && <AlertCircle className="w-4 h-4" />}
+                                        {t === 'check' && <Check className="w-4 h-4" />}
+                                        {t === 'cross' && <X className="w-4 h-4" />}
+                                    </Button>
+                                ))}
+                            </div>
+                        )}
+
+                        {(tool === 'text' || selectedId) && (
+                            <div className="flex items-center gap-1.5">
+                                {(['sm', 'md', 'lg'] as TextSize[]).map(size => (
+                                    <Button
+                                        key={size}
+                                        variant={textSize === size ? 'secondary' : 'ghost'}
+                                        size="sm"
+                                        onClick={() => {
+                                            setTextSize(size);
+                                            if (selectedId) {
+                                                setAnnotations(prev => prev.map(a => a.id === selectedId ? { ...a, size } : a));
+                                                setStickers(prev => prev.map(s => s.id === selectedId ? { ...s, scale: size === 'sm' ? 0.7 : size === 'lg' ? 1.5 : 1 } : s));
+                                            }
+                                        }}
+                                        className="h-8 px-3 rounded-lg font-black uppercase text-[9px]"
+                                    >
+                                        {size}
+                                    </Button>
+                                ))}
+                            </div>
+                        )}
 
                         <div className="flex gap-2 ml-auto">
+                            {selectedId && <Button variant="ghost" size="icon" onClick={deleteSelected} className="h-10 w-10 rounded-xl text-destructive hover:bg-destructive/10"><Trash2 className="w-4 h-4" /></Button>}
                             <Button variant="ghost" size="icon" onClick={handleUndo} className="h-10 w-10 rounded-xl text-slate-400 hover:bg-muted"><Undo2 className="w-5 h-5" /></Button>
                         </div>
                     </div>
