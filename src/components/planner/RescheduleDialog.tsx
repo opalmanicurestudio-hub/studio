@@ -27,7 +27,6 @@ import {
     AlertTriangle, 
     ArrowRight, 
     Sparkles, 
-    User, 
     CalendarDays, 
     DollarSign, 
     CreditCard as CardIcon, 
@@ -38,9 +37,10 @@ import {
     Zap, 
     Unlock, 
     Workflow,
-    Loader
+    Loader,
+    PackageOpen
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
 import { 
     format, 
@@ -67,13 +67,13 @@ import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { Switch } from '../ui/switch';
-import { Badge } from '../ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Input } from '../ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -106,18 +106,6 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     d.setHours(hours, minutes);
     return d;
 }
-
-const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
-    <div className="flex items-center gap-4 py-2">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
-            <Icon className="w-5 h-5" />
-        </div>
-        <div className="space-y-0.5 text-left">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
-        </div>
-    </div>
-);
 
 const RescheduleAppointmentForm = ({ 
     appointment,
@@ -160,13 +148,16 @@ const RescheduleAppointmentForm = ({
         return hoursUntil < requiredWindow;
     }, [appointment, tenant, service]);
 
-    const recoveryFee = useMemo(() => {
-        if (!tenant?.tmhr || !service) return 0;
+    // SIMPLIFIED RECOVERY LOGIC: Overhead + Materials
+    const recoveryMetrics = useMemo(() => {
+        if (!tenant?.tmhr || !service) return { overhead: 0, materials: 0, total: 0 };
         
-        const duration = service.duration || 60;
-        const houseFloor = (duration / 60) * tenant.tmhr;
+        // 1. OVERHEAD (Time Cost)
+        const totalDuration = (service.duration || 60) + (service.padBefore || 0) + (service.padAfter || 0);
+        const overhead = (totalDuration / 60) * tenant.tmhr;
         
-        const materialCost = (service.products || []).reduce((acc, p) => {
+        // 2. MATERIALS (Product Cost)
+        const materials = (service.products || []).reduce((acc, p) => {
             const product = inventory.find(i => i.id === p.id);
             let cpu = 0;
             if (product) {
@@ -177,18 +168,14 @@ const RescheduleAppointmentForm = ({
             return acc + (cpu * (p.quantityUsed || 1));
         }, 0);
 
-        const proId = appointment.staffId;
-        const pro = staff.find(sm => sm.id === proId);
-        const price = service.serviceTiers?.find(t => t.tierId === pro?.pricingTierId)?.price || service.price;
-        
-        let labor = 0;
-        if (pro?.payStructure === 'commission') labor = price * (pro.commissionRate / 100);
-        else if (pro?.payStructure === 'hourly' && pro.hourlyRate) labor = (duration / 60) * pro.hourlyRate;
-        const taxBurden = tenant.employerTaxBurdenPct || 10;
-        const burdenedLabor = labor * (1 + (taxBurden / 100));
+        const total = Number((overhead + materials).toFixed(2));
 
-        return service.customCancellationFee || Number((houseFloor + materialCost + burdenedLabor).toFixed(2));
-    }, [tenant, service, appointment.staffId, staff, inventory]);
+        return { 
+            overhead, 
+            materials, 
+            total: service.customCancellationFee || total 
+        };
+    }, [tenant, service, inventory]);
 
     const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
@@ -252,7 +239,7 @@ const RescheduleAppointmentForm = ({
             startTime: startDateTime.toISOString(), 
             endTime: endDateTime.toISOString(),
             applyFee,
-            feeAmount: applyFee ? recoveryFee : 0,
+            feeAmount: applyFee ? recoveryMetrics.total : 0,
             paymentMethod
         });
     }
@@ -280,7 +267,7 @@ const RescheduleAppointmentForm = ({
                                 <AlertTriangle className="h-6 w-6 text-destructive" />
                                 <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Policy Restriction</AlertTitle>
                                 <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
-                                    This move is late. Suggest applying the <strong>Overhead Recovery Protocol</strong>.
+                                    This move is late. Suggest applying the <strong>Operational Recovery Protocol</strong>.
                                 </AlertDescription>
                             </Alert>
 
@@ -288,14 +275,14 @@ const RescheduleAppointmentForm = ({
                                 <div className="flex items-center justify-between">
                                     <div className="space-y-1 text-left">
                                         <Label className="text-base font-black uppercase tracking-tight flex items-center gap-2">
-                                            <DollarSign className="w-4 h-4 text-primary" />
-                                            Protocol Adjustment Fee
+                                            <Landmark className="w-4 h-4 text-primary" />
+                                            House Floor Recovery
                                         </Label>
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Overhead & Labor Recovery</p>
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Overhead & Materials Coverage</p>
                                     </div>
                                     <div className="flex flex-col items-end gap-2">
                                         <span className={cn("text-2xl font-black font-mono tracking-tighter", applyFee ? "text-primary" : "text-muted-foreground opacity-40")}>
-                                            ${recoveryFee.toFixed(2)}
+                                            ${recoveryMetrics.total.toFixed(2)}
                                         </span>
                                         <Switch checked={applyFee} onCheckedChange={setApplyFee} />
                                     </div>
@@ -304,6 +291,16 @@ const RescheduleAppointmentForm = ({
                                 <AnimatePresence>
                                     {applyFee && (
                                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="p-3 rounded-xl bg-white border shadow-sm text-left">
+                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><Clock className="w-2 h-2"/> Overhead</p>
+                                                    <p className="font-black font-mono text-xs text-slate-900">${recoveryMetrics.overhead.toFixed(2)}</p>
+                                                </div>
+                                                <div className="p-3 rounded-xl bg-white border shadow-sm text-left">
+                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><PackageOpen className="w-2 h-2"/> Products</p>
+                                                    <p className="font-black font-mono text-xs text-slate-900">${recoveryMetrics.materials.toFixed(2)}</p>
+                                                </div>
+                                            </div>
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Settlement Method</Label>
                                             <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-3 gap-3">
                                                 <label htmlFor="resched-pay-session" className="cursor-pointer flex-1 h-full">
@@ -476,7 +473,7 @@ export const RescheduleDialog = ({
                         <Button
                             onClick={() => document.getElementById('submit-reschedule-btn')?.click()}
                             disabled={isSubmitting}
-                            className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group"
+                            className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/20 active:scale-95 transition-all group"
                         >
                             {isSubmitting ? <Loader className="animate-spin h-4 w-4" /> : (
                                 <>Confirm Shift <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" /></>
