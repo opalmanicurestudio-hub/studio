@@ -468,13 +468,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       )}
 
       <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
-        <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
+        <DialogContent className="max-w-fit p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
             <DialogHeader className="sr-only">
                 <DialogTitle>Inspiration Image Expansion</DialogTitle>
                 <DialogDescription>Full screen preview of the guest's technical reference.</DialogDescription>
             </DialogHeader>
-            <div className="relative w-full aspect-video md:aspect-[4/3] rounded-[3rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl">
-                {expandedImage && <Image src={expandedImage} alt="Expanded Inspiration" fill className="object-contain" priority />}
+            <div className="relative rounded-[2.5rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl max-w-[95vw] max-h-[95vh]">
+                {expandedImage && <img src={expandedImage} alt="Expanded Inspiration" className="block max-w-full max-h-[90vh] object-contain" />}
             </div>
         </DialogContent>
       </Dialog>

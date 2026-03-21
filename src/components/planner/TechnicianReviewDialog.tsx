@@ -512,7 +512,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl rounded-[3rem] border-4 max-h-[95dvh]")}>
             <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-3 mb-2 text-left">
                     <Sparkles className="w-5 h-5 text-primary" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical review</span>
                 </div>
@@ -588,22 +588,22 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     )}
                 </div>
 
-                <div className="space-y-10 mt-10 text-left text-left">
+                <div className="space-y-10 mt-10 text-left">
                   <SectionHeader icon={ListChecks} title="Flow Control" step={1} />
                   <div className="space-y-4 text-left">
                         <div className="space-y-3 text-left">
                             <div className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
                                 <div className="flex items-center justify-between gap-4">
-                                    <div className="flex items-center gap-4 min-w-0 flex-1 text-left text-left">
+                                    <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
                                         <Checkbox 
                                             id={`complete-review-${service.id}`} 
                                             checked={completedServiceIds.includes(service.id)} 
                                             onCheckedChange={() => toggleServiceComplete(service.id)}
                                             className="h-6 w-6 rounded-full border-2"
                                         />
-                                        <div className="min-w-0 text-left text-left">
+                                        <div className="min-w-0 text-left">
                                             <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{service.name}</Label>
-                                            <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60 text-left">Main Service</p>
+                                            <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60 text-left text-left">Main Service</p>
                                         </div>
                                     </div>
                                     <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
@@ -626,14 +626,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             {selectedAddOns.map(addon => (
                                 <div key={addon.id} className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
                                     <div className="flex items-center justify-between gap-4">
-                                        <div className="flex items-center gap-4 min-w-0 flex-1 text-left text-left">
+                                        <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
                                             <Checkbox 
                                                 id={`complete-review-${addon.id}`} 
                                                 checked={completedServiceIds.includes(addon.id)} 
                                                 onCheckedChange={() => toggleServiceComplete(addon.id)}
                                                 className="h-6 w-6 rounded-full border-2"
                                             />
-                                            <div className="min-w-0 text-left text-left">
+                                            <div className="min-w-0 text-left">
                                                 <Label htmlFor={`complete-review-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{addon.name}</Label>
                                                 <Badge variant="outline" className={cn("text-[8px] h-5 px-2 uppercase font-black tracking-widest cursor-pointer border-2 shadow-sm transition-all", (concurrentServiceIds.includes(addon.id)) ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
                                                     {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2.5 h-2.5 mr-1" /> Concurrent</> : <><Workflow className="w-2.5 h-2.5 mr-1" /> Sequential</>}
@@ -665,10 +665,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                   </div>
                 </div>
 
-                <div className="space-y-8 pt-10 border-t border-dashed text-left text-left">
+                <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
                     <div className="space-y-8 text-left text-left">
-                        <div className="space-y-3 text-left text-left">
+                        <div className="space-y-3 text-left">
                           <Label htmlFor="actual-duration-review" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
                               <Clock className="w-3.5 h-3.5 opacity-40" /> Actual Duration (Minutes)
                           </Label>
@@ -680,14 +680,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                               className="h-16 text-2xl md:text-3xl font-black font-mono border-2 rounded-2xl shadow-inner bg-muted/5 text-center focus-visible:ring-primary/20"
                           />
                           {actualDuration > service.duration && (
-                              <div className="p-4 bg-amber-500/5 border-2 border-amber-500/10 rounded-2xl animate-in slide-in-from-top-2 text-left text-left">
+                              <div className="p-4 bg-amber-500/5 border-2 border-amber-500/10 rounded-2xl animate-in slide-in-from-top-2 text-left">
                                   <span className="text-[10px] font-black text-amber-700 flex items-center gap-2 uppercase tracking-tight text-left"><Info className="w-3.5 h-3.5"/> Foundation Burn: +{actualDuration - service.duration}m Over Goal</span>
                               </div>
                           )}
                         </div>
 
-                        <div className="space-y-4 pt-4 border-t border-dashed text-left text-left">
-                            <div className="flex items-center justify-between px-1 text-left text-left">
+                        <div className="space-y-4 pt-4 border-t border-dashed text-left">
+                            <div className="flex items-center justify-between px-1 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 text-left">
                                     <PackageOpen className="w-3.5 h-3.5 opacity-40" /> Actual Product Formula
                                 </Label>
@@ -711,15 +711,15 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                             </div>
                             
-                            <div className="space-y-2 text-left text-left">
+                            <div className="space-y-2 text-left">
                                 {editableFormula.length > 0 ? (
                                     <div className="grid gap-2 text-left">
                                         {editableFormula.map((item, index) => (
-                                            <div key={item.id} className="flex justify-between items-center p-4 bg-white rounded-2xl border-2 shadow-sm gap-4 group hover:border-primary/20 transition-all text-left text-left text-left">
-                                                <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left text-left">{item.name}</span>
+                                            <div key={item.id} className="flex justify-between items-center p-4 bg-white rounded-2xl border-2 shadow-sm gap-4 group hover:border-primary/20 transition-all text-left">
+                                                <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
                                                 <div className="flex items-center gap-3 text-left">
                                                     <div className="flex items-center gap-2 text-left">
-                                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left">Load</Label>
+                                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left text-left">Load</Label>
                                                         <Input
                                                             type="number"
                                                             value={item.quantity}
@@ -752,10 +752,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </div>
                 </div>
 
-                <div className="space-y-8 pt-10 border-t border-dashed text-left text-left">
+                <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
-                    <div className="space-y-4 text-left text-left text-left">
-                        <div className="flex items-center justify-between px-1 text-left text-left text-left">
+                    <div className="space-y-4 text-left text-left">
+                        <div className="flex items-center justify-between px-1 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refreshments Served</Label>
                             <Button variant="ghost" size="sm" onClick={() => setIsRefreshmentBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Append Amenity
@@ -763,20 +763,20 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </div>
                         
                         {refreshments.length > 0 ? (
-                            <div className="grid gap-2 text-left text-left text-left">
+                            <div className="grid gap-2 text-left text-left">
                                 {refreshments.map((ref, idx) => (
-                                    <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group text-left text-left">
+                                    <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group text-left text-left text-left">
                                         <div className="flex items-center gap-3 flex-1 min-w-0 text-left text-left text-left">
                                             <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
-                                            <div className="min-w-0 text-left text-left text-left">
-                                                <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left text-left">{ref.name}</p>
-                                                <div className="flex items-center gap-2 text-left text-left text-left">
+                                            <div className="min-w-0 text-left text-left">
+                                                <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
+                                                <div className="flex items-center gap-2 text-left text-left">
                                                     <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
                                                     {ref.isAccountedFor && <Badge variant="outline" className="h-3.5 text-[6px] font-black uppercase bg-green-50 text-green-700 border-green-200">Inventory Sync</Badge>}
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-4 shrink-0 text-left text-left">
+                                        <div className="flex items-center gap-4 shrink-0 text-left">
                                             {safeNumber(ref.price) === 0 ? (
                                                 <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm">
                                                     <Star className="w-2  h-2 mr-1 fill-current" /> Club Perk
@@ -790,7 +790,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 ))}
                             </div>
                         ) : (
-                            <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left text-left">
+                            <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left">
                                 <Coffee className="w-10 h-10" />
                                 <p className="text-[10px] font-black uppercase tracking-widest">No Amenities Served</p>
                             </div>
@@ -798,12 +798,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </div>
                 </div>
 
-                <div className="space-y-8 pt-10 border-t border-dashed text-left text-left">
+                <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={4} />
-                    <div className="space-y-6 text-left text-left text-left">
-                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all text-left text-left">
-                            <div className="space-y-1 text-left text-left">
-                                <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left text-left">
+                    <div className="space-y-6 text-left text-left">
+                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all text-left">
+                            <div className="space-y-1 text-left">
+                                <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                     <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
                                 </Label>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Register this recipe in guest dossier</p>
@@ -813,9 +813,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
                         <AnimatePresence>
                             {saveAsCustomFormula && (
-                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden text-left text-left">
-                                    <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left text-left text-left">
-                                        <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left text-left text-left">
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden text-left">
+                                    <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
+                                        <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
                                             <Tag className="w-3.5 h-3.5" /> Formula Identifier
                                         </Label>
                                         <Input 
@@ -830,8 +830,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             )}
                         </AnimatePresence>
 
-                        <div className="space-y-3 text-left text-left text-left">
-                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left text-left text-left">
+                        <div className="space-y-3 text-left">
+                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left">
                                 <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
                             </Label>
                             <Textarea 
@@ -876,13 +876,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       )}
 
       <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
-        <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
+        <DialogContent className="max-w-fit p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
             <DialogHeader className="sr-only">
-                <DialogTitle>Inspiration Image Expansion</DialogTitle>
-                <DialogDescription>Full screen preview of the guest's technical reference.</DialogDescription>
+                <DialogTitle>Image Expansion</DialogTitle>
+                <DialogDescription>Full screen preview of technical asset.</DialogDescription>
             </DialogHeader>
-            <div className="relative w-full aspect-video md:aspect-[4/3] rounded-[3rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl">
-                {expandedImage && <Image src={expandedImage} alt="Expanded Inspiration" fill className="object-contain" priority />}
+            <div className="relative rounded-[2.5rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl max-w-[95vw] max-h-[95vh]">
+                {expandedImage && <img src={expandedImage} alt="Expanded Inspiration" className="block max-w-full max-h-[90vh] object-contain" priority />}
             </div>
         </DialogContent>
       </Dialog>
