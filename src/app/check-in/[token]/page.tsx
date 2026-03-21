@@ -3,7 +3,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -39,10 +39,14 @@ import {
     VolumeX,
     SunDim,
     Gamepad2,
-    Trash2
+    Trash2,
+    MessageSquare,
+    Heart,
+    Undo2,
+    ArrowLeft
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth } from 'date-fns';
-import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
@@ -52,6 +56,7 @@ import { nanoid } from 'nanoid';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Textarea } from '@/components/ui/textarea';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -83,6 +88,146 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
 );
+
+const CancelledView = ({ reason }: { reason?: string }) => (
+    <ViewContainer>
+        <ViewHeader title="Session Cancelled" subtitle="This record has been voided" icon={XCircle} />
+        <CardContent className="p-8 text-center space-y-8">
+            <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
+                <XCircle className="w-12 h-12 text-destructive" />
+            </div>
+            <div className="space-y-2">
+                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Appointment Voided</h3>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
+                    This appointment is no longer active in our manifest. Reason: <strong>{reason?.replace('_', ' ') || 'Protocol Change'}</strong>.
+                </p>
+            </div>
+            <Button asChild className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px]">
+                <Link href="/">Book New Session</Link>
+            </Button>
+        </CardContent>
+    </ViewContainer>
+);
+
+const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant: Tenant | null, client: Client | null, appointment: Appointment, service: Service | null, staff: Staff | null }) => {
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
+    const [rating, setRating] = useState(0);
+    const [reviewText, setReviewText] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [submitted, setResetSent] = useState(false);
+
+    const handleReviewSubmit = async () => {
+        if (rating === 0 || !firestore || !tenant || !client) return;
+        setIsSubmitting(true);
+        try {
+            const reviewId = nanoid();
+            const review: Review = {
+                id: reviewId,
+                tenantId: tenant.id,
+                clientId: client.id,
+                clientName: client.name,
+                clientAvatarUrl: client.avatarUrl,
+                staffId: appointment.staffId || '',
+                serviceId: appointment.serviceId,
+                serviceName: service?.name || 'Treatment',
+                rating,
+                text: reviewText,
+                isPublic: false,
+                isFeatured: false,
+                createdAt: new Date().toISOString()
+            };
+            await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/reviews`, reviewId), review, {});
+            toast({ title: "Feedback Archived", description: "Thank you for sharing your story with us." });
+            setResetSent(true);
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Submission Failed" });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Session Concluded" subtitle="We hope you enjoyed your visit" icon={CheckCircle2} />
+            <CardContent className="p-0">
+                <AnimatePresence mode="wait">
+                    {!submitted ? (
+                        <motion.div key="review-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 space-y-10">
+                            <div className="text-center space-y-4">
+                                <div className="w-20 h-20 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
+                                    <Heart className="w-10 h-10 text-primary -rotate-6" />
+                                </div>
+                                <div className="space-y-1">
+                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">How was it?</h3>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Help us refine our technical protocol</p>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-center gap-2">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <button 
+                                        key={star} 
+                                        onClick={() => setRating(star)}
+                                        className={cn(
+                                            "p-2 transition-all active:scale-90",
+                                            rating >= star ? "text-amber-400" : "text-muted-foreground opacity-20 hover:opacity-40"
+                                        )}
+                                    >
+                                        <Star className={cn("w-10 h-10 md:w-12 md:h-12", rating >= star && "fill-current")} />
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="space-y-3">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Share your Story</Label>
+                                <Textarea 
+                                    placeholder="Write a few words about your session..." 
+                                    value={reviewText}
+                                    onChange={e => setReviewText(e.target.value)}
+                                    className="rounded-[2rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed min-h-[120px]"
+                                />
+                            </div>
+
+                            <Button 
+                                onClick={handleReviewSubmit} 
+                                disabled={rating === 0 || isSubmitting}
+                                className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group"
+                            >
+                                {isSubmitting ? <Loader className="animate-spin" /> : <>Submit Feedback <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" /></>}
+                            </Button>
+                        </motion.div>
+                    ) : (
+                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-8">
+                            <div className="w-20 h-20 bg-green-500/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-xl">
+                                <CheckCircle2 className="w-10 h-10 text-green-500" />
+                            </div>
+                            <div className="space-y-2">
+                                <h3 className="text-2xl font-black uppercase tracking-tighter">Feedback Certified</h3>
+                                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto">Your review has been added to our studio archive. See you next time!</p>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                <div className="p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
+                            <Link href={`/book/${tenant?.id}`}>
+                                <Repeat className="w-4 h-4 mr-2" /> Book Again
+                            </Link>
+                        </Button>
+                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
+                            <Link href={`/portal/${tenant?.id}/${client?.id}`}>
+                                <User className="w-4 h-4 mr-2" /> My Portal
+                            </Link>
+                        </Button>
+                    </div>
+                </div>
+            </CardContent>
+        </ViewContainer>
+    );
+};
 
 const ArrivedView = ({ client, staff }: { client: Client | null, staff: Staff | null }) => (
     <ViewContainer>
@@ -274,11 +419,6 @@ const ServicingView = ({
         return memberships.find(m => m.id === client.activeMembershipId);
     }, [isMember, client, memberships]);
 
-    /**
-     * ATOMIC UNIFIED CYCLE AUDIT
-     * Scans every delivered and pending request across the entire client history for this window.
-     * Synchronized with the logic in Client Profile Privilege Matrix.
-     */
     const getRemainingPerkUses = (itemId: string) => {
         if (!isMember || !activeMembership || !client?.subscription) return 0;
         
@@ -289,7 +429,6 @@ const ServicingView = ({
         const nextBilling = safeDate(client.subscription.nextBillingDate);
         const cycleStart = startOfMonth(activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1));
 
-        // Audit across ALL requests for this client in the cycle
         const totalCycleUsage = activeRequests
             .filter(r => r.itemId === itemId && r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart))
             .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
@@ -344,7 +483,6 @@ const ServicingView = ({
         if (!firestore || !tenant || !client || !appointment || isRequesting) return;
         const qty = quantities[item.id] || 1;
         
-        // Session-specific complimentary limit check
         const currentSessionPending = activeRequests.filter(r => r.appointmentId === appointment.id && r.status === 'pending');
         const totalSessionQty = currentSessionPending.reduce((sum, r) => sum + safeNumber(r.quantity || 1), 0);
         const limit = tenant.complimentaryAmenityLimit || 0;
@@ -354,7 +492,6 @@ const ServicingView = ({
             return;
         }
 
-        // Global cycle-specific perk check
         const remainingPerks = getRemainingPerkUses(item.id);
         const isRedemption = remainingPerks >= qty;
 
@@ -553,11 +690,6 @@ export default function CheckInPage() {
     const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
     const { data: resources } = useCollection<Resource>(resourcesQuery);
 
-    /**
-     * GLOBAL REFRESHMENT REQUEST LEDGER
-     * Queries ALL requests for this client within the current tenant scope.
-     * Essential for calculating monthly cycle usage across multiple visits.
-     */
     const allClientRequestsQuery = useMemoFirebase(() => {
         if (!firestore || !tenantId || !clientId) return null;
         return query(
@@ -615,6 +747,24 @@ export default function CheckInPage() {
                     </Button>
                 </div>
             </ViewContainer>
+        );
+    }
+
+    if (appointmentData?.status === 'completed') {
+        return (
+            <CompletedView 
+                tenant={tenant || null} 
+                client={client || null} 
+                appointment={appointmentData} 
+                service={service || null}
+                staff={assignedStaff || null}
+            />
+        );
+    }
+
+    if (appointmentData?.status === 'cancelled') {
+        return (
+            <CancelledView reason={appointmentData.cancellationReason} />
         );
     }
     

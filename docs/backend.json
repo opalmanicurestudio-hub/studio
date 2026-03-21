@@ -68,6 +68,28 @@
         "isRedemption": { "type": "boolean", "default": false, "description": "True if this request was a membership perk redemption." }
       },
       "required": ["id", "tenantId", "itemId", "status", "requestedAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "type": "object",
+      "description": "A review submitted by a client for a service.",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientAvatarUrl": { "type": "string", "format": "uri" },
+        "staffId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "rating": { "type": "number" },
+        "text": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "isFeatured": { "type": "boolean" },
+        "appointmentId": { "type": "string", "description": "The unique ID of the appointment this review belongs to." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
     }
   },
   "auth": {
@@ -97,6 +119,10 @@
     "/appointmentCheckIns/{token}": {
       "schema": { "$ref": "#/backend/entities/Appointment" },
       "description": "Public check-in tokens."
+    },
+    "/tenants/{tenantId}/reviews/{reviewId}": {
+      "schema": { "$ref": "#/backend/entities/Review" },
+      "description": "Client reviews for the tenant."
     }
   }
 }
