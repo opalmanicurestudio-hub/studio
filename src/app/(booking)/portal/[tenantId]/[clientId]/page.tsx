@@ -3,15 +3,15 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
-import { doc, collection, query, where } from 'firebase/firestore';
+import { useFirebase, useDoc, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { doc, collection, query, where, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
-import { format, parseISO, subMonths, isAfter, subYears, startOfMonth } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, startOfMonth, differenceInHours, addMinutes } from 'date-fns';
 import { 
     Award, 
     Calendar, 
@@ -39,10 +39,13 @@ import {
     FileSignature,
     ArrowDown,
     Shield,
-    Check
+    Check,
+    AlertTriangle,
+    XCircle,
+    Undo2,
+    CalendarCheck
 } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff } from '@/lib/data';
-import { type Transaction } from '@/lib/financial-data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -50,6 +53,18 @@ import { cn, safeNumber } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
+import { 
+    AlertDialog, 
+    AlertDialogAction, 
+    AlertDialogCancel, 
+    AlertDialogContent, 
+    AlertDialogDescription, 
+    AlertDialogFooter, 
+    AlertDialogHeader, 
+    AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
+import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
+import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -74,6 +89,9 @@ export default function ClientPortalPage() {
     const { toast } = useToast();
 
     const [entered, setEntered] = useState(false);
+    const [appointmentToCancel, setAppointmentToCancel] = useState<Appointment | null>(null);
+    const [appointmentToReschedule, setAppointmentToReschedule] = useState<Appointment | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const clientRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/clients/${clientId}`), [firestore, tenantId, clientId]);
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientRef);
@@ -143,17 +161,17 @@ export default function ClientPortalPage() {
 
         (activeMembership.includedServices || []).forEach(perk => {
             const used = getUsage(perk.id);
-            items.push({ ...perk, type: 'Service', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Star, color: 'text-indigo-600', bg: 'bg-indigo-500/10' });
+            items.push({ ...perk, id: perk.id, type: 'Service', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Star, color: 'text-indigo-600', bg: 'bg-indigo-500/10' });
         });
 
         (activeMembership.includedAddOns || []).forEach(perk => {
             const used = getUsage(perk.id);
-            items.push({ ...perk, type: 'Enhancement', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Zap, color: 'text-amber-600', bg: 'bg-amber-500/10' });
+            items.push({ ...perk, id: perk.id, type: 'Enhancement', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Zap, color: 'text-amber-600', bg: 'bg-amber-500/10' });
         });
 
         (activeMembership.includedProducts || []).forEach(perk => {
             const used = getUsage(perk.id);
-            items.push({ ...perk, type: 'Hospitality', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Coffee, color: 'text-primary', bg: 'bg-primary/10' });
+            items.push({ ...perk, id: perk.id, type: 'Hospitality', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Coffee, color: 'text-primary', bg: 'bg-primary/10' });
         });
 
         return items;
@@ -196,16 +214,111 @@ export default function ClientPortalPage() {
     const upcomingAppointments = useMemo(() => {
         if (!appointments) return [];
         return appointments
-            .filter(a => a.status !== 'cancelled' && safeDate(a.startTime) > new Date())
+            .filter(a => (a.status === 'confirmed' || a.status === 'deposit_pending' || a.status === 'ready_for_checkout' || a.status === 'servicing') && safeDate(a.startTime) > new Date())
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
     }, [appointments]);
 
     const pastAppointments = useMemo(() => {
         if (!appointments) return [];
         return appointments
-            .filter(a => safeDate(a.startTime) <= new Date())
+            .filter(a => a.status === 'completed' || safeDate(a.startTime) <= new Date())
             .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
     }, [appointments]);
+
+    // --- POLICY ENFORCEMENT LOGIC ---
+    const handleConfirmCancellation = async () => {
+        if (!appointmentToCancel || !firestore || !tenantId || !client) return;
+        setIsProcessing(true);
+        
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointmentToCancel.id);
+        const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+
+        const hoursUntil = differenceInHours(safeDate(appointmentToCancel.startTime), new Date());
+        const svc = services?.find(s => s.id === appointmentToCancel.serviceId);
+        const requiredWindow = svc?.cancellationWindowHours || tenant?.cancellationWindowHours || 24;
+        const isLate = hoursUntil < requiredWindow;
+
+        let feeAmount = 0;
+        if (isLate) {
+            // Calculate base fee (House Floor Recovery)
+            const duration = svc?.duration || 60;
+            const tmhr = tenant?.tmhr || 50;
+            const overhead = (duration / 60) * tmhr;
+            feeAmount = Number(overhead.toFixed(2));
+        }
+
+        batch.update(appointmentRef, { 
+            status: 'cancelled', 
+            cancellationReason: 'client_request',
+            cancellationFeeApplied: feeAmount,
+            cancellationPaymentStatus: feeAmount > 0 ? 'unpaid' : 'waived'
+        });
+
+        if (feeAmount > 0) {
+            batch.update(clientRef, {
+                outstandingBalance: increment(feeAmount),
+                unpaidFees: arrayUnion({
+                    feeId: nanoid(),
+                    appointmentId: appointmentToCancel.id,
+                    appointmentDate: safeDate(appointmentToCancel.startTime).toISOString(),
+                    feeAmount: feeAmount,
+                    reason: `Late Cancellation: Guest Request (< ${requiredWindow}h notice)`
+                })
+            });
+        }
+
+        try {
+            await batch.commit();
+            toast({ title: "Session Terminated", description: feeAmount > 0 ? `Late cancellation fee of $${feeAmount.toFixed(2)} applied.` : "Appointment removed." });
+            setAppointmentToCancel(null);
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Process Error" });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleRescheduleConfirm = async (data: any) => {
+        if (!firestore || !tenantId) return;
+        setIsProcessing(true);
+        
+        const { applyFee, feeAmount, ...aptData } = data;
+        const batch = writeBatch(firestore);
+        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
+        
+        batch.update(appointmentRef, {
+            startTime: aptData.startTime,
+            endTime: aptData.endTime
+        });
+
+        if (applyFee && feeAmount > 0) {
+            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, clientId);
+            batch.update(clientRef, {
+                outstandingBalance: increment(feeAmount),
+                unpaidFees: arrayUnion({
+                    feeId: nanoid(),
+                    appointmentId: aptData.id,
+                    appointmentDate: safeDate(aptData.startTime).toISOString(),
+                    feeAmount: feeAmount,
+                    reason: "Late Reschedule Protocol Fee"
+                })
+            });
+        }
+
+        try {
+            await batch.commit();
+            toast({ title: "Session Shifted", description: applyFee ? "Late adjustment fee applied to ledger." : "Agenda updated." });
+            setAppointmentToReschedule(null);
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Process Error" });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const safeBalance = useMemo(() => safeNumber(client?.outstandingBalance), [client]);
 
     if (clientLoading || appointmentsLoading || redemptionsLoading || requestsLoading || consentsLoading) {
         return (
@@ -220,8 +333,8 @@ export default function ClientPortalPage() {
 
     return (
         <div className="min-h-screen bg-background relative overflow-x-hidden">
-            <AnimatePresence>
-                {!entered && (
+            <AnimatePresence mode="wait">
+                {!entered ? (
                     <motion.div
                         initial={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -304,6 +417,30 @@ export default function ClientPortalPage() {
                     </div>
                 </header>
 
+                <AnimatePresence>
+                    {safeBalance > 0 && (
+                        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}>
+                            <Alert variant="destructive" className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-[2.5rem] p-8 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-8 text-left">
+                                <div className="flex items-start gap-6 text-left">
+                                    <div className="p-4 bg-destructive text-white rounded-2xl shadow-xl shadow-destructive/20 shrink-0 mt-1">
+                                        <Wallet className="w-8 h-8" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <AlertTitle className="text-2xl font-black uppercase tracking-tighter text-destructive leading-none">Accounting Balance</AlertTitle>
+                                        <AlertDescription className="text-sm font-bold text-slate-600 uppercase tracking-tight opacity-80 mt-2">
+                                            A total of <strong>${safeBalance.toFixed(2)}</strong> in outstanding fees is recorded. Please settle during your next visit.
+                                        </AlertDescription>
+                                    </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                    <p className="text-[10px] font-black uppercase text-destructive tracking-[0.2em] mb-1">Total Arrears</p>
+                                    <p className="text-5xl font-black font-mono tracking-tighter text-destructive">${safeBalance.toFixed(2)}</p>
+                                </div>
+                            </Alert>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 <Tabs defaultValue="appointments" className="w-full">
                     <ScrollArea className="w-full">
                         <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-10 w-max mx-auto">
@@ -318,6 +455,10 @@ export default function ClientPortalPage() {
                             <TabsTrigger value="rewards" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
                                 <Trophy className="w-3.5 h-3.5 mr-2" />
                                 Rewards
+                            </TabsTrigger>
+                            <TabsTrigger value="ledger" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                                <Landmark className="w-3.5 h-3.5 mr-2" />
+                                Ledger
                             </TabsTrigger>
                         </TabsList>
                         <ScrollBar orientation="horizontal" className="hidden" />
@@ -334,9 +475,11 @@ export default function ClientPortalPage() {
                                     {upcomingAppointments.map(apt => {
                                         const svc = services?.find(s => s.id === apt.serviceId);
                                         const pro = staff?.find(s => s.id === apt.staffId);
+                                        const isActionable = apt.status === 'confirmed' || apt.status === 'deposit_pending';
+                                        
                                         return (
-                                            <Card key={apt.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group">
-                                                <CardContent className="p-6 flex items-center gap-6">
+                                            <Card key={apt.id} className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group flex flex-col">
+                                                <CardContent className="p-6 flex items-center gap-6 flex-1">
                                                     <div className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 shadow-inner text-primary shrink-0 group-hover:bg-primary group-hover:text-white transition-all duration-500">
                                                         <Calendar className="w-8 h-8" />
                                                     </div>
@@ -344,10 +487,21 @@ export default function ClientPortalPage() {
                                                         <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1">{svc?.name || 'Service'}</p>
                                                         <div className="flex items-center gap-2 mb-2">
                                                             <Badge variant="outline" className="h-5 px-2 border-none bg-muted/50 text-muted-foreground text-[8px] font-black uppercase">By {pro?.name.split(' ')[0] || 'Technician'}</Badge>
+                                                            <Badge className={cn("h-5 px-2 border-none font-black text-[8px] uppercase", apt.status === 'confirmed' ? "bg-green-500 text-white" : "bg-amber-500 text-white")}>{apt.status.replace('_', ' ')}</Badge>
                                                         </div>
                                                         <p className="text-xl font-black text-primary font-mono tracking-tighter">{format(safeDate(apt.startTime), 'EEEE, MMM d @ h:mm a')}</p>
                                                     </div>
                                                 </CardContent>
+                                                {isActionable && (
+                                                    <div className="p-3 border-t bg-muted/5 grid grid-cols-2 gap-2">
+                                                        <Button variant="ghost" onClick={() => setAppointmentToReschedule(apt)} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-primary/5 text-primary">
+                                                            <Undo2 className="w-3.5 h-3.5 mr-2" /> Reschedule
+                                                        </Button>
+                                                        <Button variant="ghost" onClick={() => setAppointmentToCancel(apt)} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-destructive/5 text-destructive">
+                                                            <XCircle className="w-3.5 h-3.5 mr-2" /> Cancel
+                                                        </Button>
+                                                    </div>
+                                                )}
                                             </Card>
                                         );
                                     })}
@@ -614,9 +768,93 @@ export default function ClientPortalPage() {
                             </div>
                         )}
                     </TabsContent>
+
+                    <TabsContent value="ledger" className="space-y-8 animate-in fade-in duration-500 text-left">
+                        <div className="space-y-6">
+                            <div className="flex items-center gap-3 px-1 text-left">
+                                <Landmark className="w-5 h-5 text-primary" />
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Accounting Manifest</h3>
+                            </div>
+                            
+                            {client.unpaidFees && client.unpaidFees.length > 0 ? (
+                                <div className="grid gap-4">
+                                    {client.unpaidFees.map((fee) => (
+                                        <Card key={fee.feeId} className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-3xl overflow-hidden shadow-xl shadow-destructive/5">
+                                            <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+                                                <div className="flex items-center gap-4 text-left w-full sm:w-auto">
+                                                    <div className="p-3 bg-destructive rounded-2xl shadow-lg shadow-destructive/20">
+                                                        <AlertTriangle className="w-6 h-6 text-white" />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <p className="font-black text-sm uppercase tracking-tight text-destructive">{fee.reason}</p>
+                                                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-center sm:text-right shrink-0">
+                                                    <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest mb-1">Fee Amount</p>
+                                                    <p className="text-3xl font-black font-mono tracking-tighter text-destructive">${safeNumber(fee.feeAmount).toFixed(2)}</p>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                    <ShieldCheck className="w-16 h-16 text-green-500" />
+                                    <p className="text-[10px] font-black uppercase tracking-widest">Account Clear & Settled</p>
+                                </div>
+                            )}
+                        </div>
+                    </TabsContent>
                 </Tabs>
             </main>
+
+            <AlertDialog open={!!appointmentToCancel} onOpenChange={() => setAppointmentToCancel(null)}>
+                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+                    <AlertDialogHeader className="p-6 pb-0 text-left">
+                        <div className="flex items-center gap-3 mb-2">
+                            <AlertTriangle className="w-5 h-5 text-destructive" />
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-destructive">Policy Enforcement</span>
+                        </div>
+                        <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Authorize Cancellation</AlertDialogTitle>
+                        <AlertDialogDescription className="text-xs font-bold text-slate-600 leading-relaxed uppercase tracking-tight">
+                            {(() => {
+                                if (!appointmentToCancel) return null;
+                                const hoursUntil = differenceInHours(safeDate(appointmentToCancel.startTime), new Date());
+                                const svc = services?.find(s => s.id === appointmentToCancel.serviceId);
+                                const requiredWindow = svc?.cancellationWindowHours || tenant?.cancellationWindowHours || 24;
+                                
+                                if (hoursUntil < requiredWindow) {
+                                    return (
+                                        <span className="block p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 text-destructive mt-4">
+                                            Late Protocol: Less than {requiredWindow}h notice provided. A recovery fee may be applied to your studio ledger upon confirmation.
+                                        </span>
+                                    );
+                                }
+                                return "You are removing this appointment from our manifest. This action is non-reversible.";
+                            })()}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                        <Button onClick={handleConfirmCancellation} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-white hover:bg-destructive/90">
+                            {isProcessing ? <Loader className="animate-spin" /> : 'Confirm Termination'}
+                        </Button>
+                        <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {appointmentToReschedule && (
+                <RescheduleDialog 
+                    open={!!appointmentToReschedule}
+                    onOpenChange={() => setAppointmentToReschedule(null)}
+                    appointment={appointmentToReschedule}
+                    clients={clients || []}
+                    services={services || []}
+                    appointments={appointments || []}
+                    onConfirm={handleRescheduleConfirm}
+                />
+            )}
         </div>
     );
 }
-
