@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -43,18 +43,24 @@ import {
   DollarSign,
   Scale,
   Percent,
-  Target
+  Target,
+  Search,
+  ChevronDown,
+  Users,
+  Box,
+  Activity,
+  Tag
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc, writeBatch } from 'firebase/firestore';
-import { type Tenant, type ScheduleProfile, type DayHours } from '@/lib/data';
+import { doc, writeBatch, collection } from 'firebase/firestore';
+import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
@@ -124,11 +130,137 @@ const DayScheduleRow = ({ day, data, onChange, disabled }: { day: string, data: 
     );
 };
 
+const ServicePolicyCard = ({ 
+    service, 
+    tmhr, 
+    inventory, 
+    isEditing, 
+    localPolicy, 
+    onPolicyChange 
+}: { 
+    service: Service, 
+    tmhr: number, 
+    inventory: any[], 
+    isEditing: boolean, 
+    localPolicy?: any, 
+    onPolicyChange: (updates: any) => void 
+}) => {
+    const floor = useMemo(() => {
+        const timeCost = (service.duration / 60) * tmhr;
+        const matCost = (service.products || []).reduce((acc, p) => {
+            const item = inventory.find(i => i.id === p.id);
+            let cpu = 0;
+            if (item) {
+                if (item.costingMethod === 'size' && item.size) cpu = (item.costPerUnit || 0) / item.size;
+                else if (item.costingMethod === 'uses' && item.estimatedUses) cpu = (item.costPerUnit || 0) / item.estimatedUses;
+                else cpu = item.costPerUnit || 0;
+            }
+            return acc + (cpu * (p.quantityUsed || 1));
+        }, 0);
+        return timeCost + matCost;
+    }, [service, tmhr, inventory]);
+
+    const policy = localPolicy || {
+        mode: 'inherit',
+        window: undefined,
+        value: undefined
+    };
+
+    return (
+        <Card className={cn(
+            "transition-all border-2 rounded-2xl overflow-hidden shadow-sm",
+            policy.mode !== 'inherit' ? "border-primary/20 bg-primary/[0.01]" : "bg-white"
+        )}>
+            <CardHeader className="p-4 border-b bg-muted/5 flex flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2 rounded-lg bg-background border shadow-sm">
+                        <Star className="w-3.5 h-3.5 text-primary opacity-40" />
+                    </div>
+                    <div className="min-w-0">
+                        <CardTitle className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{service.name}</CardTitle>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">ID: {service.id.slice(-6).toUpperCase()}</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[9px] font-black uppercase text-muted-foreground hidden sm:block">Custom Logic</span>
+                    <Switch 
+                        checked={policy.mode !== 'inherit'} 
+                        onCheckedChange={(checked) => onPolicyChange({ mode: checked ? 'matrix' : 'inherit' })}
+                        disabled={!isEditing}
+                    />
+                </div>
+            </CardHeader>
+            <AnimatePresence>
+                {policy.mode !== 'inherit' && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                        <CardContent className="p-4 space-y-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div className="space-y-2 text-left">
+                                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Override Window (h)</Label>
+                                    <Input 
+                                        type="number" 
+                                        value={policy.window || ''} 
+                                        onChange={e => onPolicyChange({ window: parseInt(e.target.value) || 0 })}
+                                        disabled={!isEditing}
+                                        placeholder="Studio Default"
+                                        className="h-10 rounded-xl border-2 font-black text-center"
+                                    />
+                                </div>
+                                <div className="space-y-2 text-left">
+                                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Recovery Mode</Label>
+                                    <Select 
+                                        value={policy.mode} 
+                                        onValueChange={(v: any) => onPolicyChange({ mode: v })}
+                                        disabled={!isEditing}
+                                    >
+                                        <SelectTrigger className="h-10 rounded-xl border-2 font-black uppercase text-[9px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            <SelectItem value="matrix" className="font-bold">HOUSE FLOOR (MATRIX)</SelectItem>
+                                            <SelectItem value="flat" className="font-bold">FLAT RATE ($)</SelectItem>
+                                            <SelectItem value="percentage" className="font-bold">PERCENTAGE (%)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
+                            {policy.mode !== 'matrix' && (
+                                <div className="space-y-2 animate-in slide-in-from-top-2 text-left">
+                                    <Label className="text-[9px] font-black uppercase tracking-widest text-primary ml-1">Fixed Protocol Value</Label>
+                                    <div className="relative">
+                                        {policy.mode === 'flat' ? <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /> : <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />}
+                                        <Input 
+                                            type="number" 
+                                            value={policy.value || ''} 
+                                            onChange={e => onPolicyChange({ value: parseFloat(e.target.value) || 0 })}
+                                            disabled={!isEditing}
+                                            className={cn("h-12 rounded-xl border-2 font-black text-lg", policy.mode === 'flat' ? "pl-8" : "pr-8")}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="p-4 rounded-xl bg-muted/20 border-2 border-dashed flex justify-between items-center shadow-inner">
+                                <div className="flex items-center gap-2">
+                                    <Landmark className="w-3.5 h-3.5 text-primary opacity-40" />
+                                    <span className="text-[9px] font-black uppercase text-muted-foreground">House Floor Minimum</span>
+                                </div>
+                                <span className="font-black font-mono text-sm text-slate-900">${floor.toFixed(2)}</span>
+                            </div>
+                        </CardContent>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </Card>
+    );
+}
+
 function SettingsPageImpl() {
   const { toast } = useToast();
   const { firestore } = useFirebase();
   const { selectedTenant, isLoading: isTenantContextLoading } = useTenant();
-  const { scheduleProfiles, isLoading: isInventoryLoading } = useInventory();
+  const { scheduleProfiles, services, inventory, isLoading: isInventoryLoading } = useInventory();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
 
@@ -136,6 +268,9 @@ function SettingsPageImpl() {
   const [isEditing, setIsEditing] = useState(false);
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [servicePolicies, setServicePolicies] = useState<Record<string, any>>({});
+
   const { control } = useForm();
 
   const activeProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
@@ -152,13 +287,25 @@ function SettingsPageImpl() {
     if (activeProfile) {
         setLocalSchedule(activeProfile.week);
     }
-  }, [selectedTenant, activeProfile]);
+    if (services) {
+        const policies: Record<string, any> = {};
+        services.forEach(s => {
+            policies[s.id] = {
+                mode: s.cancellationFeeMode || 'inherit',
+                window: s.cancellationWindowHours,
+                value: s.customCancellationFee || s.cancellationFeeValue
+            };
+        });
+        setServicePolicies(policies);
+    }
+  }, [selectedTenant, activeProfile, services]);
 
   const handleSave = async () => {
     if (!selectedTenant || !firestore) return;
     try {
       const batch = writeBatch(firestore);
       const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+      
       const finalTenantData = {
           ...tenantData,
           kioskSettings: {
@@ -172,6 +319,17 @@ function SettingsPageImpl() {
           const profileRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`, activeProfile.id);
           batch.update(profileRef, { week: localSchedule });
       }
+
+      // Sync Service Specific Policies
+      Object.entries(servicePolicies).forEach(([id, p]) => {
+          const svcRef = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
+          batch.update(svcRef, {
+              cancellationFeeMode: p.mode,
+              cancellationWindowHours: p.window || deleteField() as any,
+              customCancellationFee: p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? deleteField() as any : (service?.customCancellationFee || 0)),
+              cancellationFeeValue: p.value || deleteField() as any
+          });
+      });
 
       await batch.commit();
       toast({ title: 'Settings Synchronized', description: 'Studio operational parameters updated.' });
@@ -195,6 +353,20 @@ function SettingsPageImpl() {
           [day]: { ...(prev?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }), ...updates }
       }));
   };
+
+  const handlePolicyChange = (id: string, updates: any) => {
+      setServicePolicies(prev => ({
+          ...prev,
+          [id]: { ...prev[id], ...updates }
+      }));
+  };
+
+  const filteredServices = useMemo(() => {
+      if (!services) return [];
+      if (!serviceSearch.trim()) return services;
+      const s = serviceSearch.toLowerCase();
+      return services.filter(svc => svc.name.toLowerCase().includes(s) || (svc.category || '').toLowerCase().includes(s));
+  }, [services, serviceSearch]);
 
   const tabs = [
     { value: "profile", label: "Profile", icon: <Building className="w-4 h-4" /> },
@@ -368,8 +540,8 @@ function SettingsPageImpl() {
             <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
-                        <SectionHeader icon={ShieldCheck} title="Studio Governance & Logic" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Define global recovery protocols for late shifts and cancellations.</CardDescription>
+                        <SectionHeader icon={ShieldCheck} title="Global Studio Governance" />
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Define studio-wide defaults for late shifts and cancellations.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="space-y-6">
@@ -445,28 +617,70 @@ function SettingsPageImpl() {
                                 </div>
                             </div>
                         </div>
+                    </CardContent>
+                </Card>
 
-                        <Separator className="border-dashed" />
-
-                        <div className="space-y-6">
-                            {[
-                                { id: 'cancellationPolicy', label: 'Cancellation Policy (Public)', placeholder: 'Describe your requirements for cancelling a session...' },
-                                { id: 'lateArrivalPolicy', label: 'Late Arrival Policy (Public)', placeholder: 'Describe grace periods and potential penalties...' },
-                                { id: 'noShowPolicy', label: 'No-Show Policy (Public)', placeholder: 'Describe the consequence of missing an appointment...' }
-                            ].map(policy => (
-                                <div key={policy.id} className="space-y-2">
-                                    <Label htmlFor={policy.id} className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{policy.label}</Label>
-                                    <Textarea 
-                                        id={policy.id}
-                                        value={(tenantData as any)[policy.id] || ''}
-                                        onChange={e => setTenantData(prev => ({...prev, [policy.id]: e.target.value}))}
-                                        disabled={!isEditing}
-                                        placeholder={policy.placeholder}
-                                        className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20"
-                                    />
-                                </div>
-                            ))}
+                <div className="space-y-8">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1">
+                        <div className="space-y-1 text-left">
+                            <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Service-Specific Protocols</h2>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Custom logic guards per treatment unit.</p>
                         </div>
+                        <div className="relative w-full md:w-64">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                            <Input 
+                                placeholder="SEARCH MENU..." 
+                                value={serviceSearch} 
+                                onChange={e => setServiceSearch(e.target.value)}
+                                className="pl-9 h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {filteredServices.map(service => (
+                            <ServicePolicyCard 
+                                key={service.id} 
+                                service={service} 
+                                tmhr={tenantData.tmhr || 50} 
+                                inventory={inventory} 
+                                isEditing={isEditing}
+                                localPolicy={servicePolicies[service.id]}
+                                onPolicyChange={(updates) => handlePolicyChange(service.id, updates)}
+                            />
+                        ))}
+                        {filteredServices.length === 0 && (
+                            <div className="col-span-full py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                <Activity className="w-12 h-12" />
+                                <p className="text-xs font-black uppercase tracking-widest">No matching treatments found</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
+                        <SectionHeader icon={Shield} title="Public Accountability Policies" />
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Define the narrative for your guest-facing agreements.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-6 md:p-8 space-y-6 text-left">
+                        {[
+                            { id: 'cancellationPolicy', label: 'Cancellation Policy (Public)', placeholder: 'Describe your requirements for cancelling a session...' },
+                            { id: 'lateArrivalPolicy', label: 'Late Arrival Policy (Public)', placeholder: 'Describe grace periods and potential penalties...' },
+                            { id: 'noShowPolicy', label: 'No-Show Policy (Public)', placeholder: 'Describe the consequence of missing an appointment...' }
+                        ].map(policy => (
+                            <div key={policy.id} className="space-y-2">
+                                <Label htmlFor={policy.id} className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{policy.label}</Label>
+                                <Textarea 
+                                    id={policy.id}
+                                    value={(tenantData as any)[policy.id] || ''}
+                                    onChange={e => setTenantData(prev => ({...prev, [policy.id]: e.target.value}))}
+                                    disabled={!isEditing}
+                                    placeholder={policy.placeholder}
+                                    className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 font-medium"
+                                />
+                            </div>
+                        ))}
                     </CardContent>
                 </Card>
             </TabsContent>
