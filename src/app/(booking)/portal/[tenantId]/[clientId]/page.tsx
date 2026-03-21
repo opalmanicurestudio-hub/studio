@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -11,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
-import { format, parseISO, subMonths, isAfter, subYears, startOfMonth, differenceInHours, isSameDay, startOfDay } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths } from 'date-fns';
 import { 
     Award, 
     Calendar, 
@@ -52,7 +51,7 @@ import {
     Landmark,
     LayoutDashboard
 } from 'lucide-react';
-import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff, type Review } from '@/lib/data';
+import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff, type Review, type InventoryItem } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -84,6 +83,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { GuestRescheduleDialog } from '@/components/booking/GuestRescheduleDialog';
 import { nanoid } from 'nanoid';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -110,17 +110,6 @@ const ViewContainer = ({ children }: { children: React.ReactNode }) => (
     >
         {children}
     </motion.div>
-);
-
-const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
-    <CardHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left">
-        <div className="flex items-center gap-3 mb-2">
-            {Icon ? <Icon className="w-4 h-4 md:w-5 md:h-5 text-primary" /> : <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />}
-            <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
-        </div>
-        <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
-        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
-    </CardHeader>
 );
 
 export default function ClientPortalPage() {
@@ -270,7 +259,6 @@ export default function ClientPortalPage() {
                 const isCancelled = a.status === 'cancelled';
                 const isCompleted = a.status === 'completed';
                 const startTime = safeDate(a.startTime);
-                // CRITICAL FIX: Include today's appointments even if start time passed, as long as not completed/cancelled
                 return !isCancelled && !isCompleted && (startTime > now || isSameDay(startTime, startOfToday));
             })
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
@@ -285,7 +273,6 @@ export default function ClientPortalPage() {
                 const isCancelled = a.status === 'cancelled';
                 const isCompleted = a.status === 'completed';
                 const startTime = safeDate(a.startTime);
-                // Move to past if completed, cancelled, or before today
                 return isCompleted || isCancelled || (startTime < startOfToday);
             })
             .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
@@ -307,8 +294,8 @@ export default function ClientPortalPage() {
         let feeAmount = 0;
         if (isLate) {
             const duration = svc?.duration || 60;
-            const tmhr = tenant?.tmhr || 50;
-            const overhead = (duration / 60) * tmhr;
+            const tmhrVal = tenant?.tmhr || 50;
+            const overhead = (duration / 60) * tmhrVal;
             feeAmount = Number(overhead.toFixed(2));
         }
 
@@ -459,43 +446,16 @@ export default function ClientPortalPage() {
         );
     }
 
-    if (!client) return <div className="p-10 text-center font-black uppercase text-slate-400">Dossier not found.</div>;
-
-    if (client.status === 'banned') {
-        return (
-            <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 font-body">
-                <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-                    <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-destructive/5 blur-[120px] rounded-full" />
-                </div>
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="relative z-10 w-full max-w-md">
-                    <Card className="border-4 rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl text-center">
-                        <CardHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-                            <div className="flex items-center gap-3 mb-2">
-                                <ShieldAlert className="w-5 h-5 text-destructive" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-destructive">Security Protocol</span>
-                            </div>
-                            <CardTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Authentication Denied</CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-10 space-y-8 text-center">
-                            <div className="w-24 h-24 bg-destructive/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5">
-                                <Ban className="w-12 h-12 text-destructive" />
-                            </div>
-                            <div className="space-y-3 text-center">
-                                <p className="text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-center">
-                                    Your guest profile has been restricted in the studio manifest. Access to the private portal is currently prohibited.
-                                </p>
-                            </div>
-                        </CardContent>
-                        <CardFooter className="p-8 pt-0">
-                            <Button asChild variant="ghost" className="w-full h-12 font-black uppercase tracking-widest text-[10px] text-slate-400">
-                                <Link href={`/book/${tenantId}`}>Return to Studio Home</Link>
-                            </Button>
-                        </CardFooter>
-                    </Card>
-                </motion.div>
+    const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
+        <CardHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left">
+            <div className="flex items-center gap-3 mb-2 text-left">
+                {Icon ? <Icon className="w-4 h-4 md:w-5 md:h-5 text-primary" /> : <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />}
+                <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
             </div>
-        );
-    }
+            <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">{title}</CardTitle>
+            <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1 text-left">{subtitle}</CardDescription>
+        </CardHeader>
+    );
 
     return (
         <div className="min-h-screen bg-background relative overflow-x-hidden">
@@ -555,7 +515,7 @@ export default function ClientPortalPage() {
                     <div className="relative group">
                         <Avatar className="w-24 h-24 md:w-32 md:h-32 border-4 border-white shadow-2xl rounded-[3rem] overflow-hidden transition-all group-hover:scale-105">
                             <AvatarImage src={client.avatarUrl} className="object-cover" />
-                            <AvatarFallback className="font-black text-2xl bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
+                            <AvatarFallback className="font-black text-2xl bg-primary/10 text-primary uppercase">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         {activeMembership && (
                             <div className="absolute -top-3 -right-3 bg-indigo-600 text-white p-2 rounded-2xl shadow-xl border-4 border-white">
@@ -673,7 +633,7 @@ export default function ClientPortalPage() {
                         <Separator className="border-dashed" />
 
                         <div className="space-y-6 text-left">
-                            <div className="flex items-center gap-3 px-1 text-left"><History className="w-5 h-5 text-muted-foreground opacity-40" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 text-left">Technical History Archive</h3></div>
+                            <div className="flex items-center gap-3 px-1 text-left text-left"><History className="w-5 h-5 text-muted-foreground opacity-40" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 text-left">Technical History Archive</h3></div>
                             <div className="grid gap-4 text-left">
                                 {pastAppointments.slice(0, 10).map(apt => {
                                     const svc = services?.find(s => s.id === apt.serviceId);
