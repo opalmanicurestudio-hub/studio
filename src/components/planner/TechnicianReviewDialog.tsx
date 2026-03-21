@@ -96,6 +96,7 @@ type ReviewRefreshmentItem = {
     name: string;
     price: number;
     deliveredAt: string;
+    isAccountedFor?: boolean; // True if already deducted by Dashboard
 };
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
@@ -130,7 +131,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   staff,
 }) => {
   const { appointment, client, service } = appointmentData;
-  const { services: allServices, inventory } = useInventory();
+  const { services: allServices, inventory, refreshmentRequests } = useInventory();
   const { selectedTenant } = useTenant();
   const { user: currentUser } = useUser();
   const { firestore } = useFirebase();
@@ -218,9 +219,20 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setReviewNotes(checkoutState?.reviewNotes || '');
         setSaveAsCustomFormula(false);
         setCustomFormulaName('');
-        setRefreshments(checkoutState?.refreshments || []);
+
+        // Identify refreshments already handled by Dashboard (concierge)
+        const sessionRequests = refreshmentRequests?.filter(r => r.appointmentId === appointment.id && r.status === 'delivered') || [];
+        const dashboardRefreshments = sessionRequests.map(r => ({
+            id: r.itemId,
+            name: r.itemName,
+            price: r.priceAtRequest || 0,
+            deliveredAt: r.deliveredAt || r.requestedAt,
+            isAccountedFor: true // CRITICAL: This flags that stock was already deducted
+        }));
+
+        setRefreshments([...dashboardRefreshments, ...(checkoutState?.refreshments?.filter((r: any) => !r.isAccountedFor) || [])]);
     }
-  }, [service, appointment, open, allServices, inventory, currentUser]);
+  }, [service, appointment, open, allServices, inventory, currentUser, refreshmentRequests]);
 
   const toggleServiceComplete = (serviceId: string) => {
       setCompletedServiceIds(prev => 
@@ -283,7 +295,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
           id: p.id,
           name: p.name,
           price: safeNumber(p.price || 0),
-          deliveredAt: new Date().toISOString()
+          deliveredAt: new Date().toISOString(),
+          isAccountedFor: false // These were NOT requested via concierge, so we must deduct them
       }));
       setRefreshments(prev => [...prev, ...newItems.filter(ni => !prev.find(p => p.id === ni.id))]);
       setIsRefreshmentBrowserOpen(false);
@@ -375,6 +388,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
 
+        // 1. RECONCILE FORMULA ASSETS
         editableFormula.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
             if (!product) return;
@@ -427,14 +441,38 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             } as StockCorrection);
         });
 
-        // Set appointment status
+        // 2. RECONCILE REFRESHMENTS THAT WEREN'T DEDUCTED AT DELIVERY
+        refreshments.forEach(ref => {
+            if (ref.isAccountedFor) return; // SKIP: Already deducted by Dashboard
+
+            const product = inventory.find(p => p.id === ref.id);
+            if (!product) return;
+
+            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
+            const qty = 1; // Assuming 1 unit for manual adds in review
+            
+            // Simplified deduction for manual refreshment add (usually whole unit)
+            batch.update(productRef, { totalStock: increment(-qty) });
+
+            const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+            batch.set(scRef, {
+                id: nanoid(),
+                productId: product.id,
+                date: now,
+                change: -qty,
+                unit: product.unit || 'unit',
+                reason: `Manual Amenity: ${ref.name} during Review for ${client.name}`,
+                appointmentId: appointment.id
+            } as StockCorrection);
+        });
+
+        // 3. FINALIZE APPOINTMENT
         batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), {
             status: 'ready_for_checkout',
             checkoutState: JSON.parse(JSON.stringify(checkoutState)),
             actualEndTime: now
         });
 
-        // Free up staff
         const involvedIds = new Set([appointment.staffId || '', ...Object.values(serviceStaffOverrides)]);
         involvedIds.forEach(sid => {
             if (sid) batch.update(doc(firestore, `tenants/${tenantId}/staff`, sid), { status: 'idle' });
@@ -683,7 +721,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                             <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
                                             <div className="min-w-0 text-left">
                                                 <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
-                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
+                                                    {ref.isAccountedFor && <Badge variant="outline" className="h-3.5 text-[6px] font-black uppercase bg-green-50 text-green-700 border-green-200">Inventory Sync</Badge>}
+                                                </div>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-4 shrink-0">
@@ -767,7 +808,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       </DialogComponent>
       <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon' && (service?.compatibleAddOnIds || []).includes(s.id))} initialSelected={selectedAddOns} staff={staff} defaultStaffId={appointment.staffId || ''} />
       <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
-      <BrowseProductsDialog open={isRefreshmentBrowserOpen} onOpenChange={setIsRefreshmentBrowserOpen} onSelect={handleAddRefreshments} allProducts={inventory.filter(i => i.type === 'refreshment')} initialSelected={[]} />
+      <BrowseProductsDialog open={isRefreshmentBrowserOpen} onOpenChange={setIsRefreshmentBrowserOpen} onSelect={handleAddRefreshments} allProducts={inventory.filter(i => i.type === 'refreshment' || i.type === 'overhead')} initialSelected={[]} />
     </>
   );
 };

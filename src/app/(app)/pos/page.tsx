@@ -443,25 +443,10 @@ function POSPage() {
             const overrides = checkoutState.serviceStaffOverrides || {};
             const isWaived = waivedAppointmentFees.has(apt.id);
             const additional = !isWaived ? safeNumber(checkoutState.additionalCharge) : 0;
-            const formula = checkoutState.formula || [];
-            formula.forEach((item: any) => {
-                const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
-                const product = (inventory || []).find(p => p.id === item.id);
-                if (!product) return;
-                const updateData: any = {};
-                if (product.costingMethod === 'uses') {
-                    let currentUses = product.partialContainerUses || 0; let currentStock = product.totalStock; const usesPerContainer = product.estimatedUses || 1;
-                    currentUses -= item.quantity; while (currentUses <= 0 && currentStock > 0) { currentStock -= 1; currentUses += usesPerContainer; }
-                    updateData.totalStock = currentStock; updateData.partialContainerUses = currentUses;
-                } else if (product.costingMethod === 'size' && product.size) {
-                    let currentSize = product.partialContainerSize || 0; let currentStock = product.totalStock; const sizePerContainer = product.size || 1;
-                    currentSize -= item.quantity; while (currentSize <= 0 && currentStock > 0) { currentStock -= 1; currentSize += sizePerContainer; }
-                    updateData.totalStock = currentStock; updateData.partialContainerSize = currentSize;
-                } else updateData.totalStock = (product.totalStock || 0) - item.quantity;
-                batch.update(productRef, updateData);
-                const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                batch.set(scRef, { id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: item.unit || 'units', reason: `Service: ${service.name} for ${clientObj?.name || 'Guest'}`, appointmentId: apt.id });
-            });
+            
+            // NOTE: STOCK DEDUCTION FOR FORMULA MOVED TO TECHNICIAN REVIEW FINISH STEP
+            // This prevents double deduction when refreshments or backbar are certified.
+
             const mainStaffId = overrides[service.id] || apt.staffId; const isMainRedeemed = redeemedOffer?.itemId === service.id;
             const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, staff.find(s => s.id === mainStaffId))) + additional; 
             totalLtvIncrease += mainPartRevenue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
@@ -473,7 +458,6 @@ function POSPage() {
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { id: nanoid(), date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true });
             });
 
-            // Handle Amenity Revenue (Refreshments)
             const amenities = checkoutState.refreshments || [];
             amenities.forEach((amenity: any) => {
                 const qty = safeNumber(amenity.quantity || 1);
