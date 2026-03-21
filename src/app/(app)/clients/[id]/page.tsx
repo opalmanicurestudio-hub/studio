@@ -55,7 +55,7 @@ import {
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO, subMonths, isAfter, subYears } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, isBefore } from 'date-fns';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -215,22 +215,38 @@ export default function ClientDetailPage() {
     return (!mId || !memberships) ? null : memberships.find(m => m.id === mId);
   }, [client, memberships]);
 
-  const isPerkUsedInCycle = (perkId: string) => {
-    if (!client?.subscription?.nextBillingDate || !client.subscription.perkLastUsed) return false;
+  /**
+   * Hardened Benefit Cycle Verification
+   * Determines if a specific perk ID has been exhausted within the guest's current billing window.
+   * Prevents previous month redemptions from incorrectly counting against current allotment.
+   */
+  const getCycleCorrectUsage = (perkId: string) => {
+    if (!client?.subscription) return 0;
     
+    const usageCount = safeNumber(client.subscription.perkUsage?.[perkId]);
+    if (!client.subscription.nextBillingDate || !client.subscription.perkLastUsed) {
+        return usageCount;
+    }
+
     const lastUsed = safeDate(client.subscription.perkLastUsed);
     const nextBilling = safeDate(client.subscription.nextBillingDate);
     const cycleStart = activeMembership?.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
 
-    const isCurrentCycle = isAfter(lastUsed, cycleStart);
-    if (!isCurrentCycle) return false;
+    // If the master clock (perkLastUsed) is before the current cycle start, the map data is stale.
+    if (isBefore(lastUsed, cycleStart)) {
+        return 0;
+    }
 
-    const usageCount = safeNumber(client.subscription.perkUsage?.[perkId]);
+    return usageCount;
+  };
+
+  const isPerkUsedInCycle = (perkId: string) => {
+    const usage = getCycleCorrectUsage(perkId);
     const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
                     activeMembership?.includedAddOns?.find(a => a.id === perkId) ||
                     activeMembership?.includedProducts?.find(p => p.id === perkId);
     
-    return usageCount >= safeNumber(perkDef?.quantity || 1);
+    return usage >= safeNumber(perkDef?.quantity || 1);
   };
 
   const handleQuickSettle = async () => {
@@ -432,8 +448,8 @@ export default function ClientDetailPage() {
                                     </h3>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                                         {(activeMembership.includedServices || []).map(perk => {
-                                            const used = safeNumber(client.subscription?.perkUsage?.[perk.id]);
-                                            const isRedeemed = isPerkUsedInCycle(perk.id);
+                                            const used = getCycleCorrectUsage(perk.id);
+                                            const isRedeemed = used >= perk.quantity;
                                             const progress = (used / safeNumber(perk.quantity)) * 100;
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
@@ -459,8 +475,8 @@ export default function ClientDetailPage() {
                                             )
                                         })}
                                         {(activeMembership.includedAddOns || []).map(perk => {
-                                            const used = safeNumber(client.subscription?.perkUsage?.[perk.id]);
-                                            const isRedeemed = isPerkUsedInCycle(perk.id);
+                                            const used = getCycleCorrectUsage(perk.id);
+                                            const isRedeemed = used >= perk.quantity;
                                             const progress = (used / safeNumber(perk.quantity)) * 100;
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
@@ -486,8 +502,8 @@ export default function ClientDetailPage() {
                                             )
                                         })}
                                         {(activeMembership.includedProducts || []).map(perk => {
-                                            const used = safeNumber(client.subscription?.perkUsage?.[perk.id]);
-                                            const isRedeemed = isPerkUsedInCycle(perk.id);
+                                            const used = getCycleCorrectUsage(perk.id);
+                                            const isRedeemed = used >= perk.quantity;
                                             const progress = (used / safeNumber(perk.quantity)) * 100;
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left">

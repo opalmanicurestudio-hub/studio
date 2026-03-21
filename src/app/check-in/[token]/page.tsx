@@ -41,7 +41,7 @@ import {
     Gamepad2,
     Trash2
 } from 'lucide-react';
-import { format, parseISO, subMonths, isAfter, subYears } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, isBefore } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
@@ -170,7 +170,9 @@ const RefreshmentCard = ({
             )}>
                 <div className="relative aspect-square w-full bg-muted/20 flex items-center justify-center overflow-hidden border-b">
                     {item.imageUrl ? (
-                        <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
+                        <div className="relative w-full h-full">
+                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
+                        </div>
                     ) : (
                         <Icon className="w-16 h-16 text-primary opacity-20" />
                     )}
@@ -268,29 +270,43 @@ const ServicingView = ({
         return memberships.find(m => m.id === client.activeMembershipId);
     }, [isMember, client, memberships]);
 
+    /**
+     * Unified Perk Calculation Protocol
+     * Accounts for: 
+     * 1. Membership Allotment Limits
+     * 2. Billing Cycle Windows (Monthly/Yearly Reset)
+     * 3. Real-time Pending Orders (Subtracts usage before delivery certification)
+     */
     const getRemainingPerkUses = (itemId: string) => {
         if (!isMember || !activeMembership || !client?.subscription) return 0;
         
         const perkDef = activeMembership.includedProducts?.find(p => p.id === itemId);
         if (!perkDef) return 0;
 
-        const usageCount = safeNumber(client.subscription.perkUsage?.[itemId]);
         const limit = safeNumber(perkDef.quantity);
+        
+        // Audit current DB usage count
+        let usageCount = safeNumber(client.subscription.perkUsage?.[itemId]);
 
-        if (!client.subscription.nextBillingDate || !client.subscription.perkLastUsed) {
-            return Math.max(0, limit - usageCount);
+        // Audit real-time in-flight requests (not yet delivered but claiming perks)
+        const pendingQty = activeRequests
+            .filter(r => r.itemId === itemId && r.status === 'pending' && r.isRedemption)
+            .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
+
+        // Cycle Verification: If last usage was before current cycle start, DB counts are stale
+        if (client.subscription.nextBillingDate && client.subscription.perkLastUsed) {
+            const lastUsed = safeDate(client.subscription.perkLastUsed);
+            const nextBilling = safeDate(client.subscription.nextBillingDate);
+            const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+
+            if (isBefore(lastUsed, cycleStart)) {
+                usageCount = 0; // Fresh cycle detected
+            }
+        } else if (!client.subscription.perkLastUsed) {
+            usageCount = 0; // Never used
         }
 
-        const lastUsed = safeDate(client.subscription.perkLastUsed);
-        const nextBilling = safeDate(client.subscription.nextBillingDate);
-        const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
-
-        // If the perk was last used in a previous cycle, reset the local calculation
-        if (!isAfter(lastUsed, cycleStart)) {
-            return limit; 
-        }
-
-        return Math.max(0, limit - usageCount);
+        return Math.max(0, limit - usageCount - pendingQty);
     };
 
     const refreshments = useMemo(() => 
@@ -668,7 +684,7 @@ export default function CheckInPage() {
 
                     {assignedStaff && (
                         <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
-                            <Avatar className="h-12 w-12 border-2 border-background shadow-xl rounded-[1.5rem]">
+                            <Avatar className="h-12 h-12 border-2 border-background shadow-xl rounded-[1.5rem]">
                                 <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
                                 <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
                             </Avatar>
