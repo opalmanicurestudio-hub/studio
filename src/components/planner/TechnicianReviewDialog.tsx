@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -403,6 +404,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         tipAmount: appointment.checkoutState?.tipAmount || 0, 
         tipAllocations: appointment.checkoutState?.tipAllocations || {}, 
         additionalCharge: adjustmentBreakdown.total,
+        adjustments: {
+            rescheduleFee: adjustmentBreakdown.rescheduleFee,
+            timeOverage: adjustmentBreakdown.timeOverage,
+            materialOverage: adjustmentBreakdown.materialOverage
+        },
         saveAsCustomFormula,
         customFormulaName: saveAsCustomFormula ? customFormulaName : undefined
     };
@@ -577,40 +583,46 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 )}
 
                 <div className="mt-8 space-y-3 text-left">
-                    {adjustmentBreakdown.rescheduleFee > 0 && (
-                        <Alert className="border-4 rounded-[2.5rem] bg-amber-500/5 border-amber-500/20 p-6 shadow-xl text-left animate-in slide-in-from-top-2">
-                            <AlertTriangle className="h-6 w-6 text-amber-600" />
-                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-amber-700">Protocol Recovery Alert</AlertTitle>
-                            <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left text-amber-600">
-                                A deferred rescheduling recovery of <strong>${adjustmentBreakdown.rescheduleFee.toFixed(2)}</strong> is attached to this session.
-                            </AlertDescription>
-                        </Alert>
-                    )}
-                    
-                    {(adjustmentBreakdown.timeOverage > 0 || adjustmentBreakdown.materialOverage > 0) && (
-                        <Alert className="border-4 rounded-[2.5rem] bg-primary/[0.02] border-primary/20 p-6 shadow-xl text-left animate-in slide-in-from-top-2">
-                            <Scale className="h-6 w-6 text-primary" />
-                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-primary">Strategic Adjustments</AlertTitle>
-                            <AlertDescription className="space-y-2 text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
-                                {adjustmentBreakdown.timeOverage > 0 && (
-                                    <div className="flex justify-between items-center">
-                                        <span>Time Overage (+{actualDuration - service.duration}m)</span>
-                                        <span>+${adjustmentBreakdown.timeOverage.toFixed(2)}</span>
-                                    </div>
-                                )}
-                                {adjustmentBreakdown.materialOverage > 0 && (
-                                    <div className="flex justify-between items-center">
-                                        <span>Material Protocol Overage</span>
-                                        <span>+${adjustmentBreakdown.materialOverage.toFixed(2)}</span>
-                                    </div>
-                                )}
-                                <div className="pt-2 border-t border-primary/10 flex justify-between items-center text-primary">
-                                    <span>Total Session Delta</span>
-                                    <span className="font-black">${(adjustmentBreakdown.timeOverage + adjustmentBreakdown.materialOverage).toFixed(2)}</span>
-                                </div>
-                            </AlertDescription>
-                        </Alert>
-                    )}
+                    <AnimatePresence>
+                        {adjustmentBreakdown.rescheduleFee > 0 && (
+                            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+                                <Alert className="border-4 rounded-[2.5rem] bg-amber-500/5 border-amber-500/20 p-6 shadow-xl text-left">
+                                    <AlertTriangle className="h-6 w-6 text-amber-600" />
+                                    <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-amber-700">Protocol Recovery Alert</AlertTitle>
+                                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left text-amber-600">
+                                        A deferred rescheduling recovery of <strong>${adjustmentBreakdown.rescheduleFee.toFixed(2)}</strong> is attached to this session.
+                                    </AlertDescription>
+                                </Alert>
+                            </motion.div>
+                        )}
+                        
+                        {(adjustmentBreakdown.timeOverage > 0 || adjustmentBreakdown.materialOverage > 0) && (
+                            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+                                <Alert className="border-4 rounded-[2.5rem] bg-primary/[0.02] border-primary/20 p-6 shadow-xl text-left">
+                                    <Scale className="h-6 w-6 text-primary" />
+                                    <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-primary">Strategic Adjustments</AlertTitle>
+                                    <AlertDescription className="space-y-2 text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
+                                        {adjustmentBreakdown.timeOverage > 0 && (
+                                            <div className="flex justify-between items-center">
+                                                <span>Time Overage (+{actualDuration - service.duration}m)</span>
+                                                <span className="font-mono text-primary">+${adjustmentBreakdown.timeOverage.toFixed(2)}</span>
+                                            </div>
+                                        )}
+                                        {adjustmentBreakdown.materialOverage > 0 && (
+                                            <div className="flex justify-between items-center">
+                                                <span>Material Protocol Overage</span>
+                                                <span className="font-mono text-primary">+${adjustmentBreakdown.materialOverage.toFixed(2)}</span>
+                                            </div>
+                                        )}
+                                        <div className="pt-2 border-t border-primary/10 flex justify-between items-center text-primary">
+                                            <span>Total Session Delta</span>
+                                            <span className="font-black font-mono">${(adjustmentBreakdown.timeOverage + adjustmentBreakdown.materialOverage).toFixed(2)}</span>
+                                        </div>
+                                    </AlertDescription>
+                                </Alert>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                     {client.sensoryNeeds && (
                         <Alert className="border-2 rounded-xl bg-blue-500/5 border-blue-200 text-left">
@@ -636,7 +648,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                         />
                                         <div className="min-w-0 text-left">
                                             <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{service.name}</Label>
-                                            <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60 text-left text-left">Main Service</p>
+                                            <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60 text-left">Main Service</p>
                                         </div>
                                     </div>
                                     <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
@@ -700,7 +712,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
-                    <div className="space-y-8 text-left text-left">
+                    <div className="space-y-8 text-left">
                         <div className="space-y-3 text-left">
                           <Label htmlFor="actual-duration-review" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
                               <Clock className="w-3.5 h-3.5 opacity-40" /> Actual Duration (Minutes)
@@ -748,11 +760,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 {editableFormula.length > 0 ? (
                                     <div className="grid gap-2 text-left">
                                         {editableFormula.map((item, index) => (
-                                            <div key={item.id} className="flex justify-between items-center p-4 bg-white rounded-2xl border-2 shadow-sm gap-4 group hover:border-primary/20 transition-all text-left">
+                                            <div key={item.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border-2 shadow-sm gap-4 group hover:border-primary/20 transition-all text-left">
                                                 <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
                                                 <div className="flex items-center gap-3 text-left">
                                                     <div className="flex items-center gap-2 text-left">
-                                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left text-left">Load</Label>
+                                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left">Load</Label>
                                                         <Input
                                                             type="number"
                                                             value={item.quantity}
@@ -787,7 +799,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
-                    <div className="space-y-4 text-left text-left">
+                    <div className="space-y-4 text-left">
                         <div className="flex items-center justify-between px-1 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refreshments Served</Label>
                             <Button variant="ghost" size="sm" onClick={() => setIsRefreshmentBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
@@ -796,14 +808,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </div>
                         
                         {refreshments.length > 0 ? (
-                            <div className="grid gap-2 text-left text-left">
+                            <div className="grid gap-2 text-left">
                                 {refreshments.map((ref, idx) => (
-                                    <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group text-left text-left text-left">
-                                        <div className="flex items-center gap-3 flex-1 min-w-0 text-left text-left text-left">
+                                    <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
+                                        <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
                                             <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
-                                            <div className="min-w-0 text-left text-left">
+                                            <div className="min-w-0 text-left">
                                                 <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
-                                                <div className="flex items-center gap-2 text-left text-left">
+                                                <div className="flex items-center gap-2 text-left">
                                                     <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
                                                     {ref.isAccountedFor && <Badge variant="outline" className="h-3.5 text-[6px] font-black uppercase bg-green-50 text-green-700 border-green-200">Inventory Sync</Badge>}
                                                 </div>
@@ -833,7 +845,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={4} />
-                    <div className="space-y-6 text-left text-left">
+                    <div className="space-y-6 text-left">
                         <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all text-left">
                             <div className="space-y-1 text-left">
                                 <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">

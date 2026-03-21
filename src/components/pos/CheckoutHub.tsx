@@ -603,6 +603,9 @@ export const CheckoutHub = ({
                             const mainStaffId = overrides[data.service.id] || data.appointment.staffId;
                             const mainStaffMember = staff.find((s: any) => s.id === mainStaffId);
 
+                            const adjustments = data.appointment.checkoutState?.adjustments;
+                            const isWaived = waivedAppointmentFees.has(data.appointment.id);
+
                             return (
                                 <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all text-left", isRedeemed ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-muted/5")}>
                                     <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4 text-left">
@@ -666,16 +669,34 @@ export const CheckoutHub = ({
                                             </div>
                                         )}
 
-                                        {safeNumber(data.appointment.checkoutState?.additionalCharge) > 0 && (
+                                        {!isWaived && adjustments && (
+                                            <div className="pt-3 border-t border-dashed space-y-2">
+                                                {safeNumber(adjustments.rescheduleFee) > 0 && (
+                                                    <div className="flex justify-between items-center text-left">
+                                                        <span className="text-[10px] font-black uppercase text-amber-600">Protocol Recovery Fee</span>
+                                                        <span className="font-black font-mono text-xs text-amber-600">+${safeNumber(adjustments.rescheduleFee).toFixed(2)}</span>
+                                                    </div>
+                                                )}
+                                                {safeNumber(adjustments.timeOverage) > 0 && (
+                                                    <div className="flex justify-between items-center text-left">
+                                                        <span className="text-[10px] font-black uppercase text-primary">Time Floor Overage</span>
+                                                        <span className="font-black font-mono text-xs text-primary">+${safeNumber(adjustments.timeOverage).toFixed(2)}</span>
+                                                    </div>
+                                                )}
+                                                {safeNumber(adjustments.materialOverage) > 0 && (
+                                                    <div className="flex justify-between items-center text-left">
+                                                        <span className="text-[10px] font-black uppercase text-primary">Material Overage</span>
+                                                        <span className="font-black font-mono text-xs text-primary">+${safeNumber(adjustments.materialOverage).toFixed(2)}</span>
+                                                    </div>
+                                                )}
+                                                {isOwnerOrAdmin && <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50 w-full mt-2" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb All Adjustments</Button>}
+                                            </div>
+                                        )}
+
+                                        {isWaived && (
                                             <div className="pt-3 border-t border-dashed flex justify-between items-center text-left">
-                                                <div className="flex items-center gap-2">
-                                                    <Scale className="w-3.5 h-3.5 text-amber-600 opacity-60" />
-                                                    <span className="text-[10px] font-black uppercase text-muted-foreground">Deferred Protocol Fee</span>
-                                                </div>
-                                                <div className="flex items-center gap-3 text-left">
-                                                    <span className={cn("font-black font-mono text-xs", waivedAppointmentFees.has(data.appointment.id) ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${safeNumber(data.appointment.checkoutState.additionalCharge).toFixed(2)}</span>
-                                                    {isOwnerOrAdmin && (waivedAppointmentFees.has(data.appointment.id) ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
-                                                </div>
+                                                <span className="text-[10px] font-black uppercase text-green-600">Adjustments Absorbed</span>
+                                                <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button>
                                             </div>
                                         )}
                                     </CardContent>

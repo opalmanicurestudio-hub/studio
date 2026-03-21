@@ -163,10 +163,25 @@ function POSPage() {
                     const addonStaff = staff.find(st => st.id === addonStaffId);
                     return sum + (isAddonRedeemed ? 0 : getServicePrice(s, addonStaff));
                 }, 0);
-                const additional = safeNumber(data.appointment.checkoutState?.additionalCharge);
-                const effectiveAdditional = waivedAppointmentFees.has(data.appointment.id) ? 0 : additional;
+                
+                // --- NEW DECOUPLED ADJUSTMENT LOGIC ---
+                const adjustments = data.appointment.checkoutState?.adjustments;
+                let adjTotal = 0;
+                if (adjustments) {
+                    const isWaived = waivedAppointmentFees.has(data.appointment.id);
+                    if (!isWaived) {
+                        adjTotal = safeNumber(adjustments.rescheduleFee) + 
+                                   safeNumber(adjustments.timeOverage) + 
+                                   safeNumber(adjustments.materialOverage);
+                    }
+                } else {
+                    // Fallback for legacy records or un-broken down additional charges
+                    const isWaived = waivedAppointmentFees.has(data.appointment.id);
+                    adjTotal = isWaived ? 0 : safeNumber(data.appointment.checkoutState?.additionalCharge);
+                }
+
                 const refreshmentsSub = (data.appointment.checkoutState?.refreshments || []).reduce((sum: number, r: any) => sum + (safeNumber(r.price) * safeNumber(r.quantity || 1)), 0);
-                return acc + mainPrice + addonsPrice + effectiveAdditional + refreshmentsSub;
+                return acc + mainPrice + addonsPrice + adjTotal + refreshmentsSub;
             }, 0);
         const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => {
@@ -354,12 +369,42 @@ function POSPage() {
             const checkoutState = apt.checkoutState || {};
             const overrides = checkoutState.serviceStaffOverrides || {};
             const isWaived = waivedAppointmentFees.has(apt.id);
-            const additional = !isWaived ? safeNumber(checkoutState.additionalCharge) : 0;
             
             const mainStaffId = overrides[service.id] || apt.staffId; const isMainRedeemed = redeemedOffer?.itemId === service.id;
-            const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, staff.find(s => s.id === mainStaffId))) + additional; 
+            const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, staff.find(s => s.id === mainStaffId))); 
             totalLtvIncrease += mainPartRevenue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
+            
+            // 1. MAIN SERVICE TRANSACTION
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true, tenantId }));
+            
+            // 2. DECOUPLED ADJUSTMENTS TRANSACTIONS
+            if (!isWaived && checkoutState.adjustments) {
+                const { rescheduleFee, timeOverage, materialOverage } = checkoutState.adjustments;
+                
+                if (safeNumber(rescheduleFee) > 0) {
+                    const amt = safeNumber(rescheduleFee);
+                    totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt;
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Reschedule Recovery: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Protocol Recovery', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId }));
+                }
+                
+                if (safeNumber(timeOverage) > 0) {
+                    const amt = safeNumber(timeOverage);
+                    totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt;
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Time Floor Overage: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Strategic Adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId }));
+                }
+
+                if (safeNumber(materialOverage) > 0) {
+                    const amt = safeNumber(materialOverage);
+                    totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt;
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Material Protocol Overage: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Strategic Adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId }));
+                }
+            } else if (!isWaived && safeNumber(checkoutState.additionalCharge) > 0) {
+                // Fallback for unified charge
+                const amt = safeNumber(checkoutState.additionalCharge);
+                totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt;
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Strategic Adjustment Fee`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Adjustment Fee', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId }));
+            }
+
             addOnServices.forEach((addon: any) => {
                 const addonStaffId = overrides[addon.id] || apt.staffId; const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
                 const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, staff.find(st => st.id === addonStaffId));

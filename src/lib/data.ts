@@ -381,7 +381,12 @@ export type AppointmentCheckoutState = {
     concurrentServiceIds?: string[]; 
     tipAllocations: Record<string, number>;
     tipAmount: number;
-    additionalCharge: number;
+    additionalCharge: number; // Total adjustment value
+    adjustments?: {
+        rescheduleFee: number;
+        timeOverage: number;
+        materialOverage: number;
+    };
     absorbedCost: number;
     redeemedRetailDiscount?: boolean;
     reviewNotes?: string;
