@@ -369,6 +369,7 @@ export type AppointmentCheckoutState = {
         price: number;
         deliveredAt: string;
         quantity?: number;
+        isAccountedFor?: boolean;
     }[];
     retailItems: any[];
     addOnServices: Service[];
@@ -750,6 +751,7 @@ export type RefreshmentRequest = {
     stationName?: string;
     staffName?: string;
     priceAtRequest?: number;
+    isRedemption?: boolean;
 };
 
 export type Discount = {

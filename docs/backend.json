@@ -64,7 +64,8 @@
         "deliveredAt": { "type": "string", "format": "date-time" },
         "deliveredBy": { "type": "string" },
         "stationName": { "type": "string", "description": "The name of the station or room where the guest is located." },
-        "staffName": { "type": "string", "description": "The name of the service provider assigned to the guest." }
+        "staffName": { "type": "string", "description": "The name of the service provider assigned to the guest." },
+        "isRedemption": { "type": "boolean", "default": false, "description": "True if this request was a membership perk redemption." }
       },
       "required": ["id", "tenantId", "itemId", "status", "requestedAt"]
     }

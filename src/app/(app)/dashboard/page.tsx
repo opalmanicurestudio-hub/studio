@@ -44,7 +44,9 @@ import {
   TrendingDown,
   User as UserIcon,
   Timer,
-  XCircle
+  XCircle,
+  Award,
+  Star
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Appointment, type Event, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn, RefreshmentRequest } from '@/lib/data';
@@ -119,7 +121,14 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
                                 <div className="space-y-1 text-left w-full sm:w-auto">
                                     <div className="flex items-center gap-3">
                                         <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
-                                        <Badge variant="outline" className="h-5 px-2 bg-primary/10 text-primary border-none font-black text-[10px]">{safeQuantity} UNIT(S)</Badge>
+                                        <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className="h-5 px-2 bg-primary/10 text-primary border-none font-black text-[10px]">{safeQuantity} UNIT(S)</Badge>
+                                            {request.isRedemption && (
+                                                <Badge className="bg-indigo-600 text-white border-none h-5 px-2 font-black text-[8px] uppercase tracking-widest shadow-sm">
+                                                    <Star className="w-2.5 h-2.5 mr-1 fill-current" /> Perk
+                                                </Badge>
+                                            )}
+                                        </div>
                                     </div>
                                     
                                     {item?.formula && item.formula.length > 0 && (
@@ -314,6 +323,15 @@ export default function DashboardPage() {
                   }))
               }
           }, { merge: true });
+      }
+
+      // 4. UPDATE PERK USAGE IF REDEMPTION
+      if (request.isRedemption && request.clientId) {
+          const clientRef = doc(firestore, `tenants/${tenantId}/clients`, request.clientId);
+          batch.update(clientRef, {
+              [`subscription.perkUsage.${request.itemId}`]: increment(qty),
+              'subscription.perkLastUsed': now
+          });
       }
 
       try {

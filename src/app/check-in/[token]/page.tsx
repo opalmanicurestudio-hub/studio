@@ -41,7 +41,7 @@ import {
     Gamepad2,
     Trash2
 } from 'lucide-react';
-import { format, parseISO, subMonths, isAfter } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
@@ -127,7 +127,8 @@ const RefreshmentCard = ({
     isRequesting, 
     hasActiveRequest, 
     isMember, 
-    activeMembership 
+    activeMembership,
+    remainingPerkUses
 }: { 
     item: InventoryItem, 
     qty: number, 
@@ -136,10 +137,12 @@ const RefreshmentCard = ({
     isRequesting: boolean, 
     hasActiveRequest: boolean, 
     isMember: boolean,
-    activeMembership: Membership | null
+    activeMembership: Membership | null,
+    remainingPerkUses: number
 }) => {
     const isSoldOut = item.totalStock <= 0;
-    const isIncludedPerk = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
+    const isPerkDefinition = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
+    const isPerkAvailable = isPerkDefinition && remainingPerkUses > 0;
 
     const getDynamicIcon = (name: string) => {
         const n = name.toLowerCase();
@@ -162,7 +165,7 @@ const RefreshmentCard = ({
             <Card className={cn(
                 "rounded-[2.5rem] border-2 transition-all h-full flex flex-col overflow-hidden bg-white shadow-lg",
                 isSoldOut ? "opacity-40 grayscale" : "border-primary/5 hover:border-primary/30",
-                isIncludedPerk && "border-indigo-500/20 ring-1 ring-indigo-500/10",
+                isPerkAvailable && "border-indigo-500/20 ring-1 ring-indigo-500/10",
                 item.isMembersOnly && "border-indigo-500/30"
             )}>
                 <div className="relative aspect-square w-full bg-muted/20 flex items-center justify-center overflow-hidden border-b">
@@ -178,16 +181,16 @@ const RefreshmentCard = ({
                                 <Award className="w-3 h-3 mr-1.5" /> Club Only
                             </Badge>
                         )}
-                        {isIncludedPerk && (
+                        {isPerkAvailable && (
                             <Badge className="bg-primary text-white border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl">
-                                <Star className="w-3 h-3 mr-1.5 fill-current" /> Perk
+                                <Star className="w-3 h-3 mr-1.5 fill-current" /> Perk: {remainingPerkUses} left
                             </Badge>
                         )}
                     </div>
 
                     <div className="absolute bottom-4 right-4">
                         <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
-                            {isIncludedPerk ? (
+                            {isPerkAvailable ? (
                                 <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
                             ) : item.price && item.price > 0 ? (
                                 <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${item.price.toFixed(2)}</p>
@@ -265,6 +268,31 @@ const ServicingView = ({
         return memberships.find(m => m.id === client.activeMembershipId);
     }, [isMember, client, memberships]);
 
+    const getRemainingPerkUses = (itemId: string) => {
+        if (!isMember || !activeMembership || !client?.subscription) return 0;
+        
+        const perkDef = activeMembership.includedProducts?.find(p => p.id === itemId);
+        if (!perkDef) return 0;
+
+        const usageCount = safeNumber(client.subscription.perkUsage?.[itemId]);
+        const limit = safeNumber(perkDef.quantity);
+
+        // Check if reset is needed based on cycle
+        if (!client.subscription.nextBillingDate || !client.subscription.perkLastUsed) {
+            return Math.max(0, limit - usageCount);
+        }
+
+        const lastUsed = safeDate(client.subscription.perkLastUsed);
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
+        const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+
+        if (!isAfter(lastUsed, cycleStart)) {
+            return limit; // Fresh cycle detected
+        }
+
+        return Math.max(0, limit - usageCount);
+    };
+
     const refreshments = useMemo(() => 
         inventory.filter(item => 
             item.type === 'refreshment' && 
@@ -320,13 +348,29 @@ const ServicingView = ({
             return;
         }
 
+        const remainingPerks = getRemainingPerkUses(item.id);
+        const isRedemption = remainingPerks >= qty;
+
         setIsRequesting(true);
         try {
             const requestId = nanoid();
             await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/refreshmentRequests`, requestId), {
-                id: requestId, tenantId: tenant.id, appointmentId: appointment.id, clientId: client.id, clientName: client.name, itemId: item.id, itemName: item.name, quantity: qty, status: 'pending', requestedAt: new Date().toISOString(), stationName, staffName: staff?.name || 'Unassigned', priceAtRequest: item.price || 0
+                id: requestId, 
+                tenantId: tenant.id, 
+                appointmentId: appointment.id, 
+                clientId: client.id, 
+                clientName: client.name, 
+                itemId: item.id, 
+                itemName: item.name, 
+                quantity: qty, 
+                status: 'pending', 
+                requestedAt: new Date().toISOString(), 
+                stationName, 
+                staffName: staff?.name || 'Unassigned', 
+                priceAtRequest: isRedemption ? 0 : (item.price || 0),
+                isRedemption
             }, {});
-            toast({ title: "Request Dispatched" });
+            toast({ title: isRedemption ? "Perk Redeemed!" : "Request Dispatched" });
             setQuantities(prev => ({ ...prev, [item.id]: 1 }));
         } catch (e) {
             toast({ variant: 'destructive', title: "Request Failed" });
@@ -377,7 +421,10 @@ const ServicingView = ({
                                             <div className="p-2 bg-white rounded-xl shadow-inner"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
                                             <div className="text-left">
                                                 <p className="text-xs font-black uppercase text-slate-900">{req.itemName}</p>
-                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Qty: {req.quantity || 1}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Qty: {req.quantity || 1}</p>
+                                                    {req.isRedemption && <Badge className="bg-primary text-white border-none text-[6px] h-3 px-1 font-black uppercase">Club Perk</Badge>}
+                                                </div>
                                             </div>
                                         </div>
                                         <Button 
@@ -434,9 +481,10 @@ const ServicingView = ({
                                                     }}
                                                     onRequest={() => handleRequest(item)}
                                                     isRequesting={isRequesting}
-                                                    hasActiveRequest={false} // Allow multiples
+                                                    hasActiveRequest={false} 
                                                     isMember={isMember}
                                                     activeMembership={activeMembership}
+                                                    remainingPerkUses={getRemainingPerkUses(item.id)}
                                                 />
                                             </motion.div>
                                         ))}
