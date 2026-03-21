@@ -38,7 +38,8 @@ import {
     Box,
     FileSignature,
     ArrowDown,
-    Shield
+    Shield,
+    Check
 } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -250,9 +251,9 @@ export default function ClientPortalPage() {
                             
                             <div className="space-y-4 max-w-sm mx-auto">
                                 <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                                    Welcome back, {client.name.split(' ')[0]}
+                                    Welcome, {client.name.split(' ')[0]}
                                 </h1>
-                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60">Your private studio dashboard is ready.</p>
+                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60">Verified Client Dashboard</p>
                             </div>
 
                             <Button 
@@ -260,7 +261,7 @@ export default function ClientPortalPage() {
                                 onClick={() => setEntered(true)}
                                 className="mt-12 h-16 md:h-20 px-12 md:px-16 rounded-[2rem] text-sm md:text-lg font-black uppercase tracking-[0.2em] shadow-3xl shadow-primary/30 group active:scale-95 transition-all"
                             >
-                                Enter the Vibe
+                                Access Dashboard
                                 <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-1" />
                             </Button>
                         </motion.div>
@@ -271,7 +272,7 @@ export default function ClientPortalPage() {
                             transition={{ delay: 1.2, duration: 1 }}
                             className="absolute bottom-12 flex flex-col items-center gap-2 text-muted-foreground"
                         >
-                            <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-40">Private Secure Access</p>
+                            <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-40">Private secure tunnel</p>
                             <ArrowDown className="w-4 h-4 animate-bounce" />
                         </motion.div>
                     </motion.div>
@@ -296,9 +297,9 @@ export default function ClientPortalPage() {
                     </div>
                     <div className="space-y-2 flex-1 min-w-0 text-left">
                         <div className="flex items-center justify-center md:justify-start gap-3">
-                            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate w-full md:w-auto">Personal Dashboard</h1>
+                            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate w-full md:w-auto">Client Dossier</h1>
                         </div>
-                        <p className="text-xs md:sm font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center md:text-left">{tenant?.name} &middot; Verified Guest</p>
+                        <p className="text-xs md:sm font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center md:text-left">{tenant?.name} &middot; Authenticated Guest</p>
                     </div>
                     <div className="shrink-0 flex gap-3 w-full md:w-auto">
                         <Button asChild variant="outline" className="flex-1 md:flex-none h-14 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest border-border/50 bg-white/50 backdrop-blur-sm">
