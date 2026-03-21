@@ -30,6 +30,23 @@ import { PurchaseSheet } from '@/components/booking/PurchaseSheet';
 import Link from 'next/link';
 import Image from 'next/image';
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
+
 export default function BookingPage() {
   const params = useParams();
   const tenantId = params.tenantId as string;
@@ -71,8 +88,8 @@ export default function BookingPage() {
     if (!appointmentsFromDB) return [];
     return appointmentsFromDB.map(apt => ({
       ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
+      startTime: safeDate(apt.startTime),
+      endTime: safeDate(apt.endTime),
     }));
   }, [appointmentsFromDB]);
 
@@ -80,8 +97,8 @@ export default function BookingPage() {
     if (!eventsFromDB) return [];
     return eventsFromDB.map(evt => ({
         ...evt,
-        startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any),
-        endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
+        startTime: safeDate(evt.startTime),
+        endTime: safeDate(evt.endTime),
     }));
   }, [eventsFromDB]);
 
@@ -163,6 +180,7 @@ export default function BookingPage() {
         if (newAppointment.staffId) {
             const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
             batch.set(notificationRef, {
+                id: nanoid(),
                 userId: newAppointment.staffId,
                 type: 'new_appointment',
                 message: `New booking: ${formData.clientName} for ${selectedService?.name} on ${format(parseISO(newAppointment.startTime), 'MMM d @ h:mm a')}`,
