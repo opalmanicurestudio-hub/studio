@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -24,7 +25,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles, Users } from 'lucide-react';
+import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles, Users, FileImage } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -61,6 +62,7 @@ import { useFirebase } from '@/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ImageUpload } from '../shared/ImageUpload';
 
 const bookingSchema = z.object({
   clientName: z.string().min(1, 'Name is required'),
@@ -163,6 +165,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
   const [isDepositPaid, setIsDepositPaid] = useState(false);
   const [bookedStaffId, setBookedStaffId] = useState<string | null>(null);
+  const [inspirationPhotoUrl, setInspirationPhotoUrl] = useState<string>('');
   const { toast } = useToast();
   const { firestore } = useFirebase();
 
@@ -359,7 +362,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (open) {
         if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
         else { setSelectedStaffId('any'); setCurrentStepIndex(0); }
-        setSelectedTime(null); setSelectedTierId('any'); setDate(new Date()); methods.reset(); setFormAnswers({}); setIsDepositPaid(false); setBookedStaffId(null);
+        setSelectedTime(null); setSelectedTierId('any'); setDate(new Date()); methods.reset(); setFormAnswers({}); setIsDepositPaid(false); setBookedStaffId(null); setInspirationPhotoUrl('');
     }
   }, [open, initialStaffId, methods]);
 
@@ -441,7 +444,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     setBookedStaffId(finalStaffId);
     const signedForms = requiredForms.map(form => ({ formId: form.id, formTitle: form.title, formData: formAnswers[form.id] || {} }));
     
-    // ATOMIC ACQUISITION TRACKING: source='online' is mandatory for yield audit logic
     onConfirm(clientData, { 
         serviceId: service.id, 
         staffId: finalStaffId, 
@@ -449,7 +451,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         endTime: endDateTime.toISOString(), 
         status: 'confirmed', 
         isWalkIn: false,
-        source: 'online'
+        source: 'online',
+        inspirationPhotoUrl: inspirationPhotoUrl || undefined
     }, signedForms, (s) => setCurrentStepIndex(steps.indexOf(s)));
   };
 
@@ -680,6 +683,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                             <PhoneInput name="clientPhone" label="" className="h-14" />
                                         </div>
                                     </div>
+
+                                    <div className="space-y-4 pt-4 border-t border-dashed">
+                                        <div className="flex items-center gap-3 text-left">
+                                            <FileImage className="w-5 h-5 text-primary" />
+                                            <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Visual Inspiration</h3>
+                                        </div>
+                                        <p className="text-[10px] font-bold text-muted-foreground uppercase leading-relaxed tracking-tight opacity-60">
+                                            Upload a reference photo to help your pro understand your target look.
+                                        </p>
+                                        <ImageUpload onImageUploaded={setInspirationPhotoUrl} initialImage={inspirationPhotoUrl} />
+                                    </div>
                                     
                                     <AnimatePresence>
                                         {isResolvingIdentity && (
@@ -692,7 +706,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                                 <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-xl border-4 rounded-[2rem] p-6 text-left">
                                                     <Ban className="h-6 w-6" />
                                                     <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Check-in Restricted</AlertTitle>
-                                                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
+                                                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
                                                         Your account is currently restricted. Please see the front desk for further assistance.
                                                     </AlertDescription>
                                                 </Alert>
@@ -783,6 +797,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Start Time</span> 
                                             <span className="font-black text-sm sm:text-xl uppercase tracking-tight text-primary truncate">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
                                         </div>
+                                        {inspirationPhotoUrl && (
+                                            <div className="flex justify-between items-center gap-4 pt-4 border-t border-dashed border-primary/10">
+                                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Inspiration</span> 
+                                                <div className="relative w-12 h-12 rounded-xl overflow-hidden border-2 border-primary/20">
+                                                    <Image src={inspirationPhotoUrl} alt="Target Visual" fill className="object-cover" />
+                                                </div>
+                                            </div>
+                                        )}
                                         <Separator className="bg-primary/10 border-dashed" />
                                         <div className="flex justify-between items-center text-2xl sm:text-3xl font-black uppercase tracking-tighter"><span>Total</span> <span>${price?.toFixed(2)}</span></div>
                                         {depositAmount > 0 && (

@@ -50,7 +50,8 @@ import {
     Ear,
     Coffee,
     Star,
-    Scale
+    Scale,
+    FileImage
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState, type StockCorrection } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -74,6 +75,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { doc, writeBatch, collection, increment } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import Image from 'next/image';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -325,7 +327,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         return acc + (p.quantityUsed * baseCpu);
     }, 0) || 0;
     const productOverage = Math.max(0, currentCost - standardCost);
-    // Keep existing deferred fee if it exists from a reschedule
     return deferredFee + timeOverage + productOverage;
   }, [actualDuration, service, tmhr, editableFormula, inventory, deferredFee]);
 
@@ -522,6 +523,18 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </div>
                     </CardContent>
                 </Card>
+
+                {appointment.inspirationPhotoUrl && (
+                    <div className="mt-8 space-y-4">
+                        <SectionHeader icon={FileImage} title="Target Reference" step="Ref" />
+                        <div className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner">
+                            <Image src={appointment.inspirationPhotoUrl} alt="Target Inspiration" fill className="object-cover transition-transform duration-700 hover:scale-105" />
+                            <div className="absolute top-4 right-4">
+                                <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Target</Badge>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="mt-8 space-y-3">
                     {deferredFee > 0 && (

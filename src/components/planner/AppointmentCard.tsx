@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -20,7 +21,8 @@ import {
   Repeat,
   AlertTriangle,
   Undo2,
-  Scale
+  Scale,
+  FileImage
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -120,6 +122,7 @@ export function AppointmentCard({
   }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.startTime]);
 
   const hasDeferredFee = safeNumber(appointment.checkoutState?.additionalCharge) > 0;
+  const hasInspiration = !!appointment.inspirationPhotoUrl;
 
   const checkInIndicator = useMemo(() => {
     if (appointment.status === 'servicing' || appointment.status === 'completed') return null;
@@ -190,6 +193,18 @@ export function AppointmentCard({
                             </Tooltip>
                         </TooltipProvider>
                     )}
+                    {hasInspiration && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
+                                        <FileImage className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />REF
+                                    </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Inspiration Photo Attached</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
                     {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
                     {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
                 </div>
@@ -237,7 +252,7 @@ export function AppointmentCard({
 
           <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 sm:gap-1.5">
-                <div className={cn("w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
+                <div className={cn("w-1.5 h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
                 <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">
                     {appointment.checkInStatus === 'running_late' && estimatedArrival 
                         ? `EST: ${estimatedArrival}` 

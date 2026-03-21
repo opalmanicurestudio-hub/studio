@@ -33,7 +33,9 @@ import {
   MessageSquare,
   Ear,
   Unlock,
-  Scale
+  Scale,
+  FileImage,
+  ImageIcon
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -69,9 +71,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
-import { Separator } from '@/components/ui/separator';
+import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import Image from 'next/image';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -312,8 +315,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <Badge 
                         variant="outline" 
                         className={cn(
-                          "text-[8px] font-black uppercase h-5 px-2 border-none shadow-sm", 
-                          complianceInfo.allCertified ? "bg-green-500 text-white" : "bg-amber-500 text-white"
+                          "text-[8px] font-black uppercase h-5 px-2 border-none shadow-sm text-white", 
+                          complianceInfo.allCertified ? "bg-green-500" : "bg-amber-500"
                         )}
                       >
                         {complianceInfo.allCertified ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Protocol Certified</> : <><Clock className="w-2 h-2 mr-1" /> Signature Pending</>}
@@ -334,6 +337,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     </Button>
                   </div>
                 </div>
+
+                {appointment.inspirationPhotoUrl && (
+                    <div className="space-y-4 pt-4 border-t border-dashed text-left">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Inspiration & Target</h3>
+                        <div className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner">
+                            <Image src={appointment.inspirationPhotoUrl} alt="Inspiration" fill className="object-cover" />
+                            <div className="absolute top-4 right-4">
+                                <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Choice</Badge>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {financialData && financialData.deferredFee > 0 && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
