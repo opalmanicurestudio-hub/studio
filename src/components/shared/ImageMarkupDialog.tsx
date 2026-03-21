@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
@@ -107,7 +108,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Redraw the entire scene: Base Image + Lenses + Annotations
+  // Primary Drawing Engine
   const drawAll = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = contextRef.current;
@@ -118,16 +119,17 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Layer 1: Base Layer (Original Image)
+    // Layer 1: Base Layer (Fit to screen scaling)
     ctx.scale(dpr, dpr);
     ctx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
 
-    // Layer 2: Persisted Magnifier Lenses
+    // Layer 2: Persistent Magnifier Lenses
     lenses.forEach(lens => {
         const r = lens.r;
+        if (r <= 0) return;
         const size = r * 2;
         
-        // Calculate the crop from original image resolution
+        // Map logical coordinates to source resolution
         const imgScaleX = img.width / (canvas.width / dpr);
         const imgScaleY = img.height / (canvas.height / dpr);
 
@@ -136,7 +138,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.arc(lens.x, lens.y, r, 0, Math.PI * 2);
         ctx.clip();
         
-        // Draw the magnified portion
+        // Draw the 2x magnified portion
         ctx.drawImage(
             img,
             (lens.x - r/2) * imgScaleX,
@@ -155,7 +157,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.restore();
     });
 
-    // Layer 3: Text Annotations
+    // Layer 3: Text Annotations (Interactive Layer)
     annotations.forEach(anno => {
         const isSelected = anno.id === selectedTextId;
         ctx.font = `bold ${anno.size === 'sm' ? '12px' : anno.size === 'lg' ? '24px' : '16px'} Figtree, sans-serif`;
@@ -173,14 +175,14 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             ctx.strokeStyle = '#7955c4';
             ctx.lineWidth = 1;
             const metrics = ctx.measureText(anno.text.toUpperCase());
-            const height = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
+            const h = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
             ctx.setLineDash([2, 2]);
-            ctx.strokeRect(anno.x - 4, anno.y - height, metrics.width + 8, height + 4);
+            ctx.strokeRect(anno.x - 4, anno.y - h, metrics.width + 8, h + 4);
             ctx.setLineDash([]);
         }
     });
 
-    // Layer 4: Transient Drawing (Current Active Lens)
+    // Layer 4: Transient Input (Current active lens being drawn)
     if (activeLens) {
         ctx.setLineDash([5, 5]);
         ctx.strokeStyle = color;
@@ -191,59 +193,63 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     }
   }, [annotations, lenses, selectedTextId, activeLens, color, tool]);
 
+  // Decoupled Initialization Logic
   const initCanvas = useCallback(() => {
-    if (isMobile === undefined || !open) return;
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    
-    if (!canvas || !container) return;
-
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
+    if (!canvas || !container || !imageUrl) return;
 
     const img = new Image();
     img.crossOrigin = "anonymous";
-    
     img.onload = () => {
       baseImageRef.current = img;
-      const padding = isMobile ? 20 : 40;
-      const availWidth = container.clientWidth - padding;
-      const availHeight = container.clientHeight - padding;
-      const scale = Math.min(availWidth / img.width, availHeight / img.height);
       
-      const displayWidth = img.width * scale;
-      const displayHeight = img.height * scale;
+      // Calculate fit-to-screen scaling
+      const padding = 40;
+      const availW = container.clientWidth - padding;
+      const availH = container.clientHeight - padding;
+      const scale = Math.min(availW / img.width, availH / img.height);
+      
+      const dw = img.width * scale;
+      const dh = img.height * scale;
       const dpr = window.devicePixelRatio || 1;
       
-      canvas.width = displayWidth * dpr;
-      canvas.height = displayHeight * dpr;
-      canvas.style.width = `${displayWidth}px`;
-      canvas.style.height = `${displayHeight}px`;
-
-      contextRef.current = ctx;
-      drawAll();
+      canvas.width = dw * dpr;
+      canvas.height = dh * dpr;
+      canvas.style.width = `${dw}px`;
+      canvas.style.height = `${dh}px`;
+      
+      contextRef.current = canvas.getContext('2d');
       setIsLoading(false);
-    };
-    img.onerror = () => {
-        setIsLoading(false);
-        toast({ variant: 'destructive', title: 'Load Error', description: 'Technical asset could not be buffered.' });
+      
+      // Ensure visual buffer is updated after canvas resize
+      requestAnimationFrame(() => {
+          drawAll();
+      });
     };
     img.src = imageUrl;
-  }, [imageUrl, isMobile, open, toast, drawAll]);
+  }, [imageUrl, drawAll]);
 
+  // STABLE: Reset logic triggered only by open/image changes
   useEffect(() => {
     if (open) {
         setIsLoading(true);
         setAnnotations([]);
         setLenses([]);
         setHistory([]);
-        // Short delay to ensure dialog has rendered
-        setTimeout(initCanvas, 50);
+        // Use requestAnimationFrame to ensure the container is measured after paint
+        const timeout = setTimeout(() => {
+            initCanvas();
+        }, 100);
+        return () => clearTimeout(timeout);
     }
-  }, [open, initCanvas]);
+  }, [open, imageUrl, initCanvas]); 
 
+  // STABLE: Visual sync effect
   useEffect(() => {
-      if (!isLoading) drawAll();
+      if (!isLoading) {
+          drawAll();
+      }
   }, [drawAll, isLoading]);
 
   const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
@@ -263,14 +269,14 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (isLoading) return;
     const { x, y } = getCoordinates(e);
 
-    // Check for Text Selection
+    // Text Selection Logic
     const clickedText = [...annotations].reverse().find(anno => {
         const ctx = contextRef.current;
         if (!ctx) return false;
         ctx.font = `bold ${anno.size === 'sm' ? '12px' : anno.size === 'lg' ? '24px' : '16px'} Figtree, sans-serif`;
         const metrics = ctx.measureText(anno.text.toUpperCase());
-        const height = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
-        return x >= anno.x && x <= anno.x + metrics.width && y >= anno.y - height && y <= anno.y;
+        const h = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
+        return x >= anno.x && x <= anno.x + metrics.width && y >= anno.y - h && y <= anno.y;
     });
 
     if (clickedText) {
@@ -326,8 +332,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
   const handleMouseUp = () => {
     if (activeLens && activeLens.r > 10) {
-        // Save to history before adding new lens
-        setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
         setLenses(prev => [...prev, activeLens]);
         setActiveLens(null);
     } else {
@@ -337,7 +341,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (isDrawing) {
         contextRef.current?.closePath();
         setIsDrawing(false);
-        setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
     }
     setIsDraggingText(false);
   };
@@ -348,7 +351,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         setTextInput(null);
         return;
     }
-    setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
     const newAnnotation: TextAnnotation = {
         id: nanoid(),
         text: textInput.value,
@@ -364,29 +366,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   };
 
   const handleUndo = () => {
-      const ctx = contextRef.current;
-      const canvas = canvasRef.current;
-      if (!ctx || !canvas) return;
-
-      if (history.length > 0) {
-          const newHistory = [...history];
-          const lastState = newHistory.pop();
-          setHistory(newHistory);
-
-          const img = new Image();
-          img.onload = () => {
-              ctx.setTransform(1, 0, 0, 1, 0, 0);
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          };
-          img.src = lastState!;
-          
-          // Re-sync logical state if undoing text/lenses
-          setAnnotations(prev => prev.slice(0, -1));
+      // Prioritize removing lenses then annotations
+      if (lenses.length > 0) {
           setLenses(prev => prev.slice(0, -1));
+      } else if (annotations.length > 0) {
+          setAnnotations(prev => prev.slice(0, -1));
       } else {
-          setAnnotations([]);
-          setLenses([]);
           initCanvas();
       }
   };
@@ -424,7 +409,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden bg-muted/20 relative flex flex-col">
-            {/* TOOLBAR: SCROLLABLE HORIZONTAL RIBBON */}
+            {/* SCROLLABLE TOOLBAR RIBBON */}
             <div className="w-full bg-background border-b p-3 md:p-4 flex-shrink-0">
                 <ScrollArea className="w-full">
                     <div className="flex items-center gap-6 pb-2 min-w-max">
@@ -468,7 +453,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                     <TooltipTrigger asChild>
                                         <Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('select')} className="h-10 w-10 rounded-xl"><Move className="w-4 h-4" /></Button>
                                     </TooltipTrigger>
-                                    <TooltipContent className="font-black uppercase text-[9px] border-2">Move / Alter</TooltipContent>
+                                    <TooltipContent className="font-black uppercase text-[9px] border-2">Move / Scale</TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         </div>
@@ -481,7 +466,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                     key={size}
                                     variant={textSize === size ? 'secondary' : 'ghost'}
                                     size="sm"
-                                    onClick={() => setTextSize(size)}
+                                    onClick={() => {
+                                        setTextSize(size);
+                                        if (selectedTextId) {
+                                            setAnnotations(prev => prev.map(a => a.id === selectedTextId ? { ...a, size } : a));
+                                        }
+                                    }}
                                     className="h-8 px-3 rounded-lg font-black uppercase text-[9px]"
                                 >
                                     {size}
