@@ -50,7 +50,9 @@ import {
   Activity,
   Tag,
   Shield,
-  Star
+  Star,
+  Landmark,
+  PlusCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
