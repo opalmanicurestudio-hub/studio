@@ -164,7 +164,7 @@ function POSPage() {
                     return sum + (isAddonRedeemed ? 0 : getServicePrice(s, addonStaff));
                 }, 0);
                 
-                // --- NEW DECOUPLED ADJUSTMENT LOGIC ---
+                // DECOUPLED ADJUSTMENT LOGIC
                 const adjustments = data.appointment.checkoutState?.adjustments;
                 let adjTotal = 0;
                 if (adjustments) {
@@ -175,7 +175,6 @@ function POSPage() {
                                    safeNumber(adjustments.materialOverage);
                     }
                 } else {
-                    // Fallback for legacy records or un-broken down additional charges
                     const isWaived = waivedAppointmentFees.has(data.appointment.id);
                     adjTotal = isWaived ? 0 : safeNumber(data.appointment.checkoutState?.additionalCharge);
                 }

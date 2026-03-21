@@ -428,8 +428,8 @@ export const CheckoutHub = ({
                                         <div className="flex items-center gap-2 min-w-0 text-left">
                                             <span className="truncate text-xs md:sm">{selectedClient.name}</span>
                                             {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
-                                            {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
-                                            {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
+                                            {isMember && <Badge className="bg-indigo-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
+                                            {hasPackage && <Badge className="bg-teal-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
                                         </div>
                                     </div>
                                 ) : (
