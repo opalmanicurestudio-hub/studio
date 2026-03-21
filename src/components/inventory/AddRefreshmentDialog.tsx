@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -39,7 +40,8 @@ import {
     Target,
     Info,
     FileText,
-    Lock
+    Lock,
+    Zap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -82,7 +84,7 @@ import {
 const refreshmentSchema = z.object({
   name: z.string().min(1, 'Amenity name is required.'),
   description: z.string().optional(),
-  category: z.string().default('Refreshment'),
+  category: z.string().default('Artisanal Beverages'),
   price: z.coerce.number().min(0).default(0),
   showInConcierge: z.boolean().default(true),
   isMembersOnly: z.boolean().default(false),
@@ -128,7 +130,8 @@ const Step1 = () => {
         'Artisanal Beverages', 
         'Premium Spirits', 
         'Gourmet Snacks', 
-        'Comfort & Amenities',
+        'Comfort & Environment',
+        'Tech & Utility',
         'Seasonal Special', 
         'Healthy Essentials'
     ];
@@ -147,15 +150,15 @@ const Step1 = () => {
             <div className="space-y-6">
                 <div className="space-y-2 text-left">
                     <Label htmlFor="item-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest-Facing Name</Label>
-                    <Input id="item-name" placeholder="e.g., Oat Milk Espresso" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
+                    <Input id="item-name" placeholder="e.g., Oat Milk Espresso or Phone Charger" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
                     {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
 
                 <div className="space-y-2 text-left">
-                    <Label htmlFor="category-rf" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Menu Category</Label>
+                    <Label htmlFor="category-rf" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Menu Classification</Label>
                     {isAddingCategory ? (
                         <div className="flex gap-2">
-                            <Input placeholder="New category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+                            <Input placeholder="NEW CATEGORY..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl"><Check className="h-5 w-5" /></Button>
                         </div>
                     ) : (
@@ -176,18 +179,18 @@ const Step1 = () => {
                 </div>
 
                 <div className="space-y-2 text-left">
-                    <Label htmlFor="item-description" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Public Description</Label>
-                    <Textarea id="item-description" placeholder="Describe flavor profiles or ingredients..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
+                    <Label htmlFor="item-description" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Description</Label>
+                    <Textarea id="item-description" placeholder="Describe flavor profiles or the benefit of the amenity..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
                 </div>
                 
                 <div className="space-y-2 text-left">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Amenity visual</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Amenity Visual</Label>
                     <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2 text-left">
-                        <Label htmlFor="retail-price" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Retail Price ($)</Label>
+                        <Label htmlFor="retail-price" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Retail Surcharge ($)</Label>
                         <div className="relative">
                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                             <Input id="retail-price" type="number" step="0.01" {...register('price')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-primary/5" />
@@ -207,9 +210,9 @@ const Step1 = () => {
                         <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-indigo-500/20 bg-indigo-500/5 shadow-inner">
                             <div className="space-y-1 text-left">
                                 <Label htmlFor="members-only" className="text-sm font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
-                                    <Lock className="w-3" /> Members Only
+                                    <Lock className="w-3 h-3" /> Club Exclusive
                                 </Label>
-                                <p className="text-[9px] font-bold text-indigo-600/60 uppercase tracking-widest opacity-60 text-left">Restricted access item</p>
+                                <p className="text-[9px] font-bold text-indigo-600/60 uppercase tracking-widest opacity-60 text-left">Gated perk</p>
                             </div>
                             <Controller name="isMembersOnly" control={control} render={({ field }) => (
                                 <Switch id="members-only" checked={field.value} onCheckedChange={field.onChange} className="scale-110 data-[state=checked]:bg-indigo-600" />
@@ -264,13 +267,15 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
 
     return (
         <div className="space-y-10">
-            <SectionHeader icon={FlaskConical} title="Yield & Technical Recipe" step={2} />
+            <SectionHeader icon={FlaskConical} title="Audit Logic & Formula" step={2} />
             <div className="space-y-8">
                 <div className="space-y-4">
                     <div className="flex items-center justify-between px-1 text-left">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Technical Recipe (Ingredients)</Label>
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                            <Zap className="w-3.5 h-3.5 opacity-40" /> Unit Decomposition
+                        </Label>
                         <Button variant="ghost" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
-                            <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
+                            <PlusCircle className="w-3 h-3 mr-1.5" /> Append Ingredients
                         </Button>
                     </div>
                     {formula.length > 0 ? (
@@ -305,32 +310,10 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                     ) : (
                         <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
                             <Activity className="w-10 h-10" />
-                            <p className="text-[10px] font-black uppercase tracking-widest">Pure Stock (No Recipe)</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest">Discrete Asset (No Recipe)</p>
                         </div>
                     )}
                 </div>
-
-                {formula.length > 0 && (
-                    <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-xl shadow-primary/5 overflow-hidden">
-                        <CardHeader className="p-6 pb-2 border-b bg-white/50 backdrop-blur-sm text-left">
-                            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                <Calculator className="w-3.5 h-3.5" /> Recipe Yield Analysis
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-6 grid grid-cols-2 gap-6">
-                            <div className="space-y-1 text-left">
-                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Calculated Cost</p>
-                                <p className="text-3xl font-black font-mono tracking-tighter text-slate-900">${calculatedFormulaCost.toFixed(2)}</p>
-                            </div>
-                            <div className="space-y-1 text-right">
-                                <p className="text-[9px] font-black uppercase text-primary tracking-widest">Net Margin</p>
-                                <p className={cn("text-3xl font-black font-mono tracking-tighter", profitMargin >= 0 ? "text-primary" : "text-destructive")}>
-                                    {profitMargin.toFixed(0)}%
-                                </p>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
 
                 <Separator className="border-dashed" />
 
@@ -350,7 +333,6 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                                     readOnly={formula.length > 0}
                                 />
                             </div>
-                            {formula.length > 0 && <p className="text-[8px] font-bold text-primary uppercase ml-1">Locked: Value derived from formula</p>}
                         </div>
                         <div className="space-y-2 text-left">
                             <Label htmlFor="initial-stock" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Initial Stock (Units)</Label>
@@ -363,16 +345,16 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                             <Controller name="costingMethod" control={control} render={({ field }) => (
                                 <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
                                     <label htmlFor="size-rf" className="cursor-pointer">
-                                        <div className={cn("flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
-                                            <Pipette className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                            <span className="text-[10px] font-black uppercase tracking-widest">By Volume</span>
+                                        <div className={cn("flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:bg-muted/50")}>
+                                            <Pipette className={cn("w-4 h-4", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase tracking-widest">Volume</span>
                                             <RadioGroupItem value="size" id="size-rf" className="sr-only" />
                                         </div>
                                     </label>
                                     <label htmlFor="uses-rf" className="cursor-pointer">
-                                        <div className={cn("flex flex-col items-center justify-center p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
-                                            <CheckCircle className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                            <span className="text-[10px] font-black uppercase tracking-widest">By Portions</span>
+                                        <div className={cn("flex items-center justify-center gap-2 p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:bg-muted/50")}>
+                                            <CheckCircle className={cn("w-4 h-4", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase tracking-widest">Servings</span>
                                             <RadioGroupItem value="uses" id="uses-rf" className="sr-only" />
                                         </div>
                                     </label>
@@ -381,7 +363,7 @@ const Step2 = ({ locations }: { locations: Location[] }) => {
                         </div>
                         {costingMethod === 'size' ? (
                             <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 text-left">
-                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Capacity</Label><Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Capacity</Label><Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
                                 <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
                                     <Controller name="containerUnit" control={control} render={({ field }) => (
                                         <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl shadow-xl border-2"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem></SelectContent></Select>
@@ -410,7 +392,7 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <div className="space-y-6">
                     <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
+                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Placement Zone</Label>
                         <Controller name="primaryLocationId" control={control} render={({ field }) => (
                             <Select onValueChange={field.onChange} value={field.value}>
                                 <SelectTrigger className="h-14 rounded-2xl border-2 font-bold uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner">
@@ -422,7 +404,7 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
                             </Select>
                         )}/>
                     </div>
-                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Source / Supplier</Label><Input placeholder="e.g., Whole Foods" {...register('supplier')} className="h-12 rounded-xl border-2 font-bold" /></div>
+                    <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Vendor</Label><Input placeholder="e.g., Whole Foods or Sysco" {...register('supplier')} className="h-12 rounded-xl border-2 font-bold" /></div>
                 </div>
                 <div className="space-y-6">
                     <div className="space-y-1.5 text-left">
@@ -430,7 +412,7 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
                         <Controller name="purchaseDate" control={control} render={({ field }) => (
                             <Popover>
                                 <PopoverTrigger asChild>
-                                    <Button variant="outline" className="w-full h-12 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5 shadow-inner">
+                                    <Button variant="outline" className="w-full h-12 rounded-xl border-2 font-bold justify-start px-4 text-sm bg-muted/5 shadow-inner">
                                         <CalendarIcon className="mr-2 h-4 w-4 opacity-40" />
                                         {field.value ? format(field.value, 'MMM d, yyyy') : 'Pick a date'}
                                     </Button>
@@ -482,7 +464,7 @@ export const AddRefreshmentDialog = ({
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
           </div>
           <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Amenity</DialogTitle>
-          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Configure guest-facing refreshments and recipe logic.</DialogDescription>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Configure guest-facing amenities, refreshments, and recipe logic.</DialogDescription>
           <div className="pt-6"><Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" /></div>
         </DialogHeader>
         <ScrollArea className="flex-1">

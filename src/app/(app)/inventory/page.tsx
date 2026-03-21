@@ -1,3 +1,4 @@
+
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
@@ -62,7 +63,8 @@ import {
   CheckCircle2,
   Info,
   Coffee,
-  History
+  History,
+  Zap
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -270,298 +272,6 @@ const HospitalityLedger = () => {
         </div>
     );
 };
-
-const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
-    const getStatusVariant = (status: Order['status']) => {
-        switch (status) {
-            case 'Placed': return { icon: <Clock className="h-3 w-3" />, className: 'bg-blue-500/10 text-blue-700 border-blue-200' };
-            case 'Shipped': return { icon: <Truck className="h-3 w-3" />, className: 'bg-amber-500/10 text-amber-700 border-amber-200' };
-            case 'Received':
-            case 'Partially Received':
-                return { icon: <CheckCircle className="h-3 w-3" />, className: 'bg-green-500/10 text-green-700 border-green-200' };
-            case 'Cancelled':
-                return { icon: <XCircle className="h-3 w-3" />, className: 'bg-destructive/10 text-destructive border-destructive/20' };
-            default: return { icon: <Package className="h-3 w-3" />, className: 'bg-muted text-muted-foreground' };
-        }
-    };
-    const statusInfo = getStatusVariant(order.status);
-    const totalItems = order.items.reduce((acc, item) => acc + item.quantity, 0);
-    const totalCost = order.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-
-    return (
-        <Card onClick={() => onSelect(order)} className="cursor-pointer hover:shadow-2xl transition-all duration-500 rounded-[2rem] border-2 shadow-sm overflow-hidden group bg-white hover:border-primary/20">
-            <CardHeader className="p-6 border-b bg-muted/5">
-                <div className="flex justify-between items-start">
-                    <div className="space-y-1">
-                        <CardTitle className="text-base font-black uppercase tracking-tight text-slate-900 truncate max-w-[180px]">{order.supplier}</CardTitle>
-                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Logistics Date: {format(parseISO(order.orderDate), 'MMM d, yyyy')}</CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={cn("text-[8px] font-black uppercase h-6 px-2.5 border-2 shadow-sm", statusInfo.className)}>{statusInfo.icon} <span className="ml-1.5">{order.status}</span></Badge>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/5" onClick={(e) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                            <DropdownMenuContent onClick={(e) => e.stopPropagation()} align="end" className="rounded-2xl border-2 shadow-xl p-1">
-                                <DropdownMenuItem onClick={() => onSelect(order)} className="font-bold text-[10px] uppercase tracking-widest py-2.5">
-                                    <Eye className="mr-2 h-3.5 w-3.5 opacity-40" /> View Summary
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onReceive(order)} className="font-bold text-[10px] uppercase tracking-widest text-primary py-2.5">
-                                    <PackageOpen className="mr-2 h-3.5 w-3.5 opacity-40" /> Receive Stock
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 rounded-2xl bg-muted/20 border shadow-inner">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40 mb-1">Manifest Load</p>
-                        <p className="text-xl font-black tracking-tighter text-slate-900">{totalItems} <span className="text-[10px] font-bold opacity-40 uppercase ml-0.5">SKUs</span></p>
-                    </div>
-                    <div className="p-4 rounded-2xl bg-primary/[0.03] border border-primary/5 shadow-inner text-right">
-                        <p className="text-[8px] font-black uppercase text-primary/60 tracking-widest opacity-60 mb-1">Investment</p>
-                        <p className="text-xl font-black font-mono tracking-tighter text-primary">${totalCost.toFixed(2)}</p>
-                    </div>
-                </div>
-                {order.expectedArrivalDate && (
-                    <div className="pt-4 border-t border-dashed flex items-center justify-between text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                            <Truck className="w-3.5 h-3.5 opacity-40" />
-                            <span className="text-[10px] font-black uppercase tracking-tight">Deployment Window</span>
-                        </div>
-                        <span className="text-[10px] font-black uppercase text-slate-900">{format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</span>
-                    </div>
-                )}
-            </CardContent>
-        </Card>
-    );
-}
-
-const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder, onTrack }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void, onTrack: (e: React.MouseEvent, url?: string) => void }) => {
-    const [editableOrder, setEditableOrder] = useState<Order | null>(order);
-    const [isEditing, setIsEditing] = useState(false);
-
-    useEffect(() => {
-        setEditableOrder(order);
-        if (!open) {
-            setIsEditing(false);
-        }
-    }, [order, open]);
-
-    const handleSave = () => {
-        if (editableOrder) {
-            onSave(editableOrder);
-        }
-        setIsEditing(false);
-    }
-    
-    const handleCancel = () => {
-        if (editableOrder) {
-            onCancelOrder(editableOrder.id);
-        }
-    }
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setEditableOrder(prev => prev ? ({ ...prev, [name]: value }) : null);
-    };
-
-    const handleDateChange = (date: Date | undefined, field: 'orderDate' | 'expectedArrivalDate') => {
-        setEditableOrder(prev => prev ? ({...prev, [field]: date?.toISOString()}) : null)
-    }
-    
-    const handleItemChange = (productId: string, field: 'quantity' | 'costPerUnit', value: number) => {
-        setEditableOrder(prev => prev ? ({
-            ...prev,
-            items: prev.items.map(item => item.productId === productId ? { ...item, [field]: value } : item)
-        }) : null);
-    }
-
-    if (!editableOrder) return null;
-
-    const totalCost = editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
-                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <div className="flex items-center gap-3 mb-2">
-                                <Truck className="w-5 h-5 text-primary" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics Detail</span>
-                            </div>
-                            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Order from {editableOrder.supplier}</DialogTitle>
-                            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
-                                Order ID: {editableOrder.id.slice(-6).toUpperCase()}
-                            </DialogDescription>
-                        </div>
-                        <Badge className="bg-primary text-white border-none font-black text-[9px] uppercase tracking-widest h-6 px-3 shadow-lg shadow-primary/20">{editableOrder.status}</Badge>
-                    </div>
-                </DialogHeader>
-                 <ScrollArea className="max-h-[60vh]">
-                    <div className="p-8">
-                        <div className="space-y-8">
-                            {isEditing ? (
-                                <div className="space-y-6 text-left">
-                                    <div className="space-y-2"><Label htmlFor="edit-supplier" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Supplier</Label><Input id="edit-supplier" value={editableOrder.supplier} onChange={handleChange} name="supplier" className="h-12 rounded-xl border-2 font-black uppercase tracking-tight" /></div>
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Financial Context</Label>
-                                        <RadioGroup value={editableOrder.paymentContext || 'Business'} onValueChange={(v: any) => setEditableOrder(prev => prev ? ({...prev, paymentContext: v}) : null)} className="grid grid-cols-2 gap-3">
-                                            <div><RadioGroupItem value="Business" id="business-order-edit" className="peer sr-only" /><Label htmlFor="business-order-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-xs font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer">Business</Label></div>
-                                            <div><RadioGroupItem value="Personal" id="personal-order-edit" className="peer sr-only" /><Label htmlFor="personal-order-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-xs font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer">Personal</Label></div>
-                                        </RadioGroup>
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                        <div className="space-y-2"><Label htmlFor="paymentMethod-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Ledger Account</Label><Select value={editableOrder.paymentMethod || ''} onValueChange={(v) => setEditableOrder(prev => prev ? ({...prev, paymentMethod: v}) : null)}><SelectTrigger id="paymentMethod-edit" className="h-12 rounded-xl border-2 font-bold"><SelectValue placeholder="Select account" /></SelectTrigger><SelectContent className="rounded-xl border-2 shadow-2xl"><SelectItem value="Checking" className="font-bold">Checking</SelectItem><SelectItem value="Credit Card" className="font-bold">Credit Card</SelectItem><SelectItem value="Cash" className="font-bold">Cash</SelectItem><SelectItem value="Other" className="font-bold">Other</SelectItem></SelectContent></Select></div>
-                                        <div className="space-y-2"><Label htmlFor="paymentMethodIdentifier-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Account ID</Label><Input id="paymentMethodIdentifier-edit" placeholder="e.g., Chase ****1234" value={editableOrder.paymentMethodIdentifier || ''} onChange={e => setEditableOrder(prev => prev ? ({...prev, paymentMethodIdentifier: e.target.value}) : null)} className="h-12 rounded-xl border-2 font-bold" /></div>
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                        <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Order Date</Label>
-                                            <Input
-                                                type="date"
-                                                value={editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'yyyy-MM-dd') : ''}
-                                                onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'orderDate')}
-                                                className="h-12 rounded-xl border-2 font-bold"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expected Arrival</Label>
-                                            <Input
-                                                type="date"
-                                                value={editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'yyyy-MM-dd') : ''}
-                                                onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'expectedArrivalDate')}
-                                                className="h-12 rounded-xl border-2 font-bold"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2"><Label htmlFor="edit-trackingNumber" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tracking Number</Label><Input id="edit-trackingNumber" value={editableOrder.trackingNumber || ''} onChange={handleChange} name="trackingNumber" className="h-12 rounded-xl border-2 font-bold" /></div>
-                                    <div className="space-y-2"><Label htmlFor="edit-trackingUrl" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Carrier Link</Label><Input id="edit-trackingUrl" value={editableOrder.trackingUrl || ''} onChange={handleChange} name="trackingUrl" placeholder="https://..." className="h-12 rounded-xl border-2 font-bold text-xs" /></div>
-                                    <div className="space-y-4">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Itemized SKUs</Label>
-                                        <div className="space-y-2">
-                                            {editableOrder.items.map(item => (
-                                                <div key={item.productId} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/10">
-                                                    <span className="flex-1 text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{item.productName}</span>
-                                                    <div className="flex items-center gap-2">
-                                                        <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-9 rounded-lg border-2 text-center font-black" />
-                                                        <div className="relative w-24">
-                                                            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
-                                                            <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-24 h-9 pl-6 rounded-lg border-2 font-mono text-center" />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Logistics Proof</Label>
-                                        <ImageUpload
-                                            onImageUploaded={(url) => setEditableOrder(prev => prev ? ({...prev, invoiceUrl: url}) : null)}
-                                            initialImage={editableOrder.invoiceUrl}
-                                        />
-                                    </div>
-                                    <div className="space-y-2"><Label htmlFor="edit-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Internal Log</Label><Textarea id="edit-notes" value={editableOrder.notes || ''} onChange={handleChange} name="notes" className="rounded-xl border-2 bg-muted/5 focus-visible:ring-primary/20" /></div>
-                                </div>
-                            ) : (
-                                 <div className="space-y-8 text-left">
-                                    <div className="space-y-4">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Itemized Manifest</p>
-                                        <div className="space-y-2 p-4 rounded-[2rem] border-2 bg-muted/10 shadow-inner">
-                                            {editableOrder.items.map(item => (
-                                                <div key={item.productId} className="flex justify-between items-center p-3 hover:bg-white hover:shadow-sm rounded-xl transition-all border-2 border-transparent">
-                                                    <div className="min-w-0 flex-1 text-left">
-                                                        <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.productName}</p>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{item.quantity} units @ ${item.costPerUnit.toFixed(2)}/unit</p>
-                                                    </div>
-                                                    <p className="font-black font-mono text-sm tracking-tighter text-slate-900 shrink-0 ml-4">${(item.quantity * item.costPerUnit).toFixed(2)}</p>
-                                                </div>
-                                            ))}
-                                            <div className="flex justify-between items-center px-3 pt-4 mt-2 border-t border-dashed border-primary/20">
-                                                <span className="text-[10px] font-black uppercase text-primary tracking-widest">Investment Total</span>
-                                                <span className="font-black text-2xl font-mono tracking-tighter text-primary">${totalCost.toFixed(2)}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                        <div className="space-y-1">
-                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Fulfillment Tracker</p>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-10 rounded-xl border-2 w-full justify-start font-bold uppercase text-[10px] tracking-widest bg-white shadow-sm"
-                                                onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
-                                            >
-                                                <Truck className="w-4 h-4 text-primary mr-2"/>
-                                                Track Shipment
-                                            </Button>
-                                        </div>
-                                        {editableOrder.expectedArrivalDate && (
-                                            <div className="space-y-1">
-                                                <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 text-left">Estimated Arrival</p>
-                                                <p className="text-sm font-black uppercase tracking-tight text-slate-900 pt-2 text-left">{format(parseISO(editableOrder.expectedArrivalDate), 'MMMM d, yyyy')}</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                    {editableOrder.invoiceUrl && (
-                                        <div className="space-y-2">
-                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 text-left">Attached Proof</p>
-                                            <a href={editableOrder.invoiceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-3 p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] w-full group hover:bg-primary/5 transition-all">
-                                                <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><FileImage className="w-5 h-5 text-primary" /></div>
-                                                <span className="font-black text-xs uppercase tracking-tight text-primary underline">View Digital Manifest</span>
-                                            </a>
-                                        </div>
-                                    )}
-                                    {editableOrder.notes && (
-                                        <div className="space-y-2">
-                                            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Audit Notes</p>
-                                            <div className="p-4 rounded-2xl bg-muted/20 border-2 italic text-slate-600 text-sm font-medium leading-relaxed text-left">
-                                                "{editableOrder.notes}"
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </ScrollArea>
-                <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
-                    {isEditing ? (
-                        <div className="grid grid-cols-2 gap-3 w-full">
-                            <Button variant="ghost" onClick={() => setIsEditing(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] tracking-widest text-slate-400">Cancel</Button>
-                            <Button onClick={handleSave} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Changes</Button>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col sm:flex-row gap-3 w-full">
-                            <Button variant="outline" onClick={handleCancel} disabled={editableOrder.status === 'Cancelled'} className="h-12 sm:h-14 flex-1 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/5 border-destructive/20">Cancel Order</Button>
-                            <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 sm:h-14 flex-1 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white">Close Summary</Button>
-                            <Button onClick={() => setIsEditing(true)} className="h-12 sm:h-14 flex-[1.5] rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-primary/30">Modify Manifest</Button>
-                        </div>
-                    )}
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
-}
-
-const EmptyOrdersState = ({ onAddFirstOrder }: { onAddFirstOrder: () => void }) => (
-    <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
-        <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
-            <Truck className='w-12 h-12 text-muted-foreground' />
-        </div>
-        <div className="space-y-2">
-            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Procurement Clear</h3>
-            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
-                No supply orders in the ledger. Track supplier shipments and landed costs to protect your margins.
-            </p>
-        </div>
-        <Button size="lg" onClick={onAddFirstOrder} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
-            <PlusCircle className="mr-2 h-5 w-5" />
-            Initiate First Order
-        </Button>
-    </div>
-);
 
 const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     const { firestore } = useFirebase();
@@ -925,6 +635,24 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     );
 };
 
+const EmptyOrdersState = ({ onAddFirstOrder }: { onAddFirstOrder: () => void }) => (
+    <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
+        <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
+            <Truck className='w-12 h-12 text-muted-foreground' />
+        </div>
+        <div className="space-y-2">
+            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Procurement Clear</h3>
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
+                No supply orders in the ledger. Track supplier shipments and landed costs to protect your margins.
+            </p>
+        </div>
+        <Button size="lg" onClick={onAddFirstOrder} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+            <PlusCircle className="mr-2 h-5 w-5" />
+            Initiate First Order
+        </Button>
+    </div>
+);
+
 const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
     <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
         <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
@@ -932,7 +660,7 @@ const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
         </div>
         <div className="space-y-2">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Inventory is Empty</h3>
-            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
                 Start building your asset manifest to unlock automated costing and yield tracking.
             </p>
         </div>
@@ -1287,7 +1015,7 @@ export default function InventoryPage() {
         let currentStock = safeNumber(product.totalStock);
         const sizePerContainer = safeNumber(product.size);
 
-        currentSize -= quantity;
+        currentSize -= data.quantity;
         while (currentSize <= 0 && currentStock > 0) {
             currentStock -= 1;
             currentSize += sizePerContainer;
@@ -1609,7 +1337,7 @@ export default function InventoryPage() {
                         <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Store className="mr-3 h-4 w-4 text-primary" />Retail Product</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Hammer className="mr-3 h-4 w-4 text-primary" />Equipment Asset</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Recycle className="mr-3 h-4 w-4 text-primary" />Overhead Supply</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsAddRefreshmentDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3 text-indigo-600"><Coffee className="mr-3 h-4 w-4" />Refreshment Amenity</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsAddRefreshmentDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3 text-indigo-600"><Coffee className="mr-3 h-4 w-4" />Concierge Amenity</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
