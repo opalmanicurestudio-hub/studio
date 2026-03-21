@@ -52,7 +52,8 @@ import {
     Scale,
     FileImage,
     Maximize2,
-    Edit
+    Edit,
+    AlertTriangle
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState, type StockCorrection } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -314,11 +315,18 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     setEditableFormula(prev => prev.filter(item => item.id !== productId));
   };
 
-  const deferredFee = useMemo(() => safeNumber(appointment?.checkoutState?.additionalCharge), [appointment]);
-
-  const totalAdditionalCharge = useMemo(() => {
-    if (!service) return 0;
-    const timeOverage = Math.max(0, (actualDuration - service.duration) / 60) * tmhr;
+  const adjustmentBreakdown = useMemo(() => {
+    if (!service) return { rescheduleFee: 0, timeOverage: 0, materialOverage: 0, total: 0 };
+    
+    // 1. Existing Deferred Fee (usually from reschedule)
+    const rescheduleFee = safeNumber(appointment?.checkoutState?.additionalCharge);
+    
+    // 2. Time overage based on target vs actual
+    const targetDuration = service.duration || 60;
+    const timeOverageMinutes = Math.max(0, actualDuration - targetDuration);
+    const timeOverage = (timeOverageMinutes / 60) * tmhr;
+    
+    // 3. Material overage based on target formula vs actual formula
     const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
     const standardCost = service.products?.reduce((acc, p) => {
         const item = inventory.find(inv => inv.id === p.id);
@@ -329,9 +337,15 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         
         return acc + (p.quantityUsed * baseCpu);
     }, 0) || 0;
-    const productOverage = Math.max(0, currentCost - standardCost);
-    return deferredFee + timeOverage + productOverage;
-  }, [actualDuration, service, tmhr, editableFormula, inventory, deferredFee]);
+    const materialOverage = Math.max(0, currentCost - standardCost);
+
+    return {
+        rescheduleFee,
+        timeOverage,
+        materialOverage,
+        total: rescheduleFee + timeOverage + materialOverage
+    };
+  }, [actualDuration, service, tmhr, editableFormula, inventory, appointment]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
@@ -388,7 +402,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         absorbedCost: appointment.checkoutState?.absorbedCost || 0, 
         tipAmount: appointment.checkoutState?.tipAmount || 0, 
         tipAllocations: appointment.checkoutState?.tipAllocations || {}, 
-        additionalCharge: totalAdditionalCharge,
+        additionalCharge: adjustmentBreakdown.total,
         saveAsCustomFormula,
         customFormulaName: saveAsCustomFormula ? customFormulaName : undefined
     };
@@ -563,27 +577,46 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 )}
 
                 <div className="mt-8 space-y-3 text-left">
-                    {deferredFee > 0 && (
-                        <Alert className="border-4 rounded-[2.5rem] bg-primary/[0.02] border-primary/20 p-6 shadow-xl text-left animate-in slide-in-from-top-2">
-                            <Scale className="h-6 w-6 text-primary" />
-                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-primary">Inconvenience Recovery Fee</AlertTitle>
-                            <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
-                                A deferred rescheduling penalty of <strong>${deferredFee.toFixed(2)}</strong> is attached to this session and will be collected at checkout.
+                    {adjustmentBreakdown.rescheduleFee > 0 && (
+                        <Alert className="border-4 rounded-[2.5rem] bg-amber-500/5 border-amber-500/20 p-6 shadow-xl text-left animate-in slide-in-from-top-2">
+                            <AlertTriangle className="h-6 w-6 text-amber-600" />
+                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-amber-700">Protocol Recovery Alert</AlertTitle>
+                            <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left text-amber-600">
+                                A deferred rescheduling recovery of <strong>${adjustmentBreakdown.rescheduleFee.toFixed(2)}</strong> is attached to this session.
                             </AlertDescription>
                         </Alert>
                     )}
+                    
+                    {(adjustmentBreakdown.timeOverage > 0 || adjustmentBreakdown.materialOverage > 0) && (
+                        <Alert className="border-4 rounded-[2.5rem] bg-primary/[0.02] border-primary/20 p-6 shadow-xl text-left animate-in slide-in-from-top-2">
+                            <Scale className="h-6 w-6 text-primary" />
+                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-primary">Strategic Adjustments</AlertTitle>
+                            <AlertDescription className="space-y-2 text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
+                                {adjustmentBreakdown.timeOverage > 0 && (
+                                    <div className="flex justify-between items-center">
+                                        <span>Time Overage (+{actualDuration - service.duration}m)</span>
+                                        <span>+${adjustmentBreakdown.timeOverage.toFixed(2)}</span>
+                                    </div>
+                                )}
+                                {adjustmentBreakdown.materialOverage > 0 && (
+                                    <div className="flex justify-between items-center">
+                                        <span>Material Protocol Overage</span>
+                                        <span>+${adjustmentBreakdown.materialOverage.toFixed(2)}</span>
+                                    </div>
+                                )}
+                                <div className="pt-2 border-t border-primary/10 flex justify-between items-center text-primary">
+                                    <span>Total Session Delta</span>
+                                    <span className="font-black">${(adjustmentBreakdown.timeOverage + adjustmentBreakdown.materialOverage).toFixed(2)}</span>
+                                </div>
+                            </AlertDescription>
+                        </Alert>
+                    )}
+
                     {client.sensoryNeeds && (
                         <Alert className="border-2 rounded-xl bg-blue-500/5 border-blue-200 text-left">
                             <Ear className="h-4 w-4 text-blue-600" />
                             <AlertTitle className="text-[9px] font-black uppercase text-left text-blue-700">Special Accommodations</AlertTitle>
                             <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left text-blue-600">{client.sensoryNeeds}</AlertDescription>
-                        </Alert>
-                    )}
-                    {appointment.notes && (
-                        <Alert className="border-2 rounded-xl bg-primary/5 border-primary/20 text-left">
-                            <MessageSquare className="h-4 w-4 text-primary" />
-                            <AlertTitle className="text-[9px] font-black uppercase text-left text-primary">Arrival Intel</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold opacity-80 uppercase text-left text-slate-600">{appointment.notes}</AlertDescription>
                         </Alert>
                     )}
                 </div>

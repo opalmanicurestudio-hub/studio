@@ -35,7 +35,8 @@ import {
   Scale,
   FileImage,
   ImageIcon,
-  Maximize2
+  Maximize2,
+  Zap
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -202,14 +203,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         0
       );
     
-    const deferredFee = safeNumber(appointment.checkoutState?.additionalCharge);
+    const adjustmentCharge = safeNumber(appointment.checkoutState?.additionalCharge);
     const revenue = isCompleted
       ? transactions
         .filter((t: any) => t.appointmentId === appointment.id && t.category === 'Service Revenue')
         .reduce((acc: any, t: any) => acc + t.amount, 0)
       : baseRevenue;
 
-    return { revenue, breakEven, profit: revenue - breakEven, deferredFee };
+    return { revenue, breakEven, profit: revenue - breakEven, adjustmentCharge };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
   useEffect(() => {
@@ -357,7 +358,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
                 {appointment.inspirationPhotoUrl && (
                     <div className="space-y-4 pt-4 border-t border-dashed text-left">
-                        <div className="flex justify-between items-center px-1">
+                        <div className="flex justify-between items-center px-1 text-left">
                             <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Inspiration & Mapping</h3>
                             <Button 
                                 variant="ghost" 
@@ -383,13 +384,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     </div>
                 )}
 
-                {financialData && financialData.deferredFee > 0 && (
+                {financialData && financialData.adjustmentCharge > 0 && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                         <Alert className="border-2 border-primary/20 bg-primary/[0.01] rounded-2xl p-5 shadow-sm text-left">
                             <Scale className="h-5 w-5 text-primary" />
-                            <AlertTitle className="text-[10px] font-black uppercase tracking-[0.2em] mb-2 text-primary">Deferred Protocol Fee</AlertTitle>
+                            <AlertTitle className="text-[10px] font-black uppercase tracking-[0.2em] mb-2 text-primary">Strategic Adjustment Fee</AlertTitle>
                             <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
-                                This session includes a deferred rescheduling recovery of <strong>${financialData.deferredFee.toFixed(2)}</strong> to be collected at checkout.
+                                This session includes <strong>${financialData.adjustmentCharge.toFixed(2)}</strong> in adjustments (e.g., reschedules or overages) to be collected at checkout.
                             </AlertDescription>
                         </Alert>
                     </motion.div>
