@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
@@ -31,7 +32,8 @@ import {
   ArrowRight,
   MessageSquare,
   Ear,
-  Unlock
+  Unlock,
+  Scale
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -69,6 +71,7 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -106,7 +109,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const { toast } = useToast();
   const { firestore } = useFirebase();
 
-  // HOOKS MUST BE UNCONDITIONAL AT THE TOP LEVEL
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -179,19 +181,22 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const timeCost =
       ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
     const breakEven = timeCost + productCost;
-    const revenue = isCompleted
-      ? transactions
-        .filter((t: any) => t.appointmentId === appointment.id && t.category === 'Service Revenue')
-        .reduce((acc: any, t: any) => acc + t.amount, 0)
-      : allServicesInApt.reduce(
+    const baseRevenue = allServicesInApt.reduce(
         (acc, s) =>
           acc +
           (s.serviceTiers?.find((t) => t.tierId === assignedStaffMember?.pricingTierId)?.price ||
             s.price),
         0
       );
+    
+    const deferredFee = safeNumber(appointment.checkoutState?.additionalCharge);
+    const revenue = isCompleted
+      ? transactions
+        .filter((t: any) => t.appointmentId === appointment.id && t.category === 'Service Revenue')
+        .reduce((acc: any, t: any) => acc + t.amount, 0)
+      : baseRevenue;
 
-    return { revenue, breakEven, profit: revenue - breakEven };
+    return { revenue, breakEven, profit: revenue - breakEven, deferredFee };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
   useEffect(() => {
@@ -241,25 +246,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const handleCopyLink = useCallback(() => {
     if (appointment?.checkInToken) {
       const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
-
-      const textArea = document.createElement("textarea");
-      textArea.value = link;
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        toast({ title: 'Link Copied', description: 'Guest portal URL is on your clipboard.' });
-      } catch (err) {
-        console.error('Fallback copy failed', err);
-        toast({ variant: 'destructive', title: 'Copy Failed', description: 'Could not copy link to clipboard.' });
-      }
-      document.body.removeChild(textArea);
-    } else {
-      toast({ variant: 'destructive', title: 'Link Generation Failed', description: 'Check-in token not found for this record.' });
+      navigator.clipboard.writeText(link);
+      toast({ title: 'Link Copied', description: 'Guest portal URL is on your clipboard.' });
     }
   }, [appointment?.checkInToken, toast]);
 
-  // CONDITIONAL RENDER GUARD AFTER ALL HOOKS
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
@@ -337,6 +328,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     </Button>
                   </div>
                 </div>
+
+                {financialData && financialData.deferredFee > 0 && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                        <Alert className="border-4 border-primary/20 bg-primary/[0.02] rounded-[2.5rem] p-6 shadow-xl text-left">
+                            <Scale className="h-6 w-6 text-primary" />
+                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-primary">Deferred Protocol Fee</AlertTitle>
+                            <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
+                                This session includes a deferred rescheduling recovery of <strong>${financialData.deferredFee.toFixed(2)}</strong> to be collected at checkout.
+                            </AlertDescription>
+                        </Alert>
+                    </motion.div>
+                )}
 
                 {client.outstandingBalance && client.outstandingBalance > 0 && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[1.5rem] p-4 shadow-xl"><Wallet className="h-5 w-5" /><AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Accounting Alert</AlertTitle><AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">Client owes <strong>${Number(client.outstandingBalance).toFixed(2)}</strong>. Settle at checkout.</AlertDescription></Alert></motion.div>

@@ -49,7 +49,8 @@ import {
     Pipette,
     Ear,
     Coffee,
-    Star
+    Star,
+    Scale
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState, type StockCorrection } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -308,6 +309,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     setEditableFormula(prev => prev.filter(item => item.id !== productId));
   };
 
+  const deferredFee = useMemo(() => safeNumber(appointment?.checkoutState?.additionalCharge), [appointment]);
+
   const totalAdditionalCharge = useMemo(() => {
     if (!service) return 0;
     const timeOverage = Math.max(0, (actualDuration - service.duration) / 60) * tmhr;
@@ -322,8 +325,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         return acc + (p.quantityUsed * baseCpu);
     }, 0) || 0;
     const productOverage = Math.max(0, currentCost - standardCost);
-    return timeOverage + productOverage;
-  }, [actualDuration, service, tmhr, editableFormula, inventory]);
+    // Keep existing deferred fee if it exists from a reschedule
+    return deferredFee + timeOverage + productOverage;
+  }, [actualDuration, service, tmhr, editableFormula, inventory, deferredFee]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
@@ -504,7 +508,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <DialogTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>{titleText}</DialogTitle>
                 <DialogDescription className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 text-left">
               <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 <Card className="border-4 border-primary/10 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden text-left">
                     <CardContent className="p-6 flex items-center gap-6">
@@ -520,6 +524,15 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
 
                 <div className="mt-8 space-y-3">
+                    {deferredFee > 0 && (
+                        <Alert className="border-4 rounded-[2.5rem] bg-primary/[0.02] border-primary/20 p-6 shadow-xl text-left animate-in slide-in-from-top-2">
+                            <Scale className="h-6 w-6 text-primary" />
+                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-primary">Inconvenience Recovery Fee</AlertTitle>
+                            <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
+                                A deferred rescheduling penalty of <strong>${deferredFee.toFixed(2)}</strong> is attached to this session and will be collected at checkout.
+                            </AlertDescription>
+                        </Alert>
+                    )}
                     {client.sensoryNeeds && (
                         <Alert className="border-2 rounded-xl bg-blue-500/5 border-blue-200">
                             <Ear className="h-4 w-4 text-blue-600" />
@@ -634,7 +647,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                           )}
                         </div>
 
-                        <div className="space-y-4 pt-4 border-t border-dashed">
+                        <div className="space-y-4 pt-4 border-t border-dashed text-left">
                             <div className="flex items-center justify-between px-1 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                     <PackageOpen className="w-3.5 h-3.5 opacity-40" /> Actual Product Formula
@@ -659,7 +672,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                             </div>
                             
-                            <div className="space-y-2">
+                            <div className="space-y-2 text-left">
                                 {editableFormula.length > 0 ? (
                                     <div className="grid gap-2">
                                         {editableFormula.map((item, index) => (
@@ -702,8 +715,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between px-1 text-left">
+                    <div className="space-y-4 text-left">
+                        <div className="flex items-center justify-between px-1 text-left text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refreshments Served</Label>
                             <Button variant="ghost" size="sm" onClick={() => setIsRefreshmentBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Append Amenity
@@ -711,20 +724,20 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </div>
                         
                         {refreshments.length > 0 ? (
-                            <div className="grid gap-2">
+                            <div className="grid gap-2 text-left">
                                 {refreshments.map((ref, idx) => (
-                                    <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
-                                        <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                                    <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group text-left">
+                                        <div className="flex items-center gap-3 flex-1 min-w-0 text-left text-left">
                                             <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
-                                            <div className="min-w-0 text-left">
+                                            <div className="min-w-0 text-left text-left">
                                                 <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-2 text-left text-left">
                                                     <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
                                                     {ref.isAccountedFor && <Badge variant="outline" className="h-3.5 text-[6px] font-black uppercase bg-green-50 text-green-700 border-green-200">Inventory Sync</Badge>}
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-4 shrink-0">
+                                        <div className="flex items-center gap-4 shrink-0 text-left">
                                             {safeNumber(ref.price) === 0 ? (
                                                 <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm">
                                                     <Star className="w-2 h-2 mr-1 fill-current" /> Club Perk
@@ -738,7 +751,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 ))}
                             </div>
                         ) : (
-                            <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                            <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left">
                                 <Coffee className="w-10 h-10" />
                                 <p className="text-[10px] font-black uppercase tracking-widest">No Amenities Served</p>
                             </div>
@@ -748,22 +761,22 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={4} />
-                    <div className="space-y-6 text-left">
-                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all">
-                            <div className="space-y-1 text-left">
+                    <div className="space-y-6 text-left text-left">
+                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all text-left">
+                            <div className="space-y-1 text-left text-left">
                                 <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
                                     <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
                                 </Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Register this recipe in guest dossier</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Register this recipe in guest dossier</p>
                             </div>
                             <Switch id="save-formula-toggle" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125 data-[state=checked]:bg-primary" />
                         </div>
 
                         <AnimatePresence>
                             {saveAsCustomFormula && (
-                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                                    <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
-                                        <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden text-left">
+                                    <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left text-left">
+                                        <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left text-left">
                                             <Tag className="w-3.5 h-3.5" /> Formula Identifier
                                         </Label>
                                         <Input 
@@ -778,8 +791,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             )}
                         </AnimatePresence>
 
-                        <div className="space-y-3 text-left">
-                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                        <div className="space-y-3 text-left text-left">
+                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left">
                                 <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
                             </Label>
                             <Textarea 

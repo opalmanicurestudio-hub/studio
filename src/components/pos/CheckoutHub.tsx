@@ -50,7 +50,8 @@ import {
     Ear,
     SunDim,
     Coffee,
-    Landmark
+    Landmark,
+    Scale
 } from 'lucide-react';
 import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -81,6 +82,7 @@ import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -666,7 +668,10 @@ export const CheckoutHub = ({
 
                                         {safeNumber(data.appointment.checkoutState?.additionalCharge) > 0 && (
                                             <div className="pt-3 border-t border-dashed flex justify-between items-center text-left">
-                                                <span className="text-[10px] font-black uppercase text-muted-foreground">Audit Overage</span>
+                                                <div className="flex items-center gap-2">
+                                                    <Scale className="w-3.5 h-3.5 text-amber-600 opacity-60" />
+                                                    <span className="text-[10px] font-black uppercase text-muted-foreground">Deferred Protocol Fee</span>
+                                                </div>
                                                 <div className="flex items-center gap-3 text-left">
                                                     <span className={cn("font-black font-mono text-xs", waivedAppointmentFees.has(data.appointment.id) ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${safeNumber(data.appointment.checkoutState.additionalCharge).toFixed(2)}</span>
                                                     {isOwnerOrAdmin && (waivedAppointmentFees.has(data.appointment.id) ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
