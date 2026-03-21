@@ -44,7 +44,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { doc, writeBatch } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -129,7 +129,6 @@ function SettingsPageImpl() {
   const [isEditing, setIsEditing] = useState(false);
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   
-  // Local Schedule State
   const activeProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
   const [localSchedule, setLocalSchedule] = useState<any>(null);
   const [localKioskSchedule, setLocalKioskSchedule] = useState<any>(null);
@@ -150,8 +149,6 @@ function SettingsPageImpl() {
     if (!selectedTenant || !firestore) return;
     try {
       const batch = writeBatch(firestore);
-      
-      // Update Tenant
       const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
       const finalTenantData = {
           ...tenantData,
@@ -162,7 +159,6 @@ function SettingsPageImpl() {
       };
       batch.update(tenantRef, finalTenantData);
 
-      // Update Schedule Profile if changed
       if (activeProfile && localSchedule) {
           const profileRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`, activeProfile.id);
           batch.update(profileRef, { week: localSchedule });
@@ -237,7 +233,6 @@ function SettingsPageImpl() {
                 <ScrollBar orientation="horizontal" className="hidden" />
              </ScrollArea>
 
-            {/* TAB: PROFILE */}
             <TabsContent value="profile" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
@@ -260,7 +255,6 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            {/* TAB: HOURS */}
             <TabsContent value="hours" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
@@ -290,7 +284,6 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            {/* TAB: EXPERIENCE */}
             <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
@@ -363,7 +356,6 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            {/* TAB: POLICIES */}
             <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
@@ -424,7 +416,6 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            {/* TAB: BUILDER */}
             <TabsContent value="builder" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
@@ -502,7 +493,6 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            {/* TAB: KIOSK */}
             <TabsContent value="kiosk" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
@@ -551,17 +541,6 @@ function SettingsPageImpl() {
                                 )}
                             </AnimatePresence>
                         </div>
-                    </CardContent>
-                </Card>
-            </TabsContent>
-
-            {/* TAB: INTEGRATIONS */}
-            <TabsContent value="integrations" className="mt-0 space-y-10 animate-in fade-in duration-500">
-                <Card className="border-4 border-dashed rounded-[3rem] opacity-30">
-                    <CardContent className="py-24 flex flex-col items-center justify-center text-center">
-                        <ShieldAlert className="w-12 h-12 mb-4" />
-                        <h3 className="text-xl font-black uppercase tracking-widest">Protocol in Development</h3>
-                        <p className="text-[10px] font-bold uppercase tracking-tight mt-2">The Integrations suite is being optimized for secure API handshake.</p>
                     </CardContent>
                 </Card>
             </TabsContent>

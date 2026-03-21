@@ -62,6 +62,16 @@ import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import Image from 'next/image';
 
+const sanitizeForFirestore = (obj: any): any => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([_, v]) => v !== undefined)
+      .map(([k, v]) => [k, sanitizeForFirestore(v)])
+  );
+};
+
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -110,11 +120,10 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, staff }: any) 
                                         <Badge variant="outline" className="h-5 px-2 bg-primary/10 text-primary border-none font-black text-[10px]">{request.quantity || 1} UNIT(S)</Badge>
                                     </div>
                                     
-                                    {/* RECIPE VIEW */}
                                     {item?.formula && item.formula.length > 0 && (
                                         <div className="flex flex-wrap gap-2 mt-2 mb-3 text-left">
                                             {item.formula.map((f: any, idx: number) => {
-                                                const totalNeeded = (f.quantityUsed || 0) * (request.quantity || 1);
+                                                const totalNeeded = safeNumber(f.quantityUsed) * safeNumber(request.quantity || 1);
                                                 return (
                                                     <Badge key={idx} variant="outline" className="text-[8px] font-black uppercase tracking-widest bg-muted/50 border-none px-2 py-0.5">
                                                         {totalNeeded.toFixed(1)}{f.unit} {f.name}
@@ -205,7 +214,7 @@ export default function DashboardPage() {
 
       const batch = writeBatch(firestore);
       const now = new Date().toISOString();
-      const qty = request.quantity || 1;
+      const qty = safeNumber(request.quantity || 1);
 
       const requestRef = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, request.id);
       batch.update(requestRef, {
@@ -214,9 +223,8 @@ export default function DashboardPage() {
           deliveredBy: user?.uid || 'system'
       });
 
-      // IDENTIFY COMPONENTS TO DEDUCT
       const ingredients = item.formula && item.formula.length > 0 
-        ? item.formula.map(f => ({ ...f, quantityUsed: f.quantityUsed * qty }))
+        ? item.formula.map(f => ({ ...f, quantityUsed: safeNumber(f.quantityUsed) * qty }))
         : [{ id: item.id, name: item.name, quantityUsed: qty, unit: item.unit || 'unit' }];
 
       ingredients.forEach(ingredient => {
@@ -227,7 +235,6 @@ export default function DashboardPage() {
           const updateData: any = {};
           let unitLabel = product.unit || 'units';
           
-          // PARTIAL DEDUCTION LOGIC
           if (product.costingMethod === 'uses') {
               unitLabel = product.useUnit || 'uses';
               let currentUses = safeNumber(product.partialContainerUses);
@@ -235,19 +242,14 @@ export default function DashboardPage() {
               const usesPerContainer = safeNumber(product.estimatedUses) || 1;
               
               currentUses -= ingredient.quantityUsed;
-              
-              // If we exhausted the current container, open new ones
               while (currentUses <= 0 && currentStock > 0) {
                   currentStock -= 1;
                   currentUses += usesPerContainer;
               }
-              
-              // Edge case: if we are completely out of stock
               if (currentStock <= 0 && currentUses < 0) {
                   currentStock = 0;
                   currentUses = 0;
               }
-
               updateData.totalStock = currentStock;
               updateData.partialContainerUses = currentUses;
           } else if (product.costingMethod === 'size' && product.size) {
@@ -255,30 +257,25 @@ export default function DashboardPage() {
               let currentSize = safeNumber(product.partialContainerSize);
               let currentStock = safeNumber(product.totalStock);
               const sizePerContainer = safeNumber(product.size);
-              
               currentSize -= ingredient.quantityUsed;
-              
               while (currentSize <= 0 && currentStock > 0) {
                   currentStock -= 1;
                   currentSize += sizePerContainer;
               }
-
               if (currentStock <= 0 && currentSize < 0) {
                   currentStock = 0;
                   currentSize = 0;
               }
-
               updateData.totalStock = currentStock;
               updateData.partialContainerSize = currentSize;
           } else {
-              // Direct whole-unit deduction
               updateData.totalStock = increment(-ingredient.quantityUsed);
           }
 
-          batch.update(productRef, updateData);
+          batch.update(productRef, sanitizeForFirestore(updateData));
 
           const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-          batch.set(correctionRef, {
+          batch.set(correctionRef, sanitizeForFirestore({
               id: nanoid(),
               productId: product.id,
               date: now,
@@ -286,21 +283,20 @@ export default function DashboardPage() {
               unit: unitLabel,
               reason: `Amenity Protocol: ${item.name} (x${qty}) for ${request.clientName}`,
               requestId: request.id
-          });
+          }));
       });
 
-      // POS TERMINAL INTEGRATION: Append to bill using the request's specific appointmentId
       if (request.appointmentId) {
           const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, request.appointmentId);
           batch.update(aptRef, {
-              'checkoutState.refreshments': arrayUnion({
+              'checkoutState.refreshments': arrayUnion(sanitizeForFirestore({
                   id: item.id,
                   name: item.name,
                   price: safeNumber(request.priceAtRequest || item.price),
                   deliveredAt: now,
                   quantity: qty,
                   isAccountedFor: true
-              })
+              }))
           });
       }
 
@@ -308,6 +304,7 @@ export default function DashboardPage() {
           await batch.commit();
           toast({ title: "Delivery Certified", description: `Stock reconciled and dossier updated for ${request.clientName}.` });
       } catch (e) {
+          console.error("Fulfillment failed:", e);
           toast({ variant: 'destructive', title: "Process Error" });
       }
   };
