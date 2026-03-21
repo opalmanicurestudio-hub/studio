@@ -79,8 +79,8 @@ export function useCollection<T = any>(
       (snapshot: QuerySnapshot<DocumentData>) => {
         const results: ResultItemType[] = [];
         for (const doc of snapshot.docs) {
-          // IMPORTANT: We set id: doc.id FIRST so that if the data contains an 'id' field, it overwrites it.
-          results.push({ id: doc.id, ...(doc.data() as T) });
+          // IMPORTANT: We set id: doc.id LAST so that it overwrites any 'id' property stored in the document data.
+          results.push({ ...(doc.data() as T), id: doc.id });
         }
         setData(results);
         setError(null);

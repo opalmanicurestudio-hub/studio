@@ -1,4 +1,3 @@
-
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
@@ -220,10 +219,10 @@ const HospitalityLedger = () => {
                         <Table>
                             <TableHeader className="bg-muted/10 border-b-2">
                                 <TableRow>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900">Guest & Item</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Timestamp</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Location</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Status</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Guest & Item</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Timestamp</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Location</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Status</TableHead>
                                     <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Qty</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -444,7 +443,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                         <div className="space-y-2">
                                             {editableOrder.items.map(item => (
                                                 <div key={item.productId} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/10">
-                                                    <span className="flex-1 text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{item.productName}</span>
+                                                    <span className="flex-1 text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{item.productName}</span>
                                                     <div className="flex items-center gap-2">
                                                         <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-9 rounded-lg border-2 text-center font-black" />
                                                         <div className="relative w-24">
@@ -516,8 +515,8 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                     )}
                                     {editableOrder.notes && (
                                         <div className="space-y-2">
-                                            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Audit Notes</p>
-                                            <div className="p-4 rounded-2xl bg-muted/20 border-2 italic text-slate-600 text-sm font-medium leading-relaxed">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Audit Notes</p>
+                                            <div className="p-4 rounded-2xl bg-muted/20 border-2 italic text-slate-600 text-sm font-medium leading-relaxed text-left">
                                                 "{editableOrder.notes}"
                                             </div>
                                         </div>
@@ -585,6 +584,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
         if (!firestore || !tenantId) return;
 
+        const orderId = nanoid();
         const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
         
         newOrderData.items.forEach(item => {
@@ -608,14 +608,15 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
             }
         });
 
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderId);
         const newOrder: Order = {
             ...newOrderData,
-            id: nanoid(),
+            id: orderId,
             items: finalItems,
             status: 'Placed',
         };
-        const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
-        addDocumentNonBlocking(orderRef, newOrder);
+        
+        setDocumentNonBlocking(orderRef, JSON.parse(JSON.stringify(newOrder)), {});
         
         const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
         if (totalCost > 0) {
@@ -630,7 +631,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                 paymentMethodIdentifier: newOrder.paymentMethodIdentifier,
                 hasReceipt: !!newOrder.invoiceUrl,
                 receiptUrl: newOrder.invoiceUrl,
-                relatedOrderId: newOrder.id,
+                relatedOrderId: orderId,
             };
             const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
             addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
@@ -645,7 +646,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     const handleUpdateOrder = (updatedOrder: Order) => {
         if (!firestore || !tenantId) return;
         const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
-        updateDocumentNonBlocking(orderRef, updatedOrder);
+        updateDocumentNonBlocking(orderRef, JSON.parse(JSON.stringify(updatedOrder)));
         toast({
             title: "Order Updated",
             description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
@@ -796,7 +797,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
       
       if (newStatus !== orderToReceive.status) {
         const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id);
-        batch.update(orderRef, { status: newStatus });
+        batch.update(orderRef, JSON.parse(JSON.stringify({ status: newStatus })));
       }
 
       batch.commit().then(() => {
@@ -830,7 +831,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                 
                 <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-col md:flex-row items-center gap-4">
                     <div className="relative flex-1 w-full">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                         <input
                             placeholder="SEARCH BY SUPPLIER OR SKU..."
                             className="pl-12 h-14 w-full rounded-2xl border-2 border-border bg-white font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 outline-none"
@@ -1654,7 +1655,7 @@ export default function InventoryPage() {
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
                         <div className="flex flex-col md:flex-row items-center gap-4">
                             <div className="relative flex-1 w-full">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                                 <Input 
                                     placeholder="SEARCH BY NAME, SKU, OR ID..." 
                                     className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"

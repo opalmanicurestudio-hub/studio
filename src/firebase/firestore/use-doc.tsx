@@ -66,7 +66,8 @@ export function useDoc<T = any>(
       { includeMetadataChanges: false },
       (snapshot: DocumentSnapshot<DocumentData>) => {
         if (snapshot.exists()) {
-          setData({ id: snapshot.id, ...(snapshot.data() as T) });
+          // IMPORTANT: Set id LAST to overwrite any data-level ID field.
+          setData({ ...(snapshot.data() as T), id: snapshot.id });
           setIsLoading(false);
           setError(null);
         } else {
