@@ -338,7 +338,7 @@ export type InventoryItem = {
   msrp?: number;
   price?: number; // Retail price for premium refreshments
   showInConcierge?: boolean;
-  isMembersOnly?: boolean; // New: Restricted to active members only
+  isMembersOnly?: boolean; 
   formula?: {
       id: string;
       name: string;
@@ -662,6 +662,10 @@ export type KioskSettings = {
     showWordmark?: boolean;
     welcomeMessage?: string;
     primaryColor?: string;
+    useSpecificHours?: boolean;
+    kioskSchedule?: {
+        [day: string]: DayHours;
+    };
 };
 
 export type Tenant = {
