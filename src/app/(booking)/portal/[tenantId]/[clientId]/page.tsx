@@ -110,9 +110,21 @@ const ViewContainer = ({ children }: { children: React.ReactNode }) => (
     </motion.div>
 );
 
+const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
+    <CardHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left">
+        <div className="flex items-center gap-3 mb-2">
+            {Icon ? <Icon className="w-4 h-4 md:w-5 md:h-5 text-primary" /> : <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />}
+            <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
+        </div>
+        <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
+        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
+    </CardHeader>
+);
+
 export default function ClientPortalPage() {
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
-    const { firestore, user: firebaseUser } = useFirebase();
+    const { firestore } = useFirebase();
+    const { user: firebaseUser } = useFirebase();
     const { toast } = useToast();
 
     const [entered, setEntered] = useState(false);
@@ -418,7 +430,7 @@ export default function ClientPortalPage() {
                                 <ShieldAlert className="w-5 h-5 text-destructive" />
                                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-destructive">Security Protocol</span>
                             </div>
-                            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Authentication Denied</DialogTitle>
+                            <CardTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Authentication Denied</CardTitle>
                         </CardHeader>
                         <CardContent className="p-10 space-y-8 text-center">
                             <div className="w-24 h-24 bg-destructive/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5">
@@ -559,7 +571,7 @@ export default function ClientPortalPage() {
                             </TabsTrigger>
                             <TabsTrigger value="rewards" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
                                 <Trophy className="w-3.5 h-3.5 mr-2" /> Rewards
-                            </Trophy>
+                            </TabsTrigger>
                             <TabsTrigger value="ledger" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
                                 <Landmark className="w-3.5 h-3.5 mr-2" /> Ledger
                             </TabsTrigger>
