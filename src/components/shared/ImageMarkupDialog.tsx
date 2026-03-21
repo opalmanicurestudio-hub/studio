@@ -57,6 +57,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   title = "Technical Mapping",
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState(colors[0].value);
@@ -64,7 +65,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize Canvas and draw image
+  // Initialize Canvas and fit image to screen
   useEffect(() => {
     if (!open || !imageUrl) {
         setIsLoading(false);
@@ -76,8 +77,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
     const initCanvas = () => {
       const canvas = canvasRef.current;
+      const container = containerRef.current;
       
-      if (!canvas) {
+      if (!canvas || !container) {
           if (isMounted) requestAnimationFrame(initCanvas);
           return;
       }
@@ -94,13 +96,18 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       img.onload = () => {
         if (!isMounted) return;
 
-        const dpr = window.devicePixelRatio || 1;
-        // Allow the canvas to be larger than the container for scrolling
-        const targetWidth = Math.max(window.innerWidth * 0.7, 800);
-        const scale = targetWidth / img.width;
+        // Calculate available space in the container
+        const padding = 40; // Total padding around the image
+        const availWidth = container.clientWidth - padding;
+        const availHeight = container.clientHeight - padding;
+
+        // Calculate scale to fit while maintaining aspect ratio
+        const scale = Math.min(availWidth / img.width, availHeight / img.height);
+        
         const displayWidth = img.width * scale;
         const displayHeight = img.height * scale;
 
+        const dpr = window.devicePixelRatio || 1;
         canvas.width = displayWidth * dpr;
         canvas.height = displayHeight * dpr;
         canvas.style.width = `${displayWidth}px`;
@@ -128,7 +135,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       img.src = imageUrl;
     };
 
-    const timer = setTimeout(initCanvas, 50);
+    const timer = setTimeout(initCanvas, 100);
 
     return () => {
         isMounted = false;
@@ -202,7 +209,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             ctx.save();
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
+            ctx.drawImage(img, 0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
             ctx.restore();
         }
     };
@@ -305,36 +312,36 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                 </div>
             </div>
 
-            <ScrollArea className="flex-1 cursor-crosshair relative">
-                <div className="p-8 flex items-center justify-center min-h-full min-w-max">
-                    <AnimatePresence>
-                        {isLoading && (
-                            <motion.div 
-                                initial={{ opacity: 0 }} 
-                                animate={{ opacity: 1 }} 
-                                exit={{ opacity: 0 }}
-                                className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 z-10 gap-4"
-                            >
-                                <Loader className="w-10 h-10 animate-spin text-primary opacity-40" />
-                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary/60">Buffering Asset...</p>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                    <canvas
-                        ref={canvasRef}
-                        onMouseDown={startDrawing}
-                        onMouseMove={draw}
-                        onMouseUp={stopDrawing}
-                        onMouseLeave={stopDrawing}
-                        onTouchStart={startDrawing}
-                        onTouchMove={draw}
-                        onTouchEnd={stopDrawing}
-                        className={cn("shadow-2xl rounded-2xl bg-white border-2 transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}
-                    />
-                </div>
-                <ScrollBar orientation="horizontal" />
-                <ScrollBar orientation="vertical" />
-            </ScrollArea>
+            <div ref={containerRef} className="flex-1 relative flex items-center justify-center p-4">
+                <AnimatePresence>
+                    {isLoading && (
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 z-10 gap-4"
+                        >
+                            <Loader className="w-10 h-10 animate-spin text-primary opacity-40" />
+                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary/60">Buffering Asset...</p>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+                <canvas
+                    ref={canvasRef}
+                    onMouseDown={startDrawing}
+                    onMouseMove={draw}
+                    onMouseUp={stopDrawing}
+                    onMouseLeave={stopDrawing}
+                    onTouchStart={startDrawing}
+                    onTouchMove={draw}
+                    onTouchEnd={stopDrawing}
+                    className={cn(
+                        "shadow-2xl rounded-2xl bg-white border-2 transition-opacity duration-500", 
+                        isLoading ? "opacity-0" : "opacity-100",
+                        "cursor-crosshair"
+                    )}
+                />
+            </div>
         </div>
 
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
