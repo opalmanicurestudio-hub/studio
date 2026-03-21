@@ -21,12 +21,14 @@ import {
     Circle, 
     Square as SquareIcon,
     Palette,
-    ArrowRight
+    ArrowRight,
+    Loader
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface ImageMarkupDialogProps {
   open: boolean;
