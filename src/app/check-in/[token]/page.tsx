@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -33,7 +32,13 @@ import {
     Lock,
     Star,
     Zap,
-    Award
+    Award,
+    Smartphone,
+    Headphones,
+    Moon,
+    VolumeX,
+    SunDim,
+    Gamepad2
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership } from '@/lib/data';
@@ -135,6 +140,19 @@ const RefreshmentCard = ({
     const isSoldOut = item.totalStock <= 0;
     const isIncludedPerk = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
 
+    const getDynamicIcon = (name: string) => {
+        const n = name.toLowerCase();
+        if (n.includes('charger') || n.includes('stand') || n.includes('power')) return Smartphone;
+        if (n.includes('headphone') || n.includes('noise')) return Headphones;
+        if (n.includes('blanket') || n.includes('pillow')) return Moon;
+        if (n.includes('quiet') || n.includes('silent')) return VolumeX;
+        if (n.includes('light')) return SunDim;
+        if (n.includes('game') || n.includes('tablet')) return Gamepad2;
+        return Coffee;
+    };
+
+    const Icon = getDynamicIcon(item.name);
+
     return (
         <motion.div
             whileTap={{ scale: 0.98 }}
@@ -150,7 +168,7 @@ const RefreshmentCard = ({
                     {item.imageUrl ? (
                         <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
                     ) : (
-                        <Coffee className="w-16 h-16 text-primary opacity-20" />
+                        <Icon className="w-16 h-16 text-primary opacity-20" />
                     )}
                     
                     <div className="absolute top-4 left-4 flex flex-col gap-2">
@@ -258,20 +276,26 @@ const ServicingView = ({
     const refreshmentsByCategory = useMemo(() => {
         const grouped: Record<string, InventoryItem[]> = {};
         const exclusiveKey = 'Club Exclusive Selection';
+        const comfortKey = 'Comfort & Environment';
         
         refreshments.forEach(item => {
             let cat = item.category || 'Standard Selection';
             if (item.isMembersOnly) {
                 cat = exclusiveKey;
+            } else if (cat.toLowerCase().includes('comfort') || cat.toLowerCase().includes('amenity')) {
+                cat = comfortKey;
             }
+
             if (!grouped[cat]) grouped[cat] = [];
             grouped[cat].push(item);
         });
 
         const orderedGrouped: Record<string, InventoryItem[]> = {};
         if (grouped[exclusiveKey]) orderedGrouped[exclusiveKey] = grouped[exclusiveKey];
+        if (grouped[comfortKey]) orderedGrouped[comfortKey] = grouped[comfortKey];
+        
         Object.keys(grouped).sort().forEach(key => {
-            if (key !== exclusiveKey) orderedGrouped[key] = grouped[key];
+            if (key !== exclusiveKey && key !== comfortKey) orderedGrouped[key] = grouped[key];
         });
 
         return orderedGrouped;
@@ -330,14 +354,17 @@ const ServicingView = ({
                 <div className="space-y-16 py-8">
                     {Object.entries(refreshmentsByCategory).map(([category, items], catIdx) => {
                         const isExclusive = category === 'Club Exclusive Selection';
+                        const isComfort = category === 'Comfort & Environment';
+                        
                         return (
                             <section key={category} className="space-y-6">
                                 <div className="flex items-center justify-between px-8 text-left">
                                     <h3 className={cn(
                                         "text-xs md:text-sm font-black uppercase tracking-[0.3em]",
-                                        isExclusive ? "text-indigo-600" : "text-muted-foreground opacity-40"
+                                        isExclusive ? "text-indigo-600" : isComfort ? "text-primary" : "text-muted-foreground opacity-40"
                                     )}>
                                         {isExclusive && <Award className="inline-block w-4 h-4 mr-2 -mt-1" />}
+                                        {isComfort && <Zap className="inline-block w-4 h-4 mr-2 -mt-1" />}
                                         {category}
                                     </h3>
                                     <div className="flex gap-1">

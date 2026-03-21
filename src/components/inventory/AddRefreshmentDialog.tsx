@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -125,7 +124,14 @@ const Step1 = () => {
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
 
-    const refreshmentCategories = ['Artisanal Beverages', 'Premium Spirits', 'Gourmet Snacks', 'Seasonal Special', 'Healthy Essentials'];
+    const refreshmentCategories = [
+        'Artisanal Beverages', 
+        'Premium Spirits', 
+        'Gourmet Snacks', 
+        'Comfort & Amenities',
+        'Seasonal Special', 
+        'Healthy Essentials'
+    ];
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim()) {
@@ -201,7 +207,7 @@ const Step1 = () => {
                         <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-indigo-500/20 bg-indigo-500/5 shadow-inner">
                             <div className="space-y-1 text-left">
                                 <Label htmlFor="members-only" className="text-sm font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
-                                    <Lock className="w-3 h-3" /> Members Only
+                                    <Lock className="w-3" /> Members Only
                                 </Label>
                                 <p className="text-[9px] font-bold text-indigo-600/60 uppercase tracking-widest opacity-60 text-left">Restricted access item</p>
                             </div>
