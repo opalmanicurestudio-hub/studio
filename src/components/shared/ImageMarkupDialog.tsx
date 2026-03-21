@@ -39,7 +39,8 @@ import {
     MousePointer2,
     Highlighter,
     GripVertical,
-    Navigation
+    Navigation,
+    Plus
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -487,16 +488,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
   // --- COMPONENT LIFECYCLE ---
 
-  useEffect(() => {
-    if (!open) return;
-    
-    // Reset state only once on open
-    setPaths([]);
-    setAnnotations([]);
-    setViewTransform({ scale: 1, x: 0, y: 0 });
-    setSelectedId(null);
-    setIsLoading(true);
-
+  const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container || !imageUrl) return;
@@ -521,9 +513,21 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       contextRef.current = canvas.getContext('2d');
       
       setIsLoading(false);
+      drawAll();
     };
     img.src = imageUrl;
-  }, [open, imageUrl, isMobile]);
+  }, [imageUrl, isMobile, drawAll]);
+
+  useEffect(() => {
+    if (open) {
+        setPaths([]);
+        setAnnotations([]);
+        setViewTransform({ scale: 1, x: 0, y: 0 });
+        setSelectedId(null);
+        setIsLoading(true);
+        initCanvas();
+    }
+  }, [open, initCanvas]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -646,7 +650,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                             <div className="flex items-center gap-1.5 animate-in slide-in-from-left-2">
                                 {(['arrow', 'star', 'alert', 'check', 'cross', 'target'] as StickerType[]).map(t => (
                                     <Button key={t} variant="ghost" size="sm" onClick={() => {
-                                        const newSticker: StickerAnnotation = { id: nanoid(), type: 'sticker', stickerType: t, x: 100, y: 100, color, rotation: 0, scale: 1 };
+                                        const coords = { x: 100, y: 100 };
+                                        const newSticker: StickerAnnotation = { id: nanoid(), type: 'sticker', stickerType: t, x: coords.x, y: coords.y, color, rotation: 0, scale: 1 };
                                         setAnnotations(prev => [...prev, newSticker]);
                                         setSelectedId(newSticker.id);
                                         setTool('select');
@@ -714,9 +719,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             <div className="flex w-full flex-col sm:flex-row gap-4">
                 <div className="flex gap-2 flex-1">
                     <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[9px] md:text-[10px] text-slate-400">Cancel</Button>
-                    <Button variant="outline" onClick={() => window.print()} className="flex-1 h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[9px] md:text-[10px] border-2 bg-white shadow-sm">
-                        <Printer className="w-4 h-4 mr-2 opacity-40" />
-                        Print Record
+                    <Button variant="outline" onClick={() => setViewTransform({ scale: 1, x: 0, y: 0 })} className="flex-1 h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[9px] md:text-[10px] border-2 bg-white shadow-sm">
+                        <Navigation className="w-4 h-4 mr-2 opacity-40" />
+                        Reset View
                     </Button>
                 </div>
                 <Button onClick={handleSave} disabled={isLoading} className="flex-[1.5] h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
