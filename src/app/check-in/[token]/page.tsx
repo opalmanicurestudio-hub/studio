@@ -100,7 +100,7 @@ const ArrivedView = ({ client, staff }: { client: Client | null, staff: Staff | 
 
             {staff && (
                 <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
-                    <Avatar className="h-12 w-12 border-2 border-background shadow-xl rounded-[1.5rem]">
+                    <Avatar className="h-12 h-12 border-2 border-background shadow-xl rounded-[1.5rem]">
                         <AvatarImage src={staff.avatarUrl} className="object-cover" />
                         <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staff.name || 'S').charAt(0)}</AvatarFallback>
                     </Avatar>
@@ -140,9 +140,9 @@ const RefreshmentCard = ({
     activeMembership: Membership | null,
     remainingPerkUses: number
 }) => {
-    const isSoldOut = item.totalStock <= 0;
+    const isSoldOut = safeNumber(item.totalStock) <= 0;
     const isPerkDefinition = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
-    const isPerkAvailable = isPerkDefinition && remainingPerkUses > 0;
+    const isPerkAvailable = isPerkDefinition && remainingPerkUses >= qty;
 
     const getDynamicIcon = (name: string) => {
         const n = name.toLowerCase();
@@ -192,8 +192,8 @@ const RefreshmentCard = ({
                         <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
                             {isPerkAvailable ? (
                                 <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
-                            ) : item.price && item.price > 0 ? (
-                                <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${item.price.toFixed(2)}</p>
+                            ) : safeNumber(item.price) > 0 ? (
+                                <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${safeNumber(item.price).toFixed(2)}</p>
                             ) : (
                                 <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Comp</p>
                             )}
@@ -285,6 +285,7 @@ const ServicingView = ({
         const nextBilling = safeDate(client.subscription.nextBillingDate);
         const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
 
+        // If the perk was last used in a previous cycle, reset the local calculation
         if (!isAfter(lastUsed, cycleStart)) {
             return limit; 
         }
@@ -296,7 +297,7 @@ const ServicingView = ({
         inventory.filter(item => 
             item.type === 'refreshment' && 
             item.showInConcierge !== false && 
-            item.totalStock > 0 &&
+            safeNumber(item.totalStock) > 0 &&
             (!item.isMembersOnly || isMember)
         )
     , [inventory, isMember]);
@@ -339,7 +340,7 @@ const ServicingView = ({
         if (!firestore || !tenant || !client || !appointment || isRequesting) return;
         const qty = quantities[item.id] || 1;
         const pendingItems = activeRequests.filter(r => r.status === 'pending');
-        const totalSessionCount = pendingItems.reduce((sum, r) => sum + (r.quantity || 1), 0);
+        const totalSessionCount = pendingItems.reduce((sum, r) => sum + safeNumber(r.quantity || 1), 0);
         const limit = tenant.complimentaryAmenityLimit || 0;
 
         if (limit > 0 && totalSessionCount + qty > limit) {
@@ -366,7 +367,7 @@ const ServicingView = ({
                 requestedAt: new Date().toISOString(), 
                 stationName, 
                 staffName: staff?.name || 'Unassigned', 
-                priceAtRequest: isRedemption ? 0 : (item.price || 0),
+                priceAtRequest: isRedemption ? 0 : safeNumber(item.price || 0),
                 isRedemption
             }, {});
             toast({ title: isRedemption ? "Perk Redeemed!" : "Request Dispatched" });
@@ -421,7 +422,7 @@ const ServicingView = ({
                                             <div className="text-left">
                                                 <p className="text-xs font-black uppercase text-slate-900">{req.itemName}</p>
                                                 <div className="flex items-center gap-2">
-                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Qty: {req.quantity || 1}</p>
+                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Qty: {safeNumber(req.quantity || 1)}</p>
                                                     {req.isRedemption && <Badge className="bg-primary text-white border-none text-[6px] h-3 px-1 font-black uppercase">Club Perk</Badge>}
                                                 </div>
                                             </div>
@@ -478,7 +479,7 @@ const ServicingView = ({
                                                         qty={quantities[item.id] || 1}
                                                         onQtyChange={(delta) => {
                                                             const current = quantities[item.id] || 1;
-                                                            setQuantities(p => ({...p, [item.id]: Math.max(1, Math.min(item.totalStock, current + delta))}));
+                                                            setQuantities(p => ({...p, [item.id]: Math.max(1, Math.min(safeNumber(item.totalStock), current + delta))}));
                                                         }}
                                                         onRequest={() => handleRequest(item)}
                                                         isRequesting={isRequesting}

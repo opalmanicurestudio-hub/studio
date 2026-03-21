@@ -308,7 +308,7 @@ export default function DashboardPage() {
           }));
       });
 
-      // 3. BIND TO APPOINTMENT
+      // 3. BIND TO APPOINTMENT (Safe Set with Merge to prevent No Document error)
       if (request.appointmentId) {
           const aptRef = doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`);
           batch.set(aptRef, {
@@ -325,17 +325,14 @@ export default function DashboardPage() {
           }, { merge: true });
       }
 
-      // 4. UPDATE PERK USAGE IN GUEST DOSSIER
+      // 4. UPDATE PERK USAGE IN GUEST DOSSIER (Atomic map update)
       if (request.isRedemption && request.clientId) {
           const clientRef = doc(firestore, `tenants/${tenantId}/clients`, request.clientId);
-          batch.set(clientRef, {
-              subscription: {
-                  perkUsage: {
-                      [request.itemId]: increment(qty)
-                  },
-                  perkLastUsed: now
-              }
-          }, { merge: true });
+          batch.update(clientRef, {
+              [`subscription.perkUsage.${request.itemId}`]: increment(qty),
+              'subscription.perkLastUsed': now,
+              'subscription.status': 'active' // Ensure status is synced
+          });
       }
 
       try {
@@ -403,19 +400,19 @@ export default function DashboardPage() {
       <main className="flex-1 p-4 md:p-10 max-w-7xl mx-auto w-full space-y-10">
         
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-            <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5">
+            <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5 text-left">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><TrendingUp className="w-3 h-3"/>Today's Gross</CardTitle></CardHeader>
                 <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-primary font-mono">${safeNumber(dashboardMetrics.dailyIncome).toFixed(2)}</p></CardContent>
             </Card>
-            <Card className="border-2 shadow-sm rounded-[2rem] bg-white">
+            <Card className="border-2 shadow-sm rounded-[2rem] bg-white text-left">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 opacity-60"><Users className="w-3 h-3"/>Team Capacity</CardTitle></CardHeader>
                 <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-slate-900 font-mono">{safeNumber(dashboardMetrics.activeStaff)}<span className="text-xs ml-1">Pro</span></p></CardContent>
             </Card>
-            <Card className="border-2 shadow-sm rounded-[2rem] bg-white">
+            <Card className="border-2 shadow-sm rounded-[2rem] bg-white text-left">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 opacity-60"><MapPin className="w-3 h-3"/>Total Arrivals</CardTitle></CardHeader>
                 <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-slate-900 font-mono">{safeNumber(dashboardMetrics.todayArrivals)}<span className="text-xs ml-1">Guests</span></p></CardContent>
             </Card>
-            <Card className={cn("border-2 shadow-sm rounded-[2rem] transition-all", safeNumber(dashboardMetrics.totalArrears) > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-white")}>
+            <Card className={cn("border-2 shadow-sm rounded-[2rem] transition-all text-left", safeNumber(dashboardMetrics.totalArrears) > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-white")}>
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className={cn("text-[10px] font-black uppercase tracking-widest flex items-center gap-2", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-muted-foreground opacity-60")}><Wallet className="w-3 h-3"/>Arrears Recovery</CardTitle></CardHeader>
                 <CardContent className="p-5 pt-0 text-left"><p className={cn("text-2xl md:text-4xl font-black tracking-tighter font-mono", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-slate-900")}>${safeNumber(dashboardMetrics.totalArrears).toFixed(2)}</p></CardContent>
             </Card>
@@ -472,7 +469,7 @@ export default function DashboardPage() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6 space-y-6 text-left">
-                        <div className="space-y-1">
+                        <div className="space-y-1 text-left">
                             <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Avg. Wait Velocity</p>
                             <p className="text-3xl font-black tracking-tighter text-slate-900">{safeNumber(dashboardMetrics.hospitalityWaitVelocity)} <span className="text-xs uppercase opacity-40">Min</span></p>
                         </div>
@@ -489,7 +486,7 @@ export default function DashboardPage() {
                     </CardContent>
                 </Card>
 
-                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white text-left">
                     <CardHeader className="bg-muted/5 border-b p-6 text-left">
                         <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldAlert className="w-3.5 h-3.5"/>Asset Safeguard</CardTitle>
                     </CardHeader>
@@ -518,7 +515,7 @@ export default function DashboardPage() {
                     </CardContent>
                 </Card>
 
-                <Card className="border-4 border-indigo-500/20 bg-indigo-500/5 rounded-[2.5rem] shadow-2xl shadow-indigo-500/5 overflow-hidden group">
+                <Card className="border-4 border-indigo-500/20 bg-indigo-500/5 rounded-[2.5rem] shadow-2xl shadow-indigo-500/5 overflow-hidden group text-left">
                     <CardHeader className="p-8 pb-4 text-left">
                         <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-700 flex items-center gap-2">
                             <Sparkles className="w-3.5 h-3.5" />

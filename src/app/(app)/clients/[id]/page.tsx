@@ -55,7 +55,7 @@ import {
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO, subMonths, isAfter } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears } from 'date-fns';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -220,7 +220,7 @@ export default function ClientDetailPage() {
     
     const lastUsed = safeDate(client.subscription.perkLastUsed);
     const nextBilling = safeDate(client.subscription.nextBillingDate);
-    const cycleStart = subMonths(nextBilling, 1);
+    const cycleStart = activeMembership?.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
 
     const isCurrentCycle = isAfter(lastUsed, cycleStart);
     if (!isCurrentCycle) return false;
