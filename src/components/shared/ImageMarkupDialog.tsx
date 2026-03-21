@@ -12,7 +12,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { 
     Pencil, 
-    RotateCcw, 
     Trash2, 
     Check, 
     X, 
@@ -29,10 +28,10 @@ import {
     Hand
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Input } from '@/components/ui/input';
 
 interface ImageMarkupDialogProps {
   open: boolean;
@@ -81,7 +80,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     
     if (!canvas || !container) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
     const img = new Image();
@@ -119,7 +118,13 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   }, [imageUrl, color, brushSize]);
 
   useEffect(() => {
-    if (open) initCanvas();
+    if (open) {
+        setIsLoading(true);
+        // Ensure canvas is ready in the next tick
+        requestAnimationFrame(() => {
+            initCanvas();
+        });
+    }
   }, [open, initCanvas]);
 
   useEffect(() => {
@@ -237,8 +242,16 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     const dataUrl = canvas.toDataURL('image/png');
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-    printWindow.document.write(`<html><head><title>${title}</title><style>body{margin:0;display:flex;align-items:center;justify:center;min-height:100vh;background:white;font-family:sans-serif;}.container{padding:2rem;text-align:center;}img{max-width:100%;height:auto;box-shadow:0 10px 30px rgba(0,0,0,0.1); border:1px solid #eee;}h1{margin-bottom:1rem;font-size:1.5rem;text-transform:uppercase;letter-spacing:0.1em;}p{color:#666;font-size:0.8rem;margin-top:1rem;}</style></head><body><div class="container"><h1>${title}</h1><img src="${dataUrl}" onload="window.print();window.close();"/><p>ClarityFlow Studio OS - Professional Technical Archive</p></div></body></html>`);
+    printWindow.document.write(`<html><head><title>${title}</title><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:white;font-family:sans-serif;}.container{padding:2rem;text-align:center;}img{max-width:100%;height:auto;box-shadow:0 10px 30px rgba(0,0,0,0.1); border:1px solid #eee;}h1{margin-bottom:1rem;font-size:1.5rem;text-transform:uppercase;letter-spacing:0.1em;}p{color:#666;font-size:0.8rem;margin-top:1rem;}</style></head><body><div class="container"><h1>${title}</h1><img src="${dataUrl}" onload="window.print();window.close();"/><p>ClarityFlow Studio OS - Professional Technical Archive</p></div></body></html>`);
     printWindow.document.close();
+  };
+
+  const handleSave = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL('image/png');
+    onSave(dataUrl);
+    onOpenChange(false);
   };
 
   return (
@@ -275,19 +288,19 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                             <TooltipTrigger asChild>
                                 <Button variant={tool === 'pencil' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pencil')} className="h-10 w-10 rounded-xl"><Pencil className="w-5 h-5" /></Button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px]">Pencil</TooltipContent>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Pencil</TooltipContent>
                         </Tooltip>
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button variant={tool === 'text' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('text')} className="h-10 w-10 rounded-xl"><Type className="w-5 h-5" /></Button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px]">Add Text</TooltipContent>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Add Text</TooltipContent>
                         </Tooltip>
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button variant={tool === 'pan' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pan')} className="h-10 w-10 rounded-xl"><Hand className="w-5 h-5" /></Button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px]">Pan View</TooltipContent>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Pan View</TooltipContent>
                         </Tooltip>
                         <Separator className="my-2 border-dashed" />
                         <Button variant="ghost" size="icon" onClick={() => handleZoom(0.25)} className="h-10 w-10 rounded-xl"><ZoomIn className="w-5 h-5" /></Button>
@@ -301,7 +314,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             <div ref={containerRef} className="flex-1 relative flex items-center justify-center p-4 overflow-hidden">
                 <AnimatePresence>
                     {isLoading && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 z-10 gap-4">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 z-10 gap-4 text-center">
                             <Loader className="w-10 h-10 animate-spin text-primary opacity-40" />
                             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary/60">Buffering...</p>
                         </motion.div>
@@ -337,12 +350,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                 transform: `scale(${1/zoom})`
                             }}
                         >
-                            <Input 
+                            <input 
                                 autoFocus
                                 value={textInput.value}
                                 onChange={e => setTextInput({...textInput, value: e.target.value})}
                                 onBlur={() => setTextInput(null)}
-                                className="h-8 min-w-[120px] bg-white border-primary border-2 shadow-xl font-black uppercase text-[10px]"
+                                className="h-8 min-w-[120px] bg-white border-primary border-2 shadow-xl font-black uppercase text-[10px] rounded-lg px-3 focus:outline-none"
                                 placeholder="ENTER NOTE..."
                             />
                         </form>
