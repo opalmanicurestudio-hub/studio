@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
@@ -18,8 +19,7 @@ import {
     Sparkles, 
     Undo2, 
     Type, 
-    ZoomIn, 
-    ZoomOut,
+    Search,
     Palette,
     ArrowRight,
     Loader,
@@ -28,9 +28,12 @@ import {
     Hand,
     Target,
     Minus,
-    Plus
+    Plus,
+    Move,
+    Type as TypeIcon,
+    ZoomIn
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -45,15 +48,25 @@ interface ImageMarkupDialogProps {
 }
 
 const colors = [
-    { name: 'Primary', value: '#7955c4' }, // Studio Theme
-    { name: 'Alert', value: '#ef4444' },   // Red for alerts
-    { name: 'Success', value: '#22c55e' }, // Green for targets
-    { name: 'Info', value: '#3b82f6' },    // Blue for mapping
-    { name: 'White', value: '#ffffff' },   // Highlight
-    { name: 'Black', value: '#000000' },   // Contrast
+    { name: 'Primary', value: '#7955c4' }, 
+    { name: 'Alert', value: '#ef4444' },   
+    { name: 'Success', value: '#22c55e' }, 
+    { name: 'Info', value: '#3b82f6' },    
+    { name: 'White', value: '#ffffff' },   
+    { name: 'Black', value: '#000000' },   
 ];
 
-type ToolType = 'pencil' | 'text' | 'pan' | 'target';
+type ToolType = 'pencil' | 'text' | 'magnifier' | 'select';
+type TextSize = 'sm' | 'md' | 'lg';
+
+interface TextAnnotation {
+    id: string;
+    text: string;
+    x: number;
+    y: number;
+    color: string;
+    size: TextSize;
+}
 
 export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   open,
@@ -65,23 +78,78 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const baseImageRef = useRef<HTMLImageElement | null>(null);
   
   const [isDrawing, setIsDrawing] = useState(false);
   const [tool, setTool] = useState<ToolType>('pencil');
   const [color, setColor] = useState(colors[0].value);
   const [brushSize, setBrushSize] = useState(3);
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [textSize, setTextSize] = useState<TextSize>('md');
   
-  // Target Zoom State
-  const [targetCircle, setTargetCircle] = useState<{ x: number, y: number, r: number } | null>(null);
-  const [isDefiningTarget, setIsDefiningTarget] = useState(false);
+  const [annotations, setAnnotations] = useState<TextAnnotation[]>([]);
+  const [selectedTextId, setSelectedStaffId] = useState<string | null>(null);
+  const [isDraggingText, setIsDraggingText] = useState(false);
+
+  // Magnifier State
+  const [magnifierCircle, setMagnifierCircle] = useState<{ x: number, y: number, r: number } | null>(null);
+  const [isDefiningMagnifier, setIsDefiningMagnifier] = useState(false);
 
   const [textInput, setTextInput] = useState<{ x: number, y: number, value: string } | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  const drawAll = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = contextRef.current;
+    const img = baseImageRef.current;
+    if (!canvas || !ctx || !img) return;
+
+    // Reset and clear
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(dpr, dpr);
+
+    // Draw base layer (Original Image)
+    ctx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
+
+    // Draw Drawing History (merged)
+    // In this complex version, history is stored as images of the DRAWING layer
+    // To keep it simple for MVP, we'll just restore the last "baked" state if drawing
+    // But for interactive text, we render them live
+    
+    // Draw Annotations
+    annotations.forEach(anno => {
+        const isSelected = anno.id === selectedTextId;
+        ctx.font = `black ${anno.size === 'sm' ? '12px' : anno.size === 'lg' ? '24px' : '16px'} Figtree, sans-serif`;
+        ctx.fillStyle = anno.color;
+        
+        if (isSelected) {
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = 'rgba(0,0,0,0.3)';
+        }
+        
+        ctx.fillText(anno.text.toUpperCase(), anno.x, anno.y);
+        ctx.shadowBlur = 0;
+
+        if (isSelected) {
+            ctx.strokeStyle = 'rgba(121, 85, 196, 0.5)';
+            ctx.lineWidth = 1;
+            const metrics = ctx.measureText(anno.text.toUpperCase());
+            const height = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
+            ctx.strokeRect(anno.x - 2, anno.y - height, metrics.width + 4, height + 4);
+        }
+    });
+
+    if (magnifierCircle && isDefiningMagnifier) {
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.arc(magnifierCircle.x, magnifierCircle.y, magnifierCircle.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+  }, [annotations, selectedTextId, magnifierCircle, isDefiningMagnifier, color]);
 
   const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -96,7 +164,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (imageUrl.startsWith('http')) img.crossOrigin = "anonymous";
     
     img.onload = () => {
-      const padding = 40;
+      baseImageRef.current = img;
+      const padding = isMobile ? 20 : 40;
       const availWidth = container.clientWidth - padding;
       const availHeight = container.clientHeight - padding;
       const scale = Math.min(availWidth / img.width, availHeight / img.height);
@@ -110,38 +179,25 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       canvas.style.width = `${displayWidth}px`;
       canvas.style.height = `${displayHeight}px`;
 
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(dpr, dpr);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.strokeStyle = color;
-      ctx.lineWidth = brushSize;
-      ctx.font = 'bold 16px Figtree, sans-serif';
-      
-      ctx.drawImage(img, 0, 0, displayWidth, displayHeight);
       contextRef.current = ctx;
-      setHistory([canvas.toDataURL()]);
+      drawAll();
       setIsLoading(false);
     };
     img.src = imageUrl;
-  }, [imageUrl, color, brushSize]);
+  }, [imageUrl, drawAll, isMobile]);
 
   useEffect(() => {
     if (open) {
         setIsLoading(true);
-        requestAnimationFrame(() => {
-            initCanvas();
-        });
+        setAnnotations([]);
+        setHistory([]);
+        requestAnimationFrame(initCanvas);
     }
   }, [open, initCanvas]);
 
   useEffect(() => {
-    if (contextRef.current) {
-      contextRef.current.strokeStyle = color;
-      contextRef.current.fillStyle = color;
-      contextRef.current.lineWidth = brushSize;
-    }
-  }, [color, brushSize]);
+      if (!isLoading) drawAll();
+  }, [drawAll, isLoading]);
 
   const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current;
@@ -150,140 +206,147 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
     
-    // Adjusted for current zoom and offset
     return {
-      x: (clientX - rect.left) / zoom,
-      y: (clientY - rect.top) / zoom,
+      x: (clientX - rect.left),
+      y: (clientY - rect.top),
     };
   };
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     if (isLoading) return;
-    
-    if (tool === 'pan') {
-        setIsPanning(true);
-        const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-        const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-        setPanStart({ x: clientX - offset.x, y: clientY - offset.y });
+    const { x, y } = getCoordinates(e);
+
+    // 1. Check for Text Selection
+    const clickedText = [...annotations].reverse().find(anno => {
+        const ctx = contextRef.current;
+        if (!ctx) return false;
+        ctx.font = `bold ${anno.size === 'sm' ? '12px' : anno.size === 'lg' ? '24px' : '16px'} Figtree, sans-serif`;
+        const metrics = ctx.measureText(anno.text.toUpperCase());
+        const height = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
+        return x >= anno.x && x <= anno.x + metrics.width && y >= anno.y - height && y <= anno.y;
+    });
+
+    if (clickedText) {
+        setSelectedStaffId(clickedText.id);
+        setIsDraggingText(true);
+        setTool('select');
         return;
     }
 
     if (tool === 'text') {
-        const { x, y } = getCoordinates(e);
         setTextInput({ x, y, value: '' });
         return;
     }
 
-    if (tool === 'target') {
-        const { x, y } = getCoordinates(e);
-        setTargetCircle({ x, y, r: 0 });
-        setIsDefiningTarget(true);
+    if (tool === 'magnifier') {
+        setMagnifierCircle({ x, y, r: 0 });
+        setIsDefiningMagnifier(true);
         return;
     }
 
-    const { x, y } = getCoordinates(e);
-    contextRef.current?.beginPath();
-    contextRef.current?.moveTo(x, y);
-    setIsDrawing(true);
+    if (tool === 'pencil') {
+        const ctx = contextRef.current;
+        if (!ctx) return;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = brushSize;
+        setIsDrawing(true);
+    }
+    
+    setSelectedStaffId(null);
   };
 
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (isPanning) {
-        const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-        const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-        setOffset({ x: clientX - panStart.x, y: clientY - panStart.y });
-        return;
-    }
-
-    if (isDefiningTarget && targetCircle) {
-        const { x, y } = getCoordinates(e);
-        const r = Math.sqrt(Math.pow(x - targetCircle.x, 2) + Math.pow(y - targetCircle.y, 2));
-        setTargetCircle({ ...targetCircle, r });
-        return;
-    }
-
-    if (!isDrawing || tool !== 'pencil') return;
     const { x, y } = getCoordinates(e);
-    contextRef.current?.lineTo(x, y);
-    contextRef.current?.stroke();
+
+    if (isDraggingText && selectedTextId) {
+        setAnnotations(prev => prev.map(a => a.id === selectedTextId ? { ...a, x, y } : a));
+        return;
+    }
+
+    if (isDefiningMagnifier && magnifierCircle) {
+        const r = Math.sqrt(Math.pow(x - magnifierCircle.x, 2) + Math.pow(y - magnifierCircle.y, 2));
+        setMagnifierCircle({ ...magnifierCircle, r });
+        return;
+    }
+
+    if (!isDrawing || tool !== 'pencil' || !contextRef.current) return;
+    contextRef.current.lineTo(x, y);
+    contextRef.current.stroke();
   };
 
   const handleMouseUp = () => {
-    if (isDefiningTarget && targetCircle) {
-        // Calculate zoom to fit circle
-        if (targetCircle.r > 10) {
-            const canvas = canvasRef.current;
-            if (canvas) {
-                const targetZoom = Math.min(3, canvas.clientWidth / (targetCircle.r * 2.5));
-                setZoom(targetZoom);
-                // Center on circle
-                const centerX = targetCircle.x * targetZoom;
-                const centerY = targetCircle.y * targetZoom;
-                const viewCenterX = containerRef.current!.clientWidth / 2;
-                const viewCenterY = containerRef.current!.clientHeight / 2;
-                setOffset({ x: viewCenterX - centerX, y: viewCenterY - centerY });
+    if (isDefiningMagnifier && magnifierCircle && magnifierCircle.r > 5) {
+        const ctx = contextRef.current;
+        const img = baseImageRef.current;
+        if (ctx && img) {
+            const dpr = window.devicePixelRatio || 1;
+            
+            // 1. Create a temporary canvas to get the scaled-up source
+            const temp = document.createElement('canvas');
+            const tempCtx = temp.getContext('2d');
+            const r = magnifierCircle.r;
+            const size = r * 2;
+            
+            temp.width = size * 2; // 2x magnification
+            temp.height = size * 2;
+
+            if (tempCtx) {
+                // Draw the source area into the temp canvas at 2x scale
+                tempCtx.drawImage(
+                    img, 
+                    (magnifierCircle.x - r) * (img.width / (canvasRef.current!.width / dpr)), 
+                    (magnifierCircle.y - r) * (img.height / (canvasRef.current!.height / dpr)),
+                    size * (img.width / (canvasRef.current!.width / dpr)), 
+                    size * (img.height / (canvasRef.current!.height / dpr)),
+                    0, 0, size * 2, size * 2
+                );
+
+                // 2. Draw circular clip back onto main canvas
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(magnifierCircle.x, magnifierCircle.y, r, 0, Math.PI * 2);
+                ctx.clip();
+                
+                // Draw the magnified image
+                ctx.drawImage(temp, magnifierCircle.x - r, magnifierCircle.y - r, size, size);
+                
+                // Add a high-fidelity border to the lens
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
             }
         }
-        setTargetCircle(null);
-        setIsDefiningTarget(false);
+        setMagnifierCircle(null);
+        setIsDefiningMagnifier(false);
         setTool('pencil');
     }
 
     if (isDrawing) {
         contextRef.current?.closePath();
         setIsDrawing(false);
-        saveHistory();
     }
-    setIsPanning(false);
-  };
-
-  const saveHistory = () => {
-    if (canvasRef.current) {
-        setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
-    }
+    setIsDraggingText(false);
   };
 
   const handleTextSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textInput || !textInput.value.trim() || !contextRef.current) {
+    if (!textInput || !textInput.value.trim()) {
         setTextInput(null);
         return;
     }
-    const ctx = contextRef.current;
-    ctx.save();
-    // Font settings must be reapplied if transform changed
-    ctx.font = 'bold 16px Figtree, sans-serif';
-    ctx.fillStyle = color;
-    ctx.fillText(textInput.value.toUpperCase(), textInput.x, textInput.y);
-    ctx.restore();
-    setTextInput(null);
-    saveHistory();
-  };
-
-  const handleUndo = () => {
-    if (history.length <= 1) return;
-    const newHistory = history.slice(0, -1);
-    setHistory(newHistory);
-    const prevState = newHistory[newHistory.length - 1];
-    const img = new Image();
-    img.src = prevState;
-    img.onload = () => {
-        const canvas = canvasRef.current;
-        const ctx = contextRef.current;
-        if (canvas && ctx) {
-            const dpr = window.devicePixelRatio || 1;
-            ctx.save();
-            ctx.setTransform(1, 0, 0, 1, 0, 0); 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            ctx.restore();
-        }
+    const newAnnotation: TextAnnotation = {
+        id: nanoid(),
+        text: textInput.value,
+        x: textInput.x,
+        y: textInput.y,
+        color: color,
+        size: textSize
     };
-  };
-
-  const handleZoom = (delta: number) => {
-      setZoom(prev => Math.max(1, Math.min(3, prev + delta)));
-      if (zoom + delta === 1) setOffset({ x: 0, y: 0 });
+    setAnnotations(prev => [...prev, newAnnotation]);
+    setTextInput(null);
   };
 
   const handlePrint = () => {
@@ -299,75 +362,92 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const handleSave = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dataUrl = canvas.toDataURL('image/png');
-    onSave(dataUrl);
+    // Final bake of text into image for dossier
+    onSave(canvas.toDataURL('image/png'));
     onOpenChange(false);
+  };
+
+  const handleClear = () => {
+      setAnnotations([]);
+      initCanvas();
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[95vh]">
-        <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left flex-shrink-0">
-          <div className="flex items-center gap-3 mb-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical Mapping</span>
+      <DialogContent className="sm:max-w-5xl p-0 border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[95vh] sm:h-[90vh]">
+        <DialogHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left flex-shrink-0">
+          <div className="flex items-center gap-3 mb-1.5 md:mb-2">
+            <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />
+            <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical Mapping</span>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
-          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Annotate and magnify technical assets for clinical precision.</DialogDescription>
+          <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+          <DialogDescription className="hidden sm:block text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Annotate and magnify technical assets for clinical precision.</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden bg-muted/20 relative flex flex-col md:flex-row">
-            <div className="w-full md:w-20 bg-background border-b md:border-b-0 md:border-r p-4 flex md:flex-col items-center justify-center gap-4 flex-shrink-0">
+            {/* TOOLBAR */}
+            <div className="w-full md:w-24 bg-background border-b md:border-b-0 md:border-r p-3 md:p-4 flex md:flex-col items-center justify-between md:justify-start gap-4 flex-shrink-0">
                 <div className="flex md:flex-col gap-2">
-                    {colors.map((c) => (
+                    {colors.slice(0, 4).map((c) => (
                         <button
                             key={c.value}
                             onClick={() => setColor(c.value)}
                             className={cn(
-                                "w-8 h-8 rounded-full border-2 transition-all active:scale-90 shadow-sm",
+                                "w-7 h-7 md:w-9 md:h-9 rounded-full border-2 transition-all active:scale-90 shadow-sm",
                                 color === c.value ? "border-primary scale-110 ring-4 ring-primary/10" : "border-white"
                             )}
                             style={{ backgroundColor: c.value }}
                         />
                     ))}
                 </div>
-                <Separator className="hidden md:block border-dashed" />
-                <div className="flex md:flex-col gap-2">
+                
+                <Separator className="hidden md:block border-dashed my-2" />
+                
+                <div className="flex md:flex-col gap-1.5 md:gap-2">
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant={tool === 'pencil' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pencil')} className="h-10 w-10 rounded-xl"><Pencil className="w-5 h-5" /></Button>
+                                <Button variant={tool === 'pencil' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pencil')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl"><Pencil className="w-4 h-4 md:w-5 md:h-5" /></Button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Pencil</TooltipContent>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Pencil</TooltipContent>
                         </Tooltip>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant={tool === 'text' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('text')} className="h-10 w-10 rounded-xl"><Type className="w-5 h-5" /></Button>
+                                <Button variant={tool === 'text' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('text')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl"><TypeIcon className="w-4 h-4 md:w-5 md:h-5" /></Button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Add Text</TooltipContent>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Add Text</TooltipContent>
                         </Tooltip>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant={tool === 'target' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('target')} className="h-10 w-10 rounded-xl"><Target className="w-5 h-5" /></Button>
+                                <Button variant={tool === 'magnifier' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('magnifier')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl text-indigo-600"><ZoomIn className="w-4 h-4 md:w-5 md:h-5" /></Button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Precision Zoom (Draw Circle)</TooltipContent>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Detail Lens (Draw Circle)</TooltipContent>
                         </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant={tool === 'pan' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pan')} className="h-10 w-10 rounded-xl"><Hand className="w-5 h-5" /></Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Pan View</TooltipContent>
-                        </Tooltip>
-                        <Separator className="my-2 border-dashed" />
-                        <Button variant="ghost" size="icon" onClick={() => handleZoom(0.25)} className="h-10 w-10 rounded-xl"><Plus className="w-5 h-5" /></Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleZoom(-0.25)} className="h-10 w-10 rounded-xl"><Minus className="w-5 h-5" /></Button>
-                        <Separator className="my-2 border-dashed" />
-                        <Button variant="ghost" size="icon" onClick={handleUndo} disabled={history.length <= 1} className="h-10 w-10 rounded-xl"><Undo2 className="w-5 h-5" /></Button>
+                        
+                        {tool === 'text' && (
+                            <div className="flex md:flex-col gap-1 md:mt-2">
+                                {(['sm', 'md', 'lg'] as TextSize[]).map(sz => (
+                                    <Button 
+                                        key={sz} 
+                                        variant={textSize === sz ? 'secondary' : 'ghost'} 
+                                        size="icon" 
+                                        onClick={() => setTextSize(sz)}
+                                        className="h-7 w-7 md:h-8 md:w-8 rounded-lg text-[10px] font-black uppercase"
+                                    >
+                                        {sz}
+                                    </Button>
+                                ))}
+                            </div>
+                        )}
                     </TooltipProvider>
+                </div>
+
+                <div className="mt-auto hidden md:flex flex-col gap-2">
+                    <Button variant="ghost" size="icon" onClick={handleClear} className="h-11 w-11 rounded-xl text-destructive hover:bg-destructive/5"><Trash2 className="w-5 h-5" /></Button>
                 </div>
             </div>
 
-            <div ref={containerRef} className="flex-1 relative flex items-center justify-center p-4 overflow-hidden">
+            <div ref={containerRef} className="flex-1 relative flex items-center justify-center p-4 overflow-hidden touch-none select-none">
                 <AnimatePresence>
                     {isLoading && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 z-10 gap-4 text-center">
@@ -377,13 +457,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                     )}
                 </AnimatePresence>
                 
-                <div 
-                    style={{ 
-                        transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-                        transition: isPanning ? 'none' : 'transform 0.2s ease-out'
-                    }}
-                    className="relative cursor-crosshair"
-                >
+                <div className="relative group">
                     <canvas
                         ref={canvasRef}
                         onMouseDown={handleMouseDown}
@@ -393,30 +467,16 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                         onTouchStart={handleMouseDown}
                         onTouchMove={handleMouseMove}
                         onTouchEnd={handleMouseUp}
-                        className={cn("shadow-2xl rounded-2xl bg-white border-2", isLoading ? "opacity-0" : "opacity-100")}
+                        className={cn("shadow-2xl rounded-2xl bg-white border-2 cursor-crosshair", isLoading ? "opacity-0" : "opacity-100")}
                     />
                     
-                    {targetCircle && (
-                        <div 
-                            className="absolute border-4 border-primary border-dashed rounded-full pointer-events-none animate-pulse"
-                            style={{ 
-                                left: targetCircle.x - targetCircle.r,
-                                top: targetCircle.y - targetCircle.r,
-                                width: targetCircle.r * 2,
-                                height: targetCircle.r * 2,
-                                transform: `scale(${1/zoom})`
-                            }}
-                        />
-                    )}
-
                     {textInput && (
                         <form 
                             onSubmit={handleTextSubmit}
-                            className="absolute z-50"
+                            className="absolute z-[100]"
                             style={{ 
                                 left: textInput.x, 
-                                top: textInput.y,
-                                transform: `scale(${1/zoom})`
+                                top: textInput.y - 40,
                             }}
                         >
                             <input 
@@ -424,7 +484,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                 value={textInput.value}
                                 onChange={e => setTextInput({...textInput!, value: e.target.value})}
                                 onBlur={handleTextSubmit}
-                                className="h-10 min-w-[160px] bg-white/95 backdrop-blur-md border-primary border-4 shadow-2xl font-black uppercase text-xs rounded-xl px-4 focus:outline-none"
+                                className="h-10 min-w-[160px] bg-white border-primary border-4 shadow-3xl font-black uppercase text-xs rounded-xl px-4 focus:outline-none ring-4 ring-primary/10"
                                 placeholder="ENTER CLINICAL NOTE..."
                             />
                         </form>
@@ -433,16 +493,16 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             </div>
         </div>
 
-        <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
+        <DialogFooter className="p-6 md:p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
             <div className="flex w-full flex-col sm:flex-row gap-4">
                 <div className="flex gap-2 flex-1">
-                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel</Button>
-                    <Button variant="outline" onClick={handlePrint} className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2 bg-white shadow-sm">
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-widest text-[9px] md:text-[10px] text-slate-400">Cancel</Button>
+                    <Button variant="outline" onClick={handlePrint} className="flex-1 h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[9px] md:text-[10px] border-2 bg-white shadow-sm">
                         <Printer className="w-4 h-4 mr-2 opacity-40" />
-                        Print Mapping
+                        Print Record
                     </Button>
                 </div>
-                <Button onClick={handleSave} disabled={isLoading} className="flex-[1.5] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
+                <Button onClick={handleSave} disabled={isLoading} className="flex-[1.5] h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
                     Commit to Dossier <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </Button>
             </div>
