@@ -122,6 +122,7 @@ export default function ClientPortalPage() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [settlementSuccess, setSettlementSuccess] = useState(false);
 
+    // --- DATA FETCHING ---
     const clientRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/clients/${clientId}`), [firestore, tenantId, clientId]);
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientRef);
 
@@ -131,14 +132,17 @@ export default function ClientPortalPage() {
     const appointmentsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);
     const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
 
+    const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
+    const { data: clients } = useCollection<Client>(clientsQuery);
+
     const redemptionsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients/${clientId}/redemptions`), [firestore, tenantId, clientId]);
-    const { data: redemptions, isLoading: redemptionsLoading } = useCollection<Redemption>(redemptionsQuery);
+    const { data: redemptions } = useCollection<Redemption>(redemptionsQuery);
 
     const refreshmentRequestsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/refreshmentRequests`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);
-    const { data: refreshmentRequests, isLoading: requestsLoading } = useCollection<RefreshmentRequest>(refreshmentRequestsQuery);
+    const { data: refreshmentRequests } = useCollection<RefreshmentRequest>(refreshmentRequestsQuery);
 
     const signedConsentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`), [firestore, tenantId, clientId]);
-    const { data: signedConsents, isLoading: consentsLoading } = useCollection<any>(signedConsentsQuery);
+    const { data: signedConsents } = useCollection<any>(signedConsentsQuery);
 
     const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
     const { data: services } = useCollection<Service>(servicesQuery);
@@ -155,6 +159,7 @@ export default function ClientPortalPage() {
     const discountsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/discounts`), [firestore, tenantId]);
     const { data: discounts } = useCollection<Discount>(discountsQuery);
 
+    // --- LOGIC ---
     const activeMembership = useMemo(() => {
         const mId = client?.activeMembershipId || client?.subscription?.membershipId;
         if (!mId || !memberships) return null;
@@ -389,20 +394,7 @@ export default function ClientPortalPage() {
 
     const safeBalance = useMemo(() => safeNumber(client?.outstandingBalance), [client]);
 
-    const handleCopyLink = (token: string) => {
-        const link = `${window.location.origin}/check-in/${token}`;
-        navigator.clipboard.writeText(link);
-        toast({ title: 'Portal Link Copied' });
-    };
-
-    function isBirthdayToday(birthday?: string) {
-        if (!birthday) return false;
-        const birth = safeDate(birthday);
-        const today = new Date();
-        return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
-    }
-
-    if (clientLoading || appointmentsLoading || redemptionsLoading || requestsLoading || consentsLoading) {
+    if (clientLoading || appointmentsLoading) {
         return (
             <div className="flex h-screen w-full flex-col items-center justify-center p-4 bg-background">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
@@ -428,7 +420,7 @@ export default function ClientPortalPage() {
                             </div>
                             <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Authentication Denied</DialogTitle>
                         </CardHeader>
-                        <CardContent className="p-10 space-y-8">
+                        <CardContent className="p-10 space-y-8 text-center">
                             <div className="w-24 h-24 bg-destructive/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5">
                                 <Ban className="w-12 h-12 text-destructive" />
                             </div>
@@ -489,7 +481,7 @@ export default function ClientPortalPage() {
 
                             <motion.button 
                                 onClick={() => setEntered(true)}
-                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95 text-primary/60"
+                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95 text-slate-400"
                             >
                                 <span className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] opacity-60 group-hover:opacity-100 transition-opacity">Access Dashboard</span>
                                 <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce opacity-60 group-hover:opacity-100" />
@@ -567,7 +559,7 @@ export default function ClientPortalPage() {
                             </TabsTrigger>
                             <TabsTrigger value="rewards" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
                                 <Trophy className="w-3.5 h-3.5 mr-2" /> Rewards
-                            </TabsTrigger>
+                            </Trophy>
                             <TabsTrigger value="ledger" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
                                 <Landmark className="w-3.5 h-3.5 mr-2" /> Ledger
                             </TabsTrigger>
@@ -630,10 +622,10 @@ export default function ClientPortalPage() {
                                                     <div className="p-2.5 bg-muted/30 rounded-xl shrink-0"><CheckCircle2 className="w-5 h-5 text-slate-400" /></div>
                                                     <div className="min-w-0 text-left">
                                                         <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{svc?.name}</p>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Verified with {pro?.name || 'Staff'}</p>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Verified with {pro?.name || 'Staff'}</p>
                                                     </div>
                                                 </div>
-                                                <div className="text-right shrink-0">
+                                                <div className="text-right shrink-0 ml-4">
                                                     <p className="text-[10px] font-black font-mono text-slate-600">{format(safeDate(apt.startTime), 'MMM d, yyyy')}</p>
                                                     <Badge variant="outline" className="h-4 px-1.5 rounded-md border-none bg-muted/20 text-[7px] font-black uppercase mt-1">{apt.status}</Badge>
                                                 </div>
@@ -817,7 +809,7 @@ export default function ClientPortalPage() {
                     <AnimatePresence mode="wait">
                         {!settlementSuccess ? (
                             <motion.div key="pay-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Settlement</span></div><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Account Reconciliation</DialogTitle></DialogHeader>
+                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2 text-left"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Settlement</span></div><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Account Reconciliation</DialogTitle></DialogHeader>
                                 <div className="p-8 space-y-8">
                                     <div className="p-8 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-inner">
                                         <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Total Arrears Balance</p>
