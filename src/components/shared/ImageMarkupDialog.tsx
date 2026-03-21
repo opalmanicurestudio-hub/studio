@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
@@ -11,6 +10,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { 
     Pencil, 
     Trash2, 
@@ -33,7 +33,6 @@ import { cn, safeNumber } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Input } from '@/components/ui/input';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { nanoid } from 'nanoid';
 import { useToast } from '@/hooks/use-toast';
@@ -114,9 +113,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     ctx.scale(dpr, dpr);
     ctx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
 
-    // Draw Drawing History (If we decide to bake pencil strokes into history images)
-    // Note: History is simplified for MVP to store "baked" canvas states
-
     // Draw Annotations
     annotations.forEach(anno => {
         const isSelected = anno.id === selectedTextId;
@@ -153,7 +149,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   }, [annotations, selectedTextId, magnifierCircle, isDefiningMagnifier, color, tool]);
 
   const initCanvas = useCallback(() => {
-    if (isMobile === undefined) return;
+    if (isMobile === undefined || !open) return;
     const canvas = canvasRef.current;
     const container = containerRef.current;
     
@@ -190,14 +186,18 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         toast({ variant: 'destructive', title: 'Load Error', description: 'Technical asset could not be buffered.' });
     };
     img.src = imageUrl;
-  }, [imageUrl, drawAll, isMobile, toast]);
+  }, [imageUrl, isMobile, open, toast]); // Removed drawAll to avoid circular dependency
 
   useEffect(() => {
     if (open) {
         setIsLoading(true);
         setAnnotations([]);
         setHistory([]);
-        requestAnimationFrame(initCanvas);
+        // Use a short delay to ensure DOM is ready
+        const timer = setTimeout(() => {
+            initCanvas();
+        }, 50);
+        return () => clearTimeout(timer);
     }
   }, [open, initCanvas]);
 
@@ -369,7 +369,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
           const img = new Image();
           img.onload = () => {
-              const dpr = window.devicePixelRatio || 1;
               ctx.setTransform(1, 0, 0, 1, 0, 0);
               ctx.clearRect(0, 0, canvas.width, canvas.height);
               ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -405,7 +404,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-5xl p-0 border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[95vh] sm:h-[90vh]">
         <DialogHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left flex-shrink-0">
-          <div className="flex items-center gap-3 mb-1.5 md:mb-2">
+          <div className="flex items-center gap-3 mb-1.5 md:mb-2 text-left">
             <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />
             <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical Mapping</span>
           </div>
@@ -501,7 +500,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                             <input 
                                 autoFocus
                                 value={textInput.value}
-                                onChange={e => setTextInput({...textInput!, value: e.target.value})}
+                                onChange={e => setTextInput(prev => prev ? {...prev, value: e.target.value} : null)}
                                 onBlur={handleTextSubmit}
                                 className="h-10 min-w-[160px] bg-white border-primary border-4 shadow-3xl font-black uppercase text-xs rounded-xl px-4 focus:outline-none ring-4 ring-primary/10"
                                 placeholder="ENTER CLINICAL NOTE..."
