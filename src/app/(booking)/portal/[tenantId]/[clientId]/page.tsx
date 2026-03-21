@@ -43,9 +43,12 @@ import {
     AlertTriangle,
     XCircle,
     Undo2,
-    CalendarCheck
+    CalendarCheck,
+    Lock,
+    CreditCard
 } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff } from '@/lib/data';
+import { type Transaction } from '@/lib/financial-data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -63,6 +66,16 @@ import {
     AlertDialogHeader, 
     AlertDialogTitle 
 } from "@/components/ui/alert-dialog";
+import { 
+    Dialog, 
+    DialogContent, 
+    DialogHeader, 
+    DialogTitle, 
+    DialogDescription, 
+    DialogFooter 
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
 import { nanoid } from 'nanoid';
 
@@ -85,13 +98,15 @@ const safeDate = (val: any): Date => {
 
 export default function ClientPortalPage() {
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
-    const { firestore } = useFirebase();
+    const { firestore, user: firebaseUser } = useFirebase();
     const { toast } = useToast();
 
     const [entered, setEntered] = useState(false);
     const [appointmentToCancel, setAppointmentToCancel] = useState<Appointment | null>(null);
     const [appointmentToReschedule, setAppointmentToReschedule] = useState<Appointment | null>(null);
+    const [isSettlementOpen, setIsSettlementOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [settlementSuccess, setSettlementSuccess] = useState(false);
 
     const clientRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/clients/${clientId}`), [firestore, tenantId, clientId]);
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientRef);
@@ -242,7 +257,6 @@ export default function ClientPortalPage() {
 
         let feeAmount = 0;
         if (isLate) {
-            // Calculate base fee (House Floor Recovery)
             const duration = svc?.duration || 60;
             const tmhr = tenant?.tmhr || 50;
             const overhead = (duration / 60) * tmhr;
@@ -318,6 +332,51 @@ export default function ClientPortalPage() {
         }
     };
 
+    const handleSettleArrears = async () => {
+        if (!client || !firestore || !tenantId) return;
+        setIsProcessing(true);
+        
+        const batch = writeBatch(firestore);
+        const amount = safeNumber(client.outstandingBalance);
+        const now = new Date().toISOString();
+
+        // 1. Log Transaction
+        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+        batch.set(txnRef, {
+            id: txnRef.id,
+            date: now,
+            description: "Self-Service Arrears Settlement",
+            clientOrVendor: client.name,
+            clientId: client.id,
+            type: 'income',
+            context: 'Business',
+            category: 'Fee Recovery',
+            amount: amount,
+            paymentMethod: client.cardOnFile?.token ? 'Card on File' : 'Digital Gateway',
+            hasReceipt: false,
+            tenantId
+        });
+
+        // 2. Update Client Record
+        const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+        batch.update(clientRef, {
+            outstandingBalance: 0,
+            unpaidFees: [],
+            lifetimeValue: increment(amount)
+        });
+
+        try {
+            await batch.commit();
+            setSettlementSuccess(true);
+            toast({ title: "Balance Reconciled", description: "Your studio account is now clear." });
+        } catch (e) {
+            console.error(e);
+            toast({ variant: 'destructive', title: "Settlement Failed" });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     const safeBalance = useMemo(() => safeNumber(client?.outstandingBalance), [client]);
 
     if (clientLoading || appointmentsLoading || redemptionsLoading || requestsLoading || consentsLoading) {
@@ -371,10 +430,10 @@ export default function ClientPortalPage() {
 
                             <motion.button 
                                 onClick={() => setEntered(true)}
-                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95 text-muted-foreground"
+                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95 text-primary"
                             >
-                                <span className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] opacity-40 group-hover:opacity-100 transition-opacity">Access Dashboard</span>
-                                <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce opacity-40 group-hover:opacity-100" />
+                                <span className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] opacity-60 group-hover:opacity-100 transition-opacity">Access Dashboard</span>
+                                <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce opacity-60 group-hover:opacity-100" />
                             </motion.button>
                         </motion.div>
                     </motion.div>
@@ -428,8 +487,18 @@ export default function ClientPortalPage() {
                                     <div className="space-y-1">
                                         <AlertTitle className="text-2xl font-black uppercase tracking-tighter text-destructive leading-none">Accounting Balance</AlertTitle>
                                         <AlertDescription className="text-sm font-bold text-slate-600 uppercase tracking-tight opacity-80 mt-2">
-                                            A total of <strong>${safeBalance.toFixed(2)}</strong> in outstanding fees is recorded. Please settle during your next visit.
+                                            A total of <strong>${safeBalance.toFixed(2)}</strong> in outstanding fees is recorded. Reconcile now to maintain active status.
                                         </AlertDescription>
+                                        <div className="pt-4">
+                                            <Button 
+                                                variant="outline" 
+                                                onClick={() => setIsSettlementOpen(true)}
+                                                className="h-10 rounded-xl border-destructive/30 bg-white text-destructive font-black uppercase text-[10px] tracking-widest hover:bg-destructive hover:text-white transition-all shadow-sm"
+                                            >
+                                                <Zap className="w-3.5 h-3.5 mr-2" />
+                                                Settle Balance Now
+                                            </Button>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="text-right shrink-0">
@@ -809,6 +878,77 @@ export default function ClientPortalPage() {
                 </Tabs>
             </main>
 
+            <Dialog open={isSettlementOpen} onOpenChange={setIsSettlementOpen}>
+                <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
+                    <AnimatePresence mode="wait">
+                        {!settlementSuccess ? (
+                            <motion.div key="pay-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <ShieldCheck className="w-5 h-5 text-primary" />
+                                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Settlement</span>
+                                    </div>
+                                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Account Reconciliation</DialogTitle>
+                                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authorize debt settlement for your studio dossier.</DialogDescription>
+                                </DialogHeader>
+                                <div className="p-8 space-y-8">
+                                    <div className="p-8 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-inner">
+                                        <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Total Arrears Balance</p>
+                                        <p className="text-6xl font-black text-primary tracking-tighter font-mono">${safeBalance.toFixed(2)}</p>
+                                    </div>
+
+                                    <div className="space-y-6 text-left">
+                                        <div className="space-y-3">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</Label>
+                                            {client.cardOnFile ? (
+                                                <div className="p-5 rounded-2xl border-2 bg-primary/[0.02] border-primary/10 flex items-center justify-between shadow-sm">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
+                                                        <div className="text-left">
+                                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p>
+                                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Authorized Vault Card</p>
+                                                        </div>
+                                                    </div>
+                                                    <Lock className="w-4 h-4 text-primary opacity-20" />
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 4242" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-muted/5" /></div>
+                                                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
+                                            <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
+                                            <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-tight">
+                                                Your payment will be processed instantly. This action will clear all historical fee markers and restore full dashboard status.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3">
+                                    <Button onClick={handleSettleArrears} disabled={isProcessing} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">
+                                        {isProcessing ? <Loader className="animate-spin" /> : `Authorize $${safeBalance.toFixed(2)}`}
+                                    </Button>
+                                    <Button variant="ghost" onClick={() => setIsSettlementOpen(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
+                                </DialogFooter>
+                            </motion.div>
+                        ) : (
+                            <motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-10">
+                                <div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
+                                    <CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" />
+                                </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3>
+                                    <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">Your studio account has been reconciled. All outstanding fees have been cleared.</p>
+                                </div>
+                                <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </DialogContent>
+            </Dialog>
+
             <AlertDialog open={!!appointmentToCancel} onOpenChange={() => setAppointmentToCancel(null)}>
                 <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
                     <AlertDialogHeader className="p-6 pb-0 text-left">
@@ -836,7 +976,7 @@ export default function ClientPortalPage() {
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={handleConfirmCancellation} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-white hover:bg-destructive/90">
+                        <Button onClick={handleConfirmCancellation} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-white hover:bg-destructive/90">
                             {isProcessing ? <Loader className="animate-spin" /> : 'Confirm Termination'}
                         </Button>
                         <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
