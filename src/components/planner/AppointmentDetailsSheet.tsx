@@ -70,7 +70,7 @@ import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '../ui/switch';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
@@ -331,18 +331,26 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
                 {financialData && financialData.deferredFee > 0 && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                        <Alert className="border-4 border-primary/20 bg-primary/[0.02] rounded-[2.5rem] p-6 shadow-xl text-left">
-                            <Scale className="h-6 w-6 text-primary" />
-                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-primary">Deferred Protocol Fee</AlertTitle>
-                            <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
+                        <Alert className="border-2 border-primary/20 bg-primary/[0.01] rounded-2xl p-5 shadow-sm text-left">
+                            <Scale className="h-5 w-5 text-primary" />
+                            <AlertTitle className="text-[10px] font-black uppercase tracking-[0.2em] mb-2 text-primary">Deferred Protocol Fee</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
                                 This session includes a deferred rescheduling recovery of <strong>${financialData.deferredFee.toFixed(2)}</strong> to be collected at checkout.
                             </AlertDescription>
                         </Alert>
                     </motion.div>
                 )}
 
-                {client.outstandingBalance && client.outstandingBalance > 0 && (
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[1.5rem] p-4 shadow-xl"><Wallet className="h-5 w-5" /><AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Accounting Alert</AlertTitle><AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">Client owes <strong>${Number(client.outstandingBalance).toFixed(2)}</strong>. Settle at checkout.</AlertDescription></Alert></motion.div>
+                {safeNumber(client.outstandingBalance) > 0 && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                    <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-2xl p-5 shadow-sm text-left">
+                        <Wallet className="h-5 w-5" />
+                        <AlertTitle className="text-[10px] font-black uppercase tracking-[0.2em] mb-2">Accounting Alert</AlertTitle>
+                        <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
+                            Client owes <strong>${Number(client.outstandingBalance).toFixed(2)}</strong>. Settle at checkout.
+                        </AlertDescription>
+                    </Alert>
+                  </motion.div>
                 )}
 
                 <div className="grid grid-cols-2 gap-3 text-left">
