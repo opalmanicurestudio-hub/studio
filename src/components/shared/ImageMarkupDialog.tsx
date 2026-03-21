@@ -25,7 +25,10 @@ import {
     Loader,
     Maximize2,
     Printer,
-    Hand
+    Hand,
+    Target,
+    Minus,
+    Plus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -50,6 +53,8 @@ const colors = [
     { name: 'Black', value: '#000000' },   // Contrast
 ];
 
+type ToolType = 'pencil' | 'text' | 'pan' | 'target';
+
 export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   open,
   onOpenChange,
@@ -62,7 +67,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
   
   const [isDrawing, setIsDrawing] = useState(false);
-  const [tool, setTool] = useState<'pencil' | 'text' | 'pan'>('pencil');
+  const [tool, setTool] = useState<ToolType>('pencil');
   const [color, setColor] = useState(colors[0].value);
   const [brushSize, setBrushSize] = useState(3);
   const [zoom, setZoom] = useState(1);
@@ -70,6 +75,10 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   
+  // Target Zoom State
+  const [targetCircle, setTargetCircle] = useState<{ x: number, y: number, r: number } | null>(null);
+  const [isDefiningTarget, setIsDefiningTarget] = useState(false);
+
   const [textInput, setTextInput] = useState<{ x: number, y: number, value: string } | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,7 +129,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   useEffect(() => {
     if (open) {
         setIsLoading(true);
-        // Ensure canvas is ready in the next tick
         requestAnimationFrame(() => {
             initCanvas();
         });
@@ -141,6 +149,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     const rect = canvas.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    
+    // Adjusted for current zoom and offset
     return {
       x: (clientX - rect.left) / zoom,
       y: (clientY - rect.top) / zoom,
@@ -164,6 +174,13 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         return;
     }
 
+    if (tool === 'target') {
+        const { x, y } = getCoordinates(e);
+        setTargetCircle({ x, y, r: 0 });
+        setIsDefiningTarget(true);
+        return;
+    }
+
     const { x, y } = getCoordinates(e);
     contextRef.current?.beginPath();
     contextRef.current?.moveTo(x, y);
@@ -178,6 +195,13 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         return;
     }
 
+    if (isDefiningTarget && targetCircle) {
+        const { x, y } = getCoordinates(e);
+        const r = Math.sqrt(Math.pow(x - targetCircle.x, 2) + Math.pow(y - targetCircle.y, 2));
+        setTargetCircle({ ...targetCircle, r });
+        return;
+    }
+
     if (!isDrawing || tool !== 'pencil') return;
     const { x, y } = getCoordinates(e);
     contextRef.current?.lineTo(x, y);
@@ -185,6 +209,26 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   };
 
   const handleMouseUp = () => {
+    if (isDefiningTarget && targetCircle) {
+        // Calculate zoom to fit circle
+        if (targetCircle.r > 10) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const targetZoom = Math.min(3, canvas.clientWidth / (targetCircle.r * 2.5));
+                setZoom(targetZoom);
+                // Center on circle
+                const centerX = targetCircle.x * targetZoom;
+                const centerY = targetCircle.y * targetZoom;
+                const viewCenterX = containerRef.current!.clientWidth / 2;
+                const viewCenterY = containerRef.current!.clientHeight / 2;
+                setOffset({ x: viewCenterX - centerX, y: viewCenterY - centerY });
+            }
+        }
+        setTargetCircle(null);
+        setIsDefiningTarget(false);
+        setTool('pencil');
+    }
+
     if (isDrawing) {
         contextRef.current?.closePath();
         setIsDrawing(false);
@@ -206,7 +250,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         return;
     }
     const ctx = contextRef.current;
+    ctx.save();
+    // Font settings must be reapplied if transform changed
+    ctx.font = 'bold 16px Figtree, sans-serif';
+    ctx.fillStyle = color;
     ctx.fillText(textInput.value.toUpperCase(), textInput.x, textInput.y);
+    ctx.restore();
     setTextInput(null);
     saveHistory();
   };
@@ -222,6 +271,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         const canvas = canvasRef.current;
         const ctx = contextRef.current;
         if (canvas && ctx) {
+            const dpr = window.devicePixelRatio || 1;
             ctx.save();
             ctx.setTransform(1, 0, 0, 1, 0, 0); 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -298,13 +348,19 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                         </Tooltip>
                         <Tooltip>
                             <TooltipTrigger asChild>
+                                <Button variant={tool === 'target' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('target')} className="h-10 w-10 rounded-xl"><Target className="w-5 h-5" /></Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Precision Zoom (Draw Circle)</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
                                 <Button variant={tool === 'pan' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pan')} className="h-10 w-10 rounded-xl"><Hand className="w-5 h-5" /></Button>
                             </TooltipTrigger>
                             <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest border-2">Pan View</TooltipContent>
                         </Tooltip>
                         <Separator className="my-2 border-dashed" />
-                        <Button variant="ghost" size="icon" onClick={() => handleZoom(0.25)} className="h-10 w-10 rounded-xl"><ZoomIn className="w-5 h-5" /></Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleZoom(-0.25)} className="h-10 w-10 rounded-xl"><ZoomOut className="w-5 h-5" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleZoom(0.25)} className="h-10 w-10 rounded-xl"><Plus className="w-5 h-5" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleZoom(-0.25)} className="h-10 w-10 rounded-xl"><Minus className="w-5 h-5" /></Button>
                         <Separator className="my-2 border-dashed" />
                         <Button variant="ghost" size="icon" onClick={handleUndo} disabled={history.length <= 1} className="h-10 w-10 rounded-xl"><Undo2 className="w-5 h-5" /></Button>
                     </TooltipProvider>
@@ -323,7 +379,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                 
                 <div 
                     style={{ 
-                        transform: `scale(${zoom}) translate(${offset.x / zoom}px, ${offset.y / zoom}px)`,
+                        transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
                         transition: isPanning ? 'none' : 'transform 0.2s ease-out'
                     }}
                     className="relative cursor-crosshair"
@@ -340,6 +396,19 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                         className={cn("shadow-2xl rounded-2xl bg-white border-2", isLoading ? "opacity-0" : "opacity-100")}
                     />
                     
+                    {targetCircle && (
+                        <div 
+                            className="absolute border-4 border-primary border-dashed rounded-full pointer-events-none animate-pulse"
+                            style={{ 
+                                left: targetCircle.x - targetCircle.r,
+                                top: targetCircle.y - targetCircle.r,
+                                width: targetCircle.r * 2,
+                                height: targetCircle.r * 2,
+                                transform: `scale(${1/zoom})`
+                            }}
+                        />
+                    )}
+
                     {textInput && (
                         <form 
                             onSubmit={handleTextSubmit}
@@ -353,10 +422,10 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                             <input 
                                 autoFocus
                                 value={textInput.value}
-                                onChange={e => setTextInput({...textInput, value: e.target.value})}
-                                onBlur={() => setTextInput(null)}
-                                className="h-8 min-w-[120px] bg-white border-primary border-2 shadow-xl font-black uppercase text-[10px] rounded-lg px-3 focus:outline-none"
-                                placeholder="ENTER NOTE..."
+                                onChange={e => setTextInput({...textInput!, value: e.target.value})}
+                                onBlur={handleTextSubmit}
+                                className="h-10 min-w-[160px] bg-white/95 backdrop-blur-md border-primary border-4 shadow-2xl font-black uppercase text-xs rounded-xl px-4 focus:outline-none"
+                                placeholder="ENTER CLINICAL NOTE..."
                             />
                         </form>
                     )}
