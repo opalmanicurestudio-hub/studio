@@ -275,8 +275,9 @@ const ServicingView = ({
     }, [isMember, client, memberships]);
 
     /**
-     * ATOMIC CYCLE AUDITOR
+     * ATOMIC UNIFIED CYCLE AUDIT
      * Scans every delivered and pending request across the entire client history for this window.
+     * Synchronized with the logic in Client Profile Privilege Matrix.
      */
     const getRemainingPerkUses = (itemId: string) => {
         if (!isMember || !activeMembership || !client?.subscription) return 0;
@@ -286,9 +287,9 @@ const ServicingView = ({
 
         const limit = safeNumber(perkDef.quantity);
         const nextBilling = safeDate(client.subscription.nextBillingDate);
-        const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+        const cycleStart = startOfMonth(activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1));
 
-        // Audit across ALL requests for this client, not just this appointment
+        // Audit across ALL requests for this client in the cycle
         const totalCycleUsage = activeRequests
             .filter(r => r.itemId === itemId && r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart))
             .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
@@ -397,8 +398,8 @@ const ServicingView = ({
         }
     };
 
-    const pendingRequests = activeRequests.filter(r => r.appointmentId === appointment.id && r.status === 'pending');
-    const hasActiveRequest = pendingRequests.length > 0;
+    const pendingRequestsForThisSession = activeRequests.filter(r => r.appointmentId === appointment.id && r.status === 'pending');
+    const hasActiveRequest = pendingRequestsForThisSession.length > 0;
 
     return (
         <ViewContainer>
@@ -421,7 +422,7 @@ const ServicingView = ({
                         <div className="px-8 space-y-4">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-primary text-left">Active Request Ledger</h3>
                             <div className="grid gap-3">
-                                {pendingRequests.map(req => (
+                                {pendingRequestsForThisSession.map(req => (
                                     <div key={req.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-primary/5 border-primary/10 animate-pulse">
                                         <div className="flex items-center gap-3 text-left">
                                             <div className="p-2 bg-white rounded-xl shadow-inner"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
@@ -472,7 +473,7 @@ const ServicingView = ({
                                 <ScrollArea className="w-full">
                                     <div className="flex gap-6 px-8 pb-6">
                                         {items.map((item, idx) => {
-                                            const hasPendingRequest = pendingRequests.some(r => r.itemId === item.id);
+                                            const hasPendingRequest = pendingRequestsForThisSession.some(r => r.itemId === item.id);
                                             return (
                                                 <motion.div
                                                     key={item.id}
@@ -553,8 +554,9 @@ export default function CheckInPage() {
     const { data: resources } = useCollection<Resource>(resourcesQuery);
 
     /**
-     * GLOBAL REQUEST LEDGER
-     * Scans ALL historical requests for this client to ensure monthly perks are calculated across visits.
+     * GLOBAL REFRESHMENT REQUEST LEDGER
+     * Queries ALL requests for this client within the current tenant scope.
+     * Essential for calculating monthly cycle usage across multiple visits.
      */
     const allClientRequestsQuery = useMemoFirebase(() => {
         if (!firestore || !tenantId || !clientId) return null;

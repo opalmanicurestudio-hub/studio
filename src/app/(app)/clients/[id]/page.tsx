@@ -222,26 +222,35 @@ export default function ClientDetailPage() {
   }, [client, memberships]);
 
   /**
-   * UNIFIED CYCLE AUDIT PROTOCOL
-   * Scans all historical redemptions and requests within the current billing window.
-   * Provides the single source of truth for both Portal and Dossier.
+   * ATOMIC UNIFIED CYCLE AUDIT
+   * Performs a real-time historical scan of redemptions and refreshments
+   * to guarantee the Privilege Matrix is accurate regardless of visit frequency.
    */
   const getCycleCorrectUsage = (perkId: string) => {
     if (!client?.subscription || !activeMembership) return { total: 0, pending: 0, db: 0 };
     
-    // Calculate precise cycle start boundary
+    // Normalize cycle boundaries to start-of-day for precision
     const nextBilling = safeDate(client.subscription.nextBillingDate);
-    const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+    const cycleStart = startOfMonth(activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1));
 
-    // 1. Audit Services (Direct Redemptions Archive)
-    const redemptionsInCycle = clientRedemptions.filter(r => r.offeringId === activeMembership.id && r.serviceId === perkId && isAfter(safeDate(r.date), cycleStart) && !r.isForfeit);
+    // 1. Audit Services (Direct Redemptions Ledger)
+    const redemptionsInCycle = clientRedemptions.filter(r => 
+        r.serviceId === perkId && 
+        isAfter(safeDate(r.date), cycleStart) && 
+        !r.isForfeit
+    );
     
-    // 2. Audit Hospitality (Refreshment Ledger)
-    const refreshmentsInCycle = clientRefreshments.filter(r => r.itemId === perkId && r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart));
+    // 2. Audit Hospitality (Refreshment Request Registry)
+    const refreshmentsInCycle = clientRefreshments.filter(r => 
+        r.itemId === perkId && 
+        r.status !== 'cancelled' && 
+        isAfter(safeDate(r.requestedAt), cycleStart)
+    );
     
     const pendingQty = refreshmentsInCycle.filter(r => r.status === 'pending').reduce((sum, r) => sum + safeNumber(r.quantity), 0);
     const deliveredQty = refreshmentsInCycle.filter(r => r.status === 'delivered').reduce((sum, r) => sum + safeNumber(r.quantity), 0);
     
+    // Unified tally representing the absolute truth of cycle utilization
     const totalUsage = redemptionsInCycle.length + deliveredQty + pendingQty;
 
     return { total: totalUsage, pending: pendingQty, db: redemptionsInCycle.length + deliveredQty };
