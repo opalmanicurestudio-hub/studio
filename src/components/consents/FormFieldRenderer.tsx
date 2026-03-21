@@ -123,9 +123,9 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field, val
       );
     case 'image-upload':
         return (
-            <div className="space-y-2">
+            <div className="space-y-4">
                 <Label className="text-base">{field.label}</Label>
-                <ImageUpload onImageUploaded={(url) => onChange?.(url)} initialImage={value} />
+                <ImageUpload onImageUploaded={(url) => onChange?.(url)} initialImage={value} enableMarkup />
             </div>
         )
     case 'signature':

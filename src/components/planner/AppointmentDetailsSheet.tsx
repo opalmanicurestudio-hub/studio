@@ -81,6 +81,7 @@ import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import Image from 'next/image';
+import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -126,6 +127,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [isMarkupOpen, setIsMarkupOpen] = useState(false);
 
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
@@ -261,6 +263,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     }
   }, [appointment?.checkInToken, toast]);
 
+  const handleMarkupSave = (markedUpUrl: string) => {
+      if (!firestore || !tenantId || !appointment) return;
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+      updateDocumentNonBlocking(appointmentRef, { inspirationPhotoUrl: markedUpUrl });
+      toast({ title: "Technical Mapping Archived" });
+  };
+
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
@@ -347,7 +356,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
                 {appointment.inspirationPhotoUrl && (
                     <div className="space-y-4 pt-4 border-t border-dashed text-left">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Inspiration & Target</h3>
+                        <div className="flex justify-between items-center px-1">
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Inspiration & Mapping</h3>
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => setIsMarkupOpen(true)}
+                                className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm"
+                            >
+                                <Edit className="w-3 h-3 mr-1.5" /> Technical Markup
+                            </Button>
+                        </div>
                         <div 
                             className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in"
                             onClick={() => setExpandedImage(appointment.inspirationPhotoUrl!)}
@@ -436,6 +455,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         staff={staff}
         defaultStaffId={appointment.staffId || ''}
       />
+
+      {appointment.inspirationPhotoUrl && isMarkupOpen && (
+          <ImageMarkupDialog 
+            open={isMarkupOpen}
+            onOpenChange={setIsMarkupOpen}
+            imageUrl={appointment.inspirationPhotoUrl}
+            onSave={handleMarkupSave}
+            title={`Mapping for ${client.name}`}
+          />
+      )}
 
       <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">

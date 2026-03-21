@@ -51,7 +51,8 @@ import {
     Star,
     Scale,
     FileImage,
-    Maximize2
+    Maximize2,
+    Edit
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState, type StockCorrection } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -76,6 +77,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { doc, writeBatch, collection, increment } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import Image from 'next/image';
+import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -160,6 +162,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const [saveAsCustomFormula, setSaveAsCustomFormula] = useState(false);
   const [customFormulaName, setCustomFormulaName] = useState('');
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [isMarkupOpen, setIsMarkupOpen] = useState(false);
 
   useEffect(() => {
     if (open && service && appointment) {
@@ -226,7 +229,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setSaveAsCustomFormula(false);
         setCustomFormulaName('');
 
-        // Merge Dashboard deliveries with manual adds
         const sessionRequests = refreshmentRequests?.filter(r => r.appointmentId === appointment.id && r.status === 'delivered') || [];
         const dashboardRefreshments = sessionRequests.map(r => ({
             id: r.itemId,
@@ -286,7 +288,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         return {
             id: p.id,
             name: p.name,
-            quantity: 1,
+            quantity: 1, 
             unit: p.costingMethod === 'uses' ? (p.useUnit || 'uses') : (p.unit || 'unit'),
             costPerUnit: baseCpu,
             isCustom: true,
@@ -490,6 +492,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     }
   };
 
+  const handleMarkupSave = (markedUpUrl: string) => {
+      if (!firestore || !tenantId || !appointment) return;
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+      updateDocumentNonBlocking(appointmentRef, { inspirationPhotoUrl: markedUpUrl });
+      toast({ title: "Markup Committed to Dossier" });
+  };
+
   if (!client || !service || !appointment) return null;
 
   const DialogComponent = isMobile ? Sheet : Dialog;
@@ -527,7 +536,17 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
                 {appointment.inspirationPhotoUrl && (
                     <div className="mt-8 space-y-4">
-                        <SectionHeader icon={FileImage} title="Target Reference" step="Ref" />
+                        <div className="flex justify-between items-center px-1">
+                            <SectionHeader icon={FileImage} title="Target Reference" step="Ref" />
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => setIsMarkupOpen(true)}
+                                className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm"
+                            >
+                                <Edit className="w-3 h-3 mr-1.5" /> Markup Tool
+                            </Button>
+                        </div>
                         <div 
                             className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in"
                             onClick={() => setExpandedImage(appointment.inspirationPhotoUrl!)}
@@ -845,6 +864,16 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon' && (service?.compatibleAddOnIds || []).includes(s.id))} initialSelected={selectedAddOns} staff={staff} defaultStaffId={appointment.staffId || ''} />
       <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
       <BrowseProductsDialog open={isRefreshmentBrowserOpen} onOpenChange={setIsRefreshmentBrowserOpen} onSelect={handleAddRefreshments} allProducts={inventory.filter(i => i.type === 'refreshment' || i.type === 'overhead')} initialSelected={[]} />
+
+      {appointment.inspirationPhotoUrl && isMarkupOpen && (
+          <ImageMarkupDialog 
+            open={isMarkupOpen}
+            onOpenChange={setIsMarkupOpen}
+            imageUrl={appointment.inspirationPhotoUrl}
+            onSave={handleMarkupSave}
+            title={`Mapping for ${client.name}`}
+          />
+      )}
 
       <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
