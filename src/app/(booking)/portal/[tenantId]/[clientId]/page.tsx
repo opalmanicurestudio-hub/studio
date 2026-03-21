@@ -11,13 +11,38 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
-import { format, parseISO, subMonths, isAfter, isSameMonth } from 'date-fns';
-import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle, Zap, CheckCircle2, ArrowRight, Tag, Sparkles, Wallet } from 'lucide-react';
-import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption } from '@/lib/data';
+import { format, parseISO, subMonths, isAfter, subYears, startOfMonth } from 'date-fns';
+import { 
+    Award, 
+    Repeat, 
+    Calendar, 
+    DollarSign, 
+    Loader, 
+    Clock, 
+    User, 
+    Heart, 
+    Star, 
+    CheckCircle, 
+    Percent, 
+    TicketIcon, 
+    History, 
+    AlertTriangle, 
+    Zap, 
+    CheckCircle2, 
+    ArrowRight, 
+    Tag, 
+    Sparkles, 
+    Wallet,
+    ListChecks,
+    Coffee,
+    Activity,
+    ShieldCheck
+} from 'lucide-react';
+import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest } from '@/lib/data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -52,6 +77,9 @@ export default function ClientPortalPage() {
     const redemptionsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients/${clientId}/redemptions`), [firestore, tenantId, clientId]);
     const { data: redemptions, isLoading: redemptionsLoading } = useCollection<Redemption>(redemptionsQuery);
 
+    const refreshmentRequestsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/refreshmentRequests`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);
+    const { data: refreshmentRequests, isLoading: requestsLoading } = useCollection<RefreshmentRequest>(refreshmentRequestsQuery);
+
     const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
     const { data: services } = useCollection<Service>(servicesQuery);
 
@@ -61,52 +89,75 @@ export default function ClientPortalPage() {
     const packagesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/packages`), [firestore, tenantId]);
     const { data: packages } = useCollection<Package>(packagesQuery);
 
-    const upcomingAppointments = useMemo(() => {
-        if (!appointments) return [];
-        return appointments
-            .filter(a => a.status !== 'cancelled' && safeDate(a.startTime) > new Date())
-            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(a.startTime).getTime());
-    }, [appointments]);
-
-    const pastAppointments = useMemo(() => {
-        if (!appointments) return [];
-        return appointments
-            .filter(a => a.status === 'completed' || safeDate(a.startTime) <= new Date())
-            .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
-    }, [appointments]);
-
     const activeMembership = useMemo(() => {
         const mId = client?.subscription?.membershipId || client?.activeMembershipId;
         if (!mId || !memberships) return null;
         return memberships.find(m => m.id === mId);
     }, [client, memberships]);
 
-    const isPerkUsedInCycle = (perkId: string) => {
-        if (!client?.subscription?.nextBillingDate || !client.subscription.perkLastUsed) return false;
-        
-        const lastUsed = safeDate(client.subscription.perkLastUsed);
+    // --- Unified Cycle Audit Logic ---
+    const cycleStart = useMemo(() => {
+        if (!client?.subscription?.nextBillingDate || !activeMembership) return startOfMonth(new Date());
         const nextBilling = safeDate(client.subscription.nextBillingDate);
-        const cycleStart = subMonths(nextBilling, 1);
+        return startOfMonth(activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1));
+    }, [client, activeMembership]);
 
-        const isCurrentCycle = isAfter(lastUsed, cycleStart);
-        if (!isCurrentCycle) return false;
-
-        const usageCount = client.subscription.perkUsage?.[perkId] || 0;
-        const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
-                        activeMembership?.includedAddOns?.find(a => a.id === perkId);
+    const currentCycleActivity = useMemo(() => {
+        const servRedemptions = (redemptions || []).filter(r => isAfter(safeDate(r.date), cycleStart) && !r.isForfeit);
+        const hospitalityReqs = (refreshmentRequests || []).filter(r => r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart));
         
-        return usageCount >= (perkDef?.quantity || 1);
-    };
+        return {
+            services: servRedemptions,
+            hospitality: hospitalityReqs,
+            all: [...servRedemptions, ...hospitalityReqs].sort((a,b) => safeDate(b.date || (b as any).requestedAt).getTime() - safeDate(a.date || (a as any).requestedAt).getTime())
+        };
+    }, [redemptions, refreshmentRequests, cycleStart]);
 
-    if (clientLoading || appointmentsLoading || redemptionsLoading) {
+    const perkAllotments = useMemo(() => {
+        if (!activeMembership) return [];
+        const items: any[] = [];
+
+        const getUsage = (id: string) => {
+            const servCount = currentCycleActivity.services.filter(r => r.serviceId === id).length;
+            const hospCount = currentCycleActivity.hospitality.filter(r => r.itemId === id).reduce((sum, r) => sum + safeNumber(r.quantity), 0);
+            return servCount + hospCount;
+        };
+
+        (activeMembership.includedServices || []).forEach(perk => {
+            const used = getUsage(perk.id);
+            items.push({ ...perk, type: 'Service', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Star, color: 'text-indigo-600', bg: 'bg-indigo-500/10' });
+        });
+
+        (activeMembership.includedAddOns || []).forEach(perk => {
+            const used = getUsage(perk.id);
+            items.push({ ...perk, type: 'Enhancement', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Zap, color: 'text-amber-600', bg: 'bg-amber-500/10' });
+        });
+
+        (activeMembership.includedProducts || []).forEach(perk => {
+            const used = getUsage(perk.id);
+            items.push({ ...perk, type: 'Hospitality', used, progress: Math.min(100, (used / perk.quantity) * 100), icon: Coffee, color: 'text-primary', bg: 'bg-primary/10' });
+        });
+
+        return items;
+    }, [activeMembership, currentCycleActivity]);
+
+    const upcomingAppointments = useMemo(() => {
+        if (!appointments) return [];
+        return appointments
+            .filter(a => a.status !== 'cancelled' && safeDate(a.startTime) > new Date())
+            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
+    }, [appointments]);
+
+    if (clientLoading || appointmentsLoading || redemptionsLoading || requestsLoading) {
         return (
-            <div className="flex h-screen w-full items-center justify-center">
-                <Loader className="animate-spin text-primary" />
+            <div className="flex h-screen w-full flex-col items-center justify-center p-4 bg-background">
+                <Loader className="h-10 w-10 animate-spin text-primary" />
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40 mt-4">Syncing Portal Matrix...</p>
             </div>
         );
     }
 
-    if (!client) return <div className="p-10 text-center font-black uppercase text-slate-400 text-left">Account not found.</div>;
+    if (!client) return <div className="p-10 text-center font-black uppercase text-slate-400">Dossier not found.</div>;
 
     return (
         <div className="space-y-10 pb-20 text-left">
@@ -174,7 +225,7 @@ export default function ClientPortalPage() {
                         <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Tag className="w-3.5 h-3.5" /> Referral Protocol</CardTitle>
                     </CardHeader>
                     <CardContent className="text-left">
-                        <div className="p-3 rounded-xl bg-muted/30 border-2 border-dashed flex items-center justify-between group/code cursor-pointer" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); }}>
+                        <div className="p-3 rounded-xl bg-muted/30 border-2 border-dashed flex items-center justify-between group/code cursor-pointer" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: 'Code Copied' }); }}>
                             <p className="text-xl font-black font-mono tracking-widest text-primary uppercase">{client.referralCode || 'N/A'}</p>
                             <Repeat className="w-4 h-4 text-primary opacity-0 group-hover/code:opacity-40 transition-opacity" />
                         </div>
@@ -186,30 +237,40 @@ export default function ClientPortalPage() {
             <Tabs defaultValue="appointments" className="w-full">
                 <ScrollArea className="w-full">
                     <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-10 w-max mx-auto">
-                        <TabsTrigger value="appointments" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Schedule</TabsTrigger>
-                        <TabsTrigger value="benefits" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Benefit Pulse</TabsTrigger>
-                        <TabsTrigger value="history" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Usage Archive</TabsTrigger>
+                        <TabsTrigger value="appointments" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                            <Clock className="w-3.5 h-3.5 mr-2" />
+                            Confirmed Schedule
+                        </TabsTrigger>
+                        <TabsTrigger value="portfolio" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                            <ShieldCheck className="w-3.5 h-3.5 mr-2" />
+                            Membership Portfolio
+                        </TabsTrigger>
                     </TabsList>
                     <ScrollBar orientation="horizontal" className="hidden" />
                 </ScrollArea>
 
                 <TabsContent value="appointments" className="space-y-12 animate-in fade-in duration-500 text-left">
-                    <div>
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60">Confirmed Window</h3>
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-3 px-1">
+                            <Calendar className="w-5 h-5 text-primary" />
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Agenda Matrix</h3>
+                        </div>
                         {upcomingAppointments.length > 0 ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 {upcomingAppointments.map(apt => {
                                     const svc = services?.find(s => s.id === apt.serviceId);
                                     return (
-                                        <Card key={apt.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all">
+                                        <Card key={apt.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group">
                                             <CardContent className="p-6 flex items-center gap-6">
-                                                <div className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 shadow-inner text-primary shrink-0">
+                                                <div className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 shadow-inner text-primary shrink-0 group-hover:bg-primary group-hover:text-white transition-all duration-500">
                                                     <Calendar className="w-8 h-8" />
                                                 </div>
                                                 <div className="min-w-0 text-left">
                                                     <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1">{svc?.name || 'Service'}</p>
-                                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary">{format(safeDate(apt.startTime), 'EEEE, MMM d')}</p>
-                                                    <p className="text-sm font-black text-slate-500 font-mono tracking-tighter">{format(safeDate(apt.startTime), 'h:mm a')}</p>
+                                                    <div className="flex items-center gap-2">
+                                                        <Badge variant="outline" className="h-5 px-2 border-none bg-muted/50 text-muted-foreground text-[8px] font-black uppercase">{format(safeDate(apt.startTime), 'EEEE, MMM d')}</Badge>
+                                                    </div>
+                                                    <p className="text-xl font-black text-primary font-mono tracking-tighter mt-2">{format(safeDate(apt.startTime), 'h:mm a')}</p>
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -217,7 +278,7 @@ export default function ClientPortalPage() {
                                 })}
                             </div>
                         ) : (
-                            <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                                 <Clock className="w-16 h-16" />
                                 <p className="text-[10px] font-black uppercase tracking-widest">Agenda Empty</p>
                             </div>
@@ -226,13 +287,16 @@ export default function ClientPortalPage() {
 
                     <Separator className="border-dashed" />
 
-                    <div>
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Dossier History</h3>
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-3 px-1 text-left">
+                            <History className="w-5 h-5 text-muted-foreground opacity-40" />
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Legacy Archive</h3>
+                        </div>
                         <div className="grid gap-3">
-                            {pastAppointments.slice(0, 10).map(apt => {
+                            {pastAppointments.slice(0, 5).map(apt => {
                                 const svc = services?.find(s => s.id === apt.serviceId);
                                 return (
-                                    <div key={apt.id} className="flex justify-between items-center p-5 border-2 rounded-2xl bg-white hover:bg-muted/5 transition-all">
+                                    <div key={apt.id} className="flex justify-between items-center p-5 border-2 rounded-2xl bg-white hover:bg-muted/5 transition-all text-left">
                                         <div className="text-left space-y-0.5">
                                             <p className="font-black text-sm uppercase tracking-tight text-slate-900">{svc?.name}</p>
                                             <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{format(safeDate(apt.startTime), 'MMMM d, yyyy')}</p>
@@ -245,146 +309,140 @@ export default function ClientPortalPage() {
                     </div>
                 </TabsContent>
 
-                <TabsContent value="benefits" className="space-y-12 animate-in fade-in duration-500 text-left">
-                    {activeMembership && (
-                        <div className="space-y-6">
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3">
-                                <Star className="w-5 h-5" />
-                                Monthly Allotment Matrix
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {(activeMembership.includedServices || []).map(perk => {
-                                    const used = client.subscription?.perkUsage?.[perk.id] || 0;
-                                    const isRedeemed = isPerkUsedInCycle(perk.id);
-                                    const progress = (used / perk.quantity) * 100;
-                                    return (
-                                        <Card key={perk.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all">
-                                            <CardContent className="p-6 space-y-5">
-                                                <div className="flex justify-between items-start">
-                                                    <div className="space-y-1 text-left">
-                                                        <p className="font-black text-base uppercase tracking-tight text-slate-900">{perk.name}</p>
-                                                        <p className="text-[9px] font-black text-indigo-600/60 uppercase tracking-widest">Included Treatment</p>
-                                                    </div>
-                                                    <div className={cn("p-2.5 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
-                                                        {isRedeemed ? <CheckCircle2 className="w-5 h-5" /> : <Star className="w-5 h-5" />}
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
-                                                        <span>Cycle Progress</span>
-                                                        <span>{used} / {perk.quantity} used</span>
-                                                    </div>
-                                                    <Progress value={progress} className={cn("h-2 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    )
-                                })}
-                                {(activeMembership.includedAddOns || []).map(perk => {
-                                    const used = client.subscription?.perkUsage?.[perk.id] || 0;
-                                    const isRedeemed = isPerkUsedInCycle(perk.id);
-                                    const progress = (used / perk.quantity) * 100;
-                                    return (
-                                        <Card key={perk.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all">
-                                            <CardContent className="p-6 space-y-5">
-                                                <div className="flex justify-between items-start">
-                                                    <div className="space-y-1 text-left">
-                                                        <p className="font-black text-base uppercase tracking-tight text-slate-900">{perk.name}</p>
-                                                        <p className="text-[9px] font-black text-amber-600/60 uppercase tracking-widest">Included Enhancement</p>
-                                                    </div>
-                                                    <div className={cn("p-2.5 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
-                                                        {isRedeemed ? <CheckCircle2 className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
-                                                        <span>Cycle Progress</span>
-                                                        <span>{used} / {perk.quantity} used</span>
-                                                    </div>
-                                                    <Progress value={progress} className={cn("h-2 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    )
-                                })}
-                            </div>
+                <TabsContent value="portfolio" className="space-y-16 animate-in fade-in duration-500 text-left">
+                    {!activeMembership && (!client.activePackages || client.activePackages.length === 0) ? (
+                        <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                            <Award className="w-16 h-16" />
+                            <p className="text-[10px] font-black uppercase tracking-widest">No active benefits found</p>
                         </div>
-                    )}
-
-                    {client.activePackages && client.activePackages.length > 0 && (
-                        <div className="space-y-6">
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-teal-600 flex items-center gap-3">
-                                <Repeat className="w-5 h-5" />
-                                Prepaid Service Bundles
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {client.activePackages.map((pack, idx) => {
-                                    const details = packages?.find(p => p.id === pack.packageId);
-                                    const svc = services?.find(s => s.id === details?.serviceId);
-                                    const progress = (pack.sessionsRemaining / (details?.sessions || 1)) * 100;
-                                    return (
-                                        <Card key={idx} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-teal-500/20 transition-all">
-                                            <CardContent className="p-6 space-y-5">
-                                                <div className="flex justify-between items-start">
-                                                    <div className="space-y-1 text-left">
-                                                        <p className="font-black text-base uppercase tracking-tight text-slate-900">{details?.name}</p>
-                                                        <p className="text-[9px] font-black text-teal-600/60 uppercase tracking-widest">{svc?.name}</p>
-                                                    </div>
-                                                    <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-600 shadow-inner">
-                                                        <Repeat className="w-5 h-5" />
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
-                                                        <span>Sessions Remaining</span>
-                                                        <span>{pack.sessionsRemaining} / {details?.sessions}</span>
-                                                    </div>
-                                                    <Progress value={progress} className="h-2 rounded-full bg-muted [&>div]:bg-teal-500" />
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-                </TabsContent>
-
-                <TabsContent value="history" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
-                    <div>
-                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 ml-1 mb-6">
-                            <History className="w-5 h-5" />
-                            Redemption Archive
-                        </h3>
-                        {redemptions && redemptions.length > 0 ? (
-                            <div className="grid gap-3">
-                                {redemptions.sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()).map(r => (
-                                    <div key={r.id} className={cn("flex items-center justify-between p-5 rounded-[1.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
-                                        <div className="flex items-center gap-4">
-                                            <div className={cn("p-3 rounded-2xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.isRollover ? "bg-blue-500/10 text-blue-600" : "bg-indigo-500/10 text-indigo-600")}>
-                                                {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.isRollover ? <RefreshCw className="w-4 h-4" /> : <Star className="w-4 h-4" />}
-                                            </div>
-                                            <div className="min-w-0 text-left">
-                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{r.serviceName}</p>
-                                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Drawn from {r.offeringName}</p>
+                    ) : (
+                        <>
+                            {activeMembership && (
+                                <div className="space-y-10">
+                                    <div className="flex items-center justify-between px-1 text-left">
+                                        <div className="flex items-center gap-3 text-left">
+                                            <div className="p-2.5 bg-indigo-600 rounded-xl shadow-lg shadow-indigo-500/20"><Award className="w-5 h-5 text-white" /></div>
+                                            <div className="text-left">
+                                                <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{activeMembership.name}</h3>
+                                                <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest opacity-60">Monthly Allotment Matrix</p>
                                             </div>
                                         </div>
-                                        <div className="text-right shrink-0 ml-4">
-                                            <p className="font-black font-mono text-[11px] text-slate-900 leading-none">{format(safeDate(r.date), 'MMM d, p')}</p>
-                                            <Badge variant={r.isForfeit ? "destructive" : "outline"} className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none shadow-sm">
-                                                {r.isForfeit ? "FORFEITED" : r.isRollover ? "ROLLED OVER" : "REDEEMED"}
-                                            </Badge>
+                                        <Badge variant="outline" className="h-7 px-4 rounded-full border-2 font-black uppercase text-[10px] tracking-widest bg-indigo-50 text-indigo-700 border-indigo-200">
+                                            Cycle: {format(cycleStart, 'MMM d')} - {format(addMonths(cycleStart, 1), 'MMM d')}
+                                        </Badge>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {perkAllotments.map(perk => {
+                                            const isExhausted = perk.used >= perk.quantity;
+                                            return (
+                                                <Card key={perk.id} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all", isExhausted && "opacity-60")}>
+                                                    <CardContent className="p-6 space-y-5 text-left">
+                                                        <div className="flex justify-between items-start gap-4">
+                                                            <div className="space-y-1 flex-1 min-w-0 text-left">
+                                                                <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-tight">{perk.name}</p>
+                                                                <p className={cn("text-[9px] font-black uppercase tracking-widest", perk.color)}>{perk.type} Allotment</p>
+                                                            </div>
+                                                            <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isExhausted ? "bg-green-500/10 text-green-600" : perk.bg + " " + perk.color)}>
+                                                                {isExhausted ? <CheckCircle2 className="w-6 h-6" /> : <perk.icon className="w-6 h-6" />}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                                <span>Allotment Usage</span>
+                                                                <span>{perk.used} / {perk.quantity}</span>
+                                                            </div>
+                                                            <Progress value={perk.progress} className={cn("h-2 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {client.activePackages && client.activePackages.length > 0 && (
+                                <div className="space-y-8">
+                                    <div className="flex items-center gap-3 px-1 text-left">
+                                        <div className="p-2.5 bg-teal-600 rounded-xl shadow-lg shadow-teal-500/20"><Repeat className="w-5 h-5 text-white" /></div>
+                                        <div className="text-left">
+                                            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">Bundles</h3>
+                                            <p className="text-[9px] font-bold text-teal-600 uppercase tracking-widest opacity-60">Prepaid Service Portfolio</p>
                                         </div>
                                     </div>
-                                ))}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {client.activePackages.map((pack, idx) => {
+                                            const details = packages?.find(p => p.id === pack.packageId);
+                                            const svc = services?.find(s => s.id === details?.serviceId);
+                                            const progress = (pack.sessionsRemaining / (details?.sessions || 1)) * 100;
+                                            return (
+                                                <Card key={idx} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-teal-500/20 transition-all">
+                                                    <CardContent className="p-6 space-y-5 text-left">
+                                                        <div className="flex justify-between items-start gap-4">
+                                                            <div className="space-y-1 flex-1 min-w-0 text-left">
+                                                                <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-tight">{details?.name}</p>
+                                                                <p className="text-[9px] font-black text-teal-600 uppercase tracking-widest">{svc?.name}</p>
+                                                            </div>
+                                                            <div className="p-3 rounded-2xl bg-teal-500/10 text-teal-600 shadow-inner">
+                                                                <Repeat className="w-6 h-6" />
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                                <span>Sessions Remaining</span>
+                                                                <span>{pack.sessionsRemaining} / {details?.sessions}</span>
+                                                            </div>
+                                                            <Progress value={progress} className="h-2 rounded-full bg-muted [&>div]:bg-teal-500" />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-8">
+                                <div className="flex items-center gap-3 px-1 text-left">
+                                    <Activity className="w-5 h-5 text-primary" />
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Redemption Ledger</h3>
+                                </div>
+                                {currentCycleActivity.all.length > 0 ? (
+                                    <div className="grid gap-3">
+                                        {currentCycleActivity.all.map((item: any) => {
+                                            const isRefreshment = !!item.itemName;
+                                            const date = safeDate(item.date || item.requestedAt);
+                                            const id = item.id;
+                                            
+                                            return (
+                                                <div key={id} className="flex items-center justify-between p-5 rounded-[1.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all text-left">
+                                                    <div className="flex items-center gap-4 text-left">
+                                                        <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isRefreshment ? "bg-primary/10 text-primary" : "bg-indigo-500/10 text-indigo-600")}>
+                                                            {isRefreshment ? <Coffee className="w-5 h-5" /> : <Star className="w-5 h-5" />}
+                                                        </div>
+                                                        <div className="min-w-0 text-left">
+                                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{isRefreshment ? item.itemName : item.serviceName}</p>
+                                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Drawn from {item.offeringName || 'Membership Allotment'}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right shrink-0 ml-4">
+                                                        <p className="font-black font-mono text-[11px] text-slate-900 leading-none">{format(date, 'MMM d, p')}</p>
+                                                        <Badge variant="outline" className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none bg-muted/50 text-muted-foreground shadow-sm">REDEEMED</Badge>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                        <History className="w-12 h-12" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest">No redemptions this cycle</p>
+                                    </div>
+                                )}
                             </div>
-                        ) : (
-                            <div className="text-center py-20 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                                <History className="w-12 h-12" />
-                                <p className="text-[10px] font-black uppercase tracking-widest">No redemption history found</p>
-                            </div>
-                        )}
-                    </div>
+                        </>
+                    )}
                 </TabsContent>
             </Tabs>
         </div>
