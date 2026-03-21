@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -53,9 +52,10 @@ import {
   Smartphone,
   Mail,
   Cake,
-  Star
+  Star,
+  FileImage
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, endOfDay } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -71,6 +71,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
+import { ImageUpload } from '../shared/ImageUpload';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -116,6 +117,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const [assignedStaffId, setAssignedStaffId] = useState<string | null>(null);
   const [clientSearch, setClientSearch] = useState('');
   const [checkInToken, setCheckInToken] = useState('');
+  const [inspirationPhotoUrl, setInspirationPhotoUrl] = useState('');
 
   const methods = useForm({
     defaultValues: {
@@ -143,6 +145,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         setAssignedStaffId(null);
         setClientSearch('');
         setCheckInToken('');
+        setInspirationPhotoUrl('');
         const staffDefault = (role === 'staff' && user) ? user.uid : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
         reset({
             clientId: initialClient?.id || appointmentToRebook?.clientId || '',
@@ -366,6 +369,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         checkInToken: token,
         checkInStatus: 'pending',
         cancellationFeeApplied: depositDetails?.amount || 0,
+        inspirationPhotoUrl: inspirationPhotoUrl || undefined
     };
 
     batch.set(aptRef, payload);
@@ -447,7 +451,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             <div className="p-8 pb-32">
                 <AnimatePresence mode="wait">
                     {step === 'details' && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="details" className="space-y-10">
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="details" className="space-y-10">
                             <SelectionHeader icon={User} title="Guest & Protocol" stepNum={1} />
                             <div className="space-y-8 text-left">
                                 <div className="space-y-3">
@@ -554,12 +558,19 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         )}
                                     />
                                 </div>
+
+                                <div className="space-y-4 pt-4 border-t border-dashed">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                                        <FileImage className="w-3.5 h-3.5 opacity-40" /> Visual Reference
+                                    </Label>
+                                    <ImageUpload onImageUploaded={setInspirationPhotoUrl} initialImage={inspirationPhotoUrl} />
+                                </div>
                             </div>
                         </motion.div>
                     )}
 
                     {step === 'assignment' && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="assignment" className="space-y-10">
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="assignment" className="space-y-10">
                             <SelectionHeader icon={Users} title="Provider Routing" stepNum={2} />
                             <Controller
                                 name="staffId"
@@ -586,7 +597,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                     )}
 
                     {step === 'timing' && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
                             <div className="flex items-center justify-between">
                                 <SelectionHeader icon={Clock} title="Schedule Window" stepNum={3} />
                                 <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
@@ -630,7 +641,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                     )}
 
                     {step === 'deposit' && depositDetails && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="deposit" className="space-y-10">
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="deposit" className="space-y-10">
                             <SelectionHeader icon={CreditCard} title="Secure Retainer" stepNum={4} />
                             <div className="p-10 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                                 <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>

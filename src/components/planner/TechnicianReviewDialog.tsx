@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -51,7 +50,8 @@ import {
     Coffee,
     Star,
     Scale,
-    FileImage
+    FileImage,
+    Maximize2
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState, type StockCorrection } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -159,6 +159,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   
   const [saveAsCustomFormula, setSaveAsCustomFormula] = useState(false);
   const [customFormulaName, setCustomFormulaName] = useState('');
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && service && appointment) {
@@ -504,7 +505,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
                 <div className="flex items-center gap-3 mb-2">
                     <Sparkles className="w-5 h-5 text-primary" />
-                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical review</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical review</span>
                 </div>
                 <DialogTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>{titleText}</DialogTitle>
                 <DialogDescription className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
@@ -527,8 +528,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 {appointment.inspirationPhotoUrl && (
                     <div className="mt-8 space-y-4">
                         <SectionHeader icon={FileImage} title="Target Reference" step="Ref" />
-                        <div className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner">
+                        <div 
+                            className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in"
+                            onClick={() => setExpandedImage(appointment.inspirationPhotoUrl!)}
+                        >
                             <Image src={appointment.inspirationPhotoUrl} alt="Target Inspiration" fill className="object-cover transition-transform duration-700 hover:scale-105" />
+                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Maximize2 className="w-8 h-8 text-white" />
+                            </div>
                             <div className="absolute top-4 right-4">
                                 <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Target</Badge>
                             </div>
@@ -729,7 +736,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <div className="space-y-8 pt-10 border-t border-dashed text-left">
                     <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
                     <div className="space-y-4 text-left">
-                        <div className="flex items-center justify-between px-1 text-left text-left">
+                        <div className="flex items-center justify-between px-1 text-left text-left text-left text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refreshments Served</Label>
                             <Button variant="ghost" size="sm" onClick={() => setIsRefreshmentBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Append Amenity
@@ -744,16 +751,16 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                             <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
                                             <div className="min-w-0 text-left text-left">
                                                 <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
-                                                <div className="flex items-center gap-2 text-left text-left">
+                                                <div className="flex items-center gap-2 text-left text-left text-left text-left">
                                                     <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
                                                     {ref.isAccountedFor && <Badge variant="outline" className="h-3.5 text-[6px] font-black uppercase bg-green-50 text-green-700 border-green-200">Inventory Sync</Badge>}
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-4 shrink-0 text-left">
+                                        <div className="flex items-center gap-4 shrink-0 text-left text-left">
                                             {safeNumber(ref.price) === 0 ? (
                                                 <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm">
-                                                    <Star className="w-2 h-2 mr-1 fill-current" /> Club Perk
+                                                    <Star className="w-2  h-2 mr-1 fill-current" /> Club Perk
                                                 </Badge>
                                             ) : (
                                                 <p className="font-black font-mono text-xs text-primary">${safeNumber(ref.price).toFixed(2)}</p>
@@ -777,7 +784,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <div className="space-y-6 text-left text-left">
                         <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all text-left">
                             <div className="space-y-1 text-left text-left">
-                                <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                                <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                     <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
                                 </Label>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Register this recipe in guest dossier</p>
@@ -805,7 +812,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </AnimatePresence>
 
                         <div className="space-y-3 text-left text-left">
-                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left">
+                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left text-left">
                                 <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
                             </Label>
                             <Textarea 
@@ -814,7 +821,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 value={reviewNotes}
                                 onChange={(e) => setReviewNotes(e.target.value)}
                                 rows={4}
-                                className="rounded-[2.5rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed focus-visible:ring-primary/20"
+                                className="rounded-[2.5rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed focus-visible:ring-primary/20 shadow-inner"
                             />
                         </div>
                     </div>
@@ -838,6 +845,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon' && (service?.compatibleAddOnIds || []).includes(s.id))} initialSelected={selectedAddOns} staff={staff} defaultStaffId={appointment.staffId || ''} />
       <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
       <BrowseProductsDialog open={isRefreshmentBrowserOpen} onOpenChange={setIsRefreshmentBrowserOpen} onSelect={handleAddRefreshments} allProducts={inventory.filter(i => i.type === 'refreshment' || i.type === 'overhead')} initialSelected={[]} />
+
+      <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
+        <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
+            <div className="relative w-full aspect-video md:aspect-[4/3] rounded-[3rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl">
+                {expandedImage && <Image src={expandedImage} alt="Expanded Inspiration" fill className="object-contain" priority />}
+            </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

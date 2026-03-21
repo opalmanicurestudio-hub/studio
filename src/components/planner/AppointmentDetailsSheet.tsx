@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
@@ -35,7 +34,8 @@ import {
   Unlock,
   Scale,
   FileImage,
-  ImageIcon
+  ImageIcon,
+  Maximize2
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,6 +54,12 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { cn, safeNumber } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -119,6 +125,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
@@ -341,8 +348,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 {appointment.inspirationPhotoUrl && (
                     <div className="space-y-4 pt-4 border-t border-dashed text-left">
                         <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Inspiration & Target</h3>
-                        <div className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner">
+                        <div 
+                            className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in"
+                            onClick={() => setExpandedImage(appointment.inspirationPhotoUrl!)}
+                        >
                             <Image src={appointment.inspirationPhotoUrl} alt="Inspiration" fill className="object-cover" />
+                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Maximize2 className="w-8 h-8 text-white" />
+                            </div>
                             <div className="absolute top-4 right-4">
                                 <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Choice</Badge>
                             </div>
@@ -413,6 +426,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </ScrollArea>
         </SheetContent>
       </Sheet>
+      
       <AddAndConfigurePartsDialog
         open={isAddAndConfigureOpen}
         onOpenChange={setIsAddAndConfigureOpen}
@@ -422,6 +436,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         staff={staff}
         defaultStaffId={appointment.staffId || ''}
       />
+
+      <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
+        <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
+            <div className="relative w-full aspect-video md:aspect-[4/3] rounded-[3rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl">
+                {expandedImage && <Image src={expandedImage} alt="Expanded Inspiration" fill className="object-contain" priority />}
+            </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
