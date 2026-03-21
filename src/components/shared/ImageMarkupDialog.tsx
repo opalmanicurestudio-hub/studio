@@ -22,7 +22,8 @@ import {
     Square as SquareIcon,
     Palette,
     ArrowRight,
-    Loader
+    Loader,
+    Maximize2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
@@ -64,24 +65,38 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
   // Initialize Canvas and draw image
   useEffect(() => {
-    if (open && imageUrl && canvasRef.current) {
-      setIsLoading(true);
+    if (!open || !imageUrl) {
+        setIsLoading(false);
+        return;
+    }
+
+    let isMounted = true;
+    setIsLoading(true);
+
+    const initCanvas = () => {
       const canvas = canvasRef.current;
+      
+      // If the canvas isn't in the DOM yet, wait for the next animation frame
+      if (!canvas) {
+          if (isMounted) requestAnimationFrame(initCanvas);
+          return;
+      }
+
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       const img = new Image();
       
-      // CRITICAL: Handle CORS for external URLs so toDataURL works later
+      // Handle CORS for external technical assets
       if (imageUrl.startsWith('http')) {
           img.crossOrigin = "anonymous";
       }
       
-      // Define onload BEFORE setting src to prevent race conditions
       img.onload = () => {
-        // High DPI handling for crisp lines
+        if (!isMounted) return;
+
         const dpr = window.devicePixelRatio || 1;
-        const containerWidth = Math.min(window.innerWidth * 0.85, 800);
+        const containerWidth = Math.min(window.innerWidth * 0.8, 800);
         const scale = containerWidth / img.width;
         const displayWidth = img.width * scale;
         const displayHeight = img.height * scale;
@@ -100,18 +115,26 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.drawImage(img, 0, 0, displayWidth, displayHeight);
         contextRef.current = ctx;
         
-        // Push initial state to history
         setHistory([canvas.toDataURL()]);
         setIsLoading(false);
       };
 
-      img.onerror = () => {
-          console.error("Failed to load image for markup protocol.");
+      img.onerror = (err) => {
+          if (!isMounted) return;
+          console.error("Technical asset load failure:", err);
           setIsLoading(false);
       };
 
       img.src = imageUrl;
-    }
+    };
+
+    // Delay slightly to ensure Dialog/ScrollArea have rendered the canvas element
+    const timer = setTimeout(initCanvas, 50);
+
+    return () => {
+        isMounted = false;
+        clearTimeout(timer);
+    };
   }, [open, imageUrl]);
 
   // Update context settings when color or brush size changes
@@ -142,6 +165,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   };
 
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    if (isLoading) return;
     const { offsetX, offsetY } = getCoordinates(e);
     contextRef.current?.beginPath();
     contextRef.current?.moveTo(offsetX, offsetY);
@@ -149,7 +173,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   };
 
   const draw = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing) return;
+    if (!isDrawing || isLoading) return;
     const { offsetX, offsetY } = getCoordinates(e);
     contextRef.current?.lineTo(offsetX, offsetY);
     contextRef.current?.stroke();
@@ -177,11 +201,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         const canvas = canvasRef.current;
         const ctx = contextRef.current;
         if (canvas && ctx) {
-            // Context scale is already set, just need to redraw
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // Reset transformation matrix temporarily to draw the full snapshot
             ctx.save();
             ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
             ctx.restore();
         }
@@ -201,7 +223,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left flex-shrink-0">
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Mapping Protocol</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical Mapping</span>
           </div>
           <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Annotate the visual record for technical precision.</DialogDescription>
@@ -232,7 +254,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                     variant="ghost" 
                                     size="icon" 
                                     onClick={handleUndo} 
-                                    disabled={history.length <= 1} 
+                                    disabled={history.length <= 1 || isLoading} 
                                     className="h-10 w-10 rounded-xl hover:bg-primary/10"
                                 >
                                     <Undo2 className="w-5 h-5" />
@@ -244,7 +266,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                 </div>
             </div>
 
-            <ScrollArea className="flex-1 cursor-crosshair">
+            <ScrollArea className="flex-1 cursor-crosshair relative">
                 <div className="p-8 flex items-center justify-center min-h-full">
                     <AnimatePresence>
                         {isLoading && (
@@ -252,9 +274,10 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                 initial={{ opacity: 0 }} 
                                 animate={{ opacity: 1 }} 
                                 exit={{ opacity: 0 }}
-                                className="absolute inset-0 flex items-center justify-center bg-muted/10 z-10"
+                                className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 z-10 gap-4"
                             >
                                 <Loader className="w-10 h-10 animate-spin text-primary opacity-40" />
+                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary/60">Buffering Asset...</p>
                             </motion.div>
                         )}
                     </AnimatePresence>
