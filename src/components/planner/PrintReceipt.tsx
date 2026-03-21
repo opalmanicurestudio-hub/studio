@@ -4,6 +4,7 @@
 import React from 'react';
 import { format } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
+import { safeNumber } from '@/lib/utils';
 
 export interface ReceiptData {
   business: {
@@ -105,7 +106,7 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
                 {data.adjustments.map((adj, index) => (
                     <div key={index} className="flex justify-between pl-2 text-xs">
                         <p className="text-gray-600">{adj.description}</p>
-                        <p className="font-mono text-gray-600">+${adj.cost.toFixed(2)}</p>
+                        <p className="font-mono text-gray-600">+${safeNumber(adj.cost).toFixed(2)}</p>
                     </div>
                 ))}
             </div>

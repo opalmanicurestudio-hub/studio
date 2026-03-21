@@ -59,12 +59,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Label } from '../ui/label';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label as RadioLabel } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { cn, hexToHSLComponents, safeNumber } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, subYears } from 'date-fns';
@@ -81,8 +80,6 @@ import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -141,7 +138,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm }: any) => {
                     </div>
                 </div>
                 <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Confirm Waiver</Button>
+                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20">Confirm Waiver</Button>
                     <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
                 </DialogFooter>
             </DialogContent>
@@ -604,6 +601,7 @@ export const CheckoutHub = ({
                             const mainStaffMember = staff.find((s: any) => s.id === mainStaffId);
 
                             const adjustments = data.appointment.checkoutState?.adjustments;
+                            const additionalCharge = safeNumber(data.appointment.checkoutState?.additionalCharge);
                             const isWaived = waivedAppointmentFees.has(data.appointment.id);
 
                             return (
@@ -669,33 +667,50 @@ export const CheckoutHub = ({
                                             </div>
                                         )}
 
-                                        {!isWaived && adjustments && (
+                                        {!isWaived && (adjustments || additionalCharge > 0) && (
                                             <div className="pt-3 border-t border-dashed space-y-2">
-                                                {safeNumber(adjustments.rescheduleFee) > 0 && (
-                                                    <div className="flex justify-between items-center text-left">
-                                                        <span className="text-[10px] font-black uppercase text-amber-600">Protocol Recovery Fee</span>
-                                                        <span className="font-black font-mono text-xs text-amber-600">+${safeNumber(adjustments.rescheduleFee).toFixed(2)}</span>
-                                                    </div>
+                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Strategic Adjustments</p>
+                                                {adjustments ? (
+                                                    <>
+                                                        {safeNumber(adjustments.rescheduleFee) > 0 && (
+                                                            <div className="flex justify-between items-center text-left">
+                                                                <span className="text-[10px] font-bold uppercase text-amber-600">Reschedule Recovery</span>
+                                                                <span className="font-black font-mono text-[10px] text-amber-600">+${safeNumber(adjustments.rescheduleFee).toFixed(2)}</span>
+                                                            </div>
+                                                        )}
+                                                        {safeNumber(adjustments.timeOverage) > 0 && (
+                                                            <div className="flex justify-between items-center text-left">
+                                                                <span className="text-[10px] font-bold uppercase text-primary">Time Floor Overage</span>
+                                                                <span className="font-black font-mono text-[10px] text-primary">+${safeNumber(adjustments.timeOverage).toFixed(2)}</span>
+                                                            </div>
+                                                        )}
+                                                        {safeNumber(adjustments.materialOverage) > 0 && (
+                                                            <div className="flex justify-between items-center text-left">
+                                                                <span className="text-[10px] font-bold uppercase text-primary">Material Overage</span>
+                                                                <span className="font-black font-mono text-[10px] text-primary">+${safeNumber(adjustments.materialOverage).toFixed(2)}</span>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    additionalCharge > 0 && (
+                                                        <div className="flex justify-between items-center text-left">
+                                                            <span className="text-[10px] font-bold uppercase text-primary">Session Adjustment</span>
+                                                            <span className="font-black font-mono text-[10px] text-primary">+${additionalCharge.toFixed(2)}</span>
+                                                        </div>
+                                                    )
                                                 )}
-                                                {safeNumber(adjustments.timeOverage) > 0 && (
-                                                    <div className="flex justify-between items-center text-left">
-                                                        <span className="text-[10px] font-black uppercase text-primary">Time Floor Overage</span>
-                                                        <span className="font-black font-mono text-xs text-primary">+${safeNumber(adjustments.timeOverage).toFixed(2)}</span>
-                                                    </div>
+                                                {isOwnerOrAdmin && (
+                                                    <Button variant="ghost" size="xs" className="h-6 px-2 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50 w-full mt-1" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb Adjustments</Button>
                                                 )}
-                                                {safeNumber(adjustments.materialOverage) > 0 && (
-                                                    <div className="flex justify-between items-center text-left">
-                                                        <span className="text-[10px] font-black uppercase text-primary">Material Overage</span>
-                                                        <span className="font-black font-mono text-xs text-primary">+${safeNumber(adjustments.materialOverage).toFixed(2)}</span>
-                                                    </div>
-                                                )}
-                                                {isOwnerOrAdmin && <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50 w-full mt-2" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb All Adjustments</Button>}
                                             </div>
                                         )}
 
                                         {isWaived && (
-                                            <div className="pt-3 border-t border-dashed flex justify-between items-center text-left">
-                                                <span className="text-[10px] font-black uppercase text-green-600">Adjustments Absorbed</span>
+                                            <div className="pt-3 border-t border-dashed flex justify-between items-center text-left bg-green-50/50 p-2 rounded-xl border border-green-100">
+                                                <div className="flex items-center gap-2">
+                                                    <ShieldCheck className="w-3 h-3 text-green-600" />
+                                                    <span className="text-[10px] font-black uppercase text-green-700">Fees Absorbed</span>
+                                                </div>
                                                 <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button>
                                             </div>
                                         )}

@@ -156,7 +156,9 @@ function POSPage() {
             .filter(a => selectedAppointmentIds.has(a.id))
             .reduce((acc, data) => {
                 const isServiceRedeemed = redeemedOffer?.itemId === data.service.id;
-                const mainPrice = isServiceRedeemed ? 0 : getServicePrice(data.service, data.staff);
+                const mainStaffId = data.appointment.checkoutState?.serviceStaffOverrides?.[data.service.id] || data.appointment.staffId;
+                const mainStaff = staff.find(s => s.id === mainStaffId);
+                const mainPrice = isServiceRedeemed ? 0 : getServicePrice(data.service, mainStaff);
                 const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => {
                     const isAddonRedeemed = redeemedOffer?.itemId === s.id;
                     const addonStaffId = data.appointment.checkoutState?.serviceStaffOverrides?.[s.id] || data.appointment.staffId;
@@ -164,7 +166,6 @@ function POSPage() {
                     return sum + (isAddonRedeemed ? 0 : getServicePrice(s, addonStaff));
                 }, 0);
                 
-                // DECOUPLED ADJUSTMENT LOGIC
                 const adjustments = data.appointment.checkoutState?.adjustments;
                 let adjTotal = 0;
                 if (adjustments) {
@@ -370,7 +371,8 @@ function POSPage() {
             const isWaived = waivedAppointmentFees.has(apt.id);
             
             const mainStaffId = overrides[service.id] || apt.staffId; const isMainRedeemed = redeemedOffer?.itemId === service.id;
-            const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, staff.find(s => s.id === mainStaffId))); 
+            const mainStaffMember = staff.find(s => s.id === mainStaffId);
+            const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember)); 
             totalLtvIncrease += mainPartRevenue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
             
             // 1. MAIN SERVICE TRANSACTION
@@ -398,7 +400,6 @@ function POSPage() {
                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Material Protocol Overage: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Strategic Adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId }));
                 }
             } else if (!isWaived && safeNumber(checkoutState.additionalCharge) > 0) {
-                // Fallback for unified charge
                 const amt = safeNumber(checkoutState.additionalCharge);
                 totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt;
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Strategic Adjustment Fee`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Adjustment Fee', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId }));
@@ -406,7 +407,8 @@ function POSPage() {
 
             addOnServices.forEach((addon: any) => {
                 const addonStaffId = overrides[addon.id] || apt.staffId; const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
-                const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, staff.find(st => st.id === addonStaffId));
+                const addonStaff = staff.find((s: any) => s.id === addonStaffId);
+                const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaff);
                 totalLtvIncrease += addonPrice; if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice;
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true, tenantId }));
             });
