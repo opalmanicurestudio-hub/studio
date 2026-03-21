@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
@@ -50,7 +49,8 @@ import {
   Box,
   Activity,
   Tag,
-  Shield
+  Shield,
+  Star
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -327,9 +327,9 @@ function SettingsPageImpl() {
           const originalService = services.find(s => s.id === id);
           batch.update(svcRef, {
               cancellationFeeMode: p.mode,
-              cancellationWindowHours: p.window || deleteField() as any,
-              customCancellationFee: p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? deleteField() as any : (originalService?.customCancellationFee || 0)),
-              cancellationFeeValue: p.value || deleteField() as any
+              cancellationWindowHours: p.window || (deleteField() as any),
+              customCancellationFee: p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? (deleteField() as any) : (originalService?.customCancellationFee || 0)),
+              cancellationFeeValue: p.value || (deleteField() as any)
           });
       });
 
@@ -394,8 +394,8 @@ function SettingsPageImpl() {
             <div className="flex items-center gap-3 w-full sm:w-auto">
                 {isEditing ? (
                     <>
-                        <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:flex-none h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
-                        <Button onClick={handleSave} className="flex-[2] sm:flex-none h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
+                        <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:sm:w-auto h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                        <Button onClick={handleSave} className="flex-[2] sm:sm:w-auto h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
                     </>
                 ) : (
                     <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto h-12 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><Edit className="mr-2 h-4 w-4" />Modify Logic</Button>
