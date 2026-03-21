@@ -45,6 +45,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { CheckInConfirmationDialog } from '@/components/pos/CheckInConfirmationDialog';
 import { PrintTicket } from '@/components/planner/PrintTicket';
 
+/**
+ * High-Precision Data Sanitization
+ * Firestore rejects 'undefined' values. This utility ensures batch payloads are clean.
+ */
 const sanitizeForFirestore = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
@@ -105,7 +109,7 @@ function POSPage() {
     const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
+    const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>( 'ordered_list');
     const [pendingCheckInItem, setPendingCheckInItem] = useState<any | null>(null);
     const [ticketToPrint, setTicketToPrint] = useState<any | null>(null);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
@@ -275,11 +279,23 @@ function POSPage() {
         handleAssignStaff(nextGuest, selected.id);
     }, [firestore, tenantId, walkIns, staff, services, assignmentMode, handleAssignStaff]);
 
+    /**
+     * Hardened Status Transition Logic
+     * Ensures correct collection routing and policy enforcement.
+     */
     const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
         if (!firestore || !tenantId || !selectedTenant) return;
-        const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
+        
+        // RECONCILE DOC REFERENCE: 
+        // 1. If flagged as Walk-In, use WalkIns collection. 
+        // 2. If Appointment, check for apt-walkin prefix.
+        const docRef = isWalkIn 
+            ? doc(firestore, 'tenants', tenantId, 'walkIns', id) 
+            : doc(firestore, 'tenants', tenantId, 'appointments', id);
+            
         const tmhrValue = selectedTenant.tmhr || 50;
         const premium = selectedTenant.lateInconveniencePremium || 0;
+
         if (status === 'running_late' && lateMinutes && !isWalkIn) {
             const apt = appointmentsFromInventory?.find(a => a.id === id);
             if (apt) {
@@ -306,29 +322,37 @@ function POSPage() {
                     const cancelReason = clash ? 'clash' : 'late';
                     const fee = Number(((fullSessionBlock / 60) * tmhrValue + (primarySvc?.cost || 0) + addOns.reduce((sum, a) => sum + (a.cost || 0), 0)).toFixed(2));
                     const batch = writeBatch(firestore);
-                    batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: cancelReason, cancellationFeeApplied: fee });
-                    if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { checkInStatus: 'auto_cancelled', status: 'cancelled', tenantId });
-                    if (fee > 0 && apt.clientId) batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Auto-Cancel: ${clash ? 'Clash' : 'Late'} (+${lateMinutes}m)` }) });
+                    batch.update(docRef, sanitizeForFirestore({ checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: cancelReason, cancellationFeeApplied: fee }));
+                    if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ checkInStatus: 'auto_cancelled', status: 'cancelled', tenantId }));
+                    if (fee > 0 && apt.clientId) batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion(sanitizeForFirestore({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Auto-Cancel: ${clash ? 'Clash' : 'Late'} (+${lateMinutes}m)` })) });
                     batch.commit().then(() => toast({ title: clash ? "Clash: Auto-Cancelled" : "Late: Auto-Cancelled" }));
                     return;
                 } else if (lateMinutes > grace) {
                     const fee = Number(((lateMinutes / 60) * tmhrValue + premium).toFixed(2));
                     const batch = writeBatch(firestore);
-                    batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
-                    if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes, tenantId });
-                    if (apt.clientId && fee > 0) batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Penalty: +${lateMinutes}m` }) });
+                    batch.update(docRef, sanitizeForFirestore({ checkInStatus: 'running_late', lateTimeMinutes: lateMinutes }));
+                    if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ checkInStatus: 'running_late', lateTimeMinutes: lateMinutes, tenantId }));
+                    if (apt.clientId && fee > 0) batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion(sanitizeForFirestore({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Penalty: +${lateMinutes}m` })) });
                     batch.commit().then(() => toast({ title: "Status Updated: Fee Applied" }));
                     return;
                 }
             }
         }
+        
         const updates: any = { checkInStatus: status };
         if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
+        
         const batch = writeBatch(firestore);
-        batch.update(docRef, updates);
+        batch.update(docRef, sanitizeForFirestore(updates));
+        
         const apt = !isWalkIn ? appointmentsFromInventory?.find(a => a.id === id) : null;
-        if (apt?.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...updates, tenantId });
-        batch.commit().then(() => toast({ title: "Status Updated" }));
+        if (apt?.checkInToken) {
+            batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ ...updates, tenantId }));
+        }
+        batch.commit().then(() => toast({ title: "Status Updated" })).catch(e => {
+            console.error("Status update failed:", e);
+            toast({ variant: 'destructive', title: "Update Failed", description: "Record might have been moved or archived." });
+        });
     };
 
     const handleCheckout = async (paymentData: {paymentMethod: string, amountTendered: number}) => {
@@ -368,10 +392,10 @@ function POSPage() {
                 }
             });
 
-            batch.update(appointmentRef, { status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now });
-            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
+            batch.update(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }));
+            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'completed' }));
             const involvedIds = new Set<string>(); if (apt.staffId) involvedIds.add(apt.staffId); if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
-            involvedIds.forEach(sid => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }); });
+            involvedIds.forEach(sid => { if (sid) batch.update(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }); });
         }
 
         retailItems.forEach(item => {
@@ -385,7 +409,7 @@ function POSPage() {
         if (clientObj && appliedAdjustments.size > 0) {
             const currentUnpaid = clientObj.unpaidFees || [];
             const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + safeNumber(fee?.feeAmount); }, 0);
-            batch.update(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) });
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), sanitizeForFirestore({ unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) }));
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
             appliedAdjustments.forEach(id => {
                 const fee = currentUnpaid.find(f => f.feeId === id);
@@ -418,11 +442,77 @@ function POSPage() {
         if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false }));
         if (paymentTab === 'cash' && activeTill) {
             const finalCashInput = totalCashIncrease + cashTipsTotal;
-            batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), { expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate });
+            batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate }));
         }
         try { await batch.commit(); toast({ title: "Checkout Successful" }); setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); }
         catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Checkout Failed' }); }
         finally { setIsSubmitting(false); }
+    };
+
+    const handleCancelAction = (id: string, isWalkIn: boolean) => {
+        const item = isWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
+        if (item) {
+            setSelectedAppointment({ ...item, isWalkIn } as any);
+            setIsCancelDialogOpen(true);
+        }
+    };
+
+    const handleResolveCheckInConfirmation = async (data: any) => {
+        if (!pendingCheckInItem || !firestore || !tenantId) return;
+        const isWalkIn = !!pendingCheckInItem.serviceIds;
+        const docRef = isWalkIn 
+            ? doc(firestore, 'tenants', tenantId, 'walkIns', pendingCheckInItem.id)
+            : doc(firestore, 'tenants', tenantId, 'appointments', pendingCheckInItem.id);
+        
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+
+        const updates: any = {
+            serviceId: data.serviceId,
+            addOnIds: data.addOnIds,
+            checkInStatus: 'arrived',
+            notes: data.notes
+        };
+
+        if (data.accommodations?.length) {
+            updates.sensoryNeeds = data.accommodations.join(', ');
+        }
+
+        batch.update(docRef, sanitizeForFirestore(updates));
+
+        if (!isWalkIn && pendingCheckInItem.checkInToken) {
+            batch.update(doc(firestore, 'appointmentCheckIns', pendingCheckInItem.checkInToken), sanitizeForFirestore({ ...updates, tenantId }));
+        }
+
+        if (pendingCheckInItem.clientId) {
+            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, pendingCheckInItem.clientId);
+            batch.update(clientRef, sanitizeForFirestore({
+                email: data.email,
+                phone: data.phone,
+                ...(data.accommodations?.length ? { sensoryNeeds: data.accommodations.join(', ') } : {})
+            }));
+        }
+
+        try {
+            await batch.commit();
+            toast({ title: "Check-in Certified" });
+            setPendingCheckInItem(null);
+        } catch (e) {
+            console.error(e);
+            toast({ variant: 'destructive', title: "Confirmation Failed" });
+        }
+    };
+
+    const handleRevertToService = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'servicing' });
+        toast({ title: "Status Reverted", description: "Session returned to In-Service pulse." });
+    };
+
+    const handleRevertToReady = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'ready_for_checkout' });
+        toast({ title: "Status Reverted", description: "Session returned to Ready state." });
     };
 
     const handleOpenTill = (data: any) => {
@@ -472,7 +562,7 @@ function POSPage() {
         tipAllocations, setTipAllocations, activeTill, staff, role
     };
 
-    if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Syncing Terminal...</p></div>;
+    if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
 
     return (
         <div className="h-[100dvh] w-full flex flex-col bg-background text-left">
@@ -489,7 +579,7 @@ function POSPage() {
                     </div>
                     <div className="grid gap-10 grid-cols-1">
                         <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s, idx) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId) => { if (!firestore || !tenantId) return; const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId); setDocumentNonBlocking(staffRef, { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
-                        <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item }); setIsPrintDialogOpen(true); } } }} onSkip={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onFinishService={handleFinishService} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item) => { setSelectedAppointment(item); setIsDetailsOpen(true); }} />
+                        <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item }); setIsPrintDialogOpen(true); } } }} onSkip={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onFinishService={setAppointmentToReview} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item) => { setSelectedAppointment(item); setIsDetailsOpen(true); }} />
                         <div className="space-y-4 text-left"><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Retail & Additions</h3><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => {}} /></div>
                     </div>
                 </main>
@@ -499,8 +589,28 @@ function POSPage() {
             </div>
             {isMobile && (<div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40"><Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}><SheetTrigger asChild><Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30">View Cart (${totalCalc.toFixed(2)})</Button></SheetTrigger><SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem] bg-background"><SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0"><SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle></SheetHeader><div className="flex-1 overflow-y-auto"><div className="p-6 pb-24"><CheckoutHub {...checkoutHubProps} /></div></div></SheetContent></Sheet></div>)}
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
-            <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment} client={clients?.find(c => c.id === selectedAppointment?.clientId) || null} service={services?.find(s => s.id === selectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={handleFinishService} onEdit={() => {}} onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
-            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data) => { if (!selectedAppointment || !firestore || !tenantId) return; const batch = writeBatch(firestore); const updates = { status: 'cancelled' as const, cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount }; batch.update(doc(firestore, `tenants/${tenantId}/appointments`, selectedAppointment.id), updates); if (data.feeAmount > 0 && selectedAppointment.clientId) { batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) }); } await batch.commit(); setIsCancelDialogOpen(false); setIsDetailsOpen(false); }} />}
+            <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment} client={clients?.find(c => c.id === selectedAppointment?.clientId) || null} service={services?.find(s => s.id === selectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={setAppointmentToReview} onEdit={() => {}} onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
+            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data) => { 
+                if (!selectedAppointment || !firestore || !tenantId) return; 
+                const batch = writeBatch(firestore); 
+                
+                // ROUTE TO CORRECT COLLECTION:
+                const collectionPath = selectedAppointment.isWalkIn ? 'walkIns' : 'appointments';
+                const updates = { 
+                    status: 'cancelled' as const, 
+                    cancellationReason: data.reason, 
+                    cancellationFeeApplied: data.feeAmount 
+                }; 
+                
+                batch.update(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates)); 
+                
+                if (data.feeAmount > 0 && selectedAppointment.clientId) { 
+                    batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) }); 
+                } 
+                await batch.commit(); 
+                setIsCancelDialogOpen(false); 
+                setIsDetailsOpen(false); 
+            }} />}
             <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id); updateDocumentNonBlocking(appointmentRef, { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id, state) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, id), { status: 'ready_for_checkout', checkoutState: sanitizeForFirestore(state), actualEndTime: new Date().toISOString() }); setIsTechnicianReviewOpen(false); }} />}
             <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
