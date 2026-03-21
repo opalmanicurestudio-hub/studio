@@ -1,3 +1,4 @@
+
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
@@ -732,24 +733,26 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
           const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
           
           if (item.quantityReceived > 0) {
-              const newBatchData: Omit<Batch, 'id'> & {id: string} = {
+              const newBatchData: any = {
                 id: `batch-${nanoid()}`,
                 stock: item.quantityReceived,
-                costPerUnit: item.quantityReceived > 0 ? (item.costPerUnit || 0) : 0,
+                costPerUnit: item.costPerUnit,
                 receivedDate: new Date().toISOString(),
-                expirationDate: item.expirationDate ? item.expirationDate.toISOString() : undefined,
               };
+              if (item.expirationDate) {
+                newBatchData.expirationDate = item.expirationDate.toISOString();
+              }
               
               const updatedBatches = [...existingProduct.batches, newBatchData];
               const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
 
-              batch.update(productRef, {
+              batch.update(productRef, JSON.parse(JSON.stringify({
                 batches: updatedBatches,
                 totalStock: totalStock,
                 costPerUnit: item.costPerUnit,
-              });
+              })));
 
-              const stockCorrection: Omit<StockCorrection, 'id'> = {
+              const stockCorrection: any = {
                 productId: item.productId,
                 date: new Date().toISOString(),
                 change: item.quantityReceived,
@@ -1261,9 +1264,9 @@ export default function InventoryPage() {
     
     if (product.costingMethod === 'uses') {
         unit = product.useUnit || 'uses';
-        let currentUses = product.partialContainerUses || 0;
-        let currentStock = product.totalStock;
-        const usesPerContainer = product.estimatedUses || 1;
+        let currentUses = safeNumber(product.partialContainerUses);
+        let currentStock = safeNumber(product.totalStock);
+        const usesPerContainer = safeNumber(product.estimatedUses) || 1;
         
         currentUses -= quantity;
         while (currentUses <= 0 && currentStock > 0) {
@@ -1271,14 +1274,17 @@ export default function InventoryPage() {
             currentUses += usesPerContainer;
         }
         
+        if (currentStock < 0) {
+            return { success: false, message: `Insufficient stock for ${product.name}.`};
+        }
+
         updateData.totalStock = currentStock;
         updateData.partialContainerUses = currentUses;
-
     } else if (product.costingMethod === 'size' && product.size) {
         unit = product.unit || 'ml';
-        let currentSize = product.partialContainerSize || 0;
-        let currentStock = product.totalStock;
-        const sizePerContainer = product.size || 1;
+        let currentSize = safeNumber(product.partialContainerSize);
+        let currentStock = safeNumber(product.totalStock);
+        const sizePerContainer = safeNumber(product.size);
 
         currentSize -= quantity;
         while (currentSize <= 0 && currentStock > 0) {
@@ -1286,17 +1292,18 @@ export default function InventoryPage() {
             currentSize += sizePerContainer;
         }
         
+        if (currentStock < 0) {
+            return { success: false, message: `Insufficient stock for ${product.name}.`};
+        }
+
         updateData.totalStock = currentStock;
         updateData.partialContainerSize = currentSize;
-
     } else { // 'unit' costing method, or undefined
         updateData.totalStock = (product.totalStock || 0) - quantity;
         unit = product.unit || 'units';
     }
 
-    if ((updateData.totalStock !== undefined && updateData.totalStock < 0) || 
-        (updateData.partialContainerUses !== undefined && updateData.partialContainerUses < 0) || 
-        (updateData.partialContainerSize !== undefined && updateData.partialContainerSize < 0)) {
+    if ((updateData.totalStock !== undefined && updateData.totalStock < 0)) {
         return { success: false, message: `Insufficient stock for ${product.name}.`};
     }
     
@@ -1372,7 +1379,7 @@ export default function InventoryPage() {
 
     return { success: true, message: "Sale logged successfully." };
   };
-  
+
   const handleSpoilageConfirm = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
     if (!firestore || !tenantId || !inventory) return;
 
@@ -1404,7 +1411,7 @@ export default function InventoryPage() {
                 updatePayload.partialContainerSize = 0;
             }
 
-            batch.update(productRef, updatePayload);
+            batch.update(productRef, JSON.parse(JSON.stringify(updatePayload)));
             
             const stockCorrection: Omit<StockCorrection, 'id'> = {
                 productId: item.productId,
@@ -1433,7 +1440,7 @@ export default function InventoryPage() {
             notes: notes,
         };
         const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-        batch.set(txnRef, {...transaction, date: new Date().toISOString() });
+        batch.set(txnRef, JSON.parse(JSON.stringify({...transaction, date: new Date().toISOString()})));
     }
 
 
