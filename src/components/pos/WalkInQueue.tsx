@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -8,7 +7,19 @@ import { NotifiedCustomerCard } from './NotifiedCustomerCard';
 import { type WalkIn, type Staff, type Service, type Appointment, type Client } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { Button } from '../ui/button';
-import { Sparkles, TrendingUp, Users, Clock, CheckCircle, Activity, QrCode, Play, ShoppingBag, DollarSign } from 'lucide-react';
+import { 
+    Sparkles, 
+    TrendingUp, 
+    Users, 
+    Clock, 
+    CheckCircle, 
+    Activity, 
+    QrCode, 
+    Play, 
+    ShoppingBag, 
+    DollarSign,
+    ShoppingCart 
+} from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { InServiceAppointmentCard } from './InServiceAppointmentCard';
