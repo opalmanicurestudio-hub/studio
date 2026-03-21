@@ -222,33 +222,29 @@ export default function ClientDetailPage() {
   }, [client, memberships]);
 
   /**
-   * Unified Perk Audit Engine (Staff View)
-   * Hardened to match Guest Portal logic including cycle windows and pending orders.
+   * Unified Perk Audit Protocol
+   * This is the master calculation for membership benefits.
+   * It scans historical Redemptions and RefreshmentRequests within the current billing cycle.
    */
   const getCycleCorrectUsage = (perkId: string) => {
-    if (!client?.subscription) return { total: 0, pending: 0, db: 0 };
+    if (!client?.subscription || !activeMembership) return { total: 0, pending: 0, db: 0 };
     
-    let usageCount = safeNumber(client.subscription.perkUsage?.[perkId]);
+    const nextBilling = safeDate(client.subscription.nextBillingDate);
+    const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+
+    // 1. Audit Services (Redemptions subcollection)
+    const redemptionsInCycle = clientRedemptions.filter(r => r.serviceId === perkId && isAfter(safeDate(r.date), cycleStart));
     
-    // 1. Cycle Verification
-    if (client.subscription.nextBillingDate && client.subscription.perkLastUsed) {
-        const lastUsed = safeDate(client.subscription.perkLastUsed);
-        const nextBilling = safeDate(client.subscription.nextBillingDate);
-        const cycleStart = activeMembership?.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+    // 2. Audit Products/Refreshments (RefreshmentRequests collection)
+    const refreshmentsInCycle = clientRefreshments.filter(r => r.itemId === perkId && r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart));
+    
+    const pendingQty = refreshmentsInCycle.filter(r => r.status === 'pending').reduce((sum, r) => sum + safeNumber(r.quantity), 0);
+    const deliveredQty = refreshmentsInCycle.filter(r => r.status === 'delivered').reduce((sum, r) => sum + safeNumber(r.quantity), 0);
+    
+    // Total usage = Redemptions + Deliveries + Pending
+    const totalUsage = redemptionsInCycle.length + deliveredQty + pendingQty;
 
-        if (isBefore(lastUsed, cycleStart)) {
-            usageCount = 0; // Stale data from previous cycle
-        }
-    } else if (!client.subscription.perkLastUsed) {
-        usageCount = 0;
-    }
-
-    // 2. Pending Session Requests (In-flight logic)
-    const pendingQty = (allRequests || [])
-        .filter(r => r.itemId === perkId && r.status === 'pending' && r.isRedemption)
-        .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
-
-    return { total: usageCount + pendingQty, pending: pendingQty, db: usageCount };
+    return { total: totalUsage, pending: pendingQty, db: redemptionsInCycle.length + deliveredQty };
   };
 
   const isPerkExhaustedInCycle = (perkId: string) => {

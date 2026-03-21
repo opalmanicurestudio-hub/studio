@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -141,7 +142,6 @@ const RefreshmentCard = ({
 }) => {
     const isSoldOut = safeNumber(item.totalStock) <= 0;
     const isPerkDefinition = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
-    // CRITICAL: Perk is available if there are remaining uses, even if the count is currently 0 (meaning next one is paid)
     const isPerkAvailableNow = isPerkDefinition && remainingPerkUses >= qty;
 
     const getDynamicIcon = (name: string) => {
@@ -275,11 +275,8 @@ const ServicingView = ({
     }, [isMember, client, memberships]);
 
     /**
-     * Unified Perk Calculation Protocol
-     * Accounts for: 
-     * 1. Membership Allotment Limits
-     * 2. Billing Cycle Windows (Monthly/Yearly Reset)
-     * 3. Real-time Pending Orders (Subtracts usage before delivery certification)
+     * Synchronized Cycle Auditor
+     * Scans delivered and pending requests for the client within the current billing window.
      */
     const getRemainingPerkUses = (itemId: string) => {
         if (!isMember || !activeMembership || !client?.subscription) return 0;
@@ -288,29 +285,15 @@ const ServicingView = ({
         if (!perkDef) return 0;
 
         const limit = safeNumber(perkDef.quantity);
-        
-        // Audit current DB usage count
-        let usageCount = safeNumber(client.subscription.perkUsage?.[itemId]);
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
+        const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
 
-        // Audit real-time in-flight requests (not yet delivered but claiming perks)
-        const pendingQty = activeRequests
-            .filter(r => r.itemId === itemId && r.status === 'pending' && r.isRedemption)
+        // Audit all client requests in current window (Delivered + Pending)
+        const usageCount = activeRequests
+            .filter(r => r.itemId === itemId && r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart))
             .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
 
-        // Cycle Verification: If last usage was before current cycle start, DB counts are stale
-        if (client.subscription.nextBillingDate && client.subscription.perkLastUsed) {
-            const lastUsed = safeDate(client.subscription.perkLastUsed);
-            const nextBilling = safeDate(client.subscription.nextBillingDate);
-            const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
-
-            if (isBefore(lastUsed, cycleStart)) {
-                usageCount = 0; // Fresh cycle detected
-            }
-        } else if (!client.subscription.perkLastUsed) {
-            usageCount = 0; // Never used
-        }
-
-        return Math.max(0, limit - usageCount - pendingQty);
+        return Math.max(0, limit - usageCount);
     };
 
     const refreshments = useMemo(() => 
@@ -552,6 +535,8 @@ export default function CheckInPage() {
     const { data: appointmentData, isLoading: appointmentLoading } = useDoc<Appointment>(appointmentCheckInRef);
 
     const tenantId = appointmentData?.tenantId;
+    const clientId = appointmentData?.clientId;
+
     const tenantDocRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
     const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
     
@@ -564,16 +549,16 @@ export default function CheckInPage() {
     const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
     const { data: resources } = useCollection<Resource>(resourcesQuery);
 
-    const activeRequestsQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !appointmentData?.id) return null;
+    const allClientRequestsQuery = useMemoFirebase(() => {
+        if (!firestore || !tenantId || !clientId) return null;
         return query(
             collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
-            where('appointmentId', '==', appointmentData.id)
+            where('clientId', '==', clientId)
         );
-    }, [firestore, tenantId, appointmentData?.id]);
-    const { data: activeRequests } = useCollection(activeRequestsQuery);
+    }, [firestore, tenantId, clientId]);
+    const { data: clientRequests } = useCollection(allClientRequestsQuery);
 
-    const clientDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.clientId ? null : doc(firestore, `tenants/${tenantId}/clients`, appointmentData.clientId), [firestore, tenantId, appointmentData?.clientId]);
+    const clientDocRef = useMemoFirebase(() => !firestore || !tenantId || !clientId ? null : doc(firestore, `tenants/${tenantId}/clients`, clientId), [firestore, tenantId, clientId]);
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
     
     const serviceDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.serviceId ? null : doc(firestore, `tenants/${tenantId}/services`, appointmentData.serviceId), [firestore, tenantId, appointmentData?.serviceId]);
@@ -630,7 +615,7 @@ export default function CheckInPage() {
                 tenant={tenant || null} 
                 client={client || null} 
                 inventory={inventory || []} 
-                activeRequests={activeRequests || []}
+                activeRequests={clientRequests || []}
                 appointment={appointmentData}
                 staff={assignedStaff || null}
                 resources={resources || []}
