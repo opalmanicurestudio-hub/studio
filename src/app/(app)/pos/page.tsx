@@ -329,12 +329,93 @@ function POSPage() {
     }, [firestore, tenantId, walkIns, staff, services, assignmentMode, handleAssignStaff, toast]);
 
     const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
-        if (!firestore || !tenantId) return;
+        if (!firestore || !tenantId || !selectedTenant) return;
         const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
+        
+        // ELITE OPTIMIZATION: Policy Enforcement for Late Arrivals
+        const tmhrValue = selectedTenant.tmhr || 50;
+        const premium = selectedTenant.lateInconveniencePremium || 0;
+
+        if (status === 'running_late' && lateMinutes && !isWalkIn) {
+            const apt = appointmentsFromInventory?.find(a => a.id === id);
+            if (apt) {
+                const grace = selectedTenant.lateArrivalGracePeriod || 15;
+                const autoCancel = selectedTenant.autoCancelLateArrivals === true;
+
+                const primarySvc = services?.find(s => s.id === apt.serviceId);
+                const addOns = (apt.addOnIds || []).map(aid => services?.find(s => s.id === aid)).filter(Boolean) as Service[];
+                const totalDur = (primarySvc?.duration || 0) + addOns.reduce((sum, a) => sum + a.duration, 0);
+                const totalPadding = (primarySvc?.padBefore || 0) + (primarySvc?.padAfter || 0);
+                const fullSessionBlock = totalDur + totalPadding;
+
+                const staffId = apt.staffId;
+                let clash = null;
+                if (staffId) {
+                    const theoreticalStart = addMinutes(safeDate(apt.startTime), lateMinutes);
+                    const theoreticalEnd = addMinutes(theoreticalStart, fullSessionBlock);
+
+                    const nextApt = (appointmentsFromInventory || [])
+                        .filter(a => a.staffId === staffId && a.id !== apt.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > safeDate(apt.startTime))
+                        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())[0];
+
+                    if (nextApt) {
+                        const nextService = services?.find(s => s.id === nextApt.serviceId);
+                        const nextStartWithPad = subMinutes(safeDate(nextApt.startTime), nextService?.padBefore || 0);
+                        if (theoreticalEnd > nextStartWithPad) {
+                            clash = { nextApt, clashTime: format(nextStartWithPad, 'h:mm a') };
+                        }
+                    }
+                }
+
+                if ((lateMinutes > grace && autoCancel) || clash) {
+                    const cancelReason = clash ? 'clash' : 'late';
+                    const overheadRecovery = (fullSessionBlock / 60) * tmhrValue;
+                    const materialRecovery = (primarySvc?.cost || 0) + addOns.reduce((sum, a) => sum + (a.cost || 0), 0);
+                    const fee = Number((overheadRecovery + materialRecovery).toFixed(2));
+
+                    const batch = writeBatch(firestore);
+                    batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: cancelReason, cancellationFeeApplied: fee });
+                    if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { checkInStatus: 'auto_cancelled', status: 'cancelled', tenantId });
+                    
+                    if (fee > 0 && apt.clientId) {
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (${fullSessionBlock}m session block)` }) });
+                    }
+                    batch.commit().then(() => {
+                        toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Session block overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond grace.` });
+                    });
+                    return;
+                } else if (lateMinutes > grace) {
+                    const timeLostCost = (lateMinutes / 60) * tmhrValue;
+                    const fee = Number((timeLostCost + premium).toFixed(2));
+                    
+                    const batch = writeBatch(firestore);
+                    batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
+                    if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes, tenantId });
+                    
+                    if (apt.clientId && fee > 0) {
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Foundation Recovery + Premium)` }) });
+                    }
+                    batch.commit().then(() => {
+                        toast({ title: "Status Updated: Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty.` });
+                    });
+                    return;
+                }
+            }
+        }
+
         const updates: any = { checkInStatus: status };
         if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
-        updateDocumentNonBlocking(docRef, updates);
-        toast({ title: "Status Updated" });
+        
+        const batch = writeBatch(firestore);
+        batch.update(docRef, updates);
+        
+        // SYNC TO PUBLIC COLLECTION
+        const apt = !isWalkIn ? appointmentsFromInventory?.find(a => a.id === id) : null;
+        if (apt?.checkInToken) {
+            batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...updates, tenantId });
+        }
+        
+        batch.commit().then(() => toast({ title: "Status Updated" }));
     };
 
     const handleSkip = (walkInId: string) => {
@@ -443,9 +524,6 @@ function POSPage() {
             const isWaived = waivedAppointmentFees.has(apt.id);
             const additional = !isWaived ? safeNumber(checkoutState.additionalCharge) : 0;
             
-            // NOTE: STOCK DEDUCTION FOR FORMULA MOVED TO TECHNICIAN REVIEW FINISH STEP
-            // This prevents double deduction when refreshments or backbar are certified.
-
             const mainStaffId = overrides[service.id] || apt.staffId; const isMainRedeemed = redeemedOffer?.itemId === service.id;
             const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, staff.find(s => s.id === mainStaffId))) + additional; 
             totalLtvIncrease += mainPartRevenue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;

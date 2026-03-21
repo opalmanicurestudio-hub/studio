@@ -98,7 +98,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
 
     return (
         <Card className={cn(
-            "transition-all border-2 rounded-2xl overflow-hidden",
+            "transition-all border-2 rounded-[2rem] overflow-hidden group",
             checkInStatus === 'arrived' ? "border-green-500 bg-green-500/5 shadow-lg shadow-green-500/5 ring-2 ring-green-500/20" : 
             checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/5" : 
             checkInStatus === 'on_my_way' ? "border-blue-500/20 bg-blue-500/5" :
@@ -221,31 +221,20 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                         Assign Session
                     </Button>
                     
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                         <TooltipProvider>
-                            {isWalkIn && onMoveToFront && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-primary hover:bg-primary/5" onClick={() => onMoveToFront(item.id)}>
-                                            <TrendingUp className="w-4 h-4" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest">Move to Front</TooltipContent>
-                                </Tooltip>
-                            )}
-                            
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Button variant="outline" size="sm" className="h-10 rounded-lg border-2" onClick={() => onPrintTicket(item.id)}>
+                                    <Button variant="outline" size="icon" className="h-10 w-full rounded-xl border-2" onClick={() => onPrintTicket(item.id)}>
                                         <Printer className="w-4 h-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent className="font-black uppercase text-[10px]">Print Ticket</TooltipContent>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px]">Print Ticket</TooltipContent>
                             </Tooltip>
 
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-destructive hover:bg-destructive/5" onClick={() => onCancel(item.id, isWalkIn)}>
+                                    <Button variant="outline" size="icon" className="h-10 w-full rounded-xl border-2 text-destructive hover:bg-destructive/5" onClick={() => onCancel(item.id, isWalkIn)}>
                                         <Trash2 className="w-4 h-4" />
                                     </Button>
                                 </TooltipTrigger>
