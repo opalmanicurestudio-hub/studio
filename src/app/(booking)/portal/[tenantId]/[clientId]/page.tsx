@@ -253,17 +253,16 @@ export default function ClientPortalPage() {
                                 <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
                                     Welcome, {client.name.split(' ')[0]}
                                 </h1>
-                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60">Verified Client Dashboard</p>
+                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60 mt-4">Verified Client Dashboard</p>
                             </div>
 
-                            <Button 
-                                size="lg" 
+                            <motion.button 
                                 onClick={() => setEntered(true)}
-                                className="mt-12 h-16 md:h-20 px-12 md:px-16 rounded-[2rem] text-sm md:text-lg font-black uppercase tracking-[0.2em] shadow-3xl shadow-primary/30 group active:scale-95 transition-all"
+                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95"
                             >
-                                Access Dashboard
-                                <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-1" />
-                            </Button>
+                                <span className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] text-primary opacity-60 group-hover:opacity-100 transition-opacity">Access Dashboard</span>
+                                <ArrowDown className="w-6 h-6 md:w-8 md:h-8 text-primary animate-bounce opacity-40 group-hover:opacity-100" />
+                            </motion.button>
                         </motion.div>
 
                         <motion.div
