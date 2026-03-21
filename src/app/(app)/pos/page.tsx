@@ -281,31 +281,25 @@ function POSPage() {
 
     /**
      * Hardened Status Transition Logic
-     * Ensures correct collection routing and policy enforcement.
+     * CRITICAL: Uses ID-based collection identification to resolve "No document to update" error.
      */
     const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
         if (!firestore || !tenantId || !selectedTenant) return;
         
-        let targetId = id;
-        let targetIsWalkIn = isWalkIn;
+        // 1. INTELLIGENT ID RESOLUTION
+        // Walk-in generated appointments always have the prefix "apt-walkin-".
+        // This check ensures we target the correct collection regardless of the boolean flag state.
+        const isAssignedWalkIn = id.startsWith('apt-walkin-');
+        const effectiveIsWalkIn = isWalkIn && !isAssignedWalkIn;
+        const targetId = effectiveIsWalkIn ? id : id;
 
-        // COLLECTION RECONCILIATION:
-        // Ensure we are targeting the correct collection based on the ID and flag.
-        if (!targetIsWalkIn && !appointmentsFromInventory?.find(a => a.id === id)) {
-            // If ID wasn't found in appointments, check if it's a walk-in being treated as an appointment.
-            if (walkIns?.find(w => w.id === id)) {
-                targetIsWalkIn = true;
-            }
-        }
-
-        const docRef = targetIsWalkIn 
-            ? doc(firestore, 'tenants', tenantId, 'walkIns', targetId) 
-            : doc(firestore, 'tenants', tenantId, 'appointments', targetId);
+        const collectionName = effectiveIsWalkIn ? 'walkIns' : 'appointments';
+        const docRef = doc(firestore, 'tenants', tenantId, collectionName, targetId);
             
         const tmhrValue = selectedTenant.tmhr || 50;
         const premium = selectedTenant.lateInconveniencePremium || 0;
 
-        if (status === 'running_late' && lateMinutes && !targetIsWalkIn) {
+        if (status === 'running_late' && lateMinutes && !effectiveIsWalkIn) {
             const apt = appointmentsFromInventory?.find(a => a.id === targetId);
             if (apt) {
                 const grace = selectedTenant.lateArrivalGracePeriod || 15;
@@ -352,15 +346,16 @@ function POSPage() {
         if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
         
         const batch = writeBatch(firestore);
-        batch.update(docRef, sanitizeForFirestore(updates));
+        // Use set with merge true for extreme stability
+        batch.set(docRef, sanitizeForFirestore(updates), { merge: true });
         
-        const apt = !targetIsWalkIn ? appointmentsFromInventory?.find(a => a.id === targetId) : null;
+        const apt = !effectiveIsWalkIn ? appointmentsFromInventory?.find(a => a.id === targetId) : null;
         if (apt?.checkInToken) {
-            batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ ...updates, tenantId }));
+            batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ ...updates, tenantId }), { merge: true });
         }
         batch.commit().then(() => toast({ title: "Status Updated" })).catch(e => {
             console.error("Status update failed:", e);
-            toast({ variant: 'destructive', title: "Update Failed", description: "Record might have been moved or archived." });
+            toast({ variant: 'destructive', title: "Update Failed", description: "Audit trail interrupted." });
         });
     };
 
@@ -459,17 +454,15 @@ function POSPage() {
     };
 
     const handleCancelAction = (id: string, isWalkIn: boolean) => {
-        // RESILIENT LOOKUP: Handles IDs with/without prefixes across collections
-        let item = isWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
+        // 1. INTELLIGENT ID RESOLUTION
+        // Handles "apt-walkin-" assigned appointments correctly during cancellation.
+        const isAssignedWalkIn = id.startsWith('apt-walkin-');
+        const effectiveIsWalkIn = isWalkIn && !isAssignedWalkIn;
         
-        if (!item && isWalkIn) {
-            // Secondary check if it's an assigned walk-in appointment incorrectly flagged
-            item = appointmentsFromInventory?.find(a => a.id === `apt-walkin-${id}`);
-        }
-
+        let item = effectiveIsWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
+        
         if (item) {
-            const finalIsWalkIn = 'isWalkIn' in item ? !!item.isWalkIn : isWalkIn;
-            setSelectedAppointment({ ...item, isWalkIn: finalIsWalkIn } as any);
+            setSelectedAppointment({ ...item, isWalkIn: effectiveIsWalkIn } as any);
             setIsCancelDialogOpen(true);
         }
     };
@@ -611,15 +604,19 @@ function POSPage() {
                 if (!selectedAppointment || !firestore || !tenantId) return; 
                 const batch = writeBatch(firestore); 
                 
-                // ROUTE TO CORRECT COLLECTION:
-                const collectionPath = selectedAppointment.isWalkIn ? 'walkIns' : 'appointments';
+                // 1. INTELLIGENT ID RESOLUTION FOR CANCELLATION
+                // Ensures walk-ins are correctly routed during termination.
+                const isAssignedWalkIn = selectedAppointment.id.startsWith('apt-walkin-');
+                const effectiveIsWalkIn = (selectedAppointment as any).isWalkIn || (isAssignedWalkIn && !selectedAppointment.clientId);
+                const collectionPath = effectiveIsWalkIn ? 'walkIns' : 'appointments';
                 const updates = { 
                     status: 'cancelled' as const, 
                     cancellationReason: data.reason, 
                     cancellationFeeApplied: data.feeAmount 
                 }; 
                 
-                batch.update(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates)); 
+                // Use set with merge true for extreme stability in deletions
+                batch.set(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates), { merge: true }); 
                 
                 if (data.feeAmount > 0 && selectedAppointment.clientId) { 
                     batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) }); 

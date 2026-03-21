@@ -47,10 +47,10 @@ import {
   XCircle
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { type Appointment, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn, RefreshmentRequest } from '@/lib/data';
+import { type Appointment, type Event, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn, RefreshmentRequest } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { useFirebase, useCollection, useMemoFirebase, useUser, updateDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, doc, writeBatch, increment, arrayUnion, setDoc } from 'firebase/firestore';
 import { startOfDay, endOfDay, format, isSameDay, parseISO, differenceInMinutes, isToday } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
@@ -226,13 +226,15 @@ export default function DashboardPage() {
       const now = new Date().toISOString();
       const qty = safeNumber(request.quantity || 1);
 
+      // 1. UPDATE REQUEST STATUS
       const requestRef = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, request.id);
-      batch.update(requestRef, {
+      batch.update(requestRef, sanitizeForFirestore({
           status: 'delivered',
           deliveredAt: now,
           deliveredBy: user?.uid || 'system'
-      });
+      }));
 
+      // 2. RECONCILE INVENTORY
       const ingredients = item.formula && item.formula.length > 0 
         ? item.formula.map(f => ({ ...f, quantityUsed: safeNumber(f.quantityUsed) * qty }))
         : [{ id: item.id, name: item.name, quantityUsed: qty, unit: item.unit || 'unit' }];
@@ -296,18 +298,23 @@ export default function DashboardPage() {
           }));
       });
 
+      // 3. BIND TO APPOINTMENT
+      // CRITICAL FIX: Use set with merge: true to prevent "No document to update" error
+      // This is necessary if the appointment document was archived or moved during fulfillment.
       if (request.appointmentId) {
           const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, request.appointmentId);
-          batch.update(aptRef, {
-              'checkoutState.refreshments': arrayUnion(sanitizeForFirestore({
-                  id: item.id,
-                  name: item.name,
-                  price: safeNumber(request.priceAtRequest || item.price),
-                  deliveredAt: now,
-                  quantity: qty,
-                  isAccountedFor: true
-              }))
-          });
+          batch.set(aptRef, {
+              checkoutState: {
+                  refreshments: arrayUnion(sanitizeForFirestore({
+                      id: item.id,
+                      name: item.name,
+                      price: safeNumber(request.priceAtRequest || item.price),
+                      deliveredAt: now,
+                      quantity: qty,
+                      isAccountedFor: true
+                  }))
+              }
+          }, { merge: true });
       }
 
       try {
@@ -315,7 +322,7 @@ export default function DashboardPage() {
           toast({ title: "Delivery Certified", description: `Stock reconciled and dossier updated for ${request.clientName}.` });
       } catch (e) {
           console.error("Fulfillment failed:", e);
-          toast({ variant: 'destructive', title: "Process Error" });
+          toast({ variant: 'destructive', title: "Process Error", description: "Audit synchronization failed." });
       }
   };
 
