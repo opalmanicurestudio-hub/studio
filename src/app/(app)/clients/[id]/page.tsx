@@ -227,7 +227,8 @@ export default function ClientDetailPage() {
 
     const usageCount = safeNumber(client.subscription.perkUsage?.[perkId]);
     const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
-                    activeMembership?.includedAddOns?.find(a => a.id === perkId);
+                    activeMembership?.includedAddOns?.find(a => a.id === perkId) ||
+                    activeMembership?.includedProducts?.find(p => p.id === perkId);
     
     return usageCount >= safeNumber(perkDef?.quantity || 1);
   };
@@ -484,6 +485,33 @@ export default function ClientDetailPage() {
                                                 </Card>
                                             )
                                         })}
+                                        {(activeMembership.includedProducts || []).map(perk => {
+                                            const used = safeNumber(client.subscription?.perkUsage?.[perk.id]);
+                                            const isRedeemed = isPerkUsedInCycle(perk.id);
+                                            const progress = (used / safeNumber(perk.quantity)) * 100;
+                                            return (
+                                                <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left">
+                                                    <CardContent className="p-5 space-y-4">
+                                                        <div className="flex justify-between items-start">
+                                                            <div className="min-w-0 text-left">
+                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
+                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Hospitality Allotment</p>
+                                                            </div>
+                                                            <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-primary/10 text-primary")}>
+                                                                {isRedeemed ? <CheckCircle2 className="w-4 h-4" /> : <Coffee className="w-4 h-4" />}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                                <span>Allotment Usage</span>
+                                                                <span>{used} / {safeNumber(perk.quantity)}</span>
+                                                            </div>
+                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )
+                                        })}
                                     </div>
                                 </div>
                             )}
@@ -675,15 +703,13 @@ export default function ClientDetailPage() {
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <Button 
-                                            variant="ghost" 
-                                            size="icon" 
+                                        <button 
                                             onClick={handleReconcileLtv}
                                             disabled={isReconciling}
-                                            className="h-8 w-8 rounded-xl text-primary hover:bg-primary/5 border border-primary/10 shadow-sm"
+                                            className="h-8 w-8 rounded-xl text-primary hover:bg-primary/5 border border-primary/10 shadow-sm flex items-center justify-center transition-colors disabled:opacity-50"
                                         >
                                             {isReconciling ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-                                        </Button>
+                                        </button>
                                     </TooltipTrigger>
                                     <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Reconcile LTV from Ledger</TooltipContent>
                                 </Tooltip>

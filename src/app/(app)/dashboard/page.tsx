@@ -310,13 +310,13 @@ export default function DashboardPage() {
 
       // 3. BIND TO APPOINTMENT
       if (request.appointmentId) {
-          const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, request.appointmentId);
+          const aptRef = doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`);
           batch.set(aptRef, {
               checkoutState: {
                   refreshments: arrayUnion(sanitizeForFirestore({
                       id: item.id,
                       name: item.name,
-                      price: safeNumber(request.priceAtRequest), // Locked at request time
+                      price: safeNumber(request.priceAtRequest), 
                       deliveredAt: now,
                       quantity: qty,
                       isAccountedFor: true
@@ -325,13 +325,17 @@ export default function DashboardPage() {
           }, { merge: true });
       }
 
-      // 4. UPDATE PERK USAGE IF REDEMPTION
+      // 4. UPDATE PERK USAGE IN GUEST DOSSIER
       if (request.isRedemption && request.clientId) {
           const clientRef = doc(firestore, `tenants/${tenantId}/clients`, request.clientId);
-          batch.update(clientRef, {
-              [`subscription.perkUsage.${request.itemId}`]: increment(qty),
-              'subscription.perkLastUsed': now
-          });
+          batch.set(clientRef, {
+              subscription: {
+                  perkUsage: {
+                      [request.itemId]: increment(qty)
+                  },
+                  perkLastUsed: now
+              }
+          }, { merge: true });
       }
 
       try {
