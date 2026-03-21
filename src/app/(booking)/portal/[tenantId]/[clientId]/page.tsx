@@ -40,7 +40,8 @@ import {
     Trophy,
     TrendingUp,
     HeartHandshake,
-    Flame
+    Flame,
+    PartyPopper
 } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount } from '@/lib/data';
 import Link from 'next/link';
@@ -371,7 +372,10 @@ export default function ClientPortalPage() {
                                                     <div className="space-y-2">
                                                         <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                             <span>Consumption Progress</span>
-                                                            <span>{safeNumber(perk.used)} / {perk.quantity}</span>
+                                                            <div className="flex items-center gap-1">
+                                                                <span>{safeNumber(perk.used)} / {perk.quantity}</span>
+                                                                <span className="text-primary">({perk.quantity - perk.used} Remaining)</span>
+                                                            </div>
                                                         </div>
                                                         <Progress value={perk.progress} className={cn("h-2 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
                                                     </div>
