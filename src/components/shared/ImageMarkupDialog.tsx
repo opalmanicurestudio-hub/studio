@@ -140,14 +140,14 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [isRotating, setIsRotating] = useState(false);
+  
   const [initialDist, setInitialDist] = useState<number>(1);
   const [initialRotation, setInitialRotation] = useState<number>(0);
 
   const [textInput, setTextInput] = useState<{ x: number, y: number, value: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- DRAWING LOGIC ---
+  // --- DRAWING ENGINE ---
 
   const drawSticker = (ctx: CanvasRenderingContext2D, s: StickerAnnotation) => {
       ctx.save();
@@ -156,7 +156,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       ctx.scale(s.scale, s.scale);
       ctx.strokeStyle = s.color;
       ctx.fillStyle = s.color;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 / (viewTransform.scale || 1);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
@@ -229,16 +229,16 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Apple-style Viewport Transform
+    // Spatial Transform
     ctx.translate(viewTransform.x * dpr, viewTransform.y * dpr);
     ctx.scale(viewTransform.scale * dpr, viewTransform.scale * dpr);
 
-    // 1. Base Technical Asset
+    // 1. Base Image
     const dw = canvas.width / (dpr * viewTransform.scale);
     const dh = canvas.height / (dpr * viewTransform.scale);
     ctx.drawImage(img, 0, 0, dw, dh);
 
-    // 2. Magnification Lenses (Audit Anchored)
+    // 2. Magnification Lenses
     annotations.filter(a => a.type === 'lens').forEach(lens => {
         const l = lens as MagnifierLens;
         const r = l.r;
@@ -268,14 +268,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.lineWidth = 2 / viewTransform.scale;
         if (selectedId === l.id) {
             ctx.setLineDash([5 / viewTransform.scale, 5 / viewTransform.scale]);
-            ctx.shadowBlur = 10 / viewTransform.scale;
-            ctx.shadowColor = l.color;
         }
         ctx.stroke();
         ctx.restore();
     });
 
-    // 3. Vector Paths (Strokes)
+    // 3. Drawing Paths
     paths.forEach(path => {
         if (path.points.length < 2) return;
         ctx.save();
@@ -300,7 +298,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.restore();
     });
 
-    // 4. Stickers & Vectors
+    // 4. Stickers
     annotations.filter(a => a.type === 'sticker').forEach(s => {
         const sticker = s as StickerAnnotation;
         if (sticker.id === selectedId) {
@@ -313,7 +311,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         drawSticker(ctx, sticker);
     });
 
-    // 5. High-Resolution Text Overlay
+    // 5. Text
     annotations.filter(a => a.type === 'text').forEach(anno => {
         const text = anno as TextAnnotation;
         const fontSize = text.size === 'sm' ? 14 : text.size === 'lg' ? 28 : 18;
@@ -324,18 +322,17 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.fillStyle = text.color;
         ctx.textAlign = 'left';
         
-        const label = text.text.toUpperCase();
         if (text.id === selectedId) {
-            ctx.shadowBlur = 15 / viewTransform.scale;
+            ctx.shadowBlur = 10 / viewTransform.scale;
             ctx.shadowColor = 'rgba(121, 85, 196, 0.4)';
         }
         
-        ctx.fillText(label, 0, 0);
+        ctx.fillText(text.text.toUpperCase(), 0, 0);
         ctx.restore();
     });
   }, [annotations, paths, selectedId, viewTransform, color]);
 
-  // --- INTERACTION MATH ---
+  // --- INTERACTION LOGIC ---
 
   const getCoordinates = (e: any) => {
     const canvas = canvasRef.current;
@@ -344,7 +341,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     
-    // Viewport to World Space mapping
     const x = (clientX - rect.left);
     const y = (clientY - rect.top);
     return { 
@@ -358,7 +354,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     const coords = getCoordinates(e);
     const { x, y } = coords;
 
-    // Multitouch: Pinch & Rotation handling
     if ('touches' in e && e.touches.length === 2) {
         const touch1 = e.touches[0];
         const touch2 = e.touches[1];
@@ -380,7 +375,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         return;
     }
 
-    // Precision Hit Detection
+    // Hit Detection
     const hit = [...annotations].reverse().find(a => {
         if (a.type === 'text') {
             const ctx = contextRef.current;
@@ -435,7 +430,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (isLoading) return;
 
-    // Fluid Viewport / Object Transformation
     if ('touches' in e && e.touches.length === 2) {
         const touch1 = e.touches[0];
         const touch2 = e.touches[1];
@@ -443,18 +437,14 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         const angle = Math.atan2(touch2.pageY - touch1.pageY, touch2.pageX - touch1.pageX);
 
         if (selectedId) {
-            // Transform Object
             const scaleFactor = dist / initialDist;
             const rotationDelta = angle - initialRotation;
             setAnnotations(prev => prev.map(a => a.id === selectedId ? { ...a, scale: a.scale * scaleFactor, rotation: a.rotation + rotationDelta } : a));
             setInitialDist(dist);
             setInitialRotation(angle);
-        } else {
-            // Transform Viewport
-            if (lastPinchDist !== null) {
-                const delta = dist / lastPinchDist;
-                setViewTransform(prev => ({ ...prev, scale: Math.min(5, Math.max(1, prev.scale * delta)) }));
-            }
+        } else if (lastPinchDist !== null) {
+            const delta = dist / lastPinchDist;
+            setViewTransform(prev => ({ ...prev, scale: Math.min(5, Math.max(1, prev.scale * delta)) }));
             setLastPinchDist(dist);
         }
         return;
@@ -495,9 +485,18 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     setLastPinchDist(null);
   };
 
-  // --- LIFECYCLE ---
+  // --- COMPONENT LIFECYCLE ---
 
-  const initCanvas = useCallback(() => {
+  useEffect(() => {
+    if (!open) return;
+    
+    // Reset state only once on open
+    setPaths([]);
+    setAnnotations([]);
+    setViewTransform({ scale: 1, x: 0, y: 0 });
+    setSelectedId(null);
+    setIsLoading(true);
+
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container || !imageUrl) return;
@@ -506,6 +505,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     img.crossOrigin = "anonymous";
     img.onload = () => {
       baseImageRef.current = img;
+      
       const padding = isMobile ? 20 : 40;
       const availW = container.clientWidth - padding;
       const availH = container.clientHeight - padding;
@@ -521,13 +521,15 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       contextRef.current = canvas.getContext('2d');
       
       setIsLoading(false);
-      drawAll();
     };
     img.src = imageUrl;
-  }, [imageUrl, isMobile, drawAll]);
+  }, [open, imageUrl, isMobile]);
 
-  useEffect(() => { if (open) { setIsLoading(true); setPaths([]); setAnnotations([]); setViewTransform({ scale: 1, x: 0, y: 0 }); setTimeout(initCanvas, 100); } }, [open, imageUrl, initCanvas]);
-  useEffect(() => { if (!isLoading) drawAll(); }, [drawAll, isLoading]);
+  useEffect(() => {
+    if (!isLoading) {
+      drawAll();
+    }
+  }, [isLoading, drawAll]);
 
   const handleTextSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -545,7 +547,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (!canvas) return;
     setSelectedId(null);
     setTool('select');
-    // Ensure all momentum/gestures are settled
     requestAnimationFrame(() => {
         onSave(canvas.toDataURL('image/png'));
         onOpenChange(false);
@@ -567,6 +568,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical Mapping</span>
           </div>
           <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+          <DialogDescription className="sr-only">Visual annotation and magnification interface for treatment records.</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden bg-muted/20 relative flex flex-col">
