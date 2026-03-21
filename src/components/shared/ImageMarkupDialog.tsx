@@ -36,6 +36,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { nanoid } from 'nanoid';
 import { useToast } from '@/hooks/use-toast';
+import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 
 interface ImageMarkupDialogProps {
   open: boolean;
@@ -66,6 +67,14 @@ interface TextAnnotation {
     size: TextSize;
 }
 
+interface MagnifierLens {
+    id: string;
+    x: number;
+    y: number;
+    r: number;
+    color: string;
+}
+
 export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   open,
   onOpenChange,
@@ -87,18 +96,18 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [textSize, setTextSize] = useState<TextSize>('md');
   
   const [annotations, setAnnotations] = useState<TextAnnotation[]>([]);
+  const [lenses, setLenses] = useState<MagnifierLens[]>([]);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [isDraggingText, setIsDraggingText] = useState(false);
 
-  // Magnifier State
-  const [magnifierCircle, setMagnifierCircle] = useState<{ x: number, y: number, r: number } | null>(null);
-  const [isDefiningMagnifier, setIsDefiningMagnifier] = useState(false);
+  // Transient state for drawing a new lens
+  const [activeLens, setActiveLens] = useState<MagnifierLens | null>(null);
 
   const [textInput, setTextInput] = useState<{ x: number, y: number, value: string } | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Redraw the entire scene: Base Image + Annotations
+  // Redraw the entire scene: Base Image + Lenses + Annotations
   const drawAll = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = contextRef.current;
@@ -109,11 +118,44 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Draw base layer (Original Image)
+    // Layer 1: Base Layer (Original Image)
     ctx.scale(dpr, dpr);
     ctx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
 
-    // Draw Annotations
+    // Layer 2: Persisted Magnifier Lenses
+    lenses.forEach(lens => {
+        const r = lens.r;
+        const size = r * 2;
+        
+        // Calculate the crop from original image resolution
+        const imgScaleX = img.width / (canvas.width / dpr);
+        const imgScaleY = img.height / (canvas.height / dpr);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(lens.x, lens.y, r, 0, Math.PI * 2);
+        ctx.clip();
+        
+        // Draw the magnified portion
+        ctx.drawImage(
+            img,
+            (lens.x - r/2) * imgScaleX,
+            (lens.y - r/2) * imgScaleY,
+            r * imgScaleX,
+            r * imgScaleY,
+            lens.x - r,
+            lens.y - r,
+            size,
+            size
+        );
+
+        ctx.strokeStyle = lens.color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+    });
+
+    // Layer 3: Text Annotations
     annotations.forEach(anno => {
         const isSelected = anno.id === selectedTextId;
         ctx.font = `bold ${anno.size === 'sm' ? '12px' : anno.size === 'lg' ? '24px' : '16px'} Figtree, sans-serif`;
@@ -138,15 +180,16 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         }
     });
 
-    if (magnifierCircle && isDefiningMagnifier) {
+    // Layer 4: Transient Drawing (Current Active Lens)
+    if (activeLens) {
         ctx.setLineDash([5, 5]);
         ctx.strokeStyle = color;
         ctx.beginPath();
-        ctx.arc(magnifierCircle.x, magnifierCircle.y, magnifierCircle.r, 0, Math.PI * 2);
+        ctx.arc(activeLens.x, activeLens.y, activeLens.r, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
     }
-  }, [annotations, selectedTextId, magnifierCircle, isDefiningMagnifier, color, tool]);
+  }, [annotations, lenses, selectedTextId, activeLens, color, tool]);
 
   const initCanvas = useCallback(() => {
     if (isMobile === undefined || !open) return;
@@ -186,18 +229,16 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         toast({ variant: 'destructive', title: 'Load Error', description: 'Technical asset could not be buffered.' });
     };
     img.src = imageUrl;
-  }, [imageUrl, isMobile, open, toast]); // Removed drawAll to avoid circular dependency
+  }, [imageUrl, isMobile, open, toast, drawAll]);
 
   useEffect(() => {
     if (open) {
         setIsLoading(true);
         setAnnotations([]);
+        setLenses([]);
         setHistory([]);
-        // Use a short delay to ensure DOM is ready
-        const timer = setTimeout(() => {
-            initCanvas();
-        }, 50);
-        return () => clearTimeout(timer);
+        // Short delay to ensure dialog has rendered
+        setTimeout(initCanvas, 50);
     }
   }, [open, initCanvas]);
 
@@ -222,7 +263,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (isLoading) return;
     const { x, y } = getCoordinates(e);
 
-    // 1. Check for Text Selection
+    // Check for Text Selection
     const clickedText = [...annotations].reverse().find(anno => {
         const ctx = contextRef.current;
         if (!ctx) return false;
@@ -245,8 +286,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     }
 
     if (tool === 'magnifier') {
-        setMagnifierCircle({ x, y, r: 0 });
-        setIsDefiningMagnifier(true);
+        setActiveLens({ id: nanoid(), x, y, r: 0, color });
         return;
     }
 
@@ -273,9 +313,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         return;
     }
 
-    if (isDefiningMagnifier && magnifierCircle) {
-        const r = Math.sqrt(Math.pow(x - magnifierCircle.x, 2) + Math.pow(y - magnifierCircle.y, 2));
-        setMagnifierCircle({ ...magnifierCircle, r });
+    if (activeLens) {
+        const r = Math.sqrt(Math.pow(x - activeLens.x, 2) + Math.pow(y - activeLens.y, 2));
+        setActiveLens({ ...activeLens, r });
         return;
     }
 
@@ -285,53 +325,18 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   };
 
   const handleMouseUp = () => {
-    if (isDefiningMagnifier && magnifierCircle && magnifierCircle.r > 10) {
-        const ctx = contextRef.current;
-        const img = baseImageRef.current;
-        if (ctx && img) {
-            const dpr = window.devicePixelRatio || 1;
-            
-            // Capture current state before baking lens
-            setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
-
-            const temp = document.createElement('canvas');
-            const tempCtx = temp.getContext('2d');
-            const r = magnifierCircle.r;
-            const size = r * 2;
-            
-            temp.width = size * 2; 
-            temp.height = size * 2;
-
-            if (tempCtx) {
-                tempCtx.drawImage(
-                    img, 
-                    (magnifierCircle.x - r) * (img.width / (canvasRef.current!.width / dpr)), 
-                    (magnifierCircle.y - r) * (img.height / (canvasRef.current!.height / dpr)),
-                    size * (img.width / (canvasRef.current!.width / dpr)), 
-                    size * (img.height / (canvasRef.current!.height / dpr)),
-                    0, 0, size * 2, size * 2
-                );
-
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(magnifierCircle.x, magnifierCircle.y, r, 0, Math.PI * 2);
-                ctx.clip();
-                ctx.drawImage(temp, magnifierCircle.x - r, magnifierCircle.y - r, size, size);
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 2;
-                ctx.stroke();
-                ctx.restore();
-            }
-        }
-        setMagnifierCircle(null);
-        setIsDefiningMagnifier(false);
-        setTool('pencil');
+    if (activeLens && activeLens.r > 10) {
+        // Save to history before adding new lens
+        setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
+        setLenses(prev => [...prev, activeLens]);
+        setActiveLens(null);
+    } else {
+        setActiveLens(null);
     }
 
     if (isDrawing) {
         contextRef.current?.closePath();
         setIsDrawing(false);
-        // Bake drawing into history
         setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
     }
     setIsDraggingText(false);
@@ -343,6 +348,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         setTextInput(null);
         return;
     }
+    setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
     const newAnnotation: TextAnnotation = {
         id: nanoid(),
         text: textInput.value,
@@ -374,8 +380,13 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
               ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           };
           img.src = lastState!;
+          
+          // Re-sync logical state if undoing text/lenses
+          setAnnotations(prev => prev.slice(0, -1));
+          setLenses(prev => prev.slice(0, -1));
       } else {
           setAnnotations([]);
+          setLenses([]);
           initCanvas();
       }
   };
@@ -412,57 +423,78 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
           <DialogDescription className="sr-only">Annotate and magnify technical assets for clinical precision.</DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden bg-muted/20 relative flex flex-col md:flex-row">
-            {/* TOOLBAR */}
-            <div className="w-full md:w-24 bg-background border-b md:border-b-0 md:border-r p-3 md:p-4 flex md:flex-col items-center justify-between md:justify-start gap-4 flex-shrink-0">
-                <div className="flex md:flex-col gap-2">
-                    {colors.map((c) => (
-                        <button
-                            key={c.value}
-                            onClick={() => setColor(c.value)}
-                            className={cn(
-                                "w-7 h-7 md:w-9 md:h-9 rounded-full border-2 transition-all active:scale-90 shadow-sm",
-                                color === c.value ? "border-primary scale-110 ring-4 ring-primary/10" : "border-white"
-                            )}
-                            style={{ backgroundColor: c.value }}
-                        />
-                    ))}
-                </div>
-                
-                <Separator className="hidden md:block border-dashed my-2" />
-                
-                <div className="flex md:flex-col gap-1.5 md:gap-2">
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant={tool === 'pencil' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pencil')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl"><Pencil className="w-4 h-4 md:w-5 md:h-5" /></Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Pencil</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant={tool === 'text' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('text')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl"><TypeIcon className="w-4 h-4 md:w-5 md:h-5" /></Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Add Text</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant={tool === 'magnifier' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('magnifier')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl text-indigo-600"><ZoomIn className="w-4 h-4 md:w-5 md:h-5" /></Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Detail Lens</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('select')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl"><Move className="w-4 h-4 md:w-5 md:h-5" /></Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Move / Alter</TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                </div>
+        <div className="flex-1 overflow-hidden bg-muted/20 relative flex flex-col">
+            {/* TOOLBAR: SCROLLABLE HORIZONTAL RIBBON */}
+            <div className="w-full bg-background border-b p-3 md:p-4 flex-shrink-0">
+                <ScrollArea className="w-full">
+                    <div className="flex items-center gap-6 pb-2 min-w-max">
+                        <div className="flex items-center gap-2">
+                            {colors.map((c) => (
+                                <button
+                                    key={c.value}
+                                    onClick={() => setColor(c.value)}
+                                    className={cn(
+                                        "w-7 h-7 rounded-full border-2 transition-all active:scale-90 shadow-sm",
+                                        color === c.value ? "border-primary scale-110 ring-4 ring-primary/10" : "border-white"
+                                    )}
+                                    style={{ backgroundColor: c.value }}
+                                />
+                            ))}
+                        </div>
+                        
+                        <Separator orientation="vertical" className="h-8 mx-2" />
+                        
+                        <div className="flex items-center gap-1.5 md:gap-2">
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button variant={tool === 'pencil' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pencil')} className="h-10 w-10 rounded-xl"><Pencil className="w-4 h-4" /></Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="font-black uppercase text-[9px] border-2">Pencil</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button variant={tool === 'text' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('text')} className="h-10 w-10 rounded-xl"><TypeIcon className="w-4 h-4" /></Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="font-black uppercase text-[9px] border-2">Add Text</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button variant={tool === 'magnifier' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('magnifier')} className="h-10 w-10 rounded-xl text-indigo-600"><ZoomIn className="w-4 h-4" /></Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="font-black uppercase text-[9px] border-2">Detail Lens</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('select')} className="h-10 w-10 rounded-xl"><Move className="w-4 h-4" /></Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="font-black uppercase text-[9px] border-2">Move / Alter</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        </div>
 
-                <div className="mt-auto flex md:flex-col gap-2">
-                    <Button variant="ghost" size="icon" onClick={handleUndo} className="h-11 w-11 rounded-xl text-slate-400 hover:bg-muted"><Undo2 className="w-5 h-5" /></Button>
-                </div>
+                        <Separator orientation="vertical" className="h-8 mx-2" />
+
+                        <div className="flex items-center gap-1.5">
+                            {(['sm', 'md', 'lg'] as TextSize[]).map(size => (
+                                <Button
+                                    key={size}
+                                    variant={textSize === size ? 'secondary' : 'ghost'}
+                                    size="sm"
+                                    onClick={() => setTextSize(size)}
+                                    className="h-8 px-3 rounded-lg font-black uppercase text-[9px]"
+                                >
+                                    {size}
+                                </Button>
+                            ))}
+                        </div>
+
+                        <div className="flex gap-2 ml-auto">
+                            <Button variant="ghost" size="icon" onClick={handleUndo} className="h-10 w-10 rounded-xl text-slate-400 hover:bg-muted"><Undo2 className="w-5 h-5" /></Button>
+                        </div>
+                    </div>
+                    <ScrollBar orientation="horizontal" />
+                </ScrollArea>
             </div>
 
             <div ref={containerRef} className="flex-1 relative flex items-center justify-center p-4 overflow-hidden touch-none select-none">
