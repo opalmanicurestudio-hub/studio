@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
@@ -105,10 +104,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [activeLens, setActiveLens] = useState<MagnifierLens | null>(null);
 
   const [textInput, setTextInput] = useState<{ x: number, y: number, value: string } | null>(null);
-  const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Primary Drawing Engine
+  // Primary Drawing Engine - Decoupled from state management to avoid loop
   const drawAll = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = contextRef.current;
@@ -119,7 +117,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Layer 1: Base Layer (Fit to screen scaling)
+    // Layer 1: Base Layer
     ctx.scale(dpr, dpr);
     ctx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
 
@@ -157,7 +155,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.restore();
     });
 
-    // Layer 3: Text Annotations (Interactive Layer)
+    // Layer 3: Text Annotations
     annotations.forEach(anno => {
         const isSelected = anno.id === selectedTextId;
         ctx.font = `bold ${anno.size === 'sm' ? '12px' : anno.size === 'lg' ? '24px' : '16px'} Figtree, sans-serif`;
@@ -182,7 +180,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         }
     });
 
-    // Layer 4: Transient Input (Current active lens being drawn)
+    // Layer 4: Transient Input
     if (activeLens) {
         ctx.setLineDash([5, 5]);
         ctx.strokeStyle = color;
@@ -193,7 +191,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     }
   }, [annotations, lenses, selectedTextId, activeLens, color, tool]);
 
-  // Decoupled Initialization Logic
   const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -204,7 +201,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     img.onload = () => {
       baseImageRef.current = img;
       
-      // Calculate fit-to-screen scaling
       const padding = 40;
       const availW = container.clientWidth - padding;
       const availH = container.clientHeight - padding;
@@ -221,14 +217,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       
       contextRef.current = canvas.getContext('2d');
       setIsLoading(false);
-      
-      // Ensure visual buffer is updated after canvas resize
-      requestAnimationFrame(() => {
-          drawAll();
-      });
     };
     img.src = imageUrl;
-  }, [imageUrl, drawAll]);
+  }, [imageUrl]);
 
   // STABLE: Reset logic triggered only by open/image changes
   useEffect(() => {
@@ -236,14 +227,15 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         setIsLoading(true);
         setAnnotations([]);
         setLenses([]);
-        setHistory([]);
-        // Use requestAnimationFrame to ensure the container is measured after paint
+        setSelectedTextId(null);
+        setActiveLens(null);
+        // Defer init to ensure container is measured
         const timeout = setTimeout(() => {
             initCanvas();
         }, 100);
         return () => clearTimeout(timeout);
     }
-  }, [open, imageUrl, initCanvas]); 
+  }, [open, imageUrl, initCanvas]);
 
   // STABLE: Visual sync effect
   useEffect(() => {
@@ -366,7 +358,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   };
 
   const handleUndo = () => {
-      // Prioritize removing lenses then annotations
       if (lenses.length > 0) {
           setLenses(prev => prev.slice(0, -1));
       } else if (annotations.length > 0) {
@@ -399,7 +390,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-5xl p-0 border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[95vh] sm:h-[90vh]">
-        <DialogHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left flex-shrink-0">
+        <DialogHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
           <div className="flex items-center gap-3 mb-1.5 md:mb-2 text-left">
             <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />
             <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical Mapping</span>
@@ -409,7 +400,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden bg-muted/20 relative flex flex-col">
-            {/* SCROLLABLE TOOLBAR RIBBON */}
             <div className="w-full bg-background border-b p-3 md:p-4 flex-shrink-0">
                 <ScrollArea className="w-full">
                     <div className="flex items-center gap-6 pb-2 min-w-max">
