@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -49,7 +48,7 @@ import {
     User,
     LayoutDashboard
 } from 'lucide-react';
-import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths, isToday } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
@@ -100,8 +99,8 @@ const CancelledView = ({ reason }: { reason?: string }) => (
             <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
                 <XCircle className="w-12 h-12 text-destructive" />
             </div>
-            <div className="space-y-2">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Appointment Voided</h3>
+            <div className="space-y-2 text-center">
+                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">Appointment Voided</h3>
                 <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
                     This appointment is no longer active in our manifest. Reason: <strong>{reason?.replace('_', ' ') || 'Protocol Change'}</strong>.
                 </p>
@@ -162,9 +161,9 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                                 <div className="w-20 h-20 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
                                     <Heart className="w-10 h-10 text-primary -rotate-6" />
                                 </div>
-                                <div className="space-y-1">
-                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">How was it?</h3>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Help us refine our technical protocol</p>
+                                <div className="space-y-1 text-center">
+                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">How was it?</h3>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Help us refine our technical protocol</p>
                                 </div>
                             </div>
 
@@ -183,7 +182,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                                 ))}
                             </div>
 
-                            <div className="space-y-3">
+                            <div className="space-y-3 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Share your Story</Label>
                                 <Textarea 
                                     placeholder="Write a few words about your session..." 
@@ -206,9 +205,9 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                             <div className="w-20 h-20 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
                                 <CheckCircle2 className="w-10 h-10 text-green-500" />
                             </div>
-                            <div className="space-y-2">
-                                <h3 className="text-2xl font-black uppercase tracking-tighter">Feedback Certified</h3>
-                                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto">Your review has been added to our studio archive. See you next time!</p>
+                            <div className="space-y-2 text-center">
+                                <h3 className="text-2xl font-black uppercase tracking-tighter text-center">Feedback Certified</h3>
+                                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">Your review has been added to our studio archive. See you next time!</p>
                             </div>
                         </motion.div>
                     )}
@@ -240,8 +239,8 @@ const ArrivedView = ({ client, staff, tenantId }: { client: Client | null, staff
             <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
                 <CheckCircle2 className="w-12 h-12 text-green-500 -rotate-6" />
             </div>
-            <div className="space-y-3">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">We see you, {client?.name.split(' ')[0]}!</h3>
+            <div className="space-y-3 text-center">
+                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">We see you, {client?.name.split(' ')[0]}!</h3>
                 <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
                     Take a seat and relax. Your professional will be with you shortly to begin your session.
                 </p>
@@ -254,15 +253,15 @@ const ArrivedView = ({ client, staff, tenantId }: { client: Client | null, staff
                         <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staff.name || 'S').charAt(0)}</AvatarFallback>
                     </Avatar>
                     <div className="text-left">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
-                        <p className="font-black text-sm uppercase text-slate-800 leading-none">{staff.name}</p>
+                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1 text-left">Your Professional</p>
+                        <p className="font-black text-sm uppercase text-slate-800 leading-none text-left">{staff.name}</p>
                     </div>
                 </div>
             )}
 
             <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 flex items-center justify-center gap-3 animate-pulse">
                 <Loader className="w-4 h-4 text-primary animate-spin" />
-                <span className="text-[10px] font-black uppercase text-primary tracking-widest">Awaiting Technician Signal</span>
+                <span className="text-[10px] font-black uppercase text-primary tracking-widest text-center">Awaiting Technician Signal</span>
             </div>
             
             <div className="pt-6 border-t border-dashed">
@@ -355,11 +354,11 @@ const RefreshmentCard = ({
                     <div className="absolute bottom-4 right-4">
                         <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50 text-right">
                             {isPerkAvailableNow ? (
-                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
+                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest text-right">Included</p>
                             ) : safeNumber(item.price) > 0 ? (
-                                <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${safeNumber(item.price).toFixed(2)}</p>
+                                <p className="text-sm font-black text-slate-900 font-mono tracking-tighter text-right">${safeNumber(item.price).toFixed(2)}</p>
                             ) : (
-                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Comp</p>
+                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest text-right">Comp</p>
                             )}
                         </div>
                     </div>
@@ -367,9 +366,9 @@ const RefreshmentCard = ({
 
                 <CardContent className="p-6 flex-1 flex flex-col justify-between space-y-4 text-left">
                     <div className="space-y-2 text-left">
-                        <h4 className="font-black text-lg uppercase tracking-tight text-slate-900 leading-none">{item.name}</h4>
+                        <h4 className="font-black text-lg uppercase tracking-tight text-slate-900 leading-none text-left">{item.name}</h4>
                         {item.description && (
-                            <p className="text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-2 italic">
+                            <p className="text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-2 italic text-left">
                                 "{item.description}"
                             </p>
                         )}
@@ -559,9 +558,9 @@ const ServicingView = ({
                     <div className="w-20 h-20 bg-white rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
                         <Activity className="w-10 h-10 text-primary -rotate-6" />
                     </div>
-                    <div className="space-y-2">
-                        <p className="font-black text-2xl uppercase tracking-tighter text-slate-900">Enjoy the Flow</p>
-                        <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-widest opacity-60">
+                    <div className="space-y-2 text-center">
+                        <p className="font-black text-2xl uppercase tracking-tighter text-slate-900 text-center">Enjoy the Flow</p>
+                        <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-widest opacity-60 text-center">
                             Service in progress at <strong>{stationName}</strong>
                         </p>
                     </div>
@@ -577,9 +576,9 @@ const ServicingView = ({
                                         <div className="flex items-center gap-3 text-left">
                                             <div className="p-2 bg-white rounded-xl shadow-inner"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
                                             <div className="text-left">
-                                                <p className="text-xs font-black uppercase text-slate-900">{req.itemName}</p>
-                                                <div className="flex items-center gap-2">
-                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Qty: {safeNumber(req.quantity || 1)}</p>
+                                                <p className="text-xs font-black uppercase text-slate-900 text-left">{req.itemName}</p>
+                                                <div className="flex items-center gap-2 text-left">
+                                                    <p className="text-[8px] font-bold text-primary/60 uppercase text-left">Qty: {safeNumber(req.quantity || 1)}</p>
                                                     {req.isRedemption && <Badge className="bg-primary text-white border-none text-[6px] h-3 px-1 font-black uppercase">Club Perk</Badge>}
                                                 </div>
                                             </div>
@@ -606,7 +605,7 @@ const ServicingView = ({
                             <section key={category} className="space-y-6">
                                 <div className="flex items-center justify-between px-8 text-left">
                                     <h3 className={cn(
-                                        "text-xs md:text-sm font-black uppercase tracking-[0.3em]",
+                                        "text-xs md:text-sm font-black uppercase tracking-[0.3em] text-left",
                                         isExclusive ? "text-indigo-600" : isComfort ? "text-primary" : "text-muted-foreground opacity-40"
                                     )}>
                                         {isExclusive && <Award className="inline-block w-4 h-4 mr-2 -mt-1" />}
@@ -659,21 +658,21 @@ const ServicingView = ({
                 <div className="p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-8">
                     {tenant?.wifiNetwork && (
                         <div className="p-6 rounded-[2rem] border-2 bg-white shadow-xl flex items-center justify-between gap-6 text-left">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-primary/10 rounded-2xl text-primary shadow-inner">
+                            <div className="flex items-center gap-4 text-left">
+                                <div className="p-3 bg-primary/10 rounded-2xl text-primary shadow-inner shrink-0">
                                     <Wifi className="w-6 h-6" />
                                 </div>
                                 <div className="text-left">
-                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-40">Private WiFi</p>
-                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900">{tenant.wifiNetwork}</p>
+                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-40 text-left">Private WiFi</p>
+                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 text-left">{tenant.wifiNetwork}</p>
                                 </div>
                             </div>
-                            <div className="text-right">
+                            <div className="text-right shrink-0">
                                 <Badge variant="outline" className="font-mono font-black text-xs h-10 px-4 border-2 shadow-sm rounded-xl select-all">{tenant.wifiPassword}</Badge>
                             </div>
                         </div>
                     )}
-                    <div className="pt-4 border-t border-dashed">
+                    <div className="pt-4 text-center">
                         <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
                             <Link href={`/portal/${tenant?.id}/${client?.id}`}>
                                 <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
@@ -745,7 +744,7 @@ export default function CheckInPage() {
 
     if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) {
         return (
-            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40">
+            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-muted/40 text-center">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mt-4">Initializing Portal...</p>
             </div>
@@ -757,8 +756,8 @@ export default function CheckInPage() {
             <ViewContainer>
                 <div className="p-12 text-center space-y-6">
                     <XCircle className="w-16 h-16 text-destructive mx-auto opacity-40" />
-                    <div className="space-y-2">
-                        <h2 className="text-2xl font-black uppercase tracking-tighter">Record Expired</h2>
+                    <div className="space-y-2 text-center">
+                        <h2 className="text-2xl font-black uppercase tracking-tighter text-center">Record Expired</h2>
                         <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-center">
                             This check-in link is no longer valid or could not be found in our manifest.
                         </p>
@@ -816,15 +815,15 @@ export default function CheckInPage() {
             <CardContent className="p-8 text-center space-y-8">
                 <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6 text-center">
                     <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
-                    <div className="space-y-1">
-                        <p className="text-[10px] font-black uppercase text-primary tracking-widest">Current Booking</p>
-                        <h3 className="text-xl font-black uppercase text-slate-900">{service?.name}</h3>
-                        <p className="text-xs font-bold text-muted-foreground uppercase">{format(safeDate(appointmentData?.startTime), 'EEEE, MMM d @ h:mm a')}</p>
+                    <div className="space-y-1 text-center">
+                        <p className="text-[10px] font-black uppercase text-primary tracking-widest text-center">Current Booking</p>
+                        <h3 className="text-xl font-black uppercase text-slate-900 text-center">{service?.name}</h3>
+                        <p className="text-xs font-bold text-muted-foreground uppercase text-center">{format(safeDate(appointmentData?.startTime), 'EEEE, MMM d @ h:mm a')}</p>
                     </div>
                 </div>
 
                 <div className="space-y-6 text-center">
-                    <p className="text-sm font-medium text-slate-500 leading-relaxed px-4 text-center">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please certifty your arrival status below.</p>
+                    <p className="text-sm font-medium text-slate-500 leading-relaxed px-4 text-center">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please certify your arrival status below.</p>
                     
                     <div className="grid gap-3">
                         <Button 
@@ -837,35 +836,35 @@ export default function CheckInPage() {
                             <Button 
                                 variant="outline" 
                                 onClick={() => updateStatus('on_my_way')} 
-                                className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white"
+                                className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"
                             >
-                                <Car className="w-4 h-4 mr-2 text-primary" /> On My Way
+                                <Car className="w-4 h-4 mr-2 text-primary" /> En Route
                             </Button>
                             <Button 
                                 variant="outline" 
                                 onClick={() => updateStatus('running_late', 15)} 
-                                className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white"
+                                className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"
                             >
-                                <AlertTriangle className="w-4 h-4 mr-2 text-amber-500" /> Running Late
+                                <AlertTriangle className="w-4 h-4 mr-2 text-amber-500" /> Late
                             </Button>
                         </div>
                     </div>
 
                     {assignedStaff && (
                         <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
-                            <Avatar className="h-12 h-12 border-2 border-background shadow-xl rounded-[1.5rem]">
+                            <Avatar className="h-12 h-12 border-2 border-background shadow-xl rounded-[1.5rem] shrink-0">
                                 <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
                                 <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
                             </Avatar>
-                            <div className="text-left">
-                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
-                                <p className="font-black text-sm uppercase text-slate-800 leading-none">{assignedStaff.name}</p>
+                            <div className="text-left flex-1 min-w-0">
+                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1 text-left">Your Professional</p>
+                                <p className="font-black text-sm uppercase text-slate-800 leading-none text-left truncate">{assignedStaff.name}</p>
                             </div>
                         </div>
                     )}
                 </div>
                 
-                <div className="pt-6 border-t border-dashed">
+                <div className="pt-6 border-t border-dashed text-center">
                     <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
                         <Link href={`/portal/${tenantId}/${clientId}`}>
                             <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />

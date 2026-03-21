@@ -539,7 +539,7 @@ export default function ClientPortalPage() {
 
     if (clientLoading || appointmentsLoading) {
         return (
-            <div className="flex h-screen w-full flex-col items-center justify-center p-4 bg-background">
+            <div className="flex h-screen w-full flex-col items-center justify-center p-4 bg-background text-center">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40 mt-4">Initializing Studio Pulse...</p>
             </div>
@@ -647,7 +647,7 @@ export default function ClientPortalPage() {
                                         <AlertDescription className="text-[10px] md:text-sm font-bold text-slate-600 uppercase tracking-tight opacity-80 mt-2 text-left">
                                             A total of <strong>${safeBalance.toFixed(2)}</strong> in outstanding fees is recorded. Reconcile now to maintain active status.
                                         </AlertDescription>
-                                        <div className="pt-4 text-left">
+                                        <div className="pt-4 text-left text-left">
                                             <Button variant="outline" onClick={() => setIsSettlementOpen(true)} className="h-9 md:h-10 rounded-xl border-destructive/30 bg-white text-destructive font-black uppercase text-[10px] tracking-widest hover:bg-destructive hover:text-white transition-all shadow-sm text-left"><Zap className="w-3.5 h-3.5 mr-2" />Settle Balance Now</Button>
                                         </div>
                                     </div>
@@ -680,12 +680,12 @@ export default function ClientPortalPage() {
                         <ScrollBar orientation="horizontal" className="hidden" />
                     </ScrollArea>
 
-                    <TabsContent value="appointments" className="space-y-12 animate-in fade-in duration-500">
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between px-1">
-                                <div className="flex items-center gap-3">
+                    <TabsContent value="appointments" className="space-y-12 animate-in fade-in duration-500 text-left">
+                        <div className="space-y-6 text-left">
+                            <div className="flex items-center justify-between px-1 text-left">
+                                <div className="flex items-center gap-3 text-left">
                                     <Calendar className="w-5 h-5 text-primary" />
-                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Agenda Matrix</h3>
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Agenda Matrix</h3>
                                 </div>
                                 <Button 
                                     variant="ghost" 
@@ -697,32 +697,32 @@ export default function ClientPortalPage() {
                                 </Button>
                             </div>
                             {upcomingAppointments.length > 0 ? (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
                                     {upcomingAppointments.map(apt => {
                                         const svc = services?.find(s => s.id === apt.serviceId);
                                         const pro = staff?.find(s => s.id === apt.staffId);
                                         const isActionable = apt.status === 'confirmed' || apt.status === 'deposit_pending' || apt.status === 'ready_for_checkout' || apt.status === 'servicing';
                                         return (
-                                            <Card key={apt.id} className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group flex flex-col">
-                                                <CardContent className="p-6 flex items-center gap-6 flex-1 text-left">
+                                            <Card key={apt.id} className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group flex flex-col text-left">
+                                                <CardContent className="p-6 flex items-center gap-6 flex-1 text-left text-left">
                                                     <div className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 shadow-inner text-primary shrink-0 group-hover:bg-primary group-hover:text-white transition-all duration-500"><Calendar className="w-8 h-8" /></div>
-                                                    <div className="min-w-0 text-left flex-1">
-                                                        <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1">{svc?.name || 'Service'}</p>
-                                                        <div className="flex items-center gap-2 mb-2">
+                                                    <div className="min-w-0 text-left flex-1 text-left">
+                                                        <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1 text-left">{svc?.name || 'Service'}</p>
+                                                        <div className="flex items-center gap-2 mb-2 text-left">
                                                             <Badge variant="outline" className="h-5 px-2 border-none bg-muted/50 text-muted-foreground text-[8px] font-black uppercase">By {pro?.name.split(' ')[0] || 'Technician'}</Badge>
                                                             <Badge className={cn("h-5 px-2 border-none font-black text-[8px] uppercase", apt.status === 'confirmed' ? "bg-green-500 text-white" : "bg-amber-500 text-white")}>{apt.status.replace('_', ' ')}</Badge>
                                                         </div>
-                                                        <p className="text-xl font-black text-primary font-mono tracking-tighter">{format(safeDate(apt.startTime), 'EEEE, MMM d @ h:mm a')}</p>
+                                                        <p className="text-xl font-black text-primary font-mono tracking-tighter text-left">{format(safeDate(apt.startTime), 'EEEE, MMM d @ h:mm a')}</p>
                                                     </div>
                                                 </CardContent>
                                                 {isActionable && apt.status !== 'servicing' && apt.status !== 'ready_for_checkout' && (
-                                                    <div className="p-3 border-t bg-muted/5 grid grid-cols-2 gap-2">
+                                                    <div className="p-3 border-t bg-muted/5 grid grid-cols-2 gap-2 text-left">
                                                         <Button variant="ghost" onClick={() => setAppointmentToReschedule(apt)} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-primary/5 text-primary"><Undo2 className="w-3.5 h-3.5 mr-2" /> Reschedule</Button>
                                                         <Button variant="ghost" onClick={() => setAppointmentToCancel(apt)} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-destructive/5 text-destructive"><XCircle className="w-3.5 h-3.5 mr-2" /> Cancel</Button>
                                                     </div>
                                                 )}
                                                 {apt.checkInToken && apt.status !== 'ready_for_checkout' && apt.status !== 'servicing' && (
-                                                    <div className="p-2 pt-0 border-t bg-muted/5">
+                                                    <div className="p-2 pt-0 border-t bg-muted/5 text-left">
                                                         <Button asChild variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5">
                                                             <Link href={`/check-in/${apt.checkInToken}`}>Open Digital Key <ArrowRight className="ml-2 h-3 w-3" /></Link>
                                                         </Button>
@@ -733,34 +733,34 @@ export default function ClientPortalPage() {
                                     })}
                                 </div>
                             ) : (
-                                <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><Clock className="w-16 h-16" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Upcoming Appointments</p></div>
+                                <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-center"><Clock className="w-16 h-16" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Upcoming Appointments</p></div>
                             )}
                         </div>
 
                         <Separator className="border-dashed" />
 
-                        <div className="space-y-6">
-                            <div className="flex items-center gap-3 px-1 text-left">
+                        <div className="space-y-6 text-left">
+                            <div className="flex items-center gap-3 px-1 text-left text-left">
                                 <History className="w-5 h-5 text-muted-foreground opacity-40" />
-                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical History Archive</h3>
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 text-left">Technical History Archive</h3>
                             </div>
-                            <div className="grid gap-4">
+                            <div className="grid gap-4 text-left">
                                 {pastAppointments.slice(0, 10).map(apt => {
                                     const svc = services?.find(s => s.id === apt.serviceId);
                                     const pro = staff?.find(s => s.id === apt.staffId);
                                     return (
-                                        <Card key={apt.id} className="border-2 rounded-[1.5rem] bg-white hover:bg-muted/5 transition-all overflow-hidden">
-                                            <CardContent className="p-5 flex items-center justify-between gap-6 text-left">
-                                                <div className="flex items-center gap-4 min-w-0 flex-1">
+                                        <Card key={apt.id} className="border-2 rounded-[1.5rem] bg-white hover:bg-muted/5 transition-all overflow-hidden text-left">
+                                            <CardContent className="p-5 flex items-center justify-between gap-6 text-left text-left">
+                                                <div className="flex items-center gap-4 min-w-0 flex-1 text-left text-left">
                                                     <div className="p-2.5 bg-muted/30 rounded-xl shrink-0"><CheckCircle2 className="w-5 h-5 text-slate-400" /></div>
-                                                    <div className="min-w-0">
-                                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{svc?.name}</p>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Verified with {pro?.name || 'Staff'}</p>
+                                                    <div className="min-w-0 text-left text-left">
+                                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{svc?.name}</p>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Verified with {pro?.name || 'Staff'}</p>
                                                     </div>
                                                 </div>
                                                 <div className="text-right shrink-0 ml-4">
-                                                    <p className="text-[10px] font-black font-mono text-slate-600">{format(safeDate(apt.startTime), 'MMM d, yyyy')}</p>
-                                                    <Badge variant="outline" className="h-4 px-1.5 rounded-md border-none bg-muted/20 text-[7px] font-black uppercase mt-1">{apt.status}</Badge>
+                                                    <p className="text-[10px] font-black font-mono text-slate-600 text-right">{format(safeDate(apt.startTime), 'MMM d, yyyy')}</p>
+                                                    <Badge variant="outline" className="h-4 px-1.5 rounded-md border-none bg-muted/20 text-[7px] font-black uppercase mt-1">{(apt.status || 'UNKN').toUpperCase()}</Badge>
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -770,38 +770,38 @@ export default function ClientPortalPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="portfolio" className="space-y-12 animate-in fade-in duration-500">
+                    <TabsContent value="portfolio" className="space-y-12 animate-in fade-in duration-500 text-left">
                         {activeMembership ? (
-                            <div className="space-y-12">
-                                <section className="space-y-6">
-                                    <div className="flex flex-col sm:flex-row items-center justify-between px-1 gap-4">
-                                        <div className="flex items-center gap-3 w-full sm:w-auto text-left">
+                            <div className="space-y-12 text-left">
+                                <section className="space-y-6 text-left">
+                                    <div className="flex flex-col sm:flex-row items-center justify-between px-1 gap-4 text-left">
+                                        <div className="flex items-center gap-3 w-full sm:w-auto text-left text-left">
                                             <ShieldCheck className="w-5 h-5 text-indigo-600" />
-                                            <div className="text-left">
-                                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 leading-tight">Active Allotment Matrix</h3>
-                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Cycle: {format(cycleStart, 'MMM d')} - {client?.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMM d, yyyy') : '...'}</p>
+                                            <div className="text-left text-left">
+                                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 leading-tight text-left">Active Allotment Matrix</h3>
+                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Cycle: {format(cycleStart, 'MMM d')} - {client?.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMM d, yyyy') : '...'}</p>
                                             </div>
                                         </div>
-                                        {loyaltyHubData && (<div className="w-full sm:w-auto flex items-center gap-2 px-4 py-2 rounded-2xl bg-green-500/5 border-2 border-green-500/10"><TrendingUp className="w-3.5 h-3.5 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Value Secured: ${loyaltyHubData.cycleSavings.toFixed(0)}</span></div>)}
+                                        {loyaltyHubData && (<div className="w-full sm:w-auto flex items-center gap-2 px-4 py-2 rounded-2xl bg-green-500/5 border-2 border-green-500/10 text-left"><TrendingUp className="w-3.5 h-3.5 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Value Secured: ${loyaltyHubData.cycleSavings.toFixed(0)}</span></div>)}
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
                                         {perkAllotments.map(perk => {
                                             const used = safeNumber(perk.used);
                                             const total = safeNumber(perk.quantity);
                                             const remaining = Math.max(0, total - used);
                                             const isExhausted = used >= total;
                                             return (
-                                                <Card key={perk.id} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all", isExhausted && "opacity-60")}>
-                                                    <CardContent className="p-6 space-y-5 text-left">
-                                                        <div className="flex justify-between items-start gap-4">
-                                                            <div className="space-y-1 flex-1 min-w-0">
-                                                                <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
-                                                                <p className={cn("text-[9px] font-black uppercase tracking-widest", perk.color)}>{perk.type} Allotment</p>
+                                                <Card key={perk.id} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left", isExhausted && "opacity-60")}>
+                                                    <CardContent className="p-6 space-y-5 text-left text-left">
+                                                        <div className="flex justify-between items-start gap-4 text-left text-left">
+                                                            <div className="space-y-1 flex-1 min-w-0 text-left text-left">
+                                                                <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
+                                                                <p className={cn("text-[9px] font-black uppercase tracking-widest text-left", perk.color)}>{perk.type} Allotment</p>
                                                             </div>
                                                             <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isExhausted ? "bg-green-500/10 text-green-600" : perk.bg + " " + perk.color)}>{isExhausted ? <CheckCircle2 className="w-6 h-6" /> : <perk.icon className="w-6 h-6" />}</div>
                                                         </div>
-                                                        <div className="space-y-2">
-                                                            <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1"><span>Allotment State</span><div className="flex items-center gap-1.5"><span>Used {used} / {total}</span><Badge variant="outline" className={cn("h-4 border-none font-black", isExhausted ? "text-muted-foreground" : "text-primary")}>({remaining} LEFT)</Badge></div></div>
+                                                        <div className="space-y-2 text-left">
+                                                            <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left text-left"><span>Allotment State</span><div className="flex items-center gap-1.5"><span>Used {used} / {total}</span><Badge variant="outline" className={cn("h-4 border-none font-black", isExhausted ? "text-muted-foreground" : "text-primary")}>({remaining} LEFT)</Badge></div></div>
                                                             <Progress value={perk.progress} className={cn("h-2 rounded-full bg-muted shadow-inner", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
                                                     </CardContent>
@@ -811,37 +811,37 @@ export default function ClientPortalPage() {
                                     </div>
                                 </section>
                                 <Separator className="border-dashed" />
-                                <section className="space-y-6">
-                                    <div className="flex items-center gap-3 px-1 text-left"><Activity className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Current Cycle Redemptions</h3></div>
+                                <section className="space-y-6 text-left">
+                                    <div className="flex items-center gap-3 px-1 text-left text-left"><Activity className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Current Cycle Redemptions</h3></div>
                                     {currentCycleActivity.all.length > 0 ? (
-                                        <div className="grid gap-3">
+                                        <div className="grid gap-3 text-left">
                                             {currentCycleActivity.all.map((item: any) => {
                                                 const isRefreshment = !!item.itemName;
                                                 const date = safeDate(item.date || item.requestedAt);
                                                 return (
-                                                    <div key={item.id} className="flex items-center justify-between p-5 rounded-[1.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all">
-                                                        <div className="flex items-center gap-4 text-left min-w-0 flex-1">
+                                                    <div key={item.id} className="flex items-center justify-between p-5 rounded-[1.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all text-left">
+                                                        <div className="flex items-center gap-4 text-left min-w-0 flex-1 text-left text-left">
                                                             <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isRefreshment ? "bg-primary/10 text-primary" : "bg-indigo-500/10 text-indigo-600")}>{isRefreshment ? <Coffee className="w-5 h-5" /> : <Star className="w-5 h-5" />}</div>
-                                                            <div className="min-w-0">
-                                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{isRefreshment ? item.itemName : item.serviceName}</p>
-                                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Drawn from Membership Portfolio</p>
+                                                            <div className="min-w-0 text-left text-left text-left">
+                                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left text-left">{isRefreshment ? item.itemName : item.serviceName}</p>
+                                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left text-left">Drawn from Membership Portfolio</p>
                                                             </div>
                                                         </div>
                                                         <div className="text-right shrink-0 ml-4">
-                                                            <p className="font-black font-mono text-[11px] text-slate-900 leading-none">{format(date, 'MMM d, p')}</p>
-                                                            <Badge variant="outline" className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none bg-muted/50 text-muted-foreground shadow-sm">VERIFIED</Badge>
+                                                            <p className="font-black font-mono text-[11px] text-slate-900 leading-none text-right">{format(date, 'MMM d, p')}</p>
+                                                            <Badge variant="outline" className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none bg-muted/20 text-muted-foreground shadow-sm">VERIFIED</Badge>
                                                         </div>
                                                     </div>
                                                 );
                                             })}
                                         </div>
-                                    ) : (<div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><History className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Activity Logged in Current Cycle</p></div>)}
+                                    ) : (<div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-center"><History className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Activity Logged in Current Cycle</p></div>)}
                                 </section>
                             </div>
                         ) : (
-                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-center">
                                 <Award className="w-16 h-16" />
-                                <p className="text-xl font-black uppercase tracking-tighter text-slate-900">Portfolio Inactive</p>
+                                <p className="text-xl font-black uppercase tracking-tighter text-slate-900 text-center">Portfolio Inactive</p>
                                 <Button asChild className="h-12 px-8 rounded-xl font-black uppercase text-[10px] tracking-widest mt-4">
                                     <Link href={`/book/${tenantId}#memberships`}>Explore Tiers</Link>
                                 </Button>
@@ -849,70 +849,70 @@ export default function ClientPortalPage() {
                         )}
                     </TabsContent>
 
-                    <TabsContent value="rewards" className="space-y-10 animate-in fade-in duration-500">
+                    <TabsContent value="rewards" className="space-y-10 animate-in fade-in duration-500 text-left">
                         {loyaltyHubData ? (
-                            <div className="space-y-10">
-                                <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
+                            <div className="space-y-10 text-left">
+                                <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group text-left">
                                     <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Flame className="w-32 h-32 text-primary" /></div>
-                                    <CardHeader className="p-8 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Next Reward Protocol</CardTitle></CardHeader>
+                                    <CardHeader className="p-8 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2 text-left"><Sparkles className="w-3.5 h-3.5" /> Next Reward Protocol</CardTitle></CardHeader>
                                     <CardContent className="p-8 pt-4 space-y-6 text-left">
-                                        <div className="text-left">
-                                            <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter leading-none">{loyaltyHubData.visitsToNext}</p>
-                                            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">Sessions remaining until next reward</p>
+                                        <div className="text-left text-left">
+                                            <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter leading-none text-left">{loyaltyHubData.visitsToNext}</p>
+                                            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2 text-left">Sessions remaining until next reward</p>
                                         </div>
-                                        <div className="space-y-2">
+                                        <div className="space-y-2 text-left">
                                             <Progress value={loyaltyHubData.progressToNextReward} className="h-2 rounded-full bg-white/40" />
-                                            <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-primary/60"><span>Active Progress</span><span>{Math.round(loyaltyHubData.progressToNextReward)}% Path</span></div>
+                                            <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-primary/60 text-left text-left"><span>Active Progress</span><span>{Math.round(loyaltyHubData.progressToNextReward)}% Path</span></div>
                                         </div>
                                     </CardContent>
                                 </Card>
                                 <Card className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm text-left">
-                                    <CardHeader className="p-8 pb-4 border-b bg-muted/5 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                                        <div className="space-y-1"><CardTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-3"><HeartHandshake className="w-5 h-5 text-primary" /> Advocacy Impact</CardTitle><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Revenue earned through guest referrals.</CardDescription></div>
-                                        <div className="text-right"><p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">Total Credit Earned</p><p className="text-3xl font-black font-mono tracking-tighter text-primary leading-none">${loyaltyHubData.referralEarnings.toFixed(2)}</p></div>
+                                    <CardHeader className="p-8 pb-4 border-b bg-muted/5 flex flex-col md:flex-row md:items-center justify-between gap-6 text-left">
+                                        <div className="space-y-1 text-left"><CardTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-3 text-left"><HeartHandshake className="w-5 h-5 text-primary" /> Advocacy Impact</CardTitle><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 text-left">Revenue earned through guest referrals.</CardDescription></div>
+                                        <div className="text-right text-right"><p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1 text-right">Total Credit Earned</p><p className="text-3xl font-black font-mono tracking-tighter text-primary leading-none text-right">${loyaltyHubData.referralEarnings.toFixed(2)}</p></div>
                                     </CardHeader>
                                     <CardContent className="p-8 space-y-8 text-left">
                                         {client.successfulReferrals?.length ? (
-                                            <div className="space-y-4">
-                                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Converted Referrals</p>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                    {client.successfulReferrals.map((name, idx) => (<div key={idx} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/5"><div className="p-2 bg-white rounded-lg shadow-sm shrink-0"><User className="w-3.5 h-3.5 text-primary opacity-40" /></div><span className="text-[10px] font-black uppercase text-slate-700 truncate">{name}</span></div>))}
+                                            <div className="space-y-4 text-left">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Converted Referrals</p>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-left text-left">
+                                                    {client.successfulReferrals.map((name, idx) => (<div key={idx} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/5 text-left text-left"><div className="p-2 bg-white rounded-lg shadow-sm shrink-0"><User className="w-3.5 h-3.5 text-primary opacity-40" /></div><span className="text-[10px] font-black uppercase text-slate-700 truncate text-left">{name}</span></div>))}
                                                 </div>
                                             </div>
-                                        ) : (<div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3"><PartyPopper className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">No Referrals Registered</p></div>)}
-                                        <div className="p-6 rounded-3xl border-2 border-dashed border-primary/20 bg-primary/[0.02] flex flex-col sm:flex-row items-center justify-between gap-6">
-                                            <div className="space-y-1 text-center sm:text-left"><p className="text-sm font-black uppercase tracking-tight text-slate-900">Expand the Circle</p><p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight">Share your referral code to earn instant studio credit.</p></div>
-                                            <div className="flex gap-2 w-full sm:w-auto"><div className="flex-1 p-3 px-5 rounded-xl bg-white border-2 border-primary/10 shadow-inner font-black font-mono text-primary uppercase text-sm tracking-widest text-center">{client.referralCode}</div><Button variant="outline" size="icon" className="h-12 w-12 rounded-xl border-2 bg-white" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: 'Code Copied' }); }}><Repeat className="w-5 h-5 opacity-40" /></Button></div>
+                                        ) : (<div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3 text-center"><PartyPopper className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">No Referrals Registered</p></div>)}
+                                        <div className="p-6 rounded-3xl border-2 border-dashed border-primary/20 bg-primary/[0.02] flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
+                                            <div className="space-y-1 text-center sm:text-left text-left"><p className="text-sm font-black uppercase tracking-tight text-slate-900 text-left">Expand the Circle</p><p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight text-left">Share your referral code to earn instant studio credit.</p></div>
+                                            <div className="flex gap-2 w-full sm:w-auto text-left"><div className="flex-1 p-3 px-5 rounded-xl bg-white border-2 border-primary/10 shadow-inner font-black font-mono text-primary uppercase text-sm tracking-widest text-center">{client.referralCode}</div><Button variant="outline" size="icon" className="h-12 w-12 rounded-xl border-2 bg-white" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: 'Code Copied' }); }}><Repeat className="w-5 h-5 opacity-40" /></Button></div>
                                         </div>
                                     </CardContent>
                                 </Card>
                             </div>
                         ) : (
-                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-center">
                                 <Trophy className="w-16 h-16" />
                                 <p className="text-[10px] font-black uppercase tracking-widest text-center">Reward profile loading...</p>
                             </div>
                         )}
                     </TabsContent>
 
-                    <TabsContent value="ledger" className="space-y-8 animate-in fade-in duration-500">
-                        <div className="space-y-6 text-left">
-                            <div className="flex items-center gap-3 px-1 text-left"><Landmark className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Accounting Manifest</h3></div>
+                    <TabsContent value="ledger" className="space-y-8 animate-in fade-in duration-500 text-left">
+                        <div className="space-y-6 text-left text-left">
+                            <div className="flex items-center gap-3 px-1 text-left text-left text-left"><Landmark className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Accounting Manifest</h3></div>
                             {client.unpaidFees?.length ? (
-                                <div className="grid gap-4 text-left">
+                                <div className="grid gap-4 text-left text-left">
                                     {client.unpaidFees.map((fee) => (
-                                        <Card key={fee.feeId} className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-3xl overflow-hidden shadow-xl shadow-destructive/5">
-                                            <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
-                                                <div className="flex items-center gap-4 text-left w-full sm:w-auto">
+                                        <Card key={fee.feeId} className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-3xl overflow-hidden shadow-xl shadow-destructive/5 text-left text-left">
+                                            <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-6 text-left text-left text-left">
+                                                <div className="flex items-center gap-4 text-left w-full sm:w-auto text-left text-left">
                                                     <div className="p-3 bg-destructive rounded-2xl shadow-lg shadow-destructive/20 shrink-0"><AlertTriangle className="w-6 h-6 text-white" /></div>
-                                                    <div className="space-y-1"><p className="font-black text-sm uppercase tracking-tight text-destructive">{fee.reason}</p><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p></div>
+                                                    <div className="space-y-1 text-left text-left"><p className="font-black text-sm uppercase tracking-tight text-destructive text-left">{fee.reason}</p><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p></div>
                                                 </div>
-                                                <div className="text-center sm:text-right shrink-0"><p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest mb-1">Fee Amount</p><p className="text-3xl font-black font-mono tracking-tighter text-destructive">${safeNumber(fee.feeAmount).toFixed(2)}</p></div>
+                                                <div className="text-center sm:text-right shrink-0 text-right"><p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest mb-1 text-right">Fee Amount</p><p className="text-3xl font-black font-mono tracking-tighter text-destructive text-right">${safeNumber(fee.feeAmount).toFixed(2)}</p></div>
                                             </CardContent>
                                         </Card>
                                     ))}
                                 </div>
-                            ) : (<div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><ShieldCheck className="w-16 h-16 text-green-500" /><p className="text-[10px] font-black uppercase tracking-widest">Account Clear & Settled</p></div>)}
+                            ) : (<div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left text-center"><ShieldCheck className="w-16 h-16 text-green-500" /><p className="text-[10px] font-black uppercase tracking-widest text-center">Account Clear & Settled</p></div>)}
                         </div>
                     </TabsContent>
                 </Tabs>
@@ -947,20 +947,20 @@ export default function ClientPortalPage() {
                     <AnimatePresence mode="wait">
                         {!settlementSuccess ? (
                             <motion.div key="pay-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2 text-left text-left"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Settlement</span></div><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Account Reconciliation</DialogTitle></DialogHeader>
-                                <div className="p-8 space-y-8">
+                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2 text-left text-left"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 text-left">Strategic Settlement</span></div><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Account Reconciliation</DialogTitle></DialogHeader>
+                                <div className="p-8 space-y-8 text-left">
                                     <div className="p-8 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-inner">
                                         <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Total Arrears Balance</p>
                                         <p className="text-6xl font-black text-primary tracking-tighter font-mono">${safeBalance.toFixed(2)}</p>
                                     </div>
                                     <div className="space-y-6 text-left">
-                                        <div className="space-y-3">
+                                        <div className="space-y-3 text-left">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</Label>
                                             {client.cardOnFile ? (
                                                 <div className="p-5 rounded-2xl border-2 bg-primary/[0.02] border-primary/10 flex items-center justify-between shadow-sm text-left">
                                                     <div className="flex items-center gap-4 text-left">
                                                         <div className="p-2 bg-white rounded-xl shadow-sm border shrink-0"><CreditCard className="w-5 h-5 text-primary" /></div>
-                                                        <div className="text-left"><p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Authorized Vault Card</p></div>
+                                                        <div className="text-left"><p className="font-black text-sm uppercase tracking-tight text-slate-900 text-left">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Authorized Vault Card</p></div>
                                                     </div>
                                                     <Lock className="w-4 h-4 text-primary opacity-20" />
                                                 </div>
@@ -973,9 +973,9 @@ export default function ClientPortalPage() {
                                         </div>
                                     </div>
                                 </div>
-                                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3"><Button onClick={handleSettleArrears} disabled={isProcessing} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">{isProcessing ? <Loader className="animate-spin" /> : `Authorize $${safeBalance.toFixed(2)}`}</Button><Button variant="ghost" onClick={() => setIsSettlementOpen(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button></DialogFooter>
+                                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 text-left"><Button onClick={handleSettleArrears} disabled={isProcessing} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">{isProcessing ? <Loader className="animate-spin" /> : `Authorize $${safeBalance.toFixed(2)}`}</Button><Button variant="ghost" onClick={() => setIsSettlementOpen(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button></DialogFooter>
                             </motion.div>
-                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-10 text-left text-left"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2 text-center text-left text-left text-left"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-left">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
+                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-10 text-center"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2 text-center"><h3 className="text-3xl font-black uppercase tracking-tighter text-center">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-center">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
                     </AnimatePresence>
                 </DialogContent>
             </Dialog>

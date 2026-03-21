@@ -59,6 +59,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { cn, safeNumber } from '@/lib/utils';
@@ -72,7 +73,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, doc, increment, writeBatch, deleteField } from 'firebase/firestore';
+import { collection, doc, increment, writeBatch, arrayUnion, deleteField } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -468,6 +469,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
       <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
+            <DialogHeader className="sr-only">
+                <DialogTitle>Inspiration Image Expansion</DialogTitle>
+                <DialogDescription>Full screen preview of the guest's technical reference.</DialogDescription>
+            </DialogHeader>
             <div className="relative w-full aspect-video md:aspect-[4/3] rounded-[3rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl">
                 {expandedImage && <Image src={expandedImage} alt="Expanded Inspiration" fill className="object-contain" priority />}
             </div>
