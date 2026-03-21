@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -37,10 +38,11 @@ import {
     Moon,
     VolumeX,
     SunDim,
-    Gamepad2
+    Gamepad2,
+    Trash2
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
-import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
@@ -309,7 +311,8 @@ const ServicingView = ({
     const handleRequest = async (item: InventoryItem) => {
         if (!firestore || !tenant || !client || !appointment || isRequesting) return;
         const qty = quantities[item.id] || 1;
-        const totalSessionCount = activeRequests.reduce((sum, r) => sum + (r.quantity || 1), 0);
+        const pendingItems = activeRequests.filter(r => r.status === 'pending');
+        const totalSessionCount = pendingItems.reduce((sum, r) => sum + (r.quantity || 1), 0);
         const limit = tenant.complimentaryAmenityLimit || 0;
 
         if (limit > 0 && totalSessionCount + qty > limit) {
@@ -332,7 +335,20 @@ const ServicingView = ({
         }
     };
 
-    const hasActiveRequest = activeRequests.some(r => r.status === 'pending');
+    const handleCancelRequest = async (requestId: string) => {
+        if (!firestore || !tenant || isRequesting) return;
+        try {
+            await updateDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/refreshmentRequests`, requestId), {
+                status: 'cancelled'
+            });
+            toast({ title: "Request Recalled" });
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Recall Failed" });
+        }
+    };
+
+    const pendingRequests = activeRequests.filter(r => r.status === 'pending');
+    const hasActiveRequest = pendingRequests.length > 0;
 
     return (
         <ViewContainer>
@@ -351,6 +367,33 @@ const ServicingView = ({
                 </div>
 
                 <div className="space-y-16 py-8">
+                    {hasActiveRequest && (
+                        <div className="px-8 space-y-4">
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-primary text-left">Active Request Ledger</h3>
+                            <div className="grid gap-3">
+                                {pendingRequests.map(req => (
+                                    <div key={req.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-primary/5 border-primary/10 animate-pulse">
+                                        <div className="flex items-center gap-3 text-left">
+                                            <div className="p-2 bg-white rounded-xl shadow-inner"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
+                                            <div className="text-left">
+                                                <p className="text-xs font-black uppercase text-slate-900">{req.itemName}</p>
+                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Qty: {req.quantity || 1}</p>
+                                            </div>
+                                        </div>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            onClick={() => handleCancelRequest(req.id)}
+                                            className="h-8 px-3 rounded-lg font-black uppercase text-[9px] tracking-widest text-destructive hover:bg-destructive/10"
+                                        >
+                                            Recall
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {Object.entries(refreshmentsByCategory).map(([category, items], catIdx) => {
                         const isExclusive = category === 'Club Exclusive Selection';
                         const isComfort = category === 'Comfort & Environment';
@@ -391,7 +434,7 @@ const ServicingView = ({
                                                     }}
                                                     onRequest={() => handleRequest(item)}
                                                     isRequesting={isRequesting}
-                                                    hasActiveRequest={hasActiveRequest}
+                                                    hasActiveRequest={false} // Allow multiples
                                                     isMember={isMember}
                                                     activeMembership={activeMembership}
                                                 />
@@ -420,13 +463,6 @@ const ServicingView = ({
                             <div className="text-right">
                                 <Badge variant="outline" className="font-mono font-black text-xs h-10 px-4 border-2 shadow-sm rounded-xl select-all">{tenant.wifiPassword}</Badge>
                             </div>
-                        </div>
-                    )}
-
-                    {hasActiveRequest && (
-                        <div className="p-6 rounded-[2rem] border-4 border-primary/20 bg-primary/5 flex items-center justify-center gap-4 animate-pulse shadow-2xl">
-                            <Loader className="w-6 h-6 text-primary animate-spin" />
-                            <span className="text-[11px] font-black uppercase text-primary tracking-[0.2em]">Protocol Fulfillment Active</span>
                         </div>
                     )}
                 </div>

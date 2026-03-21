@@ -43,7 +43,8 @@ import {
   Zap,
   TrendingDown,
   User as UserIcon,
-  Timer
+  Timer,
+  XCircle
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Appointment, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn, RefreshmentRequest } from '@/lib/data';
@@ -80,7 +81,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const RefreshmentQueue = ({ requests, inventory, user, onDeliver, staff }: any) => {
+const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staff }: any) => {
     if (!requests || requests.length === 0) return (
         <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
             <Coffee className="w-12 h-12" />
@@ -144,12 +145,21 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, staff }: any) 
                                     </p>
                                 </div>
                             </div>
-                            <Button 
-                                onClick={() => onDeliver(request)}
-                                className="h-12 w-full sm:w-48 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 group"
-                            >
-                                Certify Delivery <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
-                            </Button>
+                            <div className="flex items-center gap-3 w-full sm:w-auto">
+                                <Button 
+                                    variant="outline"
+                                    onClick={() => onCancel(request.id)}
+                                    className="h-12 flex-1 sm:flex-none sm:w-12 rounded-xl border-2 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/20 transition-all"
+                                >
+                                    <XCircle className="w-5 h-5" />
+                                </Button>
+                                <Button 
+                                    onClick={() => onDeliver(request)}
+                                    className="h-12 flex-1 sm:w-48 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 group"
+                                >
+                                    Certify Delivery <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                                </Button>
+                            </div>
                         </motion.div>
                     );
                 })}
@@ -309,6 +319,14 @@ export default function DashboardPage() {
       }
   };
 
+  const handleCancelRefreshment = async (requestId: string) => {
+      if (!firestore || !tenantId) return;
+      updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId), {
+          status: 'cancelled'
+      });
+      toast({ title: "Order Removed", description: "The request has been voided." });
+  };
+
   const dashboardMetrics = useMemo(() => {
     const todayStart = startOfDay(new Date());
     const dailyIncome = (transactions || []).filter(t => t.type === 'income' && isSameDay(safeDate(t.date), todayStart)).reduce((acc, t) => acc + t.amount, 0);
@@ -390,6 +408,7 @@ export default function DashboardPage() {
                         inventory={inventory} 
                         user={user}
                         onDeliver={handleDeliverRefreshment} 
+                        onCancel={handleCancelRefreshment}
                         staff={staff}
                     />
                 </section>
