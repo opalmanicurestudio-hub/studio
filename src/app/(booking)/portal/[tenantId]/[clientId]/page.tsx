@@ -45,7 +45,9 @@ import {
     Undo2,
     CalendarCheck,
     Lock,
-    CreditCard
+    CreditCard,
+    Ban,
+    ShieldAlert
 } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -95,6 +97,18 @@ const safeDate = (val: any): Date => {
     }
     return new Date(val);
 };
+
+const ViewContainer = ({ children }: { children: React.ReactNode }) => (
+    <motion.div 
+        initial={{ opacity: 0, y: 20 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="w-full max-w-2xl px-2 sm:px-0"
+    >
+        <Card className="border-4 rounded-[3rem] md:rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl">
+            {children}
+        </Card>
+    </motion.div>
+);
 
 export default function ClientPortalPage() {
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
@@ -240,7 +254,6 @@ export default function ClientPortalPage() {
             .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
     }, [appointments]);
 
-    // --- POLICY ENFORCEMENT LOGIC ---
     const handleConfirmCancellation = async () => {
         if (!appointmentToCancel || !firestore || !tenantId || !client) return;
         setIsProcessing(true);
@@ -340,7 +353,6 @@ export default function ClientPortalPage() {
         const amount = safeNumber(client.outstandingBalance);
         const now = new Date().toISOString();
 
-        // 1. Log Transaction
         const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
         batch.set(txnRef, {
             id: txnRef.id,
@@ -357,7 +369,6 @@ export default function ClientPortalPage() {
             tenantId
         });
 
-        // 2. Update Client Record
         const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
         batch.update(clientRef, {
             outstandingBalance: 0,
@@ -389,6 +400,43 @@ export default function ClientPortalPage() {
     }
 
     if (!client) return <div className="p-10 text-center font-black uppercase text-slate-400">Dossier not found.</div>;
+
+    // --- ACCESS RESTRICTION LOGIC ---
+    if (client.status === 'banned') {
+        return (
+            <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 font-body">
+                <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                    <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-destructive/5 blur-[120px] rounded-full" />
+                </div>
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="relative z-10 w-full max-w-md">
+                    <Card className="border-4 rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl text-center">
+                        <CardHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
+                            <div className="flex items-center gap-3 mb-2">
+                                <ShieldAlert className="w-5 h-5 text-destructive" />
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-destructive">Security Restriction</span>
+                            </div>
+                            <CardTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Authentication Denied</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-10 space-y-8">
+                            <div className="w-24 h-24 bg-destructive/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5">
+                                <Ban className="w-12 h-12 text-destructive" />
+                            </div>
+                            <div className="space-y-3">
+                                <p className="text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                                    Your guest profile has been restricted in the studio manifest. Access to the private portal is currently prohibited.
+                                </p>
+                            </div>
+                        </CardContent>
+                        <CardFooter className="p-8 pt-0">
+                            <Button asChild variant="ghost" className="w-full h-12 font-black uppercase tracking-widest text-[10px] text-slate-400">
+                                <Link href={`/book/${tenantId}`}>Return to Studio Home</Link>
+                            </Button>
+                        </CardFooter>
+                    </Card>
+                </motion.div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-background relative overflow-x-hidden">
@@ -430,7 +478,7 @@ export default function ClientPortalPage() {
 
                             <motion.button 
                                 onClick={() => setEntered(true)}
-                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95 text-primary"
+                                className="mt-16 group flex flex-col items-center gap-4 transition-all active:scale-95 text-slate-400"
                             >
                                 <span className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] opacity-60 group-hover:opacity-100 transition-opacity">Access Dashboard</span>
                                 <ArrowDown className="w-6 h-6 md:w-8 md:h-8 animate-bounce opacity-60 group-hover:opacity-100" />

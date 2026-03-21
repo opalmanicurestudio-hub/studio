@@ -13,6 +13,7 @@ import { Loader, User, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { motion } from 'framer-motion';
+import { type Client } from '@/lib/data';
 
 export default function PortalLoginPage() {
     const { tenantId } = useParams() as { tenantId: string };
@@ -39,6 +40,15 @@ export default function PortalLoginPage() {
                     description: "We couldn't find an account with that email. Please check your spelling or sign up on the booking page.",
                 });
             } else {
+                const clientData = querySnapshot.docs[0].data() as Client;
+                if (clientData.status === 'banned') {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Access Denied',
+                        description: 'Your studio profile is restricted. Please contact us for assistance.',
+                    });
+                    return;
+                }
                 const clientId = querySnapshot.docs[0].id;
                 // In a production app, we would send a magic link.
                 // For this prototype, we'll redirect directly.
