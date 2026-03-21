@@ -39,7 +39,8 @@ import {
     CreditCard,
     Zap,
     Lock,
-    Banknote
+    Banknote,
+    Plus
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
@@ -136,7 +137,7 @@ export const GuestRescheduleDialog = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [rescheduleDate, setRescheduleDate] = useState(safeDate(appointment.startTime));
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
-    const [paymentMethod, setPaymentMethod] = useState<'settle_now' | 'add_to_session' | 'add_to_balance'>('add_to_balance');
+    const [paymentMethod, setPaymentMethod] = useState<'settle_now' | 'charge_new_card' | 'add_to_session' | 'add_to_balance'>('add_to_balance');
 
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
@@ -241,7 +242,7 @@ export const GuestRescheduleDialog = ({
             endTime: endDateTime.toISOString(),
             applyFee: recoveryFee > 0,
             feeAmount: recoveryFee,
-            paymentMethod: recoveryFee > 0 ? paymentMethod : 'waived'
+            paymentMethod: recoveryFee > 0 ? (paymentMethod === 'charge_new_card' ? 'new_card' : (paymentMethod === 'settle_now' ? 'card_on_file' : paymentMethod)) : 'waived'
         });
         setIsSubmitting(false);
         onOpenChange(false);
@@ -282,15 +283,26 @@ export const GuestRescheduleDialog = ({
                                         <div className="space-y-4 text-left">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Settlement Mode</Label>
                                             <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-1 gap-3">
-                                                <label htmlFor="guest-resched-pay-vault" className={cn("flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white", paymentMethod === 'settle_now' ? "border-primary shadow-md" : "border-border hover:border-primary/20", !hasCardOnFile && "opacity-40 grayscale")}>
+                                                <label htmlFor="res-pay-vault" className={cn("flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white", paymentMethod === 'settle_now' ? "border-primary shadow-md" : "border-border hover:border-primary/20", !hasCardOnFile && "opacity-40 grayscale")}>
                                                     <div className="flex items-center gap-3">
-                                                        <RadioGroupItem value="settle_now" id="guest-resched-pay-vault" disabled={!hasCardOnFile} />
+                                                        <RadioGroupItem value="settle_now" id="res-pay-vault" disabled={!hasCardOnFile} />
                                                         <div className="space-y-0.5">
                                                             <p className="text-xs font-black uppercase tracking-tight">Settle Upfront</p>
                                                             <p className="text-[8px] font-bold opacity-60 uppercase">{hasCardOnFile ? 'Charge Card on File' : 'No Card on File'}</p>
                                                         </div>
                                                     </div>
                                                     {hasCardOnFile ? <ShieldCheck className="w-5 h-5 text-primary" /> : <Lock className="w-5 h-5 text-slate-300" />}
+                                                </label>
+
+                                                <label htmlFor="res-pay-new" className={cn("flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white", paymentMethod === 'charge_new_card' ? "border-primary shadow-md" : "border-border hover:border-primary/20")}>
+                                                    <div className="flex items-center gap-3">
+                                                        <RadioGroupItem value="charge_new_card" id="res-pay-new" />
+                                                        <div className="space-y-0.5">
+                                                            <p className="text-xs font-black uppercase tracking-tight">Use New Card</p>
+                                                            <p className="text-[8px] font-bold opacity-60 uppercase">Authorize fresh payment</p>
+                                                        </div>
+                                                    </div>
+                                                    <CreditCard className="w-5 h-5 text-primary" />
                                                 </label>
 
                                                 {tenant?.allowGuestFeeDeferral && (
@@ -318,6 +330,32 @@ export const GuestRescheduleDialog = ({
                                                 </label>
                                             </RadioGroup>
                                         </div>
+
+                                        <AnimatePresence>
+                                            {paymentMethod === 'charge_new_card' && (
+                                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
+                                                    <div className="space-y-3 text-left">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-[10px] font-black uppercase text-primary">Card Number</Label>
+                                                            <div className="relative">
+                                                                <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                                                                <Input placeholder="•••• •••• •••• ••••" className="h-12 pl-10 rounded-xl border-2 font-mono bg-white shadow-sm" />
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div className="space-y-2">
+                                                                <Label className="text-[10px] font-black uppercase text-primary">Expiry</Label>
+                                                                <Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white shadow-sm" />
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <Label className="text-[10px] font-black uppercase text-primary">CVC</Label>
+                                                                <Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white shadow-sm" />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
 
                                         <div className="p-4 rounded-xl border-2 border-dashed bg-white/50 flex items-start gap-3 text-left">
                                             <Info className="w-4 h-4 text-primary shrink-0 mt-0.5 opacity-40" />
