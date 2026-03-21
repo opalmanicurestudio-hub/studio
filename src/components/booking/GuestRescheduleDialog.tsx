@@ -36,7 +36,8 @@ import {
     CheckCircle2,
     Activity,
     Scale,
-    Info
+    Info,
+    PackageOpen
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
@@ -66,6 +67,11 @@ import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { useToast } from '@/hooks/use-toast';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -123,12 +129,22 @@ export const GuestRescheduleDialog = ({
     onConfirm: (data: any) => Promise<void>
 }) => {
     const isMobile = useIsMobile();
+    const { toast } = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [rescheduleDate, setRescheduleDate] = useState(safeDate(appointment.startTime));
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
+    const [overrideBusinessHours, setOverrideBusinessHours] = useState(false);
 
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
+
+    // SCHEDULING NAVIGATION
+    const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
+    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
+
+    const handlePreviousWeek = () => setRescheduleDate(prev => subWeeks(prev, 1));
+    const handleNextWeek = () => setRescheduleDate(prev => addWeeks(prev, 1));
+    const handleDateSelect = (day: Date) => setRescheduleDate(day);
 
     // POLICY LOGIC
     const isWithinCancellationWindow = useMemo(() => {
@@ -167,10 +183,6 @@ export const GuestRescheduleDialog = ({
         }
     }, [isWithinCancellationWindow, tenant, service, inventory]);
 
-    // SCHEDULING LOGIC
-    const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
-    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
-
     const timeSlots = useMemo(() => {
         if (!service || !rescheduleDate || !publicScheduleProfile || !staff || !services) return [];
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
@@ -181,10 +193,10 @@ export const GuestRescheduleDialog = ({
         if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
         else workingHours = publicScheduleProfile?.week?.[dayName];
         
-        if (!workingHours || !workingHours.enabled) return [];
+        if (!overrideBusinessHours && (!workingHours || !workingHours.enabled)) return [];
 
-        const openTime = timeStringToDate(workingHours.start, rescheduleDate);
-        const closeTime = timeStringToDate(workingHours.end, rescheduleDate);
+        const openTime = overrideBusinessHours ? startOfDay(rescheduleDate) : timeStringToDate(workingHours?.start || '09:00 AM', rescheduleDate);
+        const closeTime = overrideBusinessHours ? endOfDay(rescheduleDate) : timeStringToDate(workingHours?.end || '05:00 PM', rescheduleDate);
         
         const busyIntervals: { start: Date, end: Date }[] = [];
         appointments.filter(apt => apt.id !== appointment.id && isSameDay(safeDate(apt.startTime), rescheduleDate) && apt.staffId === appointment.staffId && apt.status !== 'cancelled').forEach(apt => {
@@ -210,7 +222,7 @@ export const GuestRescheduleDialog = ({
             currentTime = addMinutes(currentTime, bookingInterval);
         }
         return options;
-    }, [rescheduleDate, service, appointments, appointment, services, publicScheduleProfile, assignedStaff, staff]);
+    }, [rescheduleDate, service, appointments, appointment, services, publicScheduleProfile, assignedStaff, staff, overrideBusinessHours]);
 
     const handleAction = async () => {
         if (!rescheduleTime) return;
