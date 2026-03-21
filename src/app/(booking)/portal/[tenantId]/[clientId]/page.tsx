@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
-import { format, parseISO, subMonths, isAfter, subYears, startOfMonth, differenceInHours } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, startOfMonth, differenceInHours, isSameDay, startOfDay } from 'date-fns';
 import { 
     Award, 
     Calendar, 
@@ -49,9 +49,10 @@ import {
     ShieldAlert, 
     MessageSquare, 
     Heart,
-    Landmark
+    Landmark,
+    LayoutDashboard
 } from 'lucide-react';
-import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff } from '@/lib/data';
+import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff, type Review } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -122,181 +123,6 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
     </CardHeader>
 );
 
-const CancelledView = ({ reason }: { reason?: string }) => (
-    <ViewContainer>
-        <ViewHeader title="Session Cancelled" subtitle="This record has been voided" icon={XCircle} />
-        <CardContent className="p-8 text-center space-y-8">
-            <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
-                <XCircle className="w-12 h-12 text-destructive" />
-            </div>
-            <div className="space-y-2">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Appointment Voided</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    This appointment is no longer active in our manifest. Reason: <strong>{reason?.replace('_', ' ') || 'Protocol Change'}</strong>.
-                </p>
-            </div>
-            <Button asChild className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px]">
-                <Link href="/">Book New Session</Link>
-            </Button>
-        </CardContent>
-    </ViewContainer>
-);
-
-const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant: Tenant | null, client: Client | null, appointment: Appointment, service: Service | null, staff: Staff | null }) => {
-    const { firestore } = useFirebase();
-    const { toast } = useToast();
-    const [rating, setRating] = useState(0);
-    const [reviewText, setReviewText] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submitted, setSubmitted] = useState(false);
-
-    const handleReviewSubmit = async () => {
-        if (rating === 0 || !firestore || !tenant || !client) return;
-        setIsSubmitting(true);
-        try {
-            const reviewId = nanoid();
-            const review = {
-                id: reviewId,
-                tenantId: tenant.id,
-                clientId: client.id,
-                clientName: client.name,
-                clientAvatarUrl: client.avatarUrl,
-                staffId: appointment.staffId || '',
-                serviceId: appointment.serviceId,
-                serviceName: service?.name || 'Treatment',
-                rating,
-                text: reviewText,
-                isPublic: false,
-                isFeatured: false,
-                createdAt: new Date().toISOString()
-            };
-            await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/reviews`, reviewId), review, {});
-            toast({ title: "Feedback Archived", description: "Thank you for sharing your story with us." });
-            setSubmitted(true);
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Submission Failed" });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <ViewContainer>
-            <ViewHeader title="Session Concluded" subtitle="We hope you enjoyed your visit" icon={CheckCircle2} />
-            <CardContent className="p-0 text-left">
-                <AnimatePresence mode="wait">
-                    {!submitted ? (
-                        <motion.div key="review-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 space-y-10 text-left">
-                            <div className="text-center space-y-4">
-                                <div className="w-20 h-20 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
-                                    <Heart className="w-10 h-10 text-primary -rotate-6" />
-                                </div>
-                                <div className="space-y-1">
-                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">How was it?</h3>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Help us refine our technical protocol</p>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-center gap-2">
-                                {[1, 2, 3, 4, 5].map((star) => (
-                                    <button 
-                                        key={star} 
-                                        onClick={() => setRating(star)}
-                                        className={cn(
-                                            "p-2 transition-all active:scale-90",
-                                            rating >= star ? "text-amber-400" : "text-muted-foreground opacity-20 hover:opacity-40"
-                                        )}
-                                    >
-                                        <Star className={cn("w-10 h-10 md:w-12 md:h-12", rating >= star && "fill-current")} />
-                                    </button>
-                                ))}
-                            </div>
-
-                            <div className="space-y-3 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Share your Story</Label>
-                                <Textarea 
-                                    placeholder="Write a few words about your session..." 
-                                    value={reviewText}
-                                    onChange={e => setReviewText(e.target.value)}
-                                    className="rounded-[2rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed min-h-[120px]"
-                                />
-                            </div>
-
-                            <Button 
-                                onClick={handleReviewSubmit} 
-                                disabled={rating === 0 || isSubmitting}
-                                className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group"
-                            >
-                                {isSubmitting ? <Loader className="animate-spin" /> : <>Submit Feedback <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" /></>}
-                            </Button>
-                        </motion.div>
-                    ) : (
-                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-8">
-                            <div className="w-20 h-20 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
-                                <CheckCircle2 className="w-10 h-10 text-green-500" />
-                            </div>
-                            <div className="space-y-2">
-                                <h3 className="text-2xl font-black uppercase tracking-tighter">Feedback Certified</h3>
-                                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-xs mx-auto">Your review has been added to our studio archive. See you next time!</p>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                <div className="p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
-                            <Link href={`/book/${tenant?.id}`}>
-                                <Repeat className="w-4 h-4 mr-2" /> Book Again
-                            </Link>
-                        </Button>
-                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
-                            <Link href={`/portal/${tenant?.id}/${client?.id}`}>
-                                <User className="w-4 h-4 mr-2" /> My Portal
-                            </Link>
-                        </Button>
-                    </div>
-                </div>
-            </CardContent>
-        </ViewContainer>
-    );
-};
-
-const ArrivedView = ({ client, staff }: { client: Client | null, staff: Staff | null }) => (
-    <ViewContainer>
-        <ViewHeader title="Check-in Confirmed" subtitle="You are in the active queue" icon={CheckCircle2} />
-        <CardContent className="p-8 text-center space-y-10">
-            <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
-                <CheckCircle2 className="w-12 h-12 text-green-500 -rotate-6" />
-            </div>
-            <div className="space-y-3">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">We see you, {client?.name.split(' ')[0]}!</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    Take a seat and relax. Your professional will be with you shortly to begin your session.
-                </p>
-            </div>
-
-            {staff && (
-                <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
-                    <Avatar className="h-12 h-12 border-2 border-background shadow-xl rounded-[1.5rem]">
-                        <AvatarImage src={staff.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staff.name || 'S').charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div className="text-left">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
-                        <p className="font-black text-sm uppercase text-slate-800 leading-none">{staff.name}</p>
-                    </div>
-                </div>
-            )}
-
-            <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 flex items-center justify-center gap-3 animate-pulse">
-                <Loader className="w-4 h-4 text-primary animate-spin" />
-                <span className="text-[10px] font-black uppercase text-primary tracking-widest">Awaiting Technician Signal</span>
-            </div>
-        </CardContent>
-    </ViewContainer>
-);
-
 export default function ClientPortalPage() {
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
     const { firestore } = useFirebase();
@@ -318,9 +144,6 @@ export default function ClientPortalPage() {
 
     const appointmentsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);
     const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-
-    const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
-    const { data: clients } = useCollection<Client>(clientsQuery);
 
     const redemptionsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients/${clientId}/redemptions`), [firestore, tenantId, clientId]);
     const { data: redemptions } = useCollection<Redemption>(redemptionsQuery);
@@ -440,15 +263,31 @@ export default function ClientPortalPage() {
 
     const upcomingAppointments = useMemo(() => {
         if (!appointments) return [];
+        const now = new Date();
+        const startOfToday = startOfDay(now);
         return appointments
-            .filter(a => (a.status === 'confirmed' || a.status === 'deposit_pending' || a.status === 'ready_for_checkout' || a.status === 'servicing') && safeDate(a.startTime) > new Date())
+            .filter(a => {
+                const isCancelled = a.status === 'cancelled';
+                const isCompleted = a.status === 'completed';
+                const startTime = safeDate(a.startTime);
+                // CRITICAL FIX: Include today's appointments even if start time passed, as long as not completed/cancelled
+                return !isCancelled && !isCompleted && (startTime > now || isSameDay(startTime, startOfToday));
+            })
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
     }, [appointments]);
 
     const pastAppointments = useMemo(() => {
         if (!appointments) return [];
+        const now = new Date();
+        const startOfToday = startOfDay(now);
         return appointments
-            .filter(a => a.status === 'completed' || safeDate(a.startTime) <= new Date())
+            .filter(a => {
+                const isCancelled = a.status === 'cancelled';
+                const isCompleted = a.status === 'completed';
+                const startTime = safeDate(a.startTime);
+                // Move to past if completed, cancelled, or before today
+                return isCompleted || isCancelled || (startTime < startOfToday);
+            })
             .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
     }, [appointments]);
 
@@ -533,7 +372,8 @@ export default function ClientPortalPage() {
                     amount: feeAmount,
                     paymentMethod: 'Card on File',
                     hasReceipt: false,
-                    appointmentId: aptData.id
+                    appointmentId: aptData.id,
+                    tenantId
                 });
             } else if (paymentMethod === 'add_to_session') {
                 updates['checkoutState.additionalCharge'] = increment(feeAmount);
@@ -794,7 +634,7 @@ export default function ClientPortalPage() {
                                     {upcomingAppointments.map(apt => {
                                         const svc = services?.find(s => s.id === apt.serviceId);
                                         const pro = staff?.find(s => s.id === apt.staffId);
-                                        const isActionable = apt.status === 'confirmed' || apt.status === 'deposit_pending';
+                                        const isActionable = apt.status === 'confirmed' || apt.status === 'deposit_pending' || apt.status === 'ready_for_checkout' || apt.status === 'servicing';
                                         return (
                                             <Card key={apt.id} className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group flex flex-col text-left">
                                                 <CardContent className="p-6 flex items-center gap-6 flex-1 text-left">
@@ -808,10 +648,17 @@ export default function ClientPortalPage() {
                                                         <p className="text-xl font-black text-primary font-mono tracking-tighter text-left">{format(safeDate(apt.startTime), 'EEEE, MMM d @ h:mm a')}</p>
                                                     </div>
                                                 </CardContent>
-                                                {isActionable && (
+                                                {isActionable && apt.status !== 'servicing' && apt.status !== 'ready_for_checkout' && (
                                                     <div className="p-3 border-t bg-muted/5 grid grid-cols-2 gap-2">
                                                         <Button variant="ghost" onClick={() => setAppointmentToReschedule(apt)} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-primary/5 text-primary"><Undo2 className="w-3.5 h-3.5 mr-2" /> Reschedule</Button>
                                                         <Button variant="ghost" onClick={() => setAppointmentToCancel(apt)} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-destructive/5 text-destructive"><XCircle className="w-3.5 h-3.5 mr-2" /> Cancel</Button>
+                                                    </div>
+                                                )}
+                                                {apt.checkInToken && apt.status !== 'ready_for_checkout' && apt.status !== 'servicing' && (
+                                                    <div className="p-2 pt-0 border-t bg-muted/5">
+                                                        <Button asChild variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5">
+                                                            <Link href={`/check-in/${apt.checkInToken}`}>Open Digital Key <ArrowRight className="ml-2 h-3 w-3" /></Link>
+                                                        </Button>
                                                     </div>
                                                 )}
                                             </Card>

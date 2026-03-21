@@ -46,7 +46,8 @@ import {
     Undo2,
     ArrowLeft,
     Repeat,
-    User
+    User,
+    LayoutDashboard
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
@@ -222,7 +223,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                         </Button>
                         <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
                             <Link href={`/portal/${tenant?.id}/${client?.id}`}>
-                                <User className="w-4 h-4 mr-2" /> My Portal
+                                <LayoutDashboard className="w-4 h-4 mr-2" /> My Portal
                             </Link>
                         </Button>
                     </div>
@@ -232,7 +233,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
     );
 };
 
-const ArrivedView = ({ client, staff }: { client: Client | null, staff: Staff | null }) => (
+const ArrivedView = ({ client, staff, tenantId }: { client: Client | null, staff: Staff | null, tenantId?: string }) => (
     <ViewContainer>
         <ViewHeader title="Check-in Confirmed" subtitle="You are in the active queue" icon={CheckCircle2} />
         <CardContent className="p-8 text-center space-y-10">
@@ -262,6 +263,15 @@ const ArrivedView = ({ client, staff }: { client: Client | null, staff: Staff | 
             <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 flex items-center justify-center gap-3 animate-pulse">
                 <Loader className="w-4 h-4 text-primary animate-spin" />
                 <span className="text-[10px] font-black uppercase text-primary tracking-widest">Awaiting Technician Signal</span>
+            </div>
+            
+            <div className="pt-6 border-t border-dashed">
+                <Button asChild variant="outline" className="w-full h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                    <Link href={`/portal/${tenantId}/${client?.id}`}>
+                        <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
+                        Manage Full Account Portfolio
+                    </Link>
+                </Button>
             </div>
         </CardContent>
     </ViewContainer>
@@ -663,6 +673,14 @@ const ServicingView = ({
                             </div>
                         </div>
                     )}
+                    <div className="pt-4 border-t border-dashed">
+                        <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                            <Link href={`/portal/${tenant?.id}/${client?.id}`}>
+                                <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
+                                Access Main Studio Portal
+                            </Link>
+                        </Button>
+                    </div>
                 </div>
             </CardContent>
         </ViewContainer>
@@ -788,7 +806,7 @@ export default function CheckInPage() {
 
     if (appointmentData?.checkInStatus === 'arrived') {
         return (
-            <ArrivedView client={client || null} staff={assignedStaff || null} />
+            <ArrivedView client={client || null} staff={assignedStaff || null} tenantId={tenantId} />
         );
     }
     
@@ -845,6 +863,15 @@ export default function CheckInPage() {
                             </div>
                         </div>
                     )}
+                </div>
+                
+                <div className="pt-6 border-t border-dashed">
+                    <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                        <Link href={`/portal/${tenantId}/${clientId}`}>
+                            <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
+                            Access Main Studio Portal
+                        </Link>
+                    </Button>
                 </div>
             </CardContent>
         </ViewContainer>
