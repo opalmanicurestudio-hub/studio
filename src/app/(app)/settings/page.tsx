@@ -49,12 +49,13 @@ import {
   Users,
   Box,
   Activity,
-  Tag
+  Tag,
+  Shield
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc, writeBatch, collection } from 'firebase/firestore';
+import { doc, writeBatch, collection, deleteField } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -242,7 +243,7 @@ const ServicePolicyCard = ({
                             )}
 
                             <div className="p-4 rounded-xl bg-muted/20 border-2 border-dashed flex justify-between items-center shadow-inner">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 text-left">
                                     <Landmark className="w-3.5 h-3.5 text-primary opacity-40" />
                                     <span className="text-[9px] font-black uppercase text-muted-foreground">House Floor Minimum</span>
                                 </div>
@@ -323,10 +324,11 @@ function SettingsPageImpl() {
       // Sync Service Specific Policies
       Object.entries(servicePolicies).forEach(([id, p]) => {
           const svcRef = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
+          const originalService = services.find(s => s.id === id);
           batch.update(svcRef, {
               cancellationFeeMode: p.mode,
               cancellationWindowHours: p.window || deleteField() as any,
-              customCancellationFee: p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? deleteField() as any : (service?.customCancellationFee || 0)),
+              customCancellationFee: p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? deleteField() as any : (originalService?.customCancellationFee || 0)),
               cancellationFeeValue: p.value || deleteField() as any
           });
       });
@@ -456,9 +458,9 @@ function SettingsPageImpl() {
                                 ))}
                             </div>
                         ) : (
-                            <div className="py-12 text-center opacity-30">
+                            <div className="py-12 text-center opacity-30 text-left">
                                 <Loader className="animate-spin h-8 w-8 mx-auto" />
-                                <p className="text-[10px] font-black uppercase mt-4 tracking-widest">Loading Schedule...</p>
+                                <p className="text-[10px] font-black uppercase mt-4 tracking-widest text-center">Loading Schedule...</p>
                             </div>
                         )}
                     </CardContent>
@@ -506,7 +508,7 @@ function SettingsPageImpl() {
                         <Separator className="border-dashed" />
 
                         <div className="space-y-6">
-                            <div className="flex items-center gap-3 px-1">
+                            <div className="flex items-center gap-3 px-1 text-left">
                                 <Wifi className="w-5 h-5 text-primary" />
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Studio Connectivity</h3>
                             </div>
@@ -621,7 +623,7 @@ function SettingsPageImpl() {
                 </Card>
 
                 <div className="space-y-8">
-                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1 text-left">
                         <div className="space-y-1 text-left">
                             <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Service-Specific Protocols</h2>
                             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Custom logic guards per treatment unit.</p>
