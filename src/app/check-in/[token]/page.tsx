@@ -43,7 +43,8 @@ import {
     MessageSquare,
     Heart,
     Undo2,
-    ArrowLeft
+    ArrowLeft,
+    Repeat
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
@@ -85,6 +86,7 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
             <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
         </div>
         <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
+        <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
 );
@@ -115,7 +117,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
     const [rating, setRating] = useState(0);
     const [reviewText, setReviewText] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submitted, setResetSent] = useState(false);
+    const [submitted, setSubmitted] = useState(false);
 
     const handleReviewSubmit = async () => {
         if (rating === 0 || !firestore || !tenant || !client) return;
@@ -139,7 +141,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
             };
             await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/reviews`, reviewId), review, {});
             toast({ title: "Feedback Archived", description: "Thank you for sharing your story with us." });
-            setResetSent(true);
+            setSubmitted(true);
         } catch (e) {
             toast({ variant: 'destructive', title: "Submission Failed" });
         } finally {
@@ -199,7 +201,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                         </motion.div>
                     ) : (
                         <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-8">
-                            <div className="w-20 h-20 bg-green-500/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-xl">
+                            <div className="w-20 h-20 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
                                 <CheckCircle2 className="w-10 h-10 text-green-500" />
                             </div>
                             <div className="space-y-2">
