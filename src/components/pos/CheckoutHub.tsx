@@ -670,31 +670,31 @@ export const CheckoutHub = ({
                                         {!isWaived && (adjustments || additionalCharge > 0) && (
                                             <div className="pt-3 border-t border-dashed space-y-2">
                                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Strategic Adjustments</p>
-                                                {adjustments ? (
-                                                    <>
+                                                {adjustments && (safeNumber(adjustments.rescheduleFee) > 0 || safeNumber(adjustments.timeOverage) > 0 || safeNumber(adjustments.materialOverage) > 0) ? (
+                                                    <div className="space-y-1.5">
                                                         {safeNumber(adjustments.rescheduleFee) > 0 && (
                                                             <div className="flex justify-between items-center text-left">
-                                                                <span className="text-[10px] font-bold uppercase text-amber-600">Reschedule Recovery</span>
+                                                                <span className="text-[10px] font-black uppercase text-amber-600">Protocol Recovery (Reschedule)</span>
                                                                 <span className="font-black font-mono text-[10px] text-amber-600">+${safeNumber(adjustments.rescheduleFee).toFixed(2)}</span>
                                                             </div>
                                                         )}
                                                         {safeNumber(adjustments.timeOverage) > 0 && (
                                                             <div className="flex justify-between items-center text-left">
-                                                                <span className="text-[10px] font-bold uppercase text-primary">Time Floor Overage</span>
+                                                                <span className="text-[10px] font-black uppercase text-primary">Time Foundation Overage</span>
                                                                 <span className="font-black font-mono text-[10px] text-primary">+${safeNumber(adjustments.timeOverage).toFixed(2)}</span>
                                                             </div>
                                                         )}
                                                         {safeNumber(adjustments.materialOverage) > 0 && (
                                                             <div className="flex justify-between items-center text-left">
-                                                                <span className="text-[10px] font-bold uppercase text-primary">Material Overage</span>
+                                                                <span className="text-[10px] font-black uppercase text-primary">Material Protocol Overage</span>
                                                                 <span className="font-black font-mono text-[10px] text-primary">+${safeNumber(adjustments.materialOverage).toFixed(2)}</span>
                                                             </div>
                                                         )}
-                                                    </>
+                                                    </div>
                                                 ) : (
                                                     additionalCharge > 0 && (
                                                         <div className="flex justify-between items-center text-left">
-                                                            <span className="text-[10px] font-bold uppercase text-primary">Session Adjustment</span>
+                                                            <span className="text-[10px] font-black uppercase text-primary">Manual Session Adjustment</span>
                                                             <span className="font-black font-mono text-[10px] text-primary">+${additionalCharge.toFixed(2)}</span>
                                                         </div>
                                                     )

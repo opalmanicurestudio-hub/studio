@@ -105,7 +105,7 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
                 <p className="font-semibold">Adjustments:</p>
                 {data.adjustments.map((adj, index) => (
                     <div key={index} className="flex justify-between pl-2 text-xs">
-                        <p className="text-gray-600">{adj.description}</p>
+                        <p className="text-gray-600 uppercase font-black">{adj.description}</p>
                         <p className="font-mono text-gray-600">+${safeNumber(adj.cost).toFixed(2)}</p>
                     </div>
                 ))}
