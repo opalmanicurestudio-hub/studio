@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
@@ -39,7 +38,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Settings as SettingsIcon,
-  Unlock
+  Unlock,
+  DollarSign
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -55,6 +55,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     <div className="flex items-center gap-3 mb-6 text-left">
