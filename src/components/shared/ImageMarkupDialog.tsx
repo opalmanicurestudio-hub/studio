@@ -108,12 +108,19 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         const displayHeight = img.height * scale;
 
         const dpr = window.devicePixelRatio || 1;
+        
+        // Set actual pixel dimensions
         canvas.width = displayWidth * dpr;
         canvas.height = displayHeight * dpr;
+        
+        // Set CSS display dimensions
         canvas.style.width = `${displayWidth}px`;
         canvas.style.height = `${displayHeight}px`;
 
+        // Reset transform and then scale for high-DPI
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dpr, dpr);
+        
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.strokeStyle = color;
@@ -206,10 +213,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         const canvas = canvasRef.current;
         const ctx = contextRef.current;
         if (canvas && ctx) {
+            // CRITICAL FIX: Draw back the snapshot using full internal pixel dimensions
+            // while temporarily resetting the scale transform to 1:1
             ctx.save();
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.setTransform(1, 0, 0, 1, 0, 0); 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             ctx.restore();
         }
     };
