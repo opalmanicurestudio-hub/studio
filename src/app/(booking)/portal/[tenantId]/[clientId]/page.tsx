@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -311,7 +310,7 @@ export default function ClientPortalPage() {
             });
         }
 
-        // DISPATCH NOTIFICATIONS
+        // --- INTELLIGENCE ALERT DISPATCH ---
         const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
         const recipients = new Set(adminsAndOwners.map(s => s.id));
         if (appointmentToCancel.staffId) recipients.add(appointmentToCancel.staffId);
@@ -392,7 +391,7 @@ export default function ClientPortalPage() {
 
         batch.update(appointmentRef, updates);
 
-        // DISPATCH NOTIFICATIONS
+        // --- INTELLIGENCE ALERT DISPATCH ---
         const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
         const recipients = new Set(adminsAndOwners.map(s => s.id));
         if (aptData.staffId) recipients.add(aptData.staffId);
@@ -508,11 +507,11 @@ export default function ClientPortalPage() {
                                 )}
                             </div>
                             
-                            <div className="space-y-4 max-w-sm mx-auto">
-                                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                            <div className="space-y-4 max-w-sm mx-auto text-left">
+                                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-center">
                                     Welcome, {client.name.split(' ')[0]}
                                 </h1>
-                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60 mt-4">Verified Client Dashboard</p>
+                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60 mt-4 text-center">Verified Client Dashboard</p>
                             </div>
 
                             <motion.button 
@@ -573,13 +572,13 @@ export default function ClientPortalPage() {
                                             A total of <strong>${safeBalance.toFixed(2)}</strong> in outstanding fees is recorded. Reconcile now to maintain active status.
                                         </AlertDescription>
                                         <div className="pt-4 text-left">
-                                            <Button variant="outline" onClick={() => setIsSettlementOpen(true)} className="h-9 md:h-10 rounded-xl border-destructive/30 bg-white text-destructive font-black uppercase text-[10px] tracking-widest hover:bg-destructive hover:text-white transition-all shadow-sm"><Zap className="w-3.5 h-3.5 mr-2" />Settle Balance Now</Button>
+                                            <Button variant="outline" onClick={() => setIsSettlementOpen(true)} className="h-9 md:h-10 rounded-xl border-destructive/30 bg-white text-destructive font-black uppercase text-[10px] tracking-widest hover:bg-destructive hover:text-white transition-all shadow-sm text-left"><Zap className="w-3.5 h-3.5 mr-2" />Settle Balance Now</Button>
                                         </div>
                                     </div>
                                 </div>
                                 <div className="text-right shrink-0">
                                     <p className="text-[9px] md:text-[10px] font-black uppercase text-destructive tracking-[0.2em] mb-1 text-right">Total Arrears</p>
-                                    <p className="text-2xl md:text-4xl font-black font-mono tracking-tighter text-destructive">${safeBalance.toFixed(2)}</p>
+                                    <p className="text-2xl md:text-4xl font-black font-mono tracking-tighter text-destructive text-right">${safeBalance.toFixed(2)}</p>
                                 </div>
                             </Alert>
                         </motion.div>
@@ -609,7 +608,7 @@ export default function ClientPortalPage() {
                         <div className="space-y-6 text-left">
                             <div className="flex items-center gap-3 px-1 text-left">
                                 <Calendar className="w-5 h-5 text-primary" />
-                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Agenda Matrix</h3>
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Agenda Matrix</h3>
                             </div>
                             {upcomingAppointments.length > 0 ? (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
@@ -673,8 +672,8 @@ export default function ClientPortalPage() {
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Verified with {pro?.name || 'Staff'}</p>
                                                     </div>
                                                 </div>
-                                                <div className="text-right shrink-0 ml-4">
-                                                    <p className="text-[10px] font-black font-mono text-slate-600">{format(safeDate(apt.startTime), 'MMM d, yyyy')}</p>
+                                                <div className="text-right shrink-0 ml-4 text-right">
+                                                    <p className="text-[10px] font-black font-mono text-slate-600 text-right">{format(safeDate(apt.startTime), 'MMM d, yyyy')}</p>
                                                     <Badge variant="outline" className="h-4 px-1.5 rounded-md border-none bg-muted/20 text-[7px] font-black uppercase mt-1">{apt.status}</Badge>
                                                 </div>
                                             </CardContent>
@@ -697,7 +696,7 @@ export default function ClientPortalPage() {
                                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Cycle: {format(cycleStart, 'MMM d')} - {client?.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMM d, yyyy') : '...'}</p>
                                             </div>
                                         </div>
-                                        {loyaltyHubData && (<div className="w-full sm:w-auto flex items-center gap-2 px-4 py-2 rounded-2xl bg-green-500/5 border-2 border-green-500/10 text-left"><TrendingUp className="w-3.5 h-3.5 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700 text-left">Value Secured: ${loyaltyHubData.cycleSavings.toFixed(0)}</span></div>)}
+                                        {loyaltyHubData && (<div className="w-full sm:w-auto flex items-center gap-2 px-4 py-2 rounded-2xl bg-green-500/5 border-2 border-green-500/10 text-left"><TrendingUp className="w-3.5 h-3.5 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700 text-left text-left">Value Secured: ${loyaltyHubData.cycleSavings.toFixed(0)}</span></div>)}
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
                                         {perkAllotments.map(perk => {
@@ -706,7 +705,7 @@ export default function ClientPortalPage() {
                                             const remaining = Math.max(0, total - used);
                                             const isExhausted = used >= total;
                                             return (
-                                                <Card key={perk.id} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all", isExhausted && "opacity-60")}>
+                                                <Card key={perk.id} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left", isExhausted && "opacity-60")}>
                                                     <CardContent className="p-6 space-y-5 text-left">
                                                         <div className="flex justify-between items-start gap-4 text-left">
                                                             <div className="space-y-1 flex-1 min-w-0 text-left">
@@ -716,7 +715,7 @@ export default function ClientPortalPage() {
                                                             <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isExhausted ? "bg-green-500/10 text-green-600" : perk.bg + " " + perk.color)}>{isExhausted ? <CheckCircle2 className="w-6 h-6" /> : <perk.icon className="w-6 h-6" />}</div>
                                                         </div>
                                                         <div className="space-y-2 text-left">
-                                                            <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1"><span>Allotment State</span><div className="flex items-center gap-1.5"><span>Used {used} / {total}</span><Badge variant="outline" className={cn("h-4 border-none font-black", isExhausted ? "text-muted-foreground" : "text-primary")}>({remaining} LEFT)</Badge></div></div>
+                                                            <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left"><span>Allotment State</span><div className="flex items-center gap-1.5"><span>Used {used} / {total}</span><Badge variant="outline" className={cn("h-4 border-none font-black", isExhausted ? "text-muted-foreground" : "text-primary")}>({remaining} LEFT)</Badge></div></div>
                                                             <Progress value={perk.progress} className={cn("h-2 rounded-full bg-muted shadow-inner", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
                                                     </CardContent>
@@ -727,7 +726,7 @@ export default function ClientPortalPage() {
                                 </section>
                                 <Separator className="border-dashed" />
                                 <section className="space-y-6 text-left">
-                                    <div className="flex items-center gap-3 px-1 text-left"><Activity className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Current Cycle Redemptions</h3></div>
+                                    <div className="flex items-center gap-3 px-1 text-left text-left"><Activity className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Current Cycle Redemptions</h3></div>
                                     {currentCycleActivity.all.length > 0 ? (
                                         <div className="grid gap-3 text-left">
                                             {currentCycleActivity.all.map((item: any) => {
@@ -735,22 +734,22 @@ export default function ClientPortalPage() {
                                                 const date = safeDate(item.date || item.requestedAt);
                                                 return (
                                                     <div key={item.id} className="flex items-center justify-between p-5 rounded-[1.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all text-left">
-                                                        <div className="flex items-center gap-4 text-left min-w-0 flex-1">
+                                                        <div className="flex items-center gap-4 text-left min-w-0 flex-1 text-left">
                                                             <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isRefreshment ? "bg-primary/10 text-primary" : "bg-indigo-500/10 text-indigo-600")}>{isRefreshment ? <Coffee className="w-5 h-5" /> : <Star className="w-5 h-5" />}</div>
                                                             <div className="min-w-0 text-left">
                                                                 <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{isRefreshment ? item.itemName : item.serviceName}</p>
                                                                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Drawn from Membership Portfolio</p>
                                                             </div>
                                                         </div>
-                                                        <div className="text-right shrink-0 ml-4">
-                                                            <p className="font-black font-mono text-[11px] text-slate-900 leading-none">{format(date, 'MMM d, p')}</p>
-                                                            <Badge variant="outline" className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none bg-muted/50 text-muted-foreground shadow-sm">VERIFIED</Badge>
+                                                        <div className="text-right shrink-0 ml-4 text-right">
+                                                            <p className="font-black font-mono text-[11px] text-slate-900 leading-none text-right">{format(date, 'MMM d, p')}</p>
+                                                            <Badge variant="outline" className="h-4 px-1 text-[7px] font-black uppercase mt-2 border-none bg-muted/50 text-muted-foreground shadow-sm text-right">VERIFIED</Badge>
                                                         </div>
                                                     </div>
                                                 );
                                             })}
                                         </div>
-                                    ) : (<div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><History className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Activity Logged in Current Cycle</p></div>)}
+                                    ) : (<div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><History className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8 text-left">No Activity Logged in Current Cycle</p></div>)}
                                 </section>
                             </div>
                         ) : (
@@ -772,8 +771,8 @@ export default function ClientPortalPage() {
                                     <CardHeader className="p-8 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Next Reward Protocol</CardTitle></CardHeader>
                                     <CardContent className="p-8 pt-4 space-y-6 text-left">
                                         <div className="text-left">
-                                            <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter leading-none">{loyaltyHubData.visitsToNext}</p>
-                                            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">Sessions remaining until next reward</p>
+                                            <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter leading-none text-left">{loyaltyHubData.visitsToNext}</p>
+                                            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2 text-left">Sessions remaining until next reward</p>
                                         </div>
                                         <div className="space-y-2 text-left">
                                             <Progress value={loyaltyHubData.progressToNextReward} className="h-2 rounded-full bg-white/40" />
@@ -781,10 +780,10 @@ export default function ClientPortalPage() {
                                         </div>
                                     </CardContent>
                                 </Card>
-                                <Card className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm">
+                                <Card className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm text-left">
                                     <CardHeader className="p-8 pb-4 border-b bg-muted/5 flex flex-col md:flex-row md:items-center justify-between gap-6 text-left">
                                         <div className="space-y-1 text-left"><CardTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-3"><HeartHandshake className="w-5 h-5 text-primary" /> Advocacy Impact</CardTitle><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 text-left">Revenue earned through guest referrals.</CardDescription></div>
-                                        <div className="text-right"><p className="text-[10px] font-black uppercase text-primary/60 tracking-widest mb-1 text-right">Total Credit Earned</p><p className="text-3xl font-black font-mono tracking-tighter text-primary leading-none text-right">${loyaltyHubData.referralEarnings.toFixed(2)}</p></div>
+                                        <div className="text-right text-right"><p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1 text-right">Total Credit Earned</p><p className="text-3xl font-black font-mono tracking-tighter text-primary leading-none text-right">${loyaltyHubData.referralEarnings.toFixed(2)}</p></div>
                                     </CardHeader>
                                     <CardContent className="p-8 space-y-8 text-left">
                                         {client.successfulReferrals?.length ? (
@@ -794,9 +793,9 @@ export default function ClientPortalPage() {
                                                     {client.successfulReferrals.map((name, idx) => (<div key={idx} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/5 text-left"><div className="p-2 bg-white rounded-lg shadow-sm shrink-0"><User className="w-3.5 h-3.5 text-primary opacity-40" /></div><span className="text-[10px] font-black uppercase text-slate-700 truncate text-left">{name}</span></div>))}
                                                 </div>
                                             </div>
-                                        ) : (<div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3 text-left"><PartyPopper className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">No Referrals Registered</p></div>)}
+                                        ) : (<div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3 text-left"><PartyPopper className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest text-left">No Referrals Registered</p></div>)}
                                         <div className="p-6 rounded-3xl border-2 border-dashed border-primary/20 bg-primary/[0.02] flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
-                                            <div className="space-y-1 text-center sm:text-left text-left"><p className="text-sm font-black uppercase tracking-tight text-slate-900">Expand the Circle</p><p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight text-left">Share your referral code to earn instant studio credit.</p></div>
+                                            <div className="space-y-1 text-center sm:text-left text-left"><p className="text-sm font-black uppercase tracking-tight text-slate-900 text-left">Expand the Circle</p><p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight text-left">Share your referral code to earn instant studio credit.</p></div>
                                             <div className="flex gap-2 w-full sm:w-auto text-left"><div className="flex-1 p-3 px-5 rounded-xl bg-white border-2 border-primary/10 shadow-inner font-black font-mono text-primary uppercase text-sm tracking-widest text-center">{client.referralCode}</div><Button variant="outline" size="icon" className="h-12 w-12 rounded-xl border-2 bg-white" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: 'Code Copied' }); }}><Repeat className="w-5 h-5 opacity-40" /></Button></div>
                                         </div>
                                     </CardContent>
@@ -805,29 +804,29 @@ export default function ClientPortalPage() {
                         ) : (
                             <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
                                 <Trophy className="w-16 h-16" />
-                                <p className="text-[10px] font-black uppercase tracking-widest text-center">Reward profile loading...</p>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-center text-left">Reward profile loading...</p>
                             </div>
                         )}
                     </TabsContent>
 
                     <TabsContent value="ledger" className="space-y-8 animate-in fade-in duration-500 text-left">
                         <div className="space-y-6 text-left">
-                            <div className="flex items-center gap-3 px-1 text-left text-left"><Landmark className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Accounting Manifest</h3></div>
+                            <div className="flex items-center gap-3 px-1 text-left text-left text-left"><Landmark className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Accounting Manifest</h3></div>
                             {client.unpaidFees?.length ? (
                                 <div className="grid gap-4 text-left">
                                     {client.unpaidFees.map((fee) => (
                                         <Card key={fee.feeId} className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-3xl overflow-hidden shadow-xl shadow-destructive/5 text-left">
                                             <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
-                                                <div className="flex items-center gap-4 text-left w-full sm:w-auto">
+                                                <div className="flex items-center gap-4 text-left w-full sm:w-auto text-left">
                                                     <div className="p-3 bg-destructive rounded-2xl shadow-lg shadow-destructive/20 shrink-0"><AlertTriangle className="w-6 h-6 text-white" /></div>
-                                                    <div className="space-y-1 text-left"><p className="font-black text-sm uppercase tracking-tight text-destructive">{fee.reason}</p><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p></div>
+                                                    <div className="space-y-1 text-left"><p className="font-black text-sm uppercase tracking-tight text-destructive text-left">{fee.reason}</p><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p></div>
                                                 </div>
-                                                <div className="text-center sm:text-right shrink-0"><p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest mb-1 text-right">Fee Amount</p><p className="text-3xl font-black font-mono tracking-tighter text-destructive text-right">${safeNumber(fee.feeAmount).toFixed(2)}</p></div>
+                                                <div className="text-center sm:text-right shrink-0 text-right"><p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest mb-1 text-right">Fee Amount</p><p className="text-3xl font-black font-mono tracking-tighter text-destructive text-right">${safeNumber(fee.feeAmount).toFixed(2)}</p></div>
                                             </CardContent>
                                         </Card>
                                     ))}
                                 </div>
-                            ) : (<div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><ShieldCheck className="w-16 h-16 text-green-500" /><p className="text-[10px] font-black uppercase tracking-widest">Account Clear & Settled</p></div>)}
+                            ) : (<div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><ShieldCheck className="w-16 h-16 text-green-500" /><p className="text-[10px] font-black uppercase tracking-widest text-left">Account Clear & Settled</p></div>)}
                         </div>
                     </TabsContent>
                 </Tabs>
@@ -838,27 +837,27 @@ export default function ClientPortalPage() {
                     <AnimatePresence mode="wait">
                         {!settlementSuccess ? (
                             <motion.div key="pay-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2 text-left"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Settlement</span></div><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Account Reconciliation</DialogTitle></DialogHeader>
+                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2 text-left text-left"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Settlement</span></div><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Account Reconciliation</DialogTitle></DialogHeader>
                                 <div className="p-8 space-y-8">
                                     <div className="p-8 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-inner">
                                         <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Total Arrears Balance</p>
                                         <p className="text-6xl font-black text-primary tracking-tighter font-mono">${safeBalance.toFixed(2)}</p>
                                     </div>
-                                    <div className="space-y-6 text-left">
+                                    <div className="space-y-6 text-left text-left">
                                         <div className="space-y-3">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</Label>
                                             {client.cardOnFile ? (
                                                 <div className="p-5 rounded-2xl border-2 bg-primary/[0.02] border-primary/10 flex items-center justify-between shadow-sm text-left">
-                                                    <div className="flex items-center gap-4 text-left">
+                                                    <div className="flex items-center gap-4 text-left text-left">
                                                         <div className="p-2 bg-white rounded-xl shadow-sm border shrink-0"><CreditCard className="w-5 h-5 text-primary" /></div>
-                                                        <div className="text-left"><p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Authorized Vault Card</p></div>
+                                                        <div className="text-left text-left"><p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Authorized Vault Card</p></div>
                                                     </div>
                                                     <Lock className="w-4 h-4 text-primary opacity-20" />
                                                 </div>
                                             ) : (
                                                 <div className="space-y-4 text-left">
                                                     <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-muted/5" /></div>
-                                                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
+                                                    <div className="grid grid-cols-2 gap-4 text-left"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
                                                 </div>
                                             )}
                                         </div>
@@ -866,15 +865,15 @@ export default function ClientPortalPage() {
                                 </div>
                                 <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3"><Button onClick={handleSettleArrears} disabled={isProcessing} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">{isProcessing ? <Loader className="animate-spin" /> : `Authorize $${safeBalance.toFixed(2)}`}</Button><Button variant="ghost" onClick={() => setIsSettlementOpen(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button></DialogFooter>
                             </motion.div>
-                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-10 text-left"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2 text-center text-left"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-left">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
+                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-10 text-left"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2 text-center text-left text-left text-left"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-left">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
                     </AnimatePresence>
                 </DialogContent>
             </Dialog>
 
             <AlertDialog open={!!appointmentToCancel} onOpenChange={() => setAppointmentToCancel(null)}>
-                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
-                    <AlertDialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2 text-left"><AlertTriangle className="w-5 h-5 text-destructive" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-destructive">Policy Enforcement</span></div><AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Authorize Cancellation</AlertDialogTitle></AlertDialogHeader>
-                    <div className="p-8 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left">
+                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background text-left">
+                    <AlertDialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2 text-left text-left"><AlertTriangle className="w-5 h-5 text-destructive" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-destructive">Policy Enforcement</span></div><AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left text-left">Authorize Cancellation</AlertDialogTitle></AlertDialogHeader>
+                    <div className="p-8 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left text-left">
                         Terminating your session at this stage may incur a recovery fee based on the proximity to your appointment time. Continue?
                     </div>
                     <AlertDialogFooter className="p-8 pt-4 bg-muted/5 border-t flex flex-col gap-3 text-left">
