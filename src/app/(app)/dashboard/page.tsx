@@ -296,9 +296,10 @@ export default function DashboardPage() {
               'checkoutState.refreshments': arrayUnion({
                   id: item.id,
                   name: item.name,
-                  price: safeNumber(item.price),
+                  price: safeNumber(request.priceAtRequest || item.price),
                   deliveredAt: now,
-                  quantity: qty
+                  quantity: qty,
+                  isAccountedFor: true
               })
           });
       }

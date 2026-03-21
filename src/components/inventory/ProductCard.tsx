@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -21,7 +22,8 @@ import {
   ShoppingCart,
   FileText,
   Coffee,
-  Award
+  Award,
+  Zap
 } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
@@ -29,7 +31,7 @@ import { Badge } from '@/components/ui/badge';
 import { isPast, parseISO } from 'date-fns';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import Image from 'next/image';
 
 export const ProductCard = ({ 
@@ -94,6 +96,8 @@ export const ProductCard = ({
             default: return Package;
         }
     }, [item.type]);
+
+    const isRefreshment = item.type === 'refreshment';
 
     return (
         <Card className={cn(
@@ -163,12 +167,19 @@ export const ProductCard = ({
                     </div>
                 )}
 
-                <div className={cn("grid gap-4 mt-auto", partialDisplay ? "grid-cols-2" : "grid-cols-1")}>
+                <div className={cn("grid gap-4 mt-auto", (partialDisplay || isRefreshment) ? "grid-cols-2" : "grid-cols-1")}>
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Full Stock</p>
                         <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{item.totalStock}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">UNT</span></p>
                     </div>
-                    {partialDisplay}
+                    {isRefreshment ? (
+                        <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 transition-all text-right shadow-inner">
+                            <p className="text-[9px] font-black uppercase text-primary tracking-widest mb-1">Retail Rate</p>
+                            <p className="text-xl font-black font-mono tracking-tighter text-primary">
+                                {safeNumber(item.price) > 0 ? `$${safeNumber(item.price).toFixed(2)}` : 'COMP'}
+                            </p>
+                        </div>
+                    ) : partialDisplay}
                 </div>
             </CardContent>
             
@@ -190,7 +201,7 @@ export const ProductCard = ({
                                 <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Log Quick Use</TooltipContent>
                             </Tooltip>
                         )}
-                        {item.type === 'retail' && (
+                        {(item.type === 'retail' || item.type === 'refreshment') && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button 
