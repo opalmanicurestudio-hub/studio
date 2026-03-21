@@ -61,6 +61,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -88,7 +90,7 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
             {Icon ? <Icon className="w-4 h-4 md:w-5 md:h-5 text-primary" /> : <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />}
             <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
         </div>
-        <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+        <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
 );
@@ -223,7 +225,8 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                         </Button>
                         <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
                             <Link href={`/portal/${tenant?.id}/${client?.id}`}>
-                                <LayoutDashboard className="w-4 h-4 mr-2" /> My Portal
+                                <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
+                                My Portal
                             </Link>
                         </Button>
                     </div>
