@@ -41,7 +41,7 @@ import {
     Gamepad2,
     Trash2
 } from 'lucide-react';
-import { format, parseISO, subMonths, isAfter, subYears, isBefore } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
@@ -177,7 +177,7 @@ const RefreshmentCard = ({
                         <Icon className="w-16 h-16 text-primary opacity-20" />
                     )}
                     
-                    <div className="absolute top-4 left-4 flex flex-col gap-2">
+                    <div className="absolute top-4 left-4 flex flex-col gap-2 text-left">
                         {item.isMembersOnly && (
                             <Badge className="bg-indigo-600 text-white border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl">
                                 <Award className="w-3 h-3 mr-1.5" /> Club Only
@@ -195,7 +195,7 @@ const RefreshmentCard = ({
                     </div>
 
                     <div className="absolute bottom-4 right-4">
-                        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
+                        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50 text-right">
                             {isPerkAvailableNow ? (
                                 <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
                             ) : safeNumber(item.price) > 0 ? (
@@ -207,7 +207,7 @@ const RefreshmentCard = ({
                     </div>
                 </div>
 
-                <CardContent className="p-6 flex-1 flex flex-col justify-between space-y-4">
+                <CardContent className="p-6 flex-1 flex flex-col justify-between space-y-4 text-left">
                     <div className="space-y-2 text-left">
                         <h4 className="font-black text-lg uppercase tracking-tight text-slate-900 leading-none">{item.name}</h4>
                         {item.description && (
@@ -275,8 +275,8 @@ const ServicingView = ({
     }, [isMember, client, memberships]);
 
     /**
-     * Synchronized Cycle Auditor
-     * Scans delivered and pending requests for the client within the current billing window.
+     * ATOMIC CYCLE AUDITOR
+     * Scans every delivered and pending request across the entire client history for this window.
      */
     const getRemainingPerkUses = (itemId: string) => {
         if (!isMember || !activeMembership || !client?.subscription) return 0;
@@ -288,12 +288,12 @@ const ServicingView = ({
         const nextBilling = safeDate(client.subscription.nextBillingDate);
         const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
 
-        // Audit all client requests in current window (Delivered + Pending)
-        const usageCount = activeRequests
+        // Audit across ALL requests for this client, not just this appointment
+        const totalCycleUsage = activeRequests
             .filter(r => r.itemId === itemId && r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart))
             .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
 
-        return Math.max(0, limit - usageCount);
+        return Math.max(0, limit - totalCycleUsage);
     };
 
     const refreshments = useMemo(() => 
@@ -342,15 +342,18 @@ const ServicingView = ({
     const handleRequest = async (item: InventoryItem) => {
         if (!firestore || !tenant || !client || !appointment || isRequesting) return;
         const qty = quantities[item.id] || 1;
-        const pendingItems = activeRequests.filter(r => r.status === 'pending');
-        const totalSessionCount = pendingItems.reduce((sum, r) => sum + safeNumber(r.quantity || 1), 0);
+        
+        // Session-specific complimentary limit check
+        const currentSessionPending = activeRequests.filter(r => r.appointmentId === appointment.id && r.status === 'pending');
+        const totalSessionQty = currentSessionPending.reduce((sum, r) => sum + safeNumber(r.quantity || 1), 0);
         const limit = tenant.complimentaryAmenityLimit || 0;
 
-        if (limit > 0 && totalSessionCount + qty > limit) {
+        if (limit > 0 && totalSessionQty + qty > limit) {
             toast({ variant: 'destructive', title: 'Limit Reached', description: `Complimentary limit is ${limit} items per session.` });
             return;
         }
 
+        // Global cycle-specific perk check
         const remainingPerks = getRemainingPerkUses(item.id);
         const isRedemption = remainingPerks >= qty;
 
@@ -394,7 +397,7 @@ const ServicingView = ({
         }
     };
 
-    const pendingRequests = activeRequests.filter(r => r.status === 'pending');
+    const pendingRequests = activeRequests.filter(r => r.appointmentId === appointment.id && r.status === 'pending');
     const hasActiveRequest = pendingRequests.length > 0;
 
     return (
@@ -549,6 +552,10 @@ export default function CheckInPage() {
     const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
     const { data: resources } = useCollection<Resource>(resourcesQuery);
 
+    /**
+     * GLOBAL REQUEST LEDGER
+     * Scans ALL historical requests for this client to ensure monthly perks are calculated across visits.
+     */
     const allClientRequestsQuery = useMemoFirebase(() => {
         if (!firestore || !tenantId || !clientId) return null;
         return query(

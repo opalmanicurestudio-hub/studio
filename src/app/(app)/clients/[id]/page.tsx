@@ -55,7 +55,7 @@ import {
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO, subMonths, isAfter, subYears, isBefore } from 'date-fns';
+import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth } from 'date-fns';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -107,7 +107,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
     return (
         <Card className={cn("bg-white border-2 rounded-[2rem] shadow-xl overflow-hidden relative transition-all", client.status === 'banned' && "border-destructive ring-4 ring-destructive/10")}>
             <div className={cn("absolute top-0 left-0 w-1.5 h-full", client.status === 'banned' ? "bg-destructive" : "bg-primary")} />
-            <CardContent className="p-5 p-6 flex flex-wrap gap-x-8 gap-y-4 text-left">
+            <CardContent className="p-5 md:p-6 flex flex-wrap gap-x-8 gap-y-4 text-left">
                 {client.status === 'banned' && (
                     <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Ban className="w-4 h-4 text-white" /></div>
@@ -222,38 +222,29 @@ export default function ClientDetailPage() {
   }, [client, memberships]);
 
   /**
-   * Unified Perk Audit Protocol
-   * This is the master calculation for membership benefits.
-   * It scans historical Redemptions and RefreshmentRequests within the current billing cycle.
+   * UNIFIED CYCLE AUDIT PROTOCOL
+   * Scans all historical redemptions and requests within the current billing window.
+   * Provides the single source of truth for both Portal and Dossier.
    */
   const getCycleCorrectUsage = (perkId: string) => {
     if (!client?.subscription || !activeMembership) return { total: 0, pending: 0, db: 0 };
     
+    // Calculate precise cycle start boundary
     const nextBilling = safeDate(client.subscription.nextBillingDate);
     const cycleStart = activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
 
-    // 1. Audit Services (Redemptions subcollection)
-    const redemptionsInCycle = clientRedemptions.filter(r => r.serviceId === perkId && isAfter(safeDate(r.date), cycleStart));
+    // 1. Audit Services (Direct Redemptions Archive)
+    const redemptionsInCycle = clientRedemptions.filter(r => r.offeringId === activeMembership.id && r.serviceId === perkId && isAfter(safeDate(r.date), cycleStart) && !r.isForfeit);
     
-    // 2. Audit Products/Refreshments (RefreshmentRequests collection)
+    // 2. Audit Hospitality (Refreshment Ledger)
     const refreshmentsInCycle = clientRefreshments.filter(r => r.itemId === perkId && r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart));
     
     const pendingQty = refreshmentsInCycle.filter(r => r.status === 'pending').reduce((sum, r) => sum + safeNumber(r.quantity), 0);
     const deliveredQty = refreshmentsInCycle.filter(r => r.status === 'delivered').reduce((sum, r) => sum + safeNumber(r.quantity), 0);
     
-    // Total usage = Redemptions + Deliveries + Pending
     const totalUsage = redemptionsInCycle.length + deliveredQty + pendingQty;
 
     return { total: totalUsage, pending: pendingQty, db: redemptionsInCycle.length + deliveredQty };
-  };
-
-  const isPerkExhaustedInCycle = (perkId: string) => {
-    const usage = getCycleCorrectUsage(perkId);
-    const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
-                    activeMembership?.includedAddOns?.find(a => a.id === perkId) ||
-                    activeMembership?.includedProducts?.find(p => p.id === perkId);
-    
-    return usage.total >= safeNumber(perkDef?.quantity || 1);
   };
 
   const handleQuickSettle = async () => {
