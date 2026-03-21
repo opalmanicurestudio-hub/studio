@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
@@ -148,6 +147,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   
+  const [history, setHistory] = useState<{ paths: Path[], annotations: Annotation[] }[]>([]);
   const [textInput, setTextInput] = useState<{ x: number, y: number, value: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -345,6 +345,19 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
   // --- INTERACTIONS ---
 
+  const saveToHistory = () => {
+      setHistory(prev => [...prev, { paths: JSON.parse(JSON.stringify(paths)), annotations: JSON.parse(JSON.stringify(annotations)) }]);
+  };
+
+  const handleUndo = () => {
+      if (history.length === 0) return;
+      const last = history[history.length - 1];
+      setPaths(last.paths);
+      setAnnotations(last.annotations);
+      setHistory(prev => prev.slice(0, -1));
+      setSelectedId(null);
+  };
+
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     if (isLoading) return;
     const coords = getCoordinates(e);
@@ -381,6 +394,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     });
 
     if (hit) {
+        saveToHistory();
         setSelectedId(hit.id);
         setIsDragging(true);
         if (tool !== 'select') setTool('select');
@@ -389,6 +403,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
     if (tool === 'text') { setTextInput({ x, y, value: '' }); return; }
     if (tool === 'magnifier') { 
+        saveToHistory();
         const newLens: MagnifierLens = { id: nanoid(), type: 'lens', x, y, r: 40, color, rotation: 0, scale: 1 };
         setAnnotations(prev => [...prev, newLens]);
         setSelectedId(newLens.id);
@@ -396,10 +411,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         return;
     }
     if (tool === 'pencil') { 
+        saveToHistory();
         setIsDrawing(true); 
         setPaths(prev => [...prev, { id: nanoid(), color, width: brushSize, style: penStyle, points: [coords] }]); 
     }
     if (tool === 'sticker') { 
+        saveToHistory();
         const newSticker: StickerAnnotation = { id: nanoid(), type: 'sticker', stickerType: 'arrow', x, y, color, rotation: 0, scale: 1 };
         setAnnotations(prev => [...prev, newSticker]); 
         setSelectedId(newSticker.id);
@@ -511,6 +528,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (open) {
         setPaths([]);
         setAnnotations([]);
+        setHistory([]);
         setViewTransform({ scale: 1, x: 0, y: 0 });
         setSelectedId(null);
         setIsLoading(true);
@@ -525,6 +543,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const handleTextSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!textInput || !textInput.value.trim()) { setTextInput(null); return; }
+    saveToHistory();
     const newText: TextAnnotation = { id: nanoid(), type: 'text', text: textInput.value, x: textInput.x, y: textInput.y, color, rotation: 0, scale: 1, size: textSize };
     setAnnotations(prev => [...prev, newText]);
     setTextInput(null); setTool('select'); setSelectedId(newText.id);
@@ -543,7 +562,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl p-0 border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[95dvh] sm:h-[90dvh]">
+      <DialogContent className="sm:max-w-5xl p-0 border-4 rounded-[3rem] md:rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[95dvh] sm:h-[90dvh]">
         <DialogHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
           <div className="flex items-center gap-3 mb-1.5 md:mb-2 text-left">
             <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />
