@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -225,7 +226,7 @@ export default function ClientDetailPage() {
    * Hardened to match Guest Portal logic including cycle windows and pending orders.
    */
   const getCycleCorrectUsage = (perkId: string) => {
-    if (!client?.subscription) return 0;
+    if (!client?.subscription) return { total: 0, pending: 0, db: 0 };
     
     let usageCount = safeNumber(client.subscription.perkUsage?.[perkId]);
     
@@ -236,7 +237,7 @@ export default function ClientDetailPage() {
         const cycleStart = activeMembership?.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
 
         if (isBefore(lastUsed, cycleStart)) {
-            usageCount = 0; // Stale data from previous month
+            usageCount = 0; // Stale data from previous cycle
         }
     } else if (!client.subscription.perkLastUsed) {
         usageCount = 0;
@@ -247,7 +248,7 @@ export default function ClientDetailPage() {
         .filter(r => r.itemId === perkId && r.status === 'pending' && r.isRedemption)
         .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
 
-    return usageCount + pendingQty;
+    return { total: usageCount + pendingQty, pending: pendingQty, db: usageCount };
   };
 
   const isPerkExhaustedInCycle = (perkId: string) => {
@@ -256,7 +257,7 @@ export default function ClientDetailPage() {
                     activeMembership?.includedAddOns?.find(a => a.id === perkId) ||
                     activeMembership?.includedProducts?.find(p => p.id === perkId);
     
-    return usage >= safeNumber(perkDef?.quantity || 1);
+    return usage.total >= safeNumber(perkDef?.quantity || 1);
   };
 
   const handleQuickSettle = async () => {
@@ -458,9 +459,9 @@ export default function ClientDetailPage() {
                                     </h3>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                                         {(activeMembership.includedServices || []).map(perk => {
-                                            const used = getCycleCorrectUsage(perk.id);
-                                            const isExhausted = used >= perk.quantity;
-                                            const progress = Math.min(100, (used / safeNumber(perk.quantity)) * 100);
+                                            const usage = getCycleCorrectUsage(perk.id);
+                                            const isExhausted = usage.total >= perk.quantity;
+                                            const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4 text-left">
@@ -476,7 +477,10 @@ export default function ClientDetailPage() {
                                                         <div className="space-y-2">
                                                             <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Allotment Usage</span>
-                                                                <span>{used} / {safeNumber(perk.quantity)}</span>
+                                                                <div className="flex items-center gap-1">
+                                                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
+                                                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
+                                                                </div>
                                                             </div>
                                                             <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
@@ -485,9 +489,9 @@ export default function ClientDetailPage() {
                                             )
                                         })}
                                         {(activeMembership.includedAddOns || []).map(perk => {
-                                            const used = getCycleCorrectUsage(perk.id);
-                                            const isExhausted = used >= perk.quantity;
-                                            const progress = Math.min(100, (used / safeNumber(perk.quantity)) * 100);
+                                            const usage = getCycleCorrectUsage(perk.id);
+                                            const isExhausted = usage.total >= perk.quantity;
+                                            const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4">
@@ -503,7 +507,10 @@ export default function ClientDetailPage() {
                                                         <div className="space-y-2">
                                                             <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Allotment Usage</span>
-                                                                <span>{used} / {safeNumber(perk.quantity)}</span>
+                                                                <div className="flex items-center gap-1">
+                                                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
+                                                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
+                                                                </div>
                                                             </div>
                                                             <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
@@ -512,9 +519,9 @@ export default function ClientDetailPage() {
                                             )
                                         })}
                                         {(activeMembership.includedProducts || []).map(perk => {
-                                            const used = getCycleCorrectUsage(perk.id);
-                                            const isExhausted = used >= perk.quantity;
-                                            const progress = Math.min(100, (used / safeNumber(perk.quantity)) * 100);
+                                            const usage = getCycleCorrectUsage(perk.id);
+                                            const isExhausted = usage.total >= perk.quantity;
+                                            const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4">
@@ -530,7 +537,10 @@ export default function ClientDetailPage() {
                                                         <div className="space-y-2">
                                                             <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Allotment Usage</span>
-                                                                <span>{used} / {safeNumber(perk.quantity)}</span>
+                                                                <div className="flex items-center gap-1">
+                                                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
+                                                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
+                                                                </div>
                                                             </div>
                                                             <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
