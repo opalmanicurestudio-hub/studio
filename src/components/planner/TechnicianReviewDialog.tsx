@@ -48,7 +48,8 @@ import {
     Calculator,
     Pipette,
     Ear,
-    Coffee
+    Coffee,
+    Star
 } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState, type StockCorrection } from '@/lib/data';
 import { Input } from '../ui/input';
@@ -96,7 +97,8 @@ type ReviewRefreshmentItem = {
     name: string;
     price: number;
     deliveredAt: string;
-    isAccountedFor?: boolean; // True if already deducted by Dashboard
+    quantity?: number;
+    isAccountedFor?: boolean;
 };
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
@@ -220,14 +222,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setSaveAsCustomFormula(false);
         setCustomFormulaName('');
 
-        // Identify refreshments already handled by Dashboard (concierge)
+        // Merge Dashboard deliveries with manual adds
         const sessionRequests = refreshmentRequests?.filter(r => r.appointmentId === appointment.id && r.status === 'delivered') || [];
         const dashboardRefreshments = sessionRequests.map(r => ({
             id: r.itemId,
             name: r.itemName,
-            price: r.priceAtRequest || 0,
+            price: safeNumber(r.priceAtRequest),
             deliveredAt: r.deliveredAt || r.requestedAt,
-            isAccountedFor: true // CRITICAL: This flags that stock was already deducted
+            isAccountedFor: true
         }));
 
         setRefreshments([...dashboardRefreshments, ...(checkoutState?.refreshments?.filter((r: any) => !r.isAccountedFor) || [])]);
@@ -296,7 +298,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
           name: p.name,
           price: safeNumber(p.price || 0),
           deliveredAt: new Date().toISOString(),
-          isAccountedFor: false // These were NOT requested via concierge, so we must deduct them
+          isAccountedFor: false 
       }));
       setRefreshments(prev => [...prev, ...newItems.filter(ni => !prev.find(p => p.id === ni.id))]);
       setIsRefreshmentBrowserOpen(false);
@@ -383,12 +385,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         customFormulaName: saveAsCustomFormula ? customFormulaName : undefined
     };
 
-    // If all parts are complete, we handle final deductions now to ensure precision
     if (isLastProvider) {
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
 
-        // 1. RECONCILE FORMULA ASSETS
         editableFormula.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
             if (!product) return;
@@ -441,17 +441,15 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             } as StockCorrection);
         });
 
-        // 2. RECONCILE REFRESHMENTS THAT WEREN'T DEDUCTED AT DELIVERY
         refreshments.forEach(ref => {
-            if (ref.isAccountedFor) return; // SKIP: Already deducted by Dashboard
+            if (ref.isAccountedFor) return; 
 
             const product = inventory.find(p => p.id === ref.id);
             if (!product) return;
 
             const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
-            const qty = 1; // Assuming 1 unit for manual adds in review
+            const qty = 1; 
             
-            // Simplified deduction for manual refreshment add (usually whole unit)
             batch.update(productRef, { totalStock: increment(-qty) });
 
             const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
@@ -466,7 +464,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             } as StockCorrection);
         });
 
-        // 3. FINALIZE APPOINTMENT
         batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), {
             status: 'ready_for_checkout',
             checkoutState: JSON.parse(JSON.stringify(checkoutState)),
@@ -728,7 +725,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-4 shrink-0">
-                                            <p className="font-black font-mono text-xs text-primary">${safeNumber(ref.price).toFixed(2)}</p>
+                                            {safeNumber(ref.price) === 0 ? (
+                                                <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm">
+                                                    <Star className="w-2 h-2 mr-1 fill-current" /> Club Perk
+                                                </Badge>
+                                            ) : (
+                                                <p className="font-black font-mono text-xs text-primary">${safeNumber(ref.price).toFixed(2)}</p>
+                                            )}
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setRefreshments(prev => prev.filter((_, i) => i !== idx))}><Trash2 className="w-4 h-4" /></Button>
                                         </div>
                                     </div>

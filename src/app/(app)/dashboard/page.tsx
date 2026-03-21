@@ -316,7 +316,7 @@ export default function DashboardPage() {
                   refreshments: arrayUnion(sanitizeForFirestore({
                       id: item.id,
                       name: item.name,
-                      price: safeNumber(request.priceAtRequest || item.price),
+                      price: safeNumber(request.priceAtRequest), // Locked at request time
                       deliveredAt: now,
                       quantity: qty,
                       isAccountedFor: true
