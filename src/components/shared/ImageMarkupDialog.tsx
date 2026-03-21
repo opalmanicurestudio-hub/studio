@@ -122,18 +122,20 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
   const baseImageRef = useRef<HTMLImageElement | null>(null);
   
-  // Interaction State
+  // Tool & Style State
   const [tool, setTool] = useState<ToolType>('pencil');
   const [color, setColor] = useState(colors[0].value);
   const [brushSize, setBrushSize] = useState(3);
   const [textSize, setTextSize] = useState<TextSize>('md');
   const [penStyle, setPenStyle] = useState<PenStyle>('solid');
   
-  // View State
+  // Spatial State
   const [viewTransform, setViewTransform] = useState({ scale: 1, x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [lastPanPos, setLastPanPos] = useState({ x: 0, y: 0 });
   const [lastPinchDist, setLastPinchDist] = useState<number | null>(null);
+  const [initialDist, setInitialDist] = useState<number>(1);
+  const [initialRotation, setInitialRotation] = useState<number>(0);
 
   // Data State
   const [paths, setPaths] = useState<Path[]>([]);
@@ -142,9 +144,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   
-  const [initialDist, setInitialDist] = useState<number>(1);
-  const [initialRotation, setInitialRotation] = useState<number>(0);
-
   const [textInput, setTextInput] = useState<{ x: number, y: number, value: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -253,6 +252,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.arc(l.x, l.y, r, 0, Math.PI * 2);
         ctx.clip();
         
+        // Draw zoomed content
         ctx.drawImage(
             img,
             (l.x - r/2) * imgScaleX,
@@ -319,7 +319,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.save();
         ctx.translate(text.x, text.y);
         ctx.rotate(text.rotation);
-        ctx.font = `black ${fontSize}px Figtree, sans-serif`;
+        ctx.font = `900 ${fontSize}px Figtree, sans-serif`;
         ctx.fillStyle = text.color;
         ctx.textAlign = 'left';
         
@@ -331,7 +331,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.fillText(text.text.toUpperCase(), 0, 0);
         ctx.restore();
     });
-  }, [annotations, paths, selectedId, viewTransform, color]);
+  }, [annotations, paths, selectedId, viewTransform]);
 
   // --- INTERACTION LOGIC ---
 
@@ -383,7 +383,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             if (!ctx) return false;
             const text = a as TextAnnotation;
             const fs = text.size === 'sm' ? 14 : text.size === 'lg' ? 28 : 18;
-            ctx.font = `black ${fs}px Figtree`;
+            ctx.font = `900 ${fs}px Figtree`;
             const metrics = ctx.measureText(text.text.toUpperCase());
             return x >= text.x && x <= text.x + metrics.width && y >= text.y - fs && y <= text.y;
         }
@@ -516,7 +516,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       drawAll();
     };
     img.src = imageUrl;
-  }, [imageUrl, isMobile, drawAll]);
+  }, [imageUrl, isMobile]); // Remove drawAll from dependency to prevent infinite loops
 
   useEffect(() => {
     if (open) {
@@ -525,15 +525,16 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         setViewTransform({ scale: 1, x: 0, y: 0 });
         setSelectedId(null);
         setIsLoading(true);
-        initCanvas();
+        // Using requestAnimationFrame to ensure the container is measured correctly
+        requestAnimationFrame(initCanvas);
     }
-  }, [open, initCanvas]);
+  }, [open]);
 
   useEffect(() => {
     if (!isLoading) {
       drawAll();
     }
-  }, [isLoading, drawAll]);
+  }, [isLoading, annotations, paths, selectedId, viewTransform, color, drawAll]);
 
   const handleTextSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -551,6 +552,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (!canvas) return;
     setSelectedId(null);
     setTool('select');
+    // Final draw without selection indicators
     requestAnimationFrame(() => {
         onSave(canvas.toDataURL('image/png'));
         onOpenChange(false);
