@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -236,7 +237,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                             </div>
                             <div className="space-y-2">
                                 <h3 className="text-2xl font-black uppercase tracking-tighter">Feedback Certified</h3>
-                                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto">Your review has been added to our studio archive. See you next time!</p>
+                                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-xs mx-auto">Your review has been added to our studio archive. See you next time!</p>
                             </div>
                         </motion.div>
                     )}
@@ -507,32 +508,55 @@ export default function ClientPortalPage() {
         if (!firestore || !tenantId || !client) return;
         setIsProcessing(true);
         
-        const { applyFee, feeAmount, ...aptData } = data;
+        const { applyFee, feeAmount, paymentMethod, ...aptData } = data;
         const batch = writeBatch(firestore);
         const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
+        const now = new Date().toISOString();
         
-        batch.update(appointmentRef, {
+        const updates: any = {
             startTime: aptData.startTime,
             endTime: aptData.endTime
-        });
+        };
 
         if (applyFee && feeAmount > 0) {
-            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-            batch.update(clientRef, {
-                outstandingBalance: increment(feeAmount),
-                unpaidFees: arrayUnion({
-                    feeId: nanoid(),
-                    appointmentId: aptData.id,
-                    appointmentDate: safeDate(aptData.startTime).toISOString(),
-                    feeAmount: feeAmount,
-                    reason: "Late Reschedule Protocol Fee"
-                })
-            });
+            if (paymentMethod === 'settle_now') {
+                const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                batch.set(txnRef, {
+                    id: txnRef.id,
+                    date: now,
+                    description: `Reschedule Recovery: ${aptData.clientName}`,
+                    clientOrVendor: aptData.clientName || 'Client',
+                    clientId: client.id,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Adjustment Fee',
+                    amount: feeAmount,
+                    paymentMethod: 'Card on File',
+                    hasReceipt: false,
+                    appointmentId: aptData.id
+                });
+            } else if (paymentMethod === 'add_to_session') {
+                updates['checkoutState.additionalCharge'] = increment(feeAmount);
+            } else {
+                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+                batch.update(clientRef, {
+                    outstandingBalance: increment(feeAmount),
+                    unpaidFees: arrayUnion({
+                        feeId: nanoid(),
+                        appointmentId: aptData.id,
+                        appointmentDate: safeDate(aptData.startTime).toISOString(),
+                        feeAmount: feeAmount,
+                        reason: "Late Reschedule Protocol Fee"
+                    })
+                });
+            }
         }
+
+        batch.update(appointmentRef, updates);
 
         try {
             await batch.commit();
-            toast({ title: "Session Shifted", description: applyFee ? "Late adjustment fee applied to ledger." : "Agenda updated." });
+            toast({ title: "Session Shifted", description: applyFee ? "Protocol adjustment applied to ledger." : "Agenda updated." });
             setAppointmentToReschedule(null);
         } catch (e) {
             toast({ variant: 'destructive', title: "Process Error" });
@@ -616,7 +640,7 @@ export default function ClientPortalPage() {
                             <div className="w-24 h-24 bg-destructive/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5">
                                 <Ban className="w-12 h-12 text-destructive" />
                             </div>
-                            <div className="space-y-3">
+                            <div className="space-y-3 text-center">
                                 <p className="text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-center">
                                     Your guest profile has been restricted in the studio manifest. Access to the private portal is currently prohibited.
                                 </p>
@@ -688,7 +712,7 @@ export default function ClientPortalPage() {
                 !entered ? "opacity-0 translate-y-10" : "opacity-100 translate-y-0"
             )}>
                 <header className="flex flex-col md:flex-row items-center gap-8 text-center md:text-left pt-10">
-                    <div className="relative group text-left">
+                    <div className="relative group">
                         <Avatar className="w-24 h-24 md:w-32 md:h-32 border-4 border-white shadow-2xl rounded-[3rem] overflow-hidden transition-all group-hover:scale-105">
                             <AvatarImage src={client.avatarUrl} className="object-cover" />
                             <AvatarFallback className="font-black text-2xl bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
@@ -703,7 +727,7 @@ export default function ClientPortalPage() {
                         <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate w-full md:w-auto text-center md:text-left">Client Dossier</h1>
                         <p className="text-xs md:sm font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center md:text-left">{tenant?.name} &middot; Authenticated Guest</p>
                     </div>
-                    <div className="shrink-0 flex gap-3 w-full md:w-auto">
+                    <div className="shrink-0 flex gap-3 w-full md:w-auto text-left">
                         <Button asChild variant="outline" className="flex-1 md:flex-none h-14 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest border-border/50 bg-white/50 backdrop-blur-sm">
                             <Link href={`/book/${tenantId}`}>Back to Menu</Link>
                         </Button>
@@ -743,16 +767,16 @@ export default function ClientPortalPage() {
                 <Tabs defaultValue="appointments" className="w-full">
                     <ScrollArea className="w-full">
                         <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-10 w-max mx-auto">
-                            <TabsTrigger value="appointments" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                            <TabsTrigger value="appointments" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md text-left">
                                 <Clock className="w-3.5 h-3.5 mr-2" /> Schedule
                             </TabsTrigger>
-                            <TabsTrigger value="portfolio" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                            <TabsTrigger value="portfolio" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md text-left">
                                 <Award className="w-3.5 h-3.5 mr-2" /> Membership
                             </TabsTrigger>
-                            <TabsTrigger value="rewards" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                            <TabsTrigger value="rewards" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md text-left">
                                 <Trophy className="w-3.5 h-3.5 mr-2" /> Rewards
                             </TabsTrigger>
-                            <TabsTrigger value="ledger" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                            <TabsTrigger value="ledger" className="px-8 h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md text-left">
                                 <Landmark className="w-3.5 h-3.5 mr-2" /> Ledger
                             </TabsTrigger>
                         </TabsList>
@@ -766,17 +790,17 @@ export default function ClientPortalPage() {
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Agenda Matrix</h3>
                             </div>
                             {upcomingAppointments.length > 0 ? (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
                                     {upcomingAppointments.map(apt => {
                                         const svc = services?.find(s => s.id === apt.serviceId);
                                         const pro = staff?.find(s => s.id === apt.staffId);
                                         const isActionable = apt.status === 'confirmed' || apt.status === 'deposit_pending';
                                         return (
-                                            <Card key={apt.id} className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group flex flex-col">
-                                                <CardContent className="p-6 flex items-center gap-6 flex-1">
+                                            <Card key={apt.id} className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group flex flex-col text-left">
+                                                <CardContent className="p-6 flex items-center gap-6 flex-1 text-left">
                                                     <div className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 shadow-inner text-primary shrink-0 group-hover:bg-primary group-hover:text-white transition-all duration-500"><Calendar className="w-8 h-8" /></div>
                                                     <div className="min-w-0 text-left flex-1">
-                                                        <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1">{svc?.name || 'Service'}</p>
+                                                        <p className="font-black text-lg uppercase tracking-tight text-slate-900 truncate mb-1 text-left">{svc?.name || 'Service'}</p>
                                                         <div className="flex items-center gap-2 mb-2 text-left">
                                                             <Badge variant="outline" className="h-5 px-2 border-none bg-muted/50 text-muted-foreground text-[8px] font-black uppercase text-left">By {pro?.name.split(' ')[0] || 'Technician'}</Badge>
                                                             <Badge className={cn("h-5 px-2 border-none font-black text-[8px] uppercase", apt.status === 'confirmed' ? "bg-green-500 text-white" : "bg-amber-500 text-white")}>{apt.status.replace('_', ' ')}</Badge>
@@ -795,25 +819,25 @@ export default function ClientPortalPage() {
                                     })}
                                 </div>
                             ) : (
-                                <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><Clock className="w-16 h-16" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Upcoming Appointments</p></div>
+                                <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><Clock className="w-16 h-16" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Upcoming Appointments</p></div>
                             )}
                         </div>
 
                         <Separator className="border-dashed" />
 
                         <div className="space-y-6 text-left">
-                            <div className="flex items-center gap-3 px-1 text-left"><History className="w-5 h-5 text-muted-foreground opacity-40" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical History Archive</h3></div>
-                            <div className="grid gap-4">
+                            <div className="flex items-center gap-3 px-1 text-left"><History className="w-5 h-5 text-muted-foreground opacity-40" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 text-left">Technical History Archive</h3></div>
+                            <div className="grid gap-4 text-left">
                                 {pastAppointments.slice(0, 10).map(apt => {
                                     const svc = services?.find(s => s.id === apt.serviceId);
                                     const pro = staff?.find(s => s.id === apt.staffId);
                                     return (
                                         <Card key={apt.id} className="border-2 rounded-[1.5rem] bg-white hover:bg-muted/5 transition-all text-left overflow-hidden">
-                                            <CardContent className="p-5 flex items-center justify-between gap-6">
-                                                <div className="flex items-center gap-4 min-w-0 text-left">
+                                            <CardContent className="p-5 flex items-center justify-between gap-6 text-left">
+                                                <div className="flex items-center gap-4 min-w-0 text-left text-left flex-1">
                                                     <div className="p-2.5 bg-muted/30 rounded-xl shrink-0"><CheckCircle2 className="w-5 h-5 text-slate-400" /></div>
                                                     <div className="min-w-0 text-left">
-                                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{svc?.name}</p>
+                                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{svc?.name}</p>
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Verified with {pro?.name || 'Staff'}</p>
                                                     </div>
                                                 </div>
@@ -831,33 +855,33 @@ export default function ClientPortalPage() {
                         <Separator className="border-dashed" />
 
                         <div className="space-y-6 text-left">
-                            <div className="flex items-center gap-3 px-1 text-left"><FileSignature className="w-5 h-5 text-primary opacity-40" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Agreement Vault</h3></div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="flex items-center gap-3 px-1 text-left"><FileSignature className="w-5 h-5 text-primary opacity-40" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 text-left">Agreement Vault</h3></div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                                 {signedConsents?.length ? signedConsents.map((consent: any) => (
                                     <Card key={consent.id} className="border-2 rounded-[1.5rem] bg-white shadow-sm hover:border-primary/20 transition-all text-left overflow-hidden">
-                                        <CardContent className="p-5 flex items-center gap-4">
+                                        <CardContent className="p-5 flex items-center gap-4 text-left">
                                             <div className="p-3 bg-primary/5 rounded-xl border border-primary/10 text-primary shrink-0"><ShieldCheck className="w-5 h-5" /></div>
                                             <div className="min-w-0 text-left">
-                                                <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate mb-0.5">{consent.formTitle}</p>
-                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Established {format(safeDate(consent.signedAt), 'MMM d, yyyy')}</p>
+                                                <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate mb-0.5 text-left">{consent.formTitle}</p>
+                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Established {format(safeDate(consent.signedAt), 'MMM d, yyyy')}</p>
                                             </div>
                                         </CardContent>
                                     </Card>
-                                )) : <div className="col-span-full py-16 text-center border-4 border-dashed rounded-[2rem] opacity-30"><p className="text-[10px] font-black uppercase tracking-widest">No Signed Agreements Found</p></div>}
+                                )) : <div className="col-span-full py-16 text-center border-4 border-dashed rounded-[2rem] opacity-30 text-left"><p className="text-[10px] font-black uppercase tracking-widest">No Signed Agreements Found</p></div>}
                             </div>
                         </div>
                     </TabsContent>
 
                     <TabsContent value="portfolio" className="space-y-12 animate-in fade-in duration-500 text-left">
                         {activeMembership ? (
-                            <div className="space-y-12 text-left">
-                                <section className="space-y-6 text-left">
+                            <div className="space-y-12 text-left text-left">
+                                <section className="space-y-6 text-left text-left">
                                     <div className="flex flex-col sm:flex-row items-center justify-between px-1 gap-4 text-left">
                                         <div className="flex items-center gap-3 w-full sm:w-auto text-left">
                                             <ShieldCheck className="w-5 h-5 text-indigo-600" />
                                             <div className="text-left">
-                                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 leading-tight">Active Allotment Matrix</h3>
-                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Cycle: {format(cycleStart, 'MMM d')} - {client?.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMM d, yyyy') : '...'}</p>
+                                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 leading-tight text-left">Active Allotment Matrix</h3>
+                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Cycle: {format(cycleStart, 'MMM d')} - {client?.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMM d, yyyy') : '...'}</p>
                                             </div>
                                         </div>
                                         {loyaltyHubData && (<div className="w-full sm:w-auto flex items-center gap-2 px-4 py-2 rounded-2xl bg-green-500/5 border-2 border-green-500/10"><TrendingUp className="w-3.5 h-3.5 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Value Secured: ${loyaltyHubData.cycleSavings.toFixed(0)}</span></div>)}
@@ -870,7 +894,7 @@ export default function ClientPortalPage() {
                                             const isExhausted = used >= total;
                                             return (
                                                 <Card key={perk.id} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all", isExhausted && "opacity-60")}>
-                                                    <CardContent className="p-6 space-y-5 text-left">
+                                                    <CardContent className="p-6 space-y-5 text-left text-left">
                                                         <div className="flex justify-between items-start gap-4 text-left">
                                                             <div className="space-y-1 flex-1 min-w-0 text-left">
                                                                 <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
@@ -890,9 +914,9 @@ export default function ClientPortalPage() {
                                 </section>
                                 <Separator className="border-dashed" />
                                 <section className="space-y-6 text-left">
-                                    <div className="flex items-center gap-3 px-1 text-left"><Activity className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Current Cycle Redemptions</h3></div>
+                                    <div className="flex items-center gap-3 px-1 text-left"><Activity className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Current Cycle Redemptions</h3></div>
                                     {currentCycleActivity.all.length > 0 ? (
-                                        <div className="grid gap-3">
+                                        <div className="grid gap-3 text-left">
                                             {currentCycleActivity.all.map((item: any) => {
                                                 const isRefreshment = !!item.itemName;
                                                 const date = safeDate(item.date || item.requestedAt);
@@ -901,7 +925,7 @@ export default function ClientPortalPage() {
                                                         <div className="flex items-center gap-4 text-left min-w-0 flex-1">
                                                             <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isRefreshment ? "bg-primary/10 text-primary" : "bg-indigo-500/10 text-indigo-600")}>{isRefreshment ? <Coffee className="w-5 h-5" /> : <Star className="w-5 h-5" />}</div>
                                                             <div className="min-w-0 text-left">
-                                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{isRefreshment ? item.itemName : item.serviceName}</p>
+                                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{isRefreshment ? item.itemName : item.serviceName}</p>
                                                                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Drawn from Membership Portfolio</p>
                                                             </div>
                                                         </div>
@@ -913,11 +937,11 @@ export default function ClientPortalPage() {
                                                 );
                                             })}
                                         </div>
-                                    ) : (<div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><History className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Activity Logged in Current Cycle</p></div>)}
+                                    ) : (<div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><History className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center px-8">No Activity Logged in Current Cycle</p></div>)}
                                 </section>
                             </div>
                         ) : (
-                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
                                 <Award className="w-16 h-16" />
                                 <p className="text-xl font-black uppercase tracking-tighter text-slate-900">Portfolio Inactive</p>
                                 <Button asChild className="h-12 px-8 rounded-xl font-black uppercase text-[10px] tracking-widest mt-4">
@@ -929,7 +953,7 @@ export default function ClientPortalPage() {
 
                     <TabsContent value="rewards" className="space-y-10 animate-in fade-in duration-500 text-left">
                         {loyaltyHubData ? (
-                            <div className="space-y-10">
+                            <div className="space-y-10 text-left">
                                 <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
                                     <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Flame className="w-32 h-32 text-primary" /></div>
                                     <CardHeader className="p-8 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Next Reward Protocol</CardTitle></CardHeader>
@@ -938,7 +962,7 @@ export default function ClientPortalPage() {
                                             <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter leading-none">{loyaltyHubData.visitsToNext}</p>
                                             <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-2">Sessions remaining until next reward</p>
                                         </div>
-                                        <div className="space-y-2">
+                                        <div className="space-y-2 text-left">
                                             <Progress value={loyaltyHubData.progressToNextReward} className="h-2 rounded-full bg-white/40" />
                                             <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-primary/60"><span>Active Progress</span><span>{Math.round(loyaltyHubData.progressToNextReward)}% Path</span></div>
                                         </div>
@@ -953,20 +977,20 @@ export default function ClientPortalPage() {
                                         {client.successfulReferrals?.length ? (
                                             <div className="space-y-4 text-left">
                                                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Converted Referrals</p>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-left">
                                                     {client.successfulReferrals.map((name, idx) => (<div key={idx} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/5 text-left"><div className="p-2 bg-white rounded-lg shadow-sm shrink-0"><User className="w-3.5 h-3.5 text-primary opacity-40" /></div><span className="text-[10px] font-black uppercase text-slate-700 truncate">{name}</span></div>))}
                                                 </div>
                                             </div>
-                                        ) : (<div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3"><PartyPopper className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">No Referrals Registered</p></div>)}
+                                        ) : (<div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3 text-left"><PartyPopper className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">No Referrals Registered</p></div>)}
                                         <div className="p-6 rounded-3xl border-2 border-dashed border-primary/20 bg-primary/[0.02] flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
                                             <div className="space-y-1 text-center sm:text-left"><p className="text-sm font-black uppercase tracking-tight text-slate-900">Expand the Circle</p><p className="text-[10px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight">Share your referral code to earn instant studio credit.</p></div>
-                                            <div className="flex gap-2 w-full sm:w-auto"><div className="flex-1 p-3 px-5 rounded-xl bg-white border-2 border-primary/10 shadow-inner font-black font-mono text-primary uppercase text-sm tracking-widest text-center">{client.referralCode}</div><Button variant="outline" size="icon" className="h-12 w-12 rounded-xl border-2 bg-white" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: 'Code Copied' }); }}><Repeat className="w-5 h-5 opacity-40" /></Button></div>
+                                            <div className="flex gap-2 w-full sm:w-auto text-left"><div className="flex-1 p-3 px-5 rounded-xl bg-white border-2 border-primary/10 shadow-inner font-black font-mono text-primary uppercase text-sm tracking-widest text-center">{client.referralCode}</div><Button variant="outline" size="icon" className="h-12 w-12 rounded-xl border-2 bg-white" onClick={() => { navigator.clipboard.writeText(client.referralCode || ''); toast({ title: 'Code Copied' }); }}><Repeat className="w-5 h-5 opacity-40" /></Button></div>
                                         </div>
                                     </CardContent>
                                 </Card>
                             </div>
                         ) : (
-                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                            <div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
                                 <Trophy className="w-16 h-16" />
                                 <p className="text-[10px] font-black uppercase tracking-widest text-center">Reward profile loading...</p>
                             </div>
@@ -974,12 +998,12 @@ export default function ClientPortalPage() {
                     </TabsContent>
 
                     <TabsContent value="ledger" className="space-y-8 animate-in fade-in duration-500 text-left">
-                        <div className="space-y-6">
-                            <div className="flex items-center gap-3 px-1 text-left"><Landmark className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Accounting Manifest</h3></div>
+                        <div className="space-y-6 text-left">
+                            <div className="flex items-center gap-3 px-1 text-left text-left"><Landmark className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Accounting Manifest</h3></div>
                             {client.unpaidFees?.length ? (
-                                <div className="grid gap-4">
+                                <div className="grid gap-4 text-left">
                                     {client.unpaidFees.map((fee) => (
-                                        <Card key={fee.feeId} className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-3xl overflow-hidden shadow-xl shadow-destructive/5">
+                                        <Card key={fee.feeId} className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-3xl overflow-hidden shadow-xl shadow-destructive/5 text-left">
                                             <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
                                                 <div className="flex items-center gap-4 text-left w-full sm:w-auto">
                                                     <div className="p-3 bg-destructive rounded-2xl shadow-lg shadow-destructive/20 shrink-0"><AlertTriangle className="w-6 h-6 text-white" /></div>
@@ -990,7 +1014,7 @@ export default function ClientPortalPage() {
                                         </Card>
                                     ))}
                                 </div>
-                            ) : (<div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><ShieldCheck className="w-16 h-16 text-green-500" /><p className="text-[10px] font-black uppercase tracking-widest">Account Clear & Settled</p></div>)}
+                            ) : (<div className="py-24 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left"><ShieldCheck className="w-16 h-16 text-green-500" /><p className="text-[10px] font-black uppercase tracking-widest">Account Clear & Settled</p></div>)}
                         </div>
                     </TabsContent>
                 </Tabs>
@@ -1029,7 +1053,7 @@ export default function ClientPortalPage() {
                                 </div>
                                 <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3"><Button onClick={handleSettleArrears} disabled={isProcessing} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">{isProcessing ? <Loader className="animate-spin" /> : `Authorize $${safeBalance.toFixed(2)}`}</Button><Button variant="ghost" onClick={() => setIsSettlementOpen(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button></DialogFooter>
                             </motion.div>
-                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-10"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2 text-center"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
+                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-10 text-left"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2 text-center"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
                     </AnimatePresence>
                 </DialogContent>
             </Dialog>
@@ -1042,7 +1066,7 @@ export default function ClientPortalPage() {
                     </div>
                     <AlertDialogFooter className="p-8 pt-4 bg-muted/5 border-t flex flex-col gap-3">
                         <Button onClick={handleConfirmCancellation} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-white hover:bg-destructive/90">{isProcessing ? <Loader className="animate-spin" /> : 'Confirm Termination'}</Button>
-                        <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
+                        <AlertDialogCancel onClick={() => setAppointmentToCancel(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

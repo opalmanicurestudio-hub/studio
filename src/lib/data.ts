@@ -285,6 +285,8 @@ export type Service = {
   requiredResourceIds?: string[];
   customCancellationFee?: number;
   cancellationWindowHours?: number;
+  cancellationFeeMode?: 'inherit' | 'matrix' | 'flat' | 'percentage';
+  cancellationFeeValue?: number;
 };
 
 export type Batch = {
@@ -705,12 +707,13 @@ export type Tenant = {
   kioskSettings?: KioskSettings;
   lateInconveniencePremium?: number;
   employerTaxBurdenPct?: number;
-  defaultCancellationMode?: 'matrix' | 'flat';
+  defaultCancellationMode?: 'matrix' | 'flat' | 'percentage';
   defaultRescheduleMode?: 'matrix' | 'flat';
   paymentGateway?: 'none' | 'stripe' | 'square';
   gatewayApiKey?: string;
   autoProcessMemberships?: boolean;
   complimentaryAmenityLimit?: number;
+  allowGuestFeeDeferral?: boolean;
 };
 
 export type Resource = {

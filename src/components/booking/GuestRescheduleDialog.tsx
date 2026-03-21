@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -20,7 +21,6 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { 
-    CalendarIcon, 
     ChevronLeft, 
     ChevronRight, 
     Clock, 
@@ -33,14 +33,16 @@ import {
     Landmark, 
     ShieldCheck, 
     Loader,
-    CheckCircle2,
-    Activity,
-    Scale,
     Info,
-    PackageOpen
+    PackageOpen,
+    Scale,
+    CreditCard,
+    Zap,
+    Lock,
+    Banknote
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
-import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
+import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
 import { 
     format, 
     setHours, 
@@ -72,6 +74,7 @@ import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { useToast } from '@/hooks/use-toast';
+import { Input } from '../ui/input';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -133,10 +136,11 @@ export const GuestRescheduleDialog = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [rescheduleDate, setRescheduleDate] = useState(safeDate(appointment.startTime));
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
-    const [overrideBusinessHours, setOverrideBusinessHours] = useState(false);
+    const [paymentMethod, setPaymentMethod] = useState<'settle_now' | 'add_to_session' | 'add_to_balance'>('add_to_balance');
 
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
+    const hasCardOnFile = !!client?.cardOnFile?.token;
 
     // SCHEDULING NAVIGATION
     const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
@@ -193,10 +197,10 @@ export const GuestRescheduleDialog = ({
         if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
         else workingHours = publicScheduleProfile?.week?.[dayName];
         
-        if (!overrideBusinessHours && (!workingHours || !workingHours.enabled)) return [];
+        if (!workingHours || !workingHours.enabled) return [];
 
-        const openTime = overrideBusinessHours ? startOfDay(rescheduleDate) : timeStringToDate(workingHours?.start || '09:00 AM', rescheduleDate);
-        const closeTime = overrideBusinessHours ? endOfDay(rescheduleDate) : timeStringToDate(workingHours?.end || '05:00 PM', rescheduleDate);
+        const openTime = timeStringToDate(workingHours?.start || '09:00 AM', rescheduleDate);
+        const closeTime = timeStringToDate(workingHours?.end || '05:00 PM', rescheduleDate);
         
         const busyIntervals: { start: Date, end: Date }[] = [];
         appointments.filter(apt => apt.id !== appointment.id && isSameDay(safeDate(apt.startTime), rescheduleDate) && apt.staffId === appointment.staffId && apt.status !== 'cancelled').forEach(apt => {
@@ -222,7 +226,7 @@ export const GuestRescheduleDialog = ({
             currentTime = addMinutes(currentTime, bookingInterval);
         }
         return options;
-    }, [rescheduleDate, service, appointments, appointment, services, publicScheduleProfile, assignedStaff, staff, overrideBusinessHours]);
+    }, [rescheduleDate, service, appointments, appointment, services, publicScheduleProfile, assignedStaff, staff]);
 
     const handleAction = async () => {
         if (!rescheduleTime) return;
@@ -237,7 +241,7 @@ export const GuestRescheduleDialog = ({
             endTime: endDateTime.toISOString(),
             applyFee: recoveryFee > 0,
             feeAmount: recoveryFee,
-            paymentMethod: 'add_to_balance'
+            paymentMethod: recoveryFee > 0 ? paymentMethod : 'waived'
         });
         setIsSubmitting(false);
         onOpenChange(false);
@@ -258,7 +262,7 @@ export const GuestRescheduleDialog = ({
                     <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Reschedule your appointment for: <strong>{service.name}</strong></SheetDescription>
                 </SheetHeader>
 
-                <ScrollArea className="flex-1">
+                <ScrollArea className="flex-1 text-left">
                     <div className={cn("p-8 pt-4 space-y-10", isMobile && "p-6")}>
                         <AnimatePresence>
                             {isWithinCancellationWindow && (
@@ -271,13 +275,54 @@ export const GuestRescheduleDialog = ({
                                         </AlertDescription>
                                     </Alert>
 
-                                    <div className="p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner space-y-4 text-center">
+                                    <div className="p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner space-y-6 text-center">
                                         <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest leading-none">Operational Recovery Fee</p>
                                         <p className="text-5xl font-black text-primary tracking-tighter font-mono">${recoveryFee.toFixed(2)}</p>
+                                        
+                                        <div className="space-y-4 text-left">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Settlement Mode</Label>
+                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-1 gap-3">
+                                                <label htmlFor="guest-resched-pay-vault" className={cn("flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white", paymentMethod === 'settle_now' ? "border-primary shadow-md" : "border-border hover:border-primary/20", !hasCardOnFile && "opacity-40 grayscale")}>
+                                                    <div className="flex items-center gap-3">
+                                                        <RadioGroupItem value="settle_now" id="guest-resched-pay-vault" disabled={!hasCardOnFile} />
+                                                        <div className="space-y-0.5">
+                                                            <p className="text-xs font-black uppercase tracking-tight">Settle Upfront</p>
+                                                            <p className="text-[8px] font-bold opacity-60 uppercase">{hasCardOnFile ? 'Charge Card on File' : 'No Card on File'}</p>
+                                                        </div>
+                                                    </div>
+                                                    {hasCardOnFile ? <ShieldCheck className="w-5 h-5 text-primary" /> : <Lock className="w-5 h-5 text-slate-300" />}
+                                                </label>
+
+                                                {tenant?.allowGuestFeeDeferral && (
+                                                    <label htmlFor="guest-resched-pay-session" className={cn("flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white", paymentMethod === 'add_to_session' ? "border-primary shadow-md" : "border-border hover:border-primary/20")}>
+                                                        <div className="flex items-center gap-3">
+                                                            <RadioGroupItem value="add_to_session" id="guest-resched-pay-session" />
+                                                            <div className="space-y-0.5">
+                                                                <p className="text-xs font-black uppercase tracking-tight">Add to Session Bill</p>
+                                                                <p className="text-[8px] font-bold opacity-60 uppercase">Pay at checkout</p>
+                                                            </div>
+                                                        </div>
+                                                        <Zap className="w-5 h-5 text-primary" />
+                                                    </label>
+                                                )}
+
+                                                <label htmlFor="guest-resched-pay-balance" className={cn("flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white", paymentMethod === 'add_to_balance' ? "border-primary shadow-md" : "border-border hover:border-primary/20")}>
+                                                    <div className="flex items-center gap-3">
+                                                        <RadioGroupItem value="add_to_balance" id="guest-resched-pay-balance" />
+                                                        <div className="space-y-0.5">
+                                                            <p className="text-xs font-black uppercase tracking-tight">Pay at Studio</p>
+                                                            <p className="text-[8px] font-bold opacity-60 uppercase">Record to account balance</p>
+                                                        </div>
+                                                    </div>
+                                                    <Landmark className="w-5 h-5 text-primary opacity-40" />
+                                                </label>
+                                            </RadioGroup>
+                                        </div>
+
                                         <div className="p-4 rounded-xl border-2 border-dashed bg-white/50 flex items-start gap-3 text-left">
                                             <Info className="w-4 h-4 text-primary shrink-0 mt-0.5 opacity-40" />
                                             <p className="text-[10px] font-bold text-slate-600 leading-relaxed uppercase tracking-tight">
-                                                This fee compensates the studio for the reserved time and materials. By proceeding, you agree to have this amount added to your account ledger.
+                                                This fee compensates the studio for reserved time and materials.
                                             </p>
                                         </div>
                                     </div>

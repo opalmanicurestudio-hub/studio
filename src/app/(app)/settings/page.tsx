@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
@@ -84,7 +85,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     </div>
 );
 
-const DayScheduleRow = ({ day, data, onChange, disabled }: { day: string, data: DayHours, onChange: (day: string, updates: Partial<DayHours>) => void, disabled?: boolean }) => {
+const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: DayHours, onChange: (day: string, updates: Partial<DayHours>) => void, disabled?: boolean }) => {
     return (
         <div className={cn(
             "flex flex-col sm:flex-row items-center justify-between p-4 rounded-2xl border-2 transition-all gap-4",
@@ -179,7 +180,7 @@ const ServicePolicyCard = ({
                     <div className="p-2 rounded-lg bg-background border shadow-sm">
                         <Star className="w-3.5 h-3.5 text-primary opacity-40" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 text-left">
                         <CardTitle className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{service.name}</CardTitle>
                         <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">ID: {service.id.slice(-6).toUpperCase()}</p>
                     </div>
@@ -396,8 +397,8 @@ function SettingsPageImpl() {
             <div className="flex items-center gap-3 w-full sm:w-auto">
                 {isEditing ? (
                     <>
-                        <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:sm:w-auto h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
-                        <Button onClick={handleSave} className="flex-[2] sm:sm:w-auto h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
+                        <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:w-auto h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                        <Button onClick={handleSave} className="flex-[2] sm:w-auto h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
                     </>
                 ) : (
                     <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto h-12 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><Edit className="mr-2 h-4 w-4" />Modify Logic</Button>
@@ -409,7 +410,7 @@ function SettingsPageImpl() {
              <ScrollArea className="w-full">
                 <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner mb-8 flex w-max gap-1.5">
                     {tabs.map(tab => (
-                    <TabsTrigger key={tab.value} value={tab.value} className="rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest px-4 md:px-6 h-10 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md transition-all">
+                    <TabsTrigger key={tab.value} value={tab.value} className="rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest px-4 md:px-6 h-10 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md transition-all text-left">
                         {React.cloneElement(tab.icon as React.ReactElement, { className: "mr-2 hidden sm:block" })}
                         {tab.label}
                     </TabsTrigger>
@@ -450,7 +451,7 @@ function SettingsPageImpl() {
                         {localSchedule ? (
                             <div className="space-y-3">
                                 {Object.entries(localSchedule).map(([day, hours]: [any, any]) => (
-                                    <DayScheduleRow 
+                                    <DayHoursRow 
                                         key={day} 
                                         day={day} 
                                         data={hours} 
@@ -621,6 +622,22 @@ function SettingsPageImpl() {
                                 </div>
                             </div>
                         </div>
+
+                        <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-dashed bg-muted/5 shadow-inner">
+                            <div className="space-y-1 text-left">
+                                <Label htmlFor="allow-deferral" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                                    <Zap className="w-4 h-4 text-primary" /> Guest Autonomy: Fee Deferral
+                                </Label>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Allow guests to add rescheduling fees to their session bill</p>
+                            </div>
+                            <Switch 
+                                id="allow-deferral" 
+                                checked={!!tenantData.allowGuestFeeDeferral} 
+                                onCheckedChange={(val) => setTenantData(prev => ({...prev, allowGuestFeeDeferral: val}))}
+                                disabled={!isEditing}
+                                className="scale-125 data-[state=checked]:bg-primary"
+                            />
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -654,7 +671,7 @@ function SettingsPageImpl() {
                             />
                         ))}
                         {filteredServices.length === 0 && (
-                            <div className="col-span-full py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                            <div className="col-span-full py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
                                 <Activity className="w-12 h-12" />
                                 <p className="text-xs font-black uppercase tracking-widest">No matching treatments found</p>
                             </div>
@@ -697,14 +714,14 @@ function SettingsPageImpl() {
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="space-y-8">
-                            <div className="space-y-2">
+                            <div className="space-y-2 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Brand Signature (Logo)</Label>
                                 <ImageUpload 
                                     onImageUploaded={(url) => setTenantData(prev => ({...prev, bookingPageSettings: {...prev.bookingPageSettings, logoUrl: url}}))}
                                     initialImage={tenantData.bookingPageSettings?.logoUrl}
                                 />
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
                                 <div className="space-y-2">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Title</Label>
                                     <Input 
@@ -727,7 +744,7 @@ function SettingsPageImpl() {
                                     </div>
                                 </div>
                             </div>
-                            <div className="space-y-2">
+                            <div className="space-y-2 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Welcome Narrative</Label>
                                 <Textarea 
                                     value={tenantData.bookingPageSettings?.welcomeMessage || ''} 
@@ -742,7 +759,7 @@ function SettingsPageImpl() {
 
                         <div className="space-y-4">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Visibility Protocol</Label>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
                                 {[
                                     { key: 'showTeam', label: 'Pro Team Section' },
                                     { key: 'showReviews', label: 'Guest Feedback' },
@@ -774,7 +791,7 @@ function SettingsPageImpl() {
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="space-y-8">
-                            <div className="space-y-2">
+                            <div className="space-y-2 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Kiosk Identity (Logo)</Label>
                                 <ImageUpload 
                                     onImageUploaded={(url) => setTenantData(prev => ({...prev, kioskSettings: {...prev.kioskSettings, logoUrl: url}}))}
@@ -801,7 +818,7 @@ function SettingsPageImpl() {
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Walk-in Window Schedule</Label>
                                         <div className="space-y-3">
                                             {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => (
-                                                <DayScheduleRow 
+                                                <DayHoursRow 
                                                     key={`kiosk-${day}`} 
                                                     day={day} 
                                                     data={localKioskSchedule?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }} 
