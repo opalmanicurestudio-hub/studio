@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -66,7 +65,7 @@ import { EditClientDialog } from '@/components/clients/EditClientDialog';
 import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
-import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking, useCollection } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, writeBatch, increment, getDocs, query, where } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
@@ -192,13 +191,19 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, refreshmentRequests: allRequests, packages, transactions: allTransactions } = useInventory();
+  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages, transactions: allTransactions } = useInventory();
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
   const clientDocRef = useMemoFirebase(() => !firestore || !clientId || !tenantId ? null : doc(firestore, `tenants/${tenantId}/clients`, clientId), [firestore, tenantId, clientId]);
   const { data: client, isLoading: clientLoading, error: clientError } = useDoc<Client>(clientDocRef);
   
+  const refreshmentRequestsQuery = useMemoFirebase(() => {
+      if (!firestore || !tenantId || !clientId) return null;
+      return query(collection(firestore, `tenants/${tenantId}/refreshmentRequests`), where('clientId', '==', clientId));
+  }, [firestore, tenantId, clientId]);
+  const { data: allRequests } = useCollection(refreshmentRequestsQuery);
+
   const { toast } = useToast();
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -216,31 +221,36 @@ export default function ClientDetailPage() {
   }, [client, memberships]);
 
   /**
-   * Hardened Benefit Cycle Verification
-   * Determines if a specific perk ID has been exhausted within the guest's current billing window.
-   * Prevents previous month redemptions from incorrectly counting against current allotment.
+   * Unified Perk Audit Engine (Staff View)
+   * Hardened to match Guest Portal logic including cycle windows and pending orders.
    */
   const getCycleCorrectUsage = (perkId: string) => {
     if (!client?.subscription) return 0;
     
-    const usageCount = safeNumber(client.subscription.perkUsage?.[perkId]);
-    if (!client.subscription.nextBillingDate || !client.subscription.perkLastUsed) {
-        return usageCount;
+    let usageCount = safeNumber(client.subscription.perkUsage?.[perkId]);
+    
+    // 1. Cycle Verification
+    if (client.subscription.nextBillingDate && client.subscription.perkLastUsed) {
+        const lastUsed = safeDate(client.subscription.perkLastUsed);
+        const nextBilling = safeDate(client.subscription.nextBillingDate);
+        const cycleStart = activeMembership?.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+
+        if (isBefore(lastUsed, cycleStart)) {
+            usageCount = 0; // Stale data from previous month
+        }
+    } else if (!client.subscription.perkLastUsed) {
+        usageCount = 0;
     }
 
-    const lastUsed = safeDate(client.subscription.perkLastUsed);
-    const nextBilling = safeDate(client.subscription.nextBillingDate);
-    const cycleStart = activeMembership?.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
+    // 2. Pending Session Requests (In-flight logic)
+    const pendingQty = (allRequests || [])
+        .filter(r => r.itemId === perkId && r.status === 'pending' && r.isRedemption)
+        .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
 
-    // If the master clock (perkLastUsed) is before the current cycle start, the map data is stale.
-    if (isBefore(lastUsed, cycleStart)) {
-        return 0;
-    }
-
-    return usageCount;
+    return usageCount + pendingQty;
   };
 
-  const isPerkUsedInCycle = (perkId: string) => {
+  const isPerkExhaustedInCycle = (perkId: string) => {
     const usage = getCycleCorrectUsage(perkId);
     const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
                     activeMembership?.includedAddOns?.find(a => a.id === perkId) ||
@@ -449,8 +459,8 @@ export default function ClientDetailPage() {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                                         {(activeMembership.includedServices || []).map(perk => {
                                             const used = getCycleCorrectUsage(perk.id);
-                                            const isRedeemed = used >= perk.quantity;
-                                            const progress = (used / safeNumber(perk.quantity)) * 100;
+                                            const isExhausted = used >= perk.quantity;
+                                            const progress = Math.min(100, (used / safeNumber(perk.quantity)) * 100);
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4 text-left">
@@ -459,8 +469,8 @@ export default function ClientDetailPage() {
                                                                 <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Service Allotment</p>
                                                             </div>
-                                                            <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
-                                                                {isRedeemed ? <CheckCircle2 className="w-4 h-4" /> : <Star className="w-4 h-4" />}
+                                                            <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
+                                                                {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Star className="w-4 h-4" />}
                                                             </div>
                                                         </div>
                                                         <div className="space-y-2">
@@ -468,7 +478,7 @@ export default function ClientDetailPage() {
                                                                 <span>Allotment Usage</span>
                                                                 <span>{used} / {safeNumber(perk.quantity)}</span>
                                                             </div>
-                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
+                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
                                                     </CardContent>
                                                 </Card>
@@ -476,8 +486,8 @@ export default function ClientDetailPage() {
                                         })}
                                         {(activeMembership.includedAddOns || []).map(perk => {
                                             const used = getCycleCorrectUsage(perk.id);
-                                            const isRedeemed = used >= perk.quantity;
-                                            const progress = (used / safeNumber(perk.quantity)) * 100;
+                                            const isExhausted = used >= perk.quantity;
+                                            const progress = Math.min(100, (used / safeNumber(perk.quantity)) * 100);
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4">
@@ -486,8 +496,8 @@ export default function ClientDetailPage() {
                                                                 <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Enhancement Allotment</p>
                                                             </div>
-                                                            <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
-                                                                {isRedeemed ? <CheckCircle2 className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
+                                                            <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
+                                                                {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
                                                             </div>
                                                         </div>
                                                         <div className="space-y-2">
@@ -495,7 +505,7 @@ export default function ClientDetailPage() {
                                                                 <span>Allotment Usage</span>
                                                                 <span>{used} / {safeNumber(perk.quantity)}</span>
                                                             </div>
-                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
+                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
                                                     </CardContent>
                                                 </Card>
@@ -503,8 +513,8 @@ export default function ClientDetailPage() {
                                         })}
                                         {(activeMembership.includedProducts || []).map(perk => {
                                             const used = getCycleCorrectUsage(perk.id);
-                                            const isRedeemed = used >= perk.quantity;
-                                            const progress = (used / safeNumber(perk.quantity)) * 100;
+                                            const isExhausted = used >= perk.quantity;
+                                            const progress = Math.min(100, (used / safeNumber(perk.quantity)) * 100);
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4">
@@ -513,8 +523,8 @@ export default function ClientDetailPage() {
                                                                 <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Hospitality Allotment</p>
                                                             </div>
-                                                            <div className={cn("p-2 rounded-xl shadow-inner", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-primary/10 text-primary")}>
-                                                                {isRedeemed ? <CheckCircle2 className="w-4 h-4" /> : <Coffee className="w-4 h-4" />}
+                                                            <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-primary/10 text-primary")}>
+                                                                {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Coffee className="w-4 h-4" />}
                                                             </div>
                                                         </div>
                                                         <div className="space-y-2">
@@ -522,7 +532,7 @@ export default function ClientDetailPage() {
                                                                 <span>Allotment Usage</span>
                                                                 <span>{used} / {safeNumber(perk.quantity)}</span>
                                                             </div>
-                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
+                                                            <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
                                                     </CardContent>
                                                 </Card>

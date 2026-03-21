@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -308,7 +307,7 @@ export default function DashboardPage() {
           }));
       });
 
-      // 3. BIND TO APPOINTMENT (Safe Set with Merge to prevent No Document error)
+      // 3. BIND TO APPOINTMENT
       if (request.appointmentId) {
           const aptRef = doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`);
           batch.set(aptRef, {
@@ -325,13 +324,13 @@ export default function DashboardPage() {
           }, { merge: true });
       }
 
-      // 4. UPDATE PERK USAGE IN GUEST DOSSIER (Atomic map update)
+      // 4. UPDATE PERK USAGE IN GUEST DOSSIER
       if (request.isRedemption && request.clientId) {
           const clientRef = doc(firestore, `tenants/${tenantId}/clients`, request.clientId);
           batch.update(clientRef, {
               [`subscription.perkUsage.${request.itemId}`]: increment(qty),
               'subscription.perkLastUsed': now,
-              'subscription.status': 'active' // Ensure status is synced
+              'subscription.status': 'active' 
           });
       }
 

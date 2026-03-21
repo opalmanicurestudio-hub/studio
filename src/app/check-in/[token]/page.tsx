@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -142,7 +141,8 @@ const RefreshmentCard = ({
 }) => {
     const isSoldOut = safeNumber(item.totalStock) <= 0;
     const isPerkDefinition = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
-    const isPerkAvailable = isPerkDefinition && remainingPerkUses >= qty;
+    // CRITICAL: Perk is available if there are remaining uses, even if the count is currently 0 (meaning next one is paid)
+    const isPerkAvailableNow = isPerkDefinition && remainingPerkUses >= qty;
 
     const getDynamicIcon = (name: string) => {
         const n = name.toLowerCase();
@@ -165,7 +165,7 @@ const RefreshmentCard = ({
             <Card className={cn(
                 "rounded-[2.5rem] border-2 transition-all h-full flex flex-col overflow-hidden bg-white shadow-lg",
                 (isSoldOut || hasPendingRequest) ? "opacity-40" : "border-primary/5 hover:border-primary/30",
-                isPerkAvailable && "border-indigo-500/20 ring-1 ring-indigo-500/10",
+                isPerkAvailableNow && "border-indigo-500/20 ring-1 ring-indigo-500/10",
                 item.isMembersOnly && "border-indigo-500/30"
             )}>
                 <div className="relative aspect-square w-full bg-muted/20 flex items-center justify-center overflow-hidden border-b">
@@ -183,16 +183,20 @@ const RefreshmentCard = ({
                                 <Award className="w-3 h-3 mr-1.5" /> Club Only
                             </Badge>
                         )}
-                        {isPerkAvailable && (
-                            <Badge className="bg-primary text-white border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl">
-                                <Star className="w-3 h-3 mr-1.5 fill-current" /> Perk: {remainingPerkUses} left
+                        {isPerkDefinition && (
+                            <Badge className={cn(
+                                "border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl",
+                                remainingPerkUses > 0 ? "bg-primary text-white" : "bg-muted text-muted-foreground opacity-60"
+                            )}>
+                                <Star className={cn("w-3 h-3 mr-1.5", remainingPerkUses > 0 && "fill-current")} /> 
+                                {remainingPerkUses > 0 ? `Perk: ${remainingPerkUses} left` : "Perks Exhausted"}
                             </Badge>
                         )}
                     </div>
 
                     <div className="absolute bottom-4 right-4">
                         <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
-                            {isPerkAvailable ? (
+                            {isPerkAvailableNow ? (
                                 <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
                             ) : safeNumber(item.price) > 0 ? (
                                 <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${safeNumber(item.price).toFixed(2)}</p>
