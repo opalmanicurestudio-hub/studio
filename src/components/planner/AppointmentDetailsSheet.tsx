@@ -318,7 +318,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-4 shadow-inner">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] font-black uppercase text-muted-foreground">Certified Status</span>
-                      <Badge variant={complianceInfo.allCertified ? "default" : "outline"} className={cn("text-[8px] font-black uppercase h-5 px-2", complianceInfo.allCertified ? "bg-green-500 text-white border-none" : "bg-white text-amber-600 border-amber-200")}>
+                      <Badge variant={complianceInfo.allCertified ? "default" : "outline"} className={cn("text-[8px] font-black uppercase h-5 px-2", complianceInfo.allCertified ? "bg-green-50 text-white border-none" : "bg-white text-amber-600 border-amber-200")}>
                         {complianceInfo.allCertified ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Protocol Certified</> : <><Clock className="w-2 h-2 mr-1" /> Signature Pending</>}
                       </Badge>
                     </div>

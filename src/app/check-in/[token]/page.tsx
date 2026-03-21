@@ -19,7 +19,6 @@ import {
     Coffee,
     Activity,
     ArrowRight,
-    DollarSign,
     Plus,
     Minus,
     Info,
