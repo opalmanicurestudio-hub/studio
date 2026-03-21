@@ -194,8 +194,8 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
             <Ban className="w-5 h-5 text-destructive" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Protocol Termination</span>
           </div>
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Cancel Appointment</DialogTitle>
-          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Cancel Appointment</DialogTitle>
+          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">
             Guest: <strong>{appointment.clientName}</strong>
           </DialogDescription>
         </DialogHeader>
@@ -229,14 +229,14 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                                     <div className="flex items-center justify-between group">
                                         <div className="flex items-center gap-3">
                                             <Checkbox id={`house-${m.id}`} checked={selectedHouseRecoveryIds.has(m.id)} onCheckedChange={() => toggleHouse(m.id)} className="h-5 w-5 rounded-lg border-2" />
-                                            <Label htmlFor={`house-${m.id}`} className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2 cursor-pointer"><Landmark className="w-3 h-3"/> Studio Floor (Time + Mats)</Label>
+                                            <Label htmlFor={`house-${m.id}`} className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2 cursor-pointer text-left"><Landmark className="w-3 h-3"/> Studio Floor (Time + Mats)</Label>
                                         </div>
                                         <span className="font-mono text-[10px] font-black text-slate-900">${m.houseFloor.toFixed(2)}</span>
                                     </div>
                                     <div className="flex items-center justify-between group">
                                         <div className="flex items-center gap-3">
                                             <Checkbox id={`labor-${m.id}`} checked={selectedLaborRecoveryIds.has(m.id)} onCheckedChange={() => toggleLabor(m.id)} className="h-5 w-5 rounded-lg border-2" />
-                                            <Label htmlFor={`labor-${m.id}`} className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2 cursor-pointer"><Users className="w-3 h-3"/> Labor Protection</Label>
+                                            <Label htmlFor={`labor-${m.id}`} className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2 cursor-pointer text-left"><Users className="w-3 h-3"/> Labor Protection</Label>
                                         </div>
                                         <span className="font-mono text-[10px] font-black text-slate-900">${m.laborProtection.toFixed(2)}</span>
                                     </div>

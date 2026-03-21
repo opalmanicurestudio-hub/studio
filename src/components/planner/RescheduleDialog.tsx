@@ -257,7 +257,7 @@ const RescheduleAppointmentForm = ({
     }
 
     return (
-        <div className="space-y-8 flex flex-col h-full">
+        <div className="space-y-8 flex flex-col h-full text-left">
             <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl overflow-hidden">
                 <CardContent className="p-6 flex items-center gap-6 text-left">
                     <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-2xl shrink-0">
@@ -265,8 +265,8 @@ const RescheduleAppointmentForm = ({
                         <AvatarFallback className="font-black bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                        <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none mb-1 truncate">{client.name}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{service.name}</p>
+                        <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none mb-1 truncate text-left">{client.name}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-left">{service.name}</p>
                     </div>
                 </CardContent>
             </Card>
@@ -302,7 +302,7 @@ const RescheduleAppointmentForm = ({
 
                                 <AnimatePresence>
                                     {applyFee && (
-                                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
+                                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10 text-left">
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="p-3 rounded-xl bg-white border shadow-sm text-left">
                                                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><Clock className="w-2 h-2"/> Time Overhead</p>
@@ -331,7 +331,7 @@ const RescheduleAppointmentForm = ({
                                                 </label>
                                                 <label htmlFor="resched-pay-new" className="cursor-pointer flex-1 h-full">
                                                     <RadioGroupItem value="charge_new_card" id="resched-pay-new" className="peer sr-only" />
-                                                    <div className={cn("flex flex-col items-center justify-center  p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:bg-muted/50")}>
+                                                    <div className={cn("flex flex-col items-center justify-center  p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:bg-muted/50")}>
                                                         <CardIcon className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                         <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">New Card</span>
                                                     </div>
@@ -370,7 +370,7 @@ const RescheduleAppointmentForm = ({
                         </TooltipProvider>
                     </div>
                 </div>
-                <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner">
+                <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
                     <div className="flex justify-between items-center px-2">
                         <Button variant="outline" size="icon" onClick={handlePreviousWeek} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
                         <span className="font-black uppercase tracking-widest text-sm">{format(rescheduleDate, 'MMMM yyyy')}</span>
@@ -459,12 +459,12 @@ export const RescheduleDialog = ({
         <DialogContainer open={open} onOpenChange={onOpenChange}>
             <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
                 <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6 pb-4")}>
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-3 mb-2 text-left">
                         <Sparkles className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics Suite</span>
                     </div>
-                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Reschedule Protocol</SheetTitle>
-                    <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Shift session timing in the studio manifest.</SheetDescription>
+                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Reschedule Protocol</SheetTitle>
+                    <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Shift session timing in the studio manifest.</SheetDescription>
                 </SheetHeader>
                 <ScrollArea className="flex-1">
                     <div className={cn("p-8 pt-4", isMobile && "p-6")}>

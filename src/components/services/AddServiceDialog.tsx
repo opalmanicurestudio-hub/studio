@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '../ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type ConsentForm, type InventoryItem, type PricingTier, type Resource, type Staff } from '@/lib/data';
@@ -645,7 +645,7 @@ const Step4 = ({ consentForms, breakEvenCost, pricingTiers }: { consentForms: Co
                     </div>
                     
                     <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5 shadow-inner">
-                        <div className='space-y-1'>
+                        <div className='space-y-1 text-left'>
                             <Label htmlFor="private-service" className="text-base font-black uppercase tracking-tight">Private Listing</Label>
                             <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Hide from the public booking directory</p>
                         </div>

@@ -26,11 +26,29 @@
         "wifiNetwork": { "type": "string" },
         "wifiPassword": { "type": "string" },
         "refreshmentServiceEnabled": { "type": "boolean", "default": false },
-        "complimentaryAmenityLimit": { "type": "number", "default": 0, "description": "Maximum number of free refreshments allowed per guest per session." },
+        "complimentaryAmenityLimit": { "type": "number", "default": 0 },
+        "cancellationFee": { "type": "number" },
+        "cancellationWindowHours": { "type": "number" },
+        "defaultCancellationMode": { "type": "string", "enum": ["matrix", "flat"] },
         "bookingPageSettings": { "type": "object" },
         "kioskSettings": { "type": "object" }
       },
       "required": ["id", "name", "userId"]
+    },
+    "Service": {
+      "title": "Service",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "duration": { "type": "number" },
+        "category": { "type": "string" },
+        "cancellationWindowHours": { "type": "number", "description": "Override for the cancellation notice window in hours." },
+        "customCancellationFee": { "type": "number", "description": "Specific override fee for late cancellations of this service." }
+      },
+      "required": ["id", "name", "price"]
     },
     "InventoryItem": {
       "title": "Inventory Item",
@@ -38,58 +56,11 @@
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
-        "description": { "type": "string", "description": "Public-facing description for the refreshment menu." },
         "type": { "type": "string", "enum": ["professional", "retail", "equipment", "overhead", "refreshment"] },
-        "category": { "type": "string" },
         "totalStock": { "type": "number" },
-        "costPerUnit": { "type": "number" },
-        "imageUrl": { "type": "string" }
+        "costPerUnit": { "type": "number" }
       },
       "required": ["id", "name", "type", "totalStock"]
-    },
-    "RefreshmentRequest": {
-      "title": "Refreshment Request",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "tenantId": { "type": "string" },
-        "appointmentId": { "type": "string" },
-        "clientId": { "type": "string" },
-        "clientName": { "type": "string" },
-        "itemId": { "type": "string" },
-        "itemName": { "type": "string" },
-        "quantity": { "type": "number", "default": 1 },
-        "status": { "type": "string", "enum": ["pending", "delivered", "cancelled"] },
-        "requestedAt": { "type": "string", "format": "date-time" },
-        "deliveredAt": { "type": "string", "format": "date-time" },
-        "deliveredBy": { "type": "string" },
-        "stationName": { "type": "string", "description": "The name of the station or room where the guest is located." },
-        "staffName": { "type": "string", "description": "The name of the service provider assigned to the guest." },
-        "isRedemption": { "type": "boolean", "default": false, "description": "True if this request was a membership perk redemption." }
-      },
-      "required": ["id", "tenantId", "itemId", "status", "requestedAt"]
-    },
-    "Review": {
-      "title": "Review",
-      "type": "object",
-      "description": "A review submitted by a client for a service.",
-      "properties": {
-        "id": { "type": "string" },
-        "tenantId": { "type": "string" },
-        "clientId": { "type": "string" },
-        "clientName": { "type": "string" },
-        "clientAvatarUrl": { "type": "string", "format": "uri" },
-        "staffId": { "type": "string" },
-        "serviceId": { "type": "string" },
-        "serviceName": { "type": "string" },
-        "rating": { "type": "number" },
-        "text": { "type": "string" },
-        "isPublic": { "type": "boolean" },
-        "isFeatured": { "type": "boolean" },
-        "appointmentId": { "type": "string", "description": "The unique ID of the appointment this review belongs to." },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
     }
   },
   "auth": {
@@ -104,25 +75,9 @@
       "schema": { "$ref": "#/backend/entities/Tenant" },
       "description": "Tenant business settings."
     },
-    "/tenants/{tenantId}/inventory/{itemId}": {
-      "schema": { "$ref": "#/backend/entities/InventoryItem" },
-      "description": "Studio inventory including refreshments."
-    },
-    "/tenants/{tenantId}/refreshmentRequests/{requestId}": {
-      "schema": { "$ref": "#/backend/entities/RefreshmentRequest" },
-      "description": "Active concierge requests."
-    },
-    "/tenants/{tenantId}/appointments/{appointmentId}": {
-      "schema": { "$ref": "#/backend/entities/Appointment" },
-      "description": "Appointments."
-    },
-    "/appointmentCheckIns/{token}": {
-      "schema": { "$ref": "#/backend/entities/Appointment" },
-      "description": "Public check-in tokens."
-    },
-    "/tenants/{tenantId}/reviews/{reviewId}": {
-      "schema": { "$ref": "#/backend/entities/Review" },
-      "description": "Client reviews for the tenant."
+    "/tenants/{tenantId}/services/{serviceId}": {
+      "schema": { "$ref": "#/backend/entities/Service" },
+      "description": "Studio treatments."
     }
   }
 }

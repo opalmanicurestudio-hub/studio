@@ -196,6 +196,7 @@ const Step1 = ({
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const productType = watch('type');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -212,7 +213,7 @@ const Step1 = ({
             <SectionHeader icon={Activity} title="Identity & Type" step={1} />
             <div className="space-y-6 text-left">
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/[0.03] border-primary/10 shadow-sm transition-all has-[:checked]:bg-primary/5 has-[:checked]:border-primary/20">
-                    <div className='space-y-1'>
+                    <div className='space-y-1 text-left'>
                         <Label htmlFor="is-addon-edit" className="text-base font-black uppercase tracking-tight">Add-on Enhancement</Label>
                         <p className='text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60'>Appendable to primary treatments</p>
                     </div>
@@ -370,7 +371,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
                                                     className="w-16 h-9 rounded-lg border-2 text-center font-black font-mono" 
                                                     step="0.1" 
                                                 />
-                                                <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60">{unit}</span>
+                                                <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60 text-left">{unit}</span>
                                             </div>
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeProduct(product.id)}><Trash2 className="w-4 h-4" /></Button>
                                         </div>
