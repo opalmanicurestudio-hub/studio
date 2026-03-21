@@ -18,26 +18,25 @@ import {
     X, 
     Sparkles, 
     Undo2, 
-    Type, 
     Search,
     Palette,
     ArrowRight,
     Loader,
     Maximize2,
     Printer,
-    Hand,
     Target,
-    Minus,
-    Plus,
-    Move,
     Type as TypeIcon,
-    ZoomIn
+    ZoomIn,
+    Move
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { nanoid } from 'nanoid';
+import { useToast } from '@/hooks/use-toast';
 
 interface ImageMarkupDialogProps {
   open: boolean;
@@ -75,6 +74,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   onSave,
   title = "Technical Mapping",
 }) => {
+  const isMobile = useIsMobile();
+  const { toast } = useToast();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -87,7 +88,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [textSize, setTextSize] = useState<TextSize>('md');
   
   const [annotations, setAnnotations] = useState<TextAnnotation[]>([]);
-  const [selectedTextId, setSelectedStaffId] = useState<string | null>(null);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [isDraggingText, setIsDraggingText] = useState(false);
 
   // Magnifier State
@@ -98,46 +99,46 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [history, setHistory] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Redraw the entire scene: Base Image + Annotations
   const drawAll = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = contextRef.current;
     const img = baseImageRef.current;
     if (!canvas || !ctx || !img) return;
 
-    // Reset and clear
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.scale(dpr, dpr);
-
+    
     // Draw base layer (Original Image)
+    ctx.scale(dpr, dpr);
     ctx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
 
-    // Draw Drawing History (merged)
-    // In this complex version, history is stored as images of the DRAWING layer
-    // To keep it simple for MVP, we'll just restore the last "baked" state if drawing
-    // But for interactive text, we render them live
-    
+    // Draw Drawing History (If we decide to bake pencil strokes into history images)
+    // Note: History is simplified for MVP to store "baked" canvas states
+
     // Draw Annotations
     annotations.forEach(anno => {
         const isSelected = anno.id === selectedTextId;
-        ctx.font = `black ${anno.size === 'sm' ? '12px' : anno.size === 'lg' ? '24px' : '16px'} Figtree, sans-serif`;
+        ctx.font = `bold ${anno.size === 'sm' ? '12px' : anno.size === 'lg' ? '24px' : '16px'} Figtree, sans-serif`;
         ctx.fillStyle = anno.color;
         
         if (isSelected) {
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = 'rgba(0,0,0,0.3)';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(121, 85, 196, 0.4)';
         }
         
         ctx.fillText(anno.text.toUpperCase(), anno.x, anno.y);
         ctx.shadowBlur = 0;
 
-        if (isSelected) {
-            ctx.strokeStyle = 'rgba(121, 85, 196, 0.5)';
+        if (isSelected && tool === 'select') {
+            ctx.strokeStyle = '#7955c4';
             ctx.lineWidth = 1;
             const metrics = ctx.measureText(anno.text.toUpperCase());
             const height = anno.size === 'sm' ? 12 : anno.size === 'lg' ? 24 : 16;
-            ctx.strokeRect(anno.x - 2, anno.y - height, metrics.width + 4, height + 4);
+            ctx.setLineDash([2, 2]);
+            ctx.strokeRect(anno.x - 4, anno.y - height, metrics.width + 8, height + 4);
+            ctx.setLineDash([]);
         }
     });
 
@@ -149,9 +150,10 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
     }
-  }, [annotations, selectedTextId, magnifierCircle, isDefiningMagnifier, color]);
+  }, [annotations, selectedTextId, magnifierCircle, isDefiningMagnifier, color, tool]);
 
   const initCanvas = useCallback(() => {
+    if (isMobile === undefined) return;
     const canvas = canvasRef.current;
     const container = containerRef.current;
     
@@ -161,7 +163,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (!ctx) return;
 
     const img = new Image();
-    if (imageUrl.startsWith('http')) img.crossOrigin = "anonymous";
+    img.crossOrigin = "anonymous";
     
     img.onload = () => {
       baseImageRef.current = img;
@@ -183,8 +185,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       drawAll();
       setIsLoading(false);
     };
+    img.onerror = () => {
+        setIsLoading(false);
+        toast({ variant: 'destructive', title: 'Load Error', description: 'Technical asset could not be buffered.' });
+    };
     img.src = imageUrl;
-  }, [imageUrl, drawAll, isMobile]);
+  }, [imageUrl, drawAll, isMobile, toast]);
 
   useEffect(() => {
     if (open) {
@@ -227,7 +233,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     });
 
     if (clickedText) {
-        setSelectedStaffId(clickedText.id);
+        setSelectedTextId(clickedText.id);
         setIsDraggingText(true);
         setTool('select');
         return;
@@ -251,10 +257,12 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.moveTo(x, y);
         ctx.strokeStyle = color;
         ctx.lineWidth = brushSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         setIsDrawing(true);
     }
     
-    setSelectedStaffId(null);
+    setSelectedTextId(null);
   };
 
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
@@ -277,23 +285,24 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   };
 
   const handleMouseUp = () => {
-    if (isDefiningMagnifier && magnifierCircle && magnifierCircle.r > 5) {
+    if (isDefiningMagnifier && magnifierCircle && magnifierCircle.r > 10) {
         const ctx = contextRef.current;
         const img = baseImageRef.current;
         if (ctx && img) {
             const dpr = window.devicePixelRatio || 1;
             
-            // 1. Create a temporary canvas to get the scaled-up source
+            // Capture current state before baking lens
+            setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
+
             const temp = document.createElement('canvas');
             const tempCtx = temp.getContext('2d');
             const r = magnifierCircle.r;
             const size = r * 2;
             
-            temp.width = size * 2; // 2x magnification
+            temp.width = size * 2; 
             temp.height = size * 2;
 
             if (tempCtx) {
-                // Draw the source area into the temp canvas at 2x scale
                 tempCtx.drawImage(
                     img, 
                     (magnifierCircle.x - r) * (img.width / (canvasRef.current!.width / dpr)), 
@@ -303,16 +312,11 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                     0, 0, size * 2, size * 2
                 );
 
-                // 2. Draw circular clip back onto main canvas
                 ctx.save();
                 ctx.beginPath();
                 ctx.arc(magnifierCircle.x, magnifierCircle.y, r, 0, Math.PI * 2);
                 ctx.clip();
-                
-                // Draw the magnified image
                 ctx.drawImage(temp, magnifierCircle.x - r, magnifierCircle.y - r, size, size);
-                
-                // Add a high-fidelity border to the lens
                 ctx.strokeStyle = color;
                 ctx.lineWidth = 2;
                 ctx.stroke();
@@ -327,6 +331,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     if (isDrawing) {
         contextRef.current?.closePath();
         setIsDrawing(false);
+        // Bake drawing into history
+        setHistory(prev => [...prev, canvasRef.current!.toDataURL()]);
     }
     setIsDraggingText(false);
   };
@@ -347,6 +353,32 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     };
     setAnnotations(prev => [...prev, newAnnotation]);
     setTextInput(null);
+    setTool('select');
+    setSelectedTextId(newAnnotation.id);
+  };
+
+  const handleUndo = () => {
+      const ctx = contextRef.current;
+      const canvas = canvasRef.current;
+      if (!ctx || !canvas) return;
+
+      if (history.length > 0) {
+          const newHistory = [...history];
+          const lastState = newHistory.pop();
+          setHistory(newHistory);
+
+          const img = new Image();
+          img.onload = () => {
+              const dpr = window.devicePixelRatio || 1;
+              ctx.setTransform(1, 0, 0, 1, 0, 0);
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          };
+          img.src = lastState!;
+      } else {
+          setAnnotations([]);
+          initCanvas();
+      }
   };
 
   const handlePrint = () => {
@@ -362,14 +394,11 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const handleSave = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // Final bake of text into image for dossier
-    onSave(canvas.toDataURL('image/png'));
-    onOpenChange(false);
-  };
-
-  const handleClear = () => {
-      setAnnotations([]);
-      initCanvas();
+    setSelectedTextId(null);
+    requestAnimationFrame(() => {
+        onSave(canvas.toDataURL('image/png'));
+        onOpenChange(false);
+    });
   };
 
   return (
@@ -381,14 +410,14 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical Mapping</span>
           </div>
           <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
-          <DialogDescription className="hidden sm:block text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Annotate and magnify technical assets for clinical precision.</DialogDescription>
+          <DialogDescription className="sr-only">Annotate and magnify technical assets for clinical precision.</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden bg-muted/20 relative flex flex-col md:flex-row">
             {/* TOOLBAR */}
             <div className="w-full md:w-24 bg-background border-b md:border-b-0 md:border-r p-3 md:p-4 flex md:flex-col items-center justify-between md:justify-start gap-4 flex-shrink-0">
                 <div className="flex md:flex-col gap-2">
-                    {colors.slice(0, 4).map((c) => (
+                    {colors.map((c) => (
                         <button
                             key={c.value}
                             onClick={() => setColor(c.value)}
@@ -421,29 +450,19 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                             <TooltipTrigger asChild>
                                 <Button variant={tool === 'magnifier' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('magnifier')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl text-indigo-600"><ZoomIn className="w-4 h-4 md:w-5 md:h-5" /></Button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Detail Lens (Draw Circle)</TooltipContent>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Detail Lens</TooltipContent>
                         </Tooltip>
-                        
-                        {tool === 'text' && (
-                            <div className="flex md:flex-col gap-1 md:mt-2">
-                                {(['sm', 'md', 'lg'] as TextSize[]).map(sz => (
-                                    <Button 
-                                        key={sz} 
-                                        variant={textSize === sz ? 'secondary' : 'ghost'} 
-                                        size="icon" 
-                                        onClick={() => setTextSize(sz)}
-                                        className="h-7 w-7 md:h-8 md:w-8 rounded-lg text-[10px] font-black uppercase"
-                                    >
-                                        {sz}
-                                    </Button>
-                                ))}
-                            </div>
-                        )}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('select')} className="h-9 w-9 md:h-11 md:w-11 rounded-xl"><Move className="w-4 h-4 md:w-5 md:h-5" /></Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="font-black uppercase text-[9px] border-2">Move / Alter</TooltipContent>
+                        </Tooltip>
                     </TooltipProvider>
                 </div>
 
-                <div className="mt-auto hidden md:flex flex-col gap-2">
-                    <Button variant="ghost" size="icon" onClick={handleClear} className="h-11 w-11 rounded-xl text-destructive hover:bg-destructive/5"><Trash2 className="w-5 h-5" /></Button>
+                <div className="mt-auto flex md:flex-col gap-2">
+                    <Button variant="ghost" size="icon" onClick={handleUndo} className="h-11 w-11 rounded-xl text-slate-400 hover:bg-muted"><Undo2 className="w-5 h-5" /></Button>
                 </div>
             </div>
 
@@ -467,7 +486,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                         onTouchStart={handleMouseDown}
                         onTouchMove={handleMouseMove}
                         onTouchEnd={handleMouseUp}
-                        className={cn("shadow-2xl rounded-2xl bg-white border-2 cursor-crosshair", isLoading ? "opacity-0" : "opacity-100")}
+                        className={cn("shadow-2xl rounded-2xl bg-white border-2", isLoading ? "opacity-0" : "opacity-100", tool === 'pencil' ? 'cursor-crosshair' : 'cursor-default')}
                     />
                     
                     {textInput && (
@@ -496,7 +515,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         <DialogFooter className="p-6 md:p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
             <div className="flex w-full flex-col sm:flex-row gap-4">
                 <div className="flex gap-2 flex-1">
-                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-widest text-[9px] md:text-[10px] text-slate-400">Cancel</Button>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[9px] md:text-[10px] text-slate-400">Cancel</Button>
                     <Button variant="outline" onClick={handlePrint} className="flex-1 h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[9px] md:text-[10px] border-2 bg-white shadow-sm">
                         <Printer className="w-4 h-4 mr-2 opacity-40" />
                         Print Record
