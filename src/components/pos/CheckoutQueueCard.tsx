@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -6,7 +7,7 @@ import { type Appointment, type Service, type Client, type Staff, getServicePric
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
 import { Undo2, Cake, Users, Award, Repeat } from 'lucide-react';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -39,13 +40,13 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
   const hasPackage = (client?.activePackages?.length || 0) > 0;
 
   const totalPrice = useMemo(() => {
-    const mainPrice = getServicePrice(service, primaryStaff);
+    const mainPrice = safeNumber(getServicePrice(service, primaryStaff));
     const addOnsTotal = (addOnServices || []).reduce((acc: number, s: any) => {
         const addonStaffId = apt.checkoutState?.serviceStaffOverrides?.[s.id] || apt.staffId;
         const addonStaff = allStaffList.find(st => st.id === addonStaffId);
-        return acc + getServicePrice(s, addonStaff);
+        return acc + safeNumber(getServicePrice(s, addonStaff));
     }, 0);
-    const additional = apt.checkoutState?.additionalCharge || 0;
+    const additional = safeNumber(apt.checkoutState?.additionalCharge);
     return mainPrice + addOnsTotal + additional;
   }, [service, addOnServices, primaryStaff, apt.checkoutState, apt.staffId, allStaffList]);
 
@@ -68,9 +69,9 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
                     <div className="flex items-center gap-4 min-w-0">
                         <Checkbox id={`pos-checkout-sel-${apt.id}`} checked={isSelected} onCheckedChange={onSelect} className="h-6 w-6 rounded-lg border-2" onClick={(e) => e.stopPropagation()} />
                         <div className="min-w-0 space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap text-left">
                                 <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{client?.name || 'Walk-in'}</p>
-                                {isBirthdayToday && <Cake className="w-3.5 h-3.5 text-pink-500 animate-pulse shrink-0" />}
+                                {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
                                 {isMember && (
                                     <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
                                         <Award className="w-2 h-2 mr-0.5" /> MEM
@@ -84,7 +85,7 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{apt.startTime ? format(safeDate(apt.startTime), 'h:mm a') : 'Now'}</p>
-                                <Badge variant="outline" className="text-[8px] h-4 font-black bg-muted/50 border-none">#{apt.id.slice(-4).toUpperCase()}</Badge>
+                                <Badge variant="outline" className="text-[8px] h-4 font-black bg-muted/5 border-none">#{apt.id.slice(-4).toUpperCase()}</Badge>
                             </div>
                         </div>
                     </div>

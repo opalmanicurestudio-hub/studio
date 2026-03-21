@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -106,7 +107,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
     return (
         <Card className={cn("bg-white border-2 rounded-[2rem] shadow-xl overflow-hidden relative transition-all", client.status === 'banned' && "border-destructive ring-4 ring-destructive/10")}>
             <div className={cn("absolute top-0 left-0 w-1.5 h-full", client.status === 'banned' ? "bg-destructive" : "bg-primary")} />
-            <CardContent className="p-5 md:p-6 flex flex-wrap gap-x-8 gap-y-4 text-left">
+            <CardContent className="p-5 p-6 flex flex-wrap gap-x-8 gap-y-4 text-left">
                 {client.status === 'banned' && (
                     <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Ban className="w-4 h-4 text-white" /></div>
@@ -224,11 +225,11 @@ export default function ClientDetailPage() {
     const isCurrentCycle = isAfter(lastUsed, cycleStart);
     if (!isCurrentCycle) return false;
 
-    const usageCount = client.subscription.perkUsage?.[perkId] || 0;
+    const usageCount = safeNumber(client.subscription.perkUsage?.[perkId]);
     const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || 
                     activeMembership?.includedAddOns?.find(a => a.id === perkId);
     
-    return usageCount >= (perkDef?.quantity || 1);
+    return usageCount >= safeNumber(perkDef?.quantity || 1);
   };
 
   const handleQuickSettle = async () => {
@@ -287,7 +288,6 @@ export default function ClientDetailPage() {
           snapshot.docs.forEach(d => {
               const data = d.data();
               const amt = safeNumber(data.amount);
-              // Sum(Income) - Sum(Reversal) - Sum(Discounts)
               if (data.type === 'income') {
                   realLtv += amt;
               } else if (data.type === 'reversal') {
@@ -431,9 +431,9 @@ export default function ClientDetailPage() {
                                     </h3>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                                         {(activeMembership.includedServices || []).map(perk => {
-                                            const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                            const used = safeNumber(client.subscription?.perkUsage?.[perk.id]);
                                             const isRedeemed = isPerkUsedInCycle(perk.id);
-                                            const progress = (used / perk.quantity) * 100;
+                                            const progress = (used / safeNumber(perk.quantity)) * 100;
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4 text-left">
@@ -449,7 +449,7 @@ export default function ClientDetailPage() {
                                                         <div className="space-y-2">
                                                             <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Allotment Usage</span>
-                                                                <span>{used} / {perk.quantity}</span>
+                                                                <span>{used} / {safeNumber(perk.quantity)}</span>
                                                             </div>
                                                             <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
                                                         </div>
@@ -458,9 +458,9 @@ export default function ClientDetailPage() {
                                             )
                                         })}
                                         {(activeMembership.includedAddOns || []).map(perk => {
-                                            const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                            const used = safeNumber(client.subscription?.perkUsage?.[perk.id]);
                                             const isRedeemed = isPerkUsedInCycle(perk.id);
-                                            const progress = (used / perk.quantity) * 100;
+                                            const progress = (used / safeNumber(perk.quantity)) * 100;
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4">
@@ -476,7 +476,7 @@ export default function ClientDetailPage() {
                                                         <div className="space-y-2">
                                                             <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
                                                                 <span>Allotment Usage</span>
-                                                                <span>{used} / {perk.quantity}</span>
+                                                                <span>{used} / {safeNumber(perk.quantity)}</span>
                                                             </div>
                                                             <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRedeemed && "[&>div]:bg-green-500")} />
                                                         </div>
@@ -535,7 +535,7 @@ export default function ClientDetailPage() {
                                             <Card key={req.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left group">
                                                 <CardContent className="p-5 flex items-center justify-between gap-4">
                                                     <div className="flex items-center gap-4">
-                                                        <div className={cn("p-2.5 rounded-xl shadow-inner", req.status === 'delivered' ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
+                                                        <div className={cn("p-2.5 rounded-xl shadow-inner", req.status === 'delivered' ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-700")}>
                                                             <Coffee className="w-5 h-5" />
                                                         </div>
                                                         <div className="min-w-0 text-left">
@@ -547,8 +547,8 @@ export default function ClientDetailPage() {
                                                         </div>
                                                     </div>
                                                     <div className="text-right shrink-0">
-                                                        <p className="font-black text-sm font-mono text-slate-900">x{req.quantity || 1}</p>
-                                                        {req.priceAtRequest && req.priceAtRequest > 0 ? <p className="text-[8px] font-black uppercase text-primary">${(req.priceAtRequest * (req.quantity || 1)).toFixed(2)}</p> : <p className="text-[8px] font-black uppercase text-green-600">COMP</p>}
+                                                        <p className="font-black text-sm font-mono text-slate-900">x{safeNumber(req.quantity) || 1}</p>
+                                                        {safeNumber(req.priceAtRequest) > 0 ? <p className="text-[8px] font-black uppercase text-primary">${(safeNumber(req.priceAtRequest) * (safeNumber(req.quantity) || 1)).toFixed(2)}</p> : <p className="text-[8px] font-black uppercase text-green-600">COMP</p>}
                                                     </div>
                                                 </CardContent>
                                             </Card>

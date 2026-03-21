@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -26,7 +27,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import {
@@ -61,7 +62,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
     const serviceIds = isWalkIn ? (item as WalkIn).serviceIds : [(item as Appointment).serviceId];
     const checkInTime = isWalkIn ? (item as WalkIn).checkInTime : (item as Appointment).startTime;
     const checkInStatus = (item as any).checkInStatus || 'pending';
-    const lateTimeMinutes = (item as any).lateTimeMinutes || 0;
+    const lateTimeMinutes = safeNumber((item as any).lateTimeMinutes) || 0;
     const isPotentialAlias = (item as any).isPotentialAlias || false;
     
     const primaryServices = services?.filter((s: Service) => serviceIds.includes(s.id));
@@ -157,7 +158,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                     </div>
                     <div className="text-right shrink-0">
                         {primaryServices?.slice(0, 1).map((s: Service) => <p key={s.id} className="text-[10px] font-black uppercase text-primary tracking-tight">{s.name}</p>)}
-                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40">{groupSize > 1 ? `Group of ${groupSize}` : `${(item as any).estimatedDuration || 0} min`}</p>
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40">{groupSize > 1 ? `Group of ${groupSize}` : `${safeNumber((item as any).estimatedDuration) || 0} min`}</p>
                     </div>
                 </div>
 
@@ -181,7 +182,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                 );
                             })}
                         </div>
-                        {checkInStatus === 'running_late' && <Badge className="bg-amber-500 border-none text-[9px] font-black uppercase animate-pulse">+{lateTimeMinutes}m Late</Badge>}
+                        {checkInStatus === 'running_late' && <Badge className="bg-amber-50 border-none text-[9px] font-black uppercase text-amber-700 animate-pulse">+{lateTimeMinutes}m Late</Badge>}
                         {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest shadow-sm">HERE</Badge>}
                         {checkInStatus === 'on_my_way' && <Badge className="bg-blue-500 border-none text-[9px] font-black uppercase tracking-widest"><Car className="w-2.5 h-2.5 mr-1" />EN ROUTE</Badge>}
                     </div>

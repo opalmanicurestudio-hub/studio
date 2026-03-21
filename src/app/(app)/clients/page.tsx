@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -60,7 +61,7 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
@@ -175,7 +176,7 @@ export default function ClientsPage() {
           txnsSnap.docs.forEach(d => {
               const data = d.data();
               if (data.clientId) {
-                  const amount = Number(data.amount) || 0;
+                  const amount = safeNumber(data.amount);
                   // LTV = Sum(Income) - Sum(Reversals) - Sum(Discounts)
                   if (data.type === 'income') {
                       incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) + amount;
@@ -190,7 +191,7 @@ export default function ClientsPage() {
           clients.forEach(client => {
               const realLtv = Math.max(0, incomeByClient[client.id] || 0);
               // Only update if discrepancy is found to save operations
-              if (Math.abs(realLtv - (Number(client.lifetimeValue) || 0)) > 0.01) {
+              if (Math.abs(realLtv - (safeNumber(client.lifetimeValue))) > 0.01) {
                   batch.update(doc(firestore, `tenants/${tenantId}/clients`, client.id), { lifetimeValue: realLtv });
               }
           });
@@ -268,8 +269,8 @@ export default function ClientsPage() {
     let totalBalanceGain = 0;
 
     for (const secondary of secondaryClients) {
-        totalLtvGain += Number(secondary.lifetimeValue || 0);
-        totalBalanceGain += Number(secondary.outstandingBalance || 0);
+        totalLtvGain += safeNumber(secondary.lifetimeValue);
+        totalBalanceGain += safeNumber(secondary.outstandingBalance);
 
         const aptsRef = collection(firestore, `tenants/${tenantId}/appointments`);
         const aptsQuery = query(aptsRef, where("clientId", "==", secondary.id));
@@ -316,7 +317,7 @@ export default function ClientsPage() {
     });
     
     if (owesBalanceOnly) {
-        clientsToFilter = clientsToFilter.filter(c => Number(c.outstandingBalance || 0) > 0);
+        clientsToFilter = clientsToFilter.filter(c => safeNumber(c.outstandingBalance) > 0);
     }
 
     if (lastSeenFilter !== 'all') {
@@ -370,9 +371,9 @@ export default function ClientsPage() {
       client.name,
       client.email,
       client.phone,
-      Number(client.lifetimeValue || 0).toString(),
+      safeNumber(client.lifetimeValue).toString(),
       format(new Date(client.lastAppointment), 'yyyy-MM-dd'),
-      Number(client.outstandingBalance || 0).toFixed(2)
+      safeNumber(client.outstandingBalance).toFixed(2)
     ]);
 
     const csvContent = [
@@ -412,12 +413,12 @@ export default function ClientsPage() {
             return (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
         }).length;
 
-        const totalRevenue = filteredClients.reduce((acc, c) => acc + (Number(c.lifetimeValue) || 0), 0);
-        const totalPendingDebt = filteredClients.reduce((acc, c) => acc + (Number(c.outstandingBalance) || 0), 0);
+        const totalRevenue = filteredClients.reduce((acc, c) => acc + safeNumber(c.lifetimeValue), 0);
+        const totalPendingDebt = filteredClients.reduce((acc, c) => acc + safeNumber(c.outstandingBalance), 0);
 
-        const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
-        const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-        const tipRevenue = relevantTransactions.reduce((acc, t) => acc + (Number(t.tipAmount) || 0), 0);
+        const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + safeNumber(t.amount), 0);
+        const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + safeNumber(t.amount), 0);
+        const tipRevenue = relevantTransactions.reduce((acc, t) => acc + safeNumber(t.tipAmount || 0), 0);
 
         const completedApts = (appointments || []).filter(a => a.status === 'completed' && filteredClientIds.has(a.clientId));
 

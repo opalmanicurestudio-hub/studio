@@ -94,6 +94,7 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
             <AnimatePresence>
                 {requests.map((request: any) => {
                     const item = inventory.find((i: any) => i.id === request.itemId);
+                    const safeQuantity = safeNumber(request.quantity) || 1;
                     return (
                         <motion.div 
                             key={request.id}
@@ -112,19 +113,19 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
                                         <Coffee className="w-8 h-8 text-primary" />
                                     )}
                                     <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-lg h-6 w-6 flex items-center justify-center font-black text-[10px]">
-                                        {request.quantity || 1}
+                                        {safeQuantity}
                                     </div>
                                 </div>
                                 <div className="space-y-1 text-left w-full sm:w-auto">
                                     <div className="flex items-center gap-3">
                                         <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
-                                        <Badge variant="outline" className="h-5 px-2 bg-primary/10 text-primary border-none font-black text-[10px]">{request.quantity || 1} UNIT(S)</Badge>
+                                        <Badge variant="outline" className="h-5 px-2 bg-primary/10 text-primary border-none font-black text-[10px]">{safeQuantity} UNIT(S)</Badge>
                                     </div>
                                     
                                     {item?.formula && item.formula.length > 0 && (
                                         <div className="flex flex-wrap gap-2 mt-2 mb-3 text-left">
                                             {item.formula.map((f: any, idx: number) => {
-                                                const totalNeeded = safeNumber(f.quantityUsed) * safeNumber(request.quantity || 1);
+                                                const totalNeeded = safeNumber(f.quantityUsed) * safeQuantity;
                                                 return (
                                                     <Badge key={idx} variant="outline" className="text-[8px] font-black uppercase tracking-widest bg-muted/50 border-none px-2 py-0.5">
                                                         {totalNeeded.toFixed(1)}{f.unit} {f.name}
@@ -299,8 +300,6 @@ export default function DashboardPage() {
       });
 
       // 3. BIND TO APPOINTMENT
-      // CRITICAL FIX: Use set with merge: true to prevent "No document to update" error
-      // This is necessary if the appointment document was archived or moved during fulfillment.
       if (request.appointmentId) {
           const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, request.appointmentId);
           batch.set(aptRef, {
@@ -336,7 +335,7 @@ export default function DashboardPage() {
 
   const dashboardMetrics = useMemo(() => {
     const todayStart = startOfDay(new Date());
-    const dailyIncome = (transactions || []).filter(t => t.type === 'income' && isSameDay(safeDate(t.date), todayStart)).reduce((acc, t) => acc + t.amount, 0);
+    const dailyIncome = (transactions || []).filter(t => t.type === 'income' && isSameDay(safeDate(t.date), todayStart)).reduce((acc, t) => acc + safeNumber(t.amount), 0);
     const totalArrears = (clients || []).reduce((acc, c) => acc + safeNumber(c.outstandingBalance), 0);
     const activeStaff = (staff || []).filter(s => s.active && !s.onBreak).length;
     const todayArrivals = (walkIns || []).filter(w => isSameDay(safeDate(w.checkInTime), todayStart)).length + 
@@ -384,19 +383,19 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><TrendingUp className="w-3 h-3"/>Today's Gross</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-primary font-mono">${dashboardMetrics.dailyIncome.toFixed(2)}</p></CardContent>
+                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-primary font-mono">${safeNumber(dashboardMetrics.dailyIncome).toFixed(2)}</p></CardContent>
             </Card>
             <Card className="border-2 shadow-sm rounded-[2rem] bg-white">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 opacity-60"><Users className="w-3 h-3"/>Team Capacity</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-slate-900 font-mono">{dashboardMetrics.activeStaff}<span className="text-xs ml-1">Pro</span></p></CardContent>
+                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-slate-900 font-mono">{safeNumber(dashboardMetrics.activeStaff)}<span className="text-xs ml-1">Pro</span></p></CardContent>
             </Card>
             <Card className="border-2 shadow-sm rounded-[2rem] bg-white">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 opacity-60"><MapPin className="w-3 h-3"/>Total Arrivals</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-slate-900 font-mono">{dashboardMetrics.todayArrivals}<span className="text-xs ml-1">Guests</span></p></CardContent>
+                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-slate-900 font-mono">{safeNumber(dashboardMetrics.todayArrivals)}<span className="text-xs ml-1">Guests</span></p></CardContent>
             </Card>
-            <Card className={cn("border-2 shadow-sm rounded-[2rem] transition-all", dashboardMetrics.totalArrears > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-white")}>
-                <CardHeader className="p-5 pb-1 text-left"><CardTitle className={cn("text-[10px] font-black uppercase tracking-widest flex items-center gap-2", dashboardMetrics.totalArrears > 0 ? "text-destructive" : "text-muted-foreground opacity-60")}><Wallet className="w-3 h-3"/>Arrears Recovery</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className={cn("text-2xl md:text-4xl font-black tracking-tighter font-mono", dashboardMetrics.totalArrears > 0 ? "text-destructive" : "text-slate-900")}>${dashboardMetrics.totalArrears.toFixed(2)}</p></CardContent>
+            <Card className={cn("border-2 shadow-sm rounded-[2rem] transition-all", safeNumber(dashboardMetrics.totalArrears) > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-white")}>
+                <CardHeader className="p-5 pb-1 text-left"><CardTitle className={cn("text-[10px] font-black uppercase tracking-widest flex items-center gap-2", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-muted-foreground opacity-60")}><Wallet className="w-3 h-3"/>Arrears Recovery</CardTitle></CardHeader>
+                <CardContent className="p-5 pt-0 text-left"><p className={cn("text-2xl md:text-4xl font-black tracking-tighter font-mono", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-slate-900")}>${safeNumber(dashboardMetrics.totalArrears).toFixed(2)}</p></CardContent>
             </Card>
         </div>
 
@@ -453,12 +452,12 @@ export default function DashboardPage() {
                     <CardContent className="p-6 space-y-6 text-left">
                         <div className="space-y-1">
                             <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Avg. Wait Velocity</p>
-                            <p className="text-3xl font-black tracking-tighter text-slate-900">{dashboardMetrics.hospitalityWaitVelocity} <span className="text-xs uppercase opacity-40">Min</span></p>
+                            <p className="text-3xl font-black tracking-tighter text-slate-900">{safeNumber(dashboardMetrics.hospitalityWaitVelocity)} <span className="text-xs uppercase opacity-40">Min</span></p>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1 p-3 rounded-xl bg-muted/20 border text-left">
                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Engagement</p>
-                                <p className="text-sm font-black">{dashboardMetrics.totalHospitalityRequests} <span className="text-[8px] opacity-40">Orders</span></p>
+                                <p className="text-sm font-black">{safeNumber(dashboardMetrics.totalHospitalityRequests)} <span className="text-[8px] opacity-40">Orders</span></p>
                             </div>
                             <div className="space-y-1 p-3 rounded-xl bg-muted/20 border text-left">
                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Top Amenity</p>
@@ -481,7 +480,7 @@ export default function DashboardPage() {
                                             <p className="text-[10px] font-black uppercase tracking-tight text-destructive truncate">{item.name}</p>
                                             <p className="text-[8px] font-bold opacity-60 uppercase">{item.category}</p>
                                         </div>
-                                        <Badge variant="destructive" className="h-5 px-1.5 font-black text-[9px] border-none shadow-sm">{item.totalStock}u</Badge>
+                                        <Badge variant="destructive" className="h-5 px-1.5 font-black text-[9px] border-none shadow-sm">{safeNumber(item.totalStock)}u</Badge>
                                     </div>
                                 ))}
                                 <Button variant="ghost" asChild className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5">
@@ -507,11 +506,11 @@ export default function DashboardPage() {
                     <CardContent className="p-8 pt-0 space-y-6 text-left">
                         <div className="space-y-1 text-left">
                             <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Daily Trajectory</p>
-                            <p className="text-4xl font-black text-indigo-700 tracking-tighter leading-none">${dashboardMetrics.dailyIncome.toFixed(0)}</p>
+                            <p className="text-4xl font-black text-indigo-700 tracking-tighter leading-none">${safeNumber(dashboardMetrics.dailyIncome).toFixed(0)}</p>
                         </div>
                         <div className="pt-4 border-t border-indigo-500/10">
                             <p className="text-[10px] font-medium text-indigo-600 leading-relaxed uppercase tracking-tight text-left">
-                                Business orchestration is active. You are currently tracking {walkIns?.length || 0} walk-ins and {appointments?.filter(a => isToday(safeDate(a.startTime))).length || 0} scheduled sessions.
+                                Business orchestration is active. You are currently tracking {safeNumber(walkIns?.length)} walk-ins and {safeNumber(appointments?.filter(a => isToday(safeDate(a.startTime))).length)} scheduled sessions.
                             </p>
                         </div>
                         <Button asChild className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-500/20">

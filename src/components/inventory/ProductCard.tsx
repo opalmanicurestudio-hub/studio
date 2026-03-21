@@ -61,8 +61,8 @@ export const ProductCard = ({
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
         if (hasExpiredBatch) return { label: 'EXPIRED', className: 'bg-destructive text-white border-none animate-pulse' };
-        if (item.totalStock <= 0 && (item.partialContainerUses === undefined || item.partialContainerUses <= 0) && (item.partialContainerSize === undefined || item.partialContainerSize <= 0) ) return { label: 'OUT OF STOCK', className: 'bg-slate-900 text-white border-none' };
-        if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'LOW STOCK', className: 'bg-amber-500 text-white border-none' };
+        if (safeNumber(item.totalStock) <= 0 && safeNumber(item.partialContainerUses) <= 0 && safeNumber(item.partialContainerSize) <= 0 ) return { label: 'OUT OF STOCK', className: 'bg-slate-900 text-white border-none' };
+        if (item.reorderPoint && safeNumber(item.totalStock) <= item.reorderPoint) return { label: 'LOW STOCK', className: 'bg-amber-500 text-white border-none' };
         return { label: 'IN STOCK', className: 'bg-primary/10 text-primary border-primary/20' };
     }, [item]);
 
@@ -70,18 +70,18 @@ export const ProductCard = ({
 
     let partialDisplay;
 
-    if (item.costingMethod === 'size' && typeof item.partialContainerSize === 'number') {
+    if (item.costingMethod === 'size' && typeof item.partialContainerSize !== 'undefined') {
         partialDisplay = (
             <div className="text-center p-4 rounded-2xl bg-primary/[0.03] border-2 border-primary/10">
                 <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">In Use</p>
-                <p className="font-black text-xl font-mono tracking-tighter text-primary">{item.partialContainerSize.toFixed(0)}<span className="text-[10px] ml-0.5">{item.unit || 'ml'}</span></p>
+                <p className="font-black text-xl font-mono tracking-tighter text-primary">{safeNumber(item.partialContainerSize).toFixed(0)}<span className="text-[10px] ml-0.5">{item.unit || 'ml'}</span></p>
             </div>
         );
-    } else if (item.costingMethod === 'uses' && typeof item.partialContainerUses === 'number') {
+    } else if (item.costingMethod === 'uses' && typeof item.partialContainerUses !== 'undefined') {
          partialDisplay = (
             <div className="text-center p-4 rounded-2xl bg-primary/[0.03] border-2 border-primary/10">
                 <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">In Use</p>
-                <p className="font-black text-xl font-mono tracking-tighter text-primary">{item.partialContainerUses}<span className="text-[10px] ml-0.5">{item.useUnit || 'uses'}</span></p>
+                <p className="font-black text-xl font-mono tracking-tighter text-primary">{safeNumber(item.partialContainerUses)}<span className="text-[10px] ml-0.5">{item.useUnit || 'uses'}</span></p>
             </div>
         );
     } else {
@@ -133,7 +133,7 @@ export const ProductCard = ({
                             <div className="flex items-center gap-2 mb-1">
                                 <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none text-left">{item.name}</p>
                             </div>
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap text-left">
                                 <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{item.category}</p>
                                 <Badge variant="outline" className={cn("h-4 px-1.5 font-black text-[8px] uppercase border-2", stockStatus.className)}>
                                     {stockStatus.label}
@@ -170,7 +170,7 @@ export const ProductCard = ({
                 <div className={cn("grid gap-4 mt-auto", (partialDisplay || isRefreshment) ? "grid-cols-2" : "grid-cols-1")}>
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Full Stock</p>
-                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{item.totalStock}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">UNT</span></p>
+                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{safeNumber(item.totalStock)}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">UNT</span></p>
                     </div>
                     {isRefreshment ? (
                         <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 transition-all text-right shadow-inner">
