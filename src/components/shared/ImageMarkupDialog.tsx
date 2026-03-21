@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 interface ImageMarkupDialogProps {
   open: boolean;
@@ -58,23 +58,30 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [color, setColor] = useState(colors[0].value);
   const [brushSize, setBrushSize] = useState(3);
   const [history, setHistory] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize Canvas
+  // Initialize Canvas and draw image
   useEffect(() => {
     if (open && imageUrl && canvasRef.current) {
+      setIsLoading(true);
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = imageUrl;
       
+      // CRITICAL: Handle CORS for external URLs so toDataURL works later
+      if (imageUrl.startsWith('http')) {
+          img.crossOrigin = "anonymous";
+      }
+      
+      // Define onload BEFORE setting src to prevent race conditions
       img.onload = () => {
-        // High DPI handling
+        // High DPI handling for crisp lines
         const dpr = window.devicePixelRatio || 1;
-        const displayWidth = Math.min(window.innerWidth * 0.8, 800);
-        const scale = displayWidth / img.width;
+        const containerWidth = Math.min(window.innerWidth * 0.85, 800);
+        const scale = containerWidth / img.width;
+        const displayWidth = img.width * scale;
         const displayHeight = img.height * scale;
 
         canvas.width = displayWidth * dpr;
@@ -93,16 +100,44 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         
         // Push initial state to history
         setHistory([canvas.toDataURL()]);
+        setIsLoading(false);
       };
+
+      img.onerror = () => {
+          console.error("Failed to load image for markup protocol.");
+          setIsLoading(false);
+      };
+
+      img.src = imageUrl;
     }
   }, [open, imageUrl]);
 
+  // Update context settings when color or brush size changes
   useEffect(() => {
     if (contextRef.current) {
       contextRef.current.strokeStyle = color;
       contextRef.current.lineWidth = brushSize;
     }
   }, [color, brushSize]);
+
+  const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { offsetX: 0, offsetY: 0 };
+
+    const rect = canvas.getBoundingClientRect();
+    if ('touches' in e && e.touches.length > 0) {
+      return {
+        offsetX: e.touches[0].clientX - rect.left,
+        offsetY: e.touches[0].clientY - rect.top,
+      };
+    } else {
+      const mouseEvent = e as React.MouseEvent;
+      return {
+        offsetX: mouseEvent.nativeEvent.offsetX,
+        offsetY: mouseEvent.nativeEvent.offsetY,
+      };
+    }
+  };
 
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
     const { offsetX, offsetY } = getCoordinates(e);
@@ -128,24 +163,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     }
   };
 
-  const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { offsetX: 0, offsetY: 0 };
-
-    const rect = canvas.getBoundingClientRect();
-    if ('touches' in e) {
-      return {
-        offsetX: e.touches[0].clientX - rect.left,
-        offsetY: e.touches[0].clientY - rect.top,
-      };
-    } else {
-      return {
-        offsetX: e.nativeEvent.offsetX,
-        offsetY: e.nativeEvent.offsetY,
-      };
-    }
-  };
-
   const handleUndo = () => {
     if (history.length <= 1) return;
     const newHistory = history.slice(0, -1);
@@ -158,8 +175,13 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         const canvas = canvasRef.current;
         const ctx = contextRef.current;
         if (canvas && ctx) {
+            // Context scale is already set, just need to redraw
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
+            // Reset transformation matrix temporarily to draw the full snapshot
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.drawImage(img, 0, 0);
+            ctx.restore();
         }
     };
   };
@@ -204,11 +226,17 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={handleUndo} disabled={history.length <= 1} className="h-10 w-10 rounded-xl hover:bg-primary/10">
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    onClick={handleUndo} 
+                                    disabled={history.length <= 1} 
+                                    className="h-10 w-10 rounded-xl hover:bg-primary/10"
+                                >
                                     <Undo2 className="w-5 h-5" />
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent side="right" className="font-black uppercase text-[10px]">Undo Stroke</TooltipContent>
+                            <TooltipContent side="right" className="font-black uppercase text-[10px] tracking-widest border-2">Undo Stroke</TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
                 </div>
@@ -216,6 +244,18 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
             <ScrollArea className="flex-1 cursor-crosshair">
                 <div className="p-8 flex items-center justify-center min-h-full">
+                    <AnimatePresence>
+                        {isLoading && (
+                            <motion.div 
+                                initial={{ opacity: 0 }} 
+                                animate={{ opacity: 1 }} 
+                                exit={{ opacity: 0 }}
+                                className="absolute inset-0 flex items-center justify-center bg-muted/10 z-10"
+                            >
+                                <Loader className="w-10 h-10 animate-spin text-primary opacity-40" />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                     <canvas
                         ref={canvasRef}
                         onMouseDown={startDrawing}
@@ -225,7 +265,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                         onTouchStart={startDrawing}
                         onTouchMove={draw}
                         onTouchEnd={stopDrawing}
-                        className="shadow-2xl rounded-2xl bg-white border-2"
+                        className={cn("shadow-2xl rounded-2xl bg-white border-2 transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}
                     />
                 </div>
             </ScrollArea>
@@ -234,7 +274,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
             <div className="flex w-full gap-4">
                 <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel</Button>
-                <Button onClick={handleSave} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
+                <Button onClick={handleSave} disabled={isLoading} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
                     Certified Markup <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </Button>
             </div>
