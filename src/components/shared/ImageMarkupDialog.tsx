@@ -23,7 +23,8 @@ import {
     Palette,
     ArrowRight,
     Loader,
-    Maximize2
+    Maximize2,
+    Printer
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
@@ -76,7 +77,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     const initCanvas = () => {
       const canvas = canvasRef.current;
       
-      // If the canvas isn't in the DOM yet, wait for the next animation frame
       if (!canvas) {
           if (isMounted) requestAnimationFrame(initCanvas);
           return;
@@ -87,7 +87,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
       const img = new Image();
       
-      // Handle CORS for external technical assets
       if (imageUrl.startsWith('http')) {
           img.crossOrigin = "anonymous";
       }
@@ -96,8 +95,9 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         if (!isMounted) return;
 
         const dpr = window.devicePixelRatio || 1;
-        const containerWidth = Math.min(window.innerWidth * 0.8, 800);
-        const scale = containerWidth / img.width;
+        // Allow the canvas to be larger than the container for scrolling
+        const targetWidth = Math.max(window.innerWidth * 0.7, 800);
+        const scale = targetWidth / img.width;
         const displayWidth = img.width * scale;
         const displayHeight = img.height * scale;
 
@@ -128,7 +128,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
       img.src = imageUrl;
     };
 
-    // Delay slightly to ensure Dialog/ScrollArea have rendered the canvas element
     const timer = setTimeout(initCanvas, 50);
 
     return () => {
@@ -137,7 +136,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     };
   }, [open, imageUrl]);
 
-  // Update context settings when color or brush size changes
   useEffect(() => {
     if (contextRef.current) {
       contextRef.current.strokeStyle = color;
@@ -210,6 +208,47 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     };
   };
 
+  const handlePrint = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const dataUrl = canvas.toDataURL('image/png');
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${title} - Certified Record</title>
+          <style>
+            body { 
+                margin: 0; 
+                display: flex; 
+                flex-direction: column;
+                align-items: center; 
+                justify-content: center; 
+                min-height: 100vh;
+                background: white;
+                font-family: sans-serif;
+            }
+            .container { padding: 2rem; text-align: center; }
+            img { max-width: 100%; height: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #eee; }
+            h1 { margin-bottom: 1rem; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 0.1em; }
+            p { color: #666; font-size: 0.8rem; margin-top: 1rem; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>${title}</h1>
+            <img src="${dataUrl}" onload="window.print();window.close();" />
+            <p>ClarityFlow Studio OS - Professional Technical Archive</p>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const handleSave = () => {
     if (canvasRef.current) {
       onSave(canvasRef.current.toDataURL('image/png'));
@@ -219,7 +258,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col max-h-[95vh]">
+      <DialogContent className="sm:max-w-5xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[95vh]">
         <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left flex-shrink-0">
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
@@ -267,7 +306,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             </div>
 
             <ScrollArea className="flex-1 cursor-crosshair relative">
-                <div className="p-8 flex items-center justify-center min-h-full">
+                <div className="p-8 flex items-center justify-center min-h-full min-w-max">
                     <AnimatePresence>
                         {isLoading && (
                             <motion.div 
@@ -293,14 +332,22 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                         className={cn("shadow-2xl rounded-2xl bg-white border-2 transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}
                     />
                 </div>
+                <ScrollBar orientation="horizontal" />
+                <ScrollBar orientation="vertical" />
             </ScrollArea>
         </div>
 
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
-            <div className="flex w-full gap-4">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel</Button>
-                <Button onClick={handleSave} disabled={isLoading} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
-                    Certified Markup <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+            <div className="flex w-full flex-col sm:flex-row gap-4">
+                <div className="flex gap-2 flex-1">
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel</Button>
+                    <Button variant="outline" onClick={handlePrint} className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2 bg-white shadow-sm">
+                        <Printer className="w-4 h-4 mr-2 opacity-40" />
+                        Print Mapping
+                    </Button>
+                </div>
+                <Button onClick={handleSave} disabled={isLoading} className="flex-[1.5] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
+                    Commit to Dossier <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </Button>
             </div>
         </DialogFooter>
