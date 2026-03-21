@@ -274,6 +274,7 @@ export default function ClientPortalPage() {
         setIsProcessing(true);
         
         const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
         const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointmentToCancel.id);
         const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
 
@@ -310,6 +311,24 @@ export default function ClientPortalPage() {
             });
         }
 
+        // DISPATCH NOTIFICATIONS
+        const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
+        const recipients = new Set(adminsAndOwners.map(s => s.id));
+        if (appointmentToCancel.staffId) recipients.add(appointmentToCancel.staffId);
+
+        recipients.forEach(rid => {
+            const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+            batch.set(notifRef, {
+                id: notifRef.id,
+                userId: rid,
+                type: 'cancellation',
+                message: `Cancellation: ${client.name} for ${svc?.name || 'Service'} on ${format(safeDate(appointmentToCancel.startTime), 'MMM d @ h:mm a')}`,
+                link: '/planner',
+                createdAt: now,
+                read: false
+            });
+        });
+
         try {
             await batch.commit();
             toast({ title: "Session Terminated", description: feeAmount > 0 ? `Late cancellation fee of $${feeAmount.toFixed(2)} applied.` : "Appointment removed." });
@@ -329,6 +348,7 @@ export default function ClientPortalPage() {
         const batch = writeBatch(firestore);
         const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
         const now = new Date().toISOString();
+        const svc = services?.find(s => s.id === aptData.serviceId);
         
         const updates: any = {
             startTime: aptData.startTime,
@@ -371,6 +391,24 @@ export default function ClientPortalPage() {
         }
 
         batch.update(appointmentRef, updates);
+
+        // DISPATCH NOTIFICATIONS
+        const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
+        const recipients = new Set(adminsAndOwners.map(s => s.id));
+        if (aptData.staffId) recipients.add(aptData.staffId);
+
+        recipients.forEach(rid => {
+            const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+            batch.set(notifRef, {
+                id: notifRef.id,
+                userId: rid,
+                type: 'reschedule',
+                message: `Reschedule: ${client.name} moved ${svc?.name || 'Session'} to ${format(safeDate(aptData.startTime), 'MMM d @ h:mm a')}`,
+                link: '/planner',
+                createdAt: now,
+                read: false
+            });
+        });
 
         try {
             await batch.commit();
@@ -530,7 +568,7 @@ export default function ClientPortalPage() {
                                         <Wallet className="w-6 h-6 md:w-8 md:h-8" />
                                     </div>
                                     <div className="space-y-1 text-left">
-                                        <AlertTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-destructive leading-none text-left">Accounting Balance</AlertTitle>
+                                        <AlertTitle className="text-lg md:text-xl font-black uppercase tracking-tighter text-destructive leading-none text-left">Accounting Balance</AlertTitle>
                                         <AlertDescription className="text-[10px] md:text-sm font-bold text-slate-600 uppercase tracking-tight opacity-80 mt-2 text-left">
                                             A total of <strong>${safeBalance.toFixed(2)}</strong> in outstanding fees is recorded. Reconcile now to maintain active status.
                                         </AlertDescription>
@@ -541,7 +579,7 @@ export default function ClientPortalPage() {
                                 </div>
                                 <div className="text-right shrink-0">
                                     <p className="text-[9px] md:text-[10px] font-black uppercase text-destructive tracking-[0.2em] mb-1 text-right">Total Arrears</p>
-                                    <p className="text-3xl md:text-5xl font-black font-mono tracking-tighter text-destructive">${safeBalance.toFixed(2)}</p>
+                                    <p className="text-2xl md:text-4xl font-black font-mono tracking-tighter text-destructive">${safeBalance.toFixed(2)}</p>
                                 </div>
                             </Alert>
                         </motion.div>
@@ -840,7 +878,7 @@ export default function ClientPortalPage() {
                         Terminating your session at this stage may incur a recovery fee based on the proximity to your appointment time. Continue?
                     </div>
                     <AlertDialogFooter className="p-8 pt-4 bg-muted/5 border-t flex flex-col gap-3 text-left">
-                        <Button onClick={handleConfirmCancellation} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-white hover:bg-destructive/90">{isProcessing ? <Loader className="animate-spin" /> : 'Confirm Termination'}</Button>
+                        <Button onClick={handleConfirmCancellation} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/30 bg-destructive text-white hover:bg-destructive/90">{isProcessing ? <Loader className="animate-spin" /> : 'Confirm Termination'}</Button>
                         <AlertDialogCancel onClick={() => setAppointmentToCancel(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
