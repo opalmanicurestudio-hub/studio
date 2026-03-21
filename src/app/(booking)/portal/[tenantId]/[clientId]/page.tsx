@@ -80,7 +80,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
+import { GuestRescheduleDialog } from '@/components/booking/GuestRescheduleDialog';
 import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
@@ -154,7 +154,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
         setIsSubmitting(true);
         try {
             const reviewId = nanoid();
-            const review: Review = {
+            const review = {
                 id: reviewId,
                 tenantId: tenant.id,
                 clientId: client.id,
@@ -182,10 +182,10 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
     return (
         <ViewContainer>
             <ViewHeader title="Session Concluded" subtitle="We hope you enjoyed your visit" icon={CheckCircle2} />
-            <CardContent className="p-0">
+            <CardContent className="p-0 text-left">
                 <AnimatePresence mode="wait">
                     {!submitted ? (
-                        <motion.div key="review-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 space-y-10">
+                        <motion.div key="review-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 space-y-10 text-left">
                             <div className="text-center space-y-4">
                                 <div className="w-20 h-20 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
                                     <Heart className="w-10 h-10 text-primary -rotate-6" />
@@ -211,7 +211,7 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                                 ))}
                             </div>
 
-                            <div className="space-y-3">
+                            <div className="space-y-3 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Share your Story</Label>
                                 <Textarea 
                                     placeholder="Write a few words about your session..." 
@@ -299,7 +299,6 @@ const ArrivedView = ({ client, staff }: { client: Client | null, staff: Staff | 
 export default function ClientPortalPage() {
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
     const { firestore } = useFirebase();
-    const { user: firebaseUser } = useFirebase();
     const { toast } = useToast();
 
     const [entered, setEntered] = useState(false);
@@ -345,6 +344,12 @@ export default function ClientPortalPage() {
 
     const discountsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/discounts`), [firestore, tenantId]);
     const { data: discounts } = useCollection<Discount>(discountsQuery);
+
+    const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)), [firestore, tenantId]);
+    const { data: scheduleProfiles } = useCollection<any>(scheduleProfilesQuery);
+
+    const inventoryQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
+    const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
 
     // --- LOGIC ---
     const activeMembership = useMemo(() => {
@@ -499,7 +504,7 @@ export default function ClientPortalPage() {
     };
 
     const handleRescheduleConfirm = async (data: any) => {
-        if (!firestore || !tenantId) return;
+        if (!firestore || !tenantId || !client) return;
         setIsProcessing(true);
         
         const { applyFee, feeAmount, ...aptData } = data;
@@ -512,7 +517,7 @@ export default function ClientPortalPage() {
         });
 
         if (applyFee && feeAmount > 0) {
-            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, clientId);
+            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
             batch.update(clientRef, {
                 outstandingBalance: increment(feeAmount),
                 unpaidFees: arrayUnion({
@@ -651,7 +656,7 @@ export default function ClientPortalPage() {
                         >
                             <div className="relative w-24 h-24 md:w-32 md:h-32 rounded-[2.5rem] md:rounded-[3rem] border-4 border-white shadow-2xl overflow-hidden mb-8 bg-white/50 backdrop-blur-xl">
                                 {tenant?.bookingPageSettings?.logoUrl ? (
-                                    <Image src={tenant.bookingPageSettings.logoUrl} alt={tenant.name} fill className="object-cover" />
+                                    <Image src={tenant.bookingPageSettings.logoUrl} alt={tenant.name || 'Studio'} fill className="object-cover" />
                                 ) : (
                                     <div className="w-full h-full flex items-center justify-center">
                                         <Sparkles className="w-12 h-12 text-primary" />
@@ -845,7 +850,7 @@ export default function ClientPortalPage() {
 
                     <TabsContent value="portfolio" className="space-y-12 animate-in fade-in duration-500 text-left">
                         {activeMembership ? (
-                            <div className="space-y-12">
+                            <div className="space-y-12 text-left">
                                 <section className="space-y-6 text-left">
                                     <div className="flex flex-col sm:flex-row items-center justify-between px-1 gap-4 text-left">
                                         <div className="flex items-center gap-3 w-full sm:w-auto text-left">
@@ -873,7 +878,7 @@ export default function ClientPortalPage() {
                                                             </div>
                                                             <div className={cn("p-3 rounded-2xl shadow-inner shrink-0", isExhausted ? "bg-green-500/10 text-green-600" : perk.bg + " " + perk.color)}>{isExhausted ? <CheckCircle2 className="w-6 h-6" /> : <perk.icon className="w-6 h-6" />}</div>
                                                         </div>
-                                                        <div className="space-y-2">
+                                                        <div className="space-y-2 text-left">
                                                             <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1"><span>Allotment State</span><div className="flex items-center gap-1.5"><span>Used {used} / {total}</span><Badge variant="outline" className={cn("h-4 border-none font-black", isExhausted ? "text-muted-foreground" : "text-primary")}>({remaining} LEFT)</Badge></div></div>
                                                             <Progress value={perk.progress} className={cn("h-2 rounded-full bg-muted shadow-inner", isExhausted && "[&>div]:bg-green-500")} />
                                                         </div>
@@ -1042,7 +1047,22 @@ export default function ClientPortalPage() {
                 </AlertDialogContent>
             </AlertDialog>
 
-            {appointmentToReschedule && (<RescheduleDialog open={!!appointmentToReschedule} onOpenChange={() => setAppointmentToReschedule(null)} appointment={appointmentToReschedule} clients={clients || []} services={services || []} appointments={appointments || []} onConfirm={handleRescheduleConfirm} />)}
+            {appointmentToReschedule && (
+                <GuestRescheduleDialog 
+                    open={!!appointmentToReschedule} 
+                    onOpenChange={() => setAppointmentToReschedule(null)} 
+                    appointment={appointmentToReschedule} 
+                    client={client} 
+                    service={services?.find(s => s.id === appointmentToReschedule.serviceId)!} 
+                    appointments={appointments || []}
+                    services={services || []}
+                    tenant={tenant}
+                    staff={staff || []}
+                    scheduleProfiles={scheduleProfiles || []}
+                    inventory={inventory || []}
+                    onConfirm={handleRescheduleConfirm} 
+                />
+            )}
         </div>
     );
 }
