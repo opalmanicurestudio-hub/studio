@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -333,10 +332,6 @@ export default function ClientDetailPage() {
       if (!firestore || !tenantId || !client) return;
       const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
       
-      /**
-       * CRITICAL FIX: Ensure arrayUnion is processed via updateDocumentNonBlocking.
-       * We pass the formula as a plain object which will be wrapped in arrayUnion.
-       */
       updateDocumentNonBlocking(clientRef, { 
           customFormulas: arrayUnion(formula) 
       });
@@ -353,11 +348,11 @@ export default function ClientDetailPage() {
       toast({ title: "Protocol Purged", description: "Formula removed from technical archive." });
   }
 
-  const { safeLTV, safeWalletCredit, safeOutstandingBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => {
+  const { safeLTV, safeWalletCredit, safeBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => {
       return {
           safeLTV: safeNumber(client?.lifetimeValue),
           safeWalletCredit: safeNumber(client?.walletCredit),
-          safeOutstandingBalance: safeNumber(client?.outstandingBalance),
+          safeBalance: safeNumber(client?.outstandingBalance),
           noShowTotal: safeNumber(client?.noShowCount),
           cancelTotal: safeNumber(client?.cancellationCount),
           rescheduleTotal: safeNumber(client?.rescheduleCount)
@@ -376,7 +371,7 @@ export default function ClientDetailPage() {
   const upcomingAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) > new Date() && apt.status !== 'cancelled');
   const pastAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) <= new Date()).sort((a,b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
 
-  const hasDebt = safeOutstandingBalance > 0;
+  const hasDebt = safeBalance > 0;
   const hasCardOnFile = !!client.cardOnFile?.token;
 
   return (
@@ -428,7 +423,7 @@ export default function ClientDetailPage() {
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Discovery Source</p>
                                 <p className="text-xs md:sm font-black uppercase tracking-tight text-slate-700 text-left">{String(client.intel?.referralSource || 'Unknown')}</p>
                             </div>
-                            <div className="space-y-1 text-left text-left">
+                            <div className="space-y-1 text-left text-left text-left">
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Strategic Origin</p>
                                 <div className="flex items-center gap-2 text-left">
                                     <Badge variant="secondary" className="h-6 px-2.5 rounded-lg border-2 font-black text-[8px] md:text-[9px] uppercase tracking-widest bg-white shadow-sm flex items-center gap-1.5 w-fit">
@@ -509,7 +504,7 @@ export default function ClientDetailPage() {
                                                                 <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
                                                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Monthly Enhancement Allotment</p>
                                                             </div>
-                                                            <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
+                                                            <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-700")}>
                                                                 {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
                                                             </div>
                                                         </div>
@@ -602,7 +597,7 @@ export default function ClientDetailPage() {
                                         </CardContent>
                                     </Card>
 
-                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left text-left">
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left text-left text-left">
                                         <CardHeader className="bg-muted/5 border-b p-5 text-left text-left">
                                             <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                                 <RefreshCw className="w-4 h-4 text-primary opacity-40" />
@@ -847,7 +842,7 @@ export default function ClientDetailPage() {
                                             <Lock className="w-4 h-4 shrink-0 text-left" />
                                             <span className="text-[10px] font-black uppercase text-left text-left">Guardian Lock Active</span>
                                         </div>
-                                        <p className="text-[10px] font-bold leading-relaxed uppercase text-left text-left">High-risk behavior detected. Booking engine will now strictly enforce upfront deposits for all sessions.</p>
+                                        <p className="text-[10px] font-bold leading-relaxed uppercase text-left text-left text-left">High-risk behavior detected. Booking engine will now strictly enforce upfront deposits for all sessions.</p>
                                     </motion.div>
                                 )}
                             </AnimatePresence>
@@ -886,7 +881,7 @@ export default function ClientDetailPage() {
                                 </div>
                                 <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all text-left text-left text-left", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60 text-left">Account Arrears</p>
-                                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono text-left">${safeOutstandingBalance.toFixed(2)}</p>
+                                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono text-left">${safeBalance.toFixed(2)}</p>
                                 </div>
                             </div>
 
@@ -971,7 +966,7 @@ export default function ClientDetailPage() {
                     <p className="text-[10px] font-bold text-slate-600 leading-relaxed uppercase tracking-tight text-left text-left text-left">This will instantly clear the client's unpaid fees and create a verified revenue record in the studio ledger.</p>
                 </div>
             </div>
-            <DialogFooter className="p-8 pt-0 flex flex-col gap-3 text-left text-left">
+            <DialogFooter className="p-8 pt-0 flex flex-col gap-3 text-left text-left text-left">
                 <Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-3xl shadow-primary/30 text-left" onClick={handleQuickSettle} disabled={isSettleProcessing}>{isSettleProcessing ? <Loader className="animate-spin text-left" /> : 'Authorize Charge'}</Button>
                 <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest text-left">Cancel</Button>
             </DialogFooter>
