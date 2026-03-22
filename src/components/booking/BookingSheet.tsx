@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -132,6 +131,14 @@ const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { 
         </label>
     );
 };
+
+const bookingSchema = z.object({
+  clientName: z.string().min(1, 'Name is required.'),
+  clientEmail: z.string().email('Invalid email address.'),
+  clientPhone: z.string().optional(),
+});
+
+type BookingFormData = z.infer<typeof bookingSchema>;
 
 interface BookingSheetProps {
   open: boolean;
@@ -589,7 +596,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             <h2 className="text-4xl font-black uppercase tracking-tighter">You're All Set!</h2>
                             <p className="text-muted-foreground font-medium max-w-sm mx-auto leading-relaxed">Your appointment for <strong className="text-foreground">{service?.name}</strong> is confirmed. We've sent the details to your email.</p>
                         </div>
-                        <div className="grid gap-6 max-w-sm mx-auto">
+                        <div className="grid gap-6 max-sm mx-auto">
                             {bookedStaff && (
                                 <div className="p-6 rounded-[2rem] border-2 bg-white/50 backdrop-blur-sm shadow-xl flex flex-col items-center gap-4">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-primary">Your Professional</p>
