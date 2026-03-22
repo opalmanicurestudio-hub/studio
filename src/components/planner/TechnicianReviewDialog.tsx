@@ -97,6 +97,7 @@ type EditableFormulaItem = {
     unit: string;
     costPerUnit: number;
     isCustom?: boolean;
+    note?: string;
 };
 
 type ReviewRefreshmentItem = {
@@ -186,6 +187,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 quantity: p.quantityUsed,
                 unit: product?.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product?.unit || 'unit'),
                 costPerUnit: baseCpu,
+                note: '',
             }
         }) || [];
         setEditableFormula(initialFormula);
@@ -294,6 +296,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             unit: p.costingMethod === 'uses' ? (p.useUnit || 'uses') : (p.unit || 'unit'),
             costPerUnit: baseCpu,
             isCustom: true,
+            note: ''
         }
       });
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
@@ -365,6 +368,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 quantity: p.quantityUsed,
                 unit: product?.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product?.unit || 'unit'),
                 costPerUnit: baseCpu,
+                note: ''
             }
           }) || [];
           setEditableFormula(defaultFormula);
@@ -381,7 +385,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             else if (product.costingMethod === 'uses' && product.estimatedUses) baseCpu = (product.costPerUnit || 0) / product.estimatedUses;
         }
         return {
-            id: item.id, name: item.name, quantity: item.quantity, unit: item.unit, costPerUnit: baseCpu,
+            id: item.id, name: item.name, quantity: item.quantity, unit: item.unit, costPerUnit: baseCpu, note: item.note || ''
         }
       });
       setEditableFormula(newFormula);
@@ -576,7 +580,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 <Maximize2 className="w-8 h-8 text-white" />
                             </div>
                             <div className="absolute top-4 right-4">
-                                <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Target</Badge>
+                                <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Choice</Badge>
                             </div>
                         </div>
                     </div>
@@ -758,30 +762,45 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             
                             <div className="space-y-2 text-left">
                                 {editableFormula.length > 0 ? (
-                                    <div className="grid gap-2 text-left">
+                                    <div className="grid gap-3 text-left">
                                         {editableFormula.map((item, index) => (
-                                            <div key={item.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border-2 shadow-sm gap-4 group hover:border-primary/20 transition-all text-left">
-                                                <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
-                                                <div className="flex items-center gap-3 text-left">
-                                                    <div className="flex items-center gap-2 text-left">
-                                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left">Load</Label>
-                                                        <Input
-                                                            type="number"
-                                                            value={item.quantity}
-                                                            onChange={(e) => {
-                                                                const newQty = parseFloat(e.target.value) || 0;
-                                                                const next = [...editableFormula];
-                                                                next[index] = { ...item, quantity: newQty };
-                                                                setEditableFormula(next);
-                                                            }}
-                                                            className="w-16 h-9 text-center font-black font-mono border-2 rounded-lg text-xs"
-                                                            step="0.1"
-                                                        />
-                                                        <span className="text-[9px] font-black uppercase text-muted-foreground w-10 opacity-60 truncate text-left">{item.unit}</span>
+                                            <div key={item.id} className="p-5 bg-white rounded-2xl border-2 shadow-sm space-y-4 group hover:border-primary/20 transition-all">
+                                                <div className="flex items-center justify-between gap-4 text-left">
+                                                    <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
+                                                    <div className="flex items-center gap-3 text-left">
+                                                        <div className="flex items-center gap-2 text-left">
+                                                            <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left">Load</Label>
+                                                            <Input
+                                                                type="number"
+                                                                value={item.quantity}
+                                                                onChange={(e) => {
+                                                                    const newQty = parseFloat(e.target.value) || 0;
+                                                                    const next = [...editableFormula];
+                                                                    next[index] = { ...item, quantity: newQty };
+                                                                    setEditableFormula(next);
+                                                                }}
+                                                                className="w-16 h-9 text-center font-black font-mono border-2 rounded-lg text-xs"
+                                                                step="0.1"
+                                                            />
+                                                            <span className="text-[9px] font-black uppercase text-muted-foreground w-10 opacity-60 truncate text-left">{item.unit}</span>
+                                                        </div>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeProduct(item.id)}>
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </Button>
                                                     </div>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeProduct(item.id)}>
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </Button>
+                                                </div>
+                                                <div className="relative">
+                                                    <MessageSquare className="absolute left-3 top-3 w-3 h-3 text-primary opacity-20" />
+                                                    <Input 
+                                                        placeholder="ITEM PROTOCOL NOTE..." 
+                                                        value={item.note || ''} 
+                                                        onChange={(e) => {
+                                                            const next = [...editableFormula];
+                                                            next[index] = { ...item, note: e.target.value };
+                                                            setEditableFormula(next);
+                                                        }}
+                                                        className="h-9 pl-8 rounded-lg border-2 bg-muted/5 font-bold uppercase text-[9px] tracking-tight"
+                                                    />
                                                 </div>
                                             </div>
                                         ))}

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -23,7 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { PlusCircle, Trash2, FlaskConical, Sparkles, Tag, ArrowRight, Activity, Landmark, PackageOpen } from 'lucide-react';
+import { PlusCircle, Trash2, FlaskConical, Sparkles, Tag, ArrowRight, Activity, Landmark, PackageOpen, MessageSquare } from 'lucide-react';
 import { type CustomFormula, type InventoryItem } from '@/lib/data';
 import { useInventory } from '@/context/InventoryContext';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -38,6 +39,7 @@ type EditableFormulaItem = {
     quantity: number;
     unit: string;
     costPerUnit: number;
+    note?: string;
 };
 
 interface AddFormulaDialogProps {
@@ -91,7 +93,8 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
             name: p.name,
             quantity: 1,
             unit: unit,
-            costPerUnit: cpu
+            costPerUnit: cpu,
+            note: ''
         }
     });
     
@@ -104,7 +107,7 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
     setIsProductBrowserOpen(false);
   };
 
-  const handleItemChange = (productId: string, field: keyof EditableFormulaItem, value: number) => {
+  const handleItemChange = (productId: string, field: keyof EditableFormulaItem, value: any) => {
     setItems(prev =>
       prev.map(item =>
         item.id === productId ? { ...item, [field]: value } : item
@@ -182,23 +185,34 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
                     
                     <div className="space-y-3">
                         {items.length > 0 ? (
-                            <div className="grid gap-2">
+                            <div className="grid gap-4">
                                 {items.map(item => (
-                                    <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group transition-all hover:border-primary/20">
-                                        <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{item.name}</span>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex items-center gap-2">
-                                                <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
-                                                <Input 
-                                                    type="number" 
-                                                    value={item.quantity} 
-                                                    onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    className="w-16 h-9 rounded-lg border-2 text-center font-black font-mono" 
-                                                    step="0.1" 
-                                                />
-                                                <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60 text-left">{item.unit}</span>
+                                    <div key={item.id} className="p-5 rounded-2xl border-2 bg-white shadow-sm space-y-4 transition-all hover:border-primary/20 group">
+                                        <div className="flex items-center justify-between gap-4">
+                                            <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{item.name}</span>
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex items-center gap-2">
+                                                    <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
+                                                    <Input 
+                                                        type="number" 
+                                                        value={item.quantity} 
+                                                        onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                                                        className="w-16 h-9 rounded-lg border-2 text-center font-black font-mono text-xs" 
+                                                        step="0.1" 
+                                                    />
+                                                    <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60 text-left truncate">{item.unit}</span>
+                                                </div>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveItem(item.id)}><Trash2 className="w-4 h-4" /></Button>
                                             </div>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveItem(item.id)}><Trash2 className="w-4 h-4" /></Button>
+                                        </div>
+                                        <div className="relative">
+                                            <MessageSquare className="absolute left-3 top-3 w-3 h-3 text-primary opacity-20" />
+                                            <Input 
+                                                placeholder="SPECIFIC ITEM NOTE (E.G. ROOTS ONLY)" 
+                                                value={item.note || ''} 
+                                                onChange={e => handleItemChange(item.id, 'note', e.target.value)}
+                                                className="h-9 pl-8 rounded-lg border-2 bg-muted/5 font-bold uppercase text-[9px] tracking-tight focus-visible:ring-primary/20"
+                                            />
                                         </div>
                                     </div>
                                 ))}
@@ -217,10 +231,10 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
                 <div className="space-y-8">
                     <SectionHeader icon={Landmark} title="Procedural Context" />
                     <div className="space-y-3 text-left">
-                        <Label htmlFor="formula-notes-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Technical Notes</Label>
+                        <Label htmlFor="formula-notes-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Technical Notes (General)</Label>
                         <Textarea 
                             id="formula-notes-manual" 
-                            placeholder="Specific application instructions or mixing details..." 
+                            placeholder="Overall application instructions or mixing details..." 
                             value={notes}
                             onChange={e => setNotes(e.target.value)}
                             className="rounded-[2rem] border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium p-6"

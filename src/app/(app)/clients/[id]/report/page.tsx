@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { notFound, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift, FileSignature } from 'lucide-react';
+import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift, FileSignature, MessageSquare } from 'lucide-react';
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { generateClientReport } from '@/ai/flows/generate-client-report';
@@ -15,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import type { Client, Appointment, Service } from '@/lib/data';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { collection, doc, query, where } from 'firebase/firestore';
@@ -344,14 +344,22 @@ const ClientReportPage = () => {
                                             <CardTitle className="text-base flex items-center gap-2"><FlaskConical className="w-4 h-4 text-primary"/>{formula.name}</CardTitle>
                                             <p className="text-xs text-muted-foreground">Established {format(parseISO(formula.date), 'PPP')}</p>
                                         </CardHeader>
-                                        <CardContent className="space-y-2">
+                                        <CardContent className="space-y-3">
                                             {formula.items.map((item, itemIndex) => (
-                                                <div key={itemIndex} className="text-sm p-2 bg-white border rounded-md shadow-sm flex justify-between">
-                                                    <p className="font-bold">{item.name}</p>
-                                                    <p className="font-mono">{item.quantity}{item.unit}</p>
+                                                <div key={itemIndex} className="text-sm p-3 bg-white border rounded-lg shadow-sm space-y-1.5">
+                                                    <div className="flex justify-between items-center">
+                                                        <p className="font-bold uppercase text-[11px]">{item.name}</p>
+                                                        <p className="font-mono text-xs font-black">{item.quantity}{item.unit}</p>
+                                                    </div>
+                                                    {item.note && (
+                                                        <div className="flex items-start gap-2 pt-1 border-t border-slate-100">
+                                                            <MessageSquare className="w-2.5 h-2.5 text-primary opacity-40 mt-0.5" />
+                                                            <p className="text-[10px] font-medium text-slate-500 italic leading-tight">"{item.note}"</p>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             ))}
-                                            {formula.notes && <p className="text-xs text-muted-foreground italic pt-2">"{formula.notes}"</p>}
+                                            {formula.notes && <p className="text-xs text-muted-foreground italic pt-2 border-t border-dashed">"{formula.notes}"</p>}
                                         </CardContent>
                                     </Card>
                                 ))}

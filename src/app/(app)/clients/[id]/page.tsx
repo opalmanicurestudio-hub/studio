@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -52,7 +53,8 @@ import {
     Coffee,
     Scale,
     Target,
-    Sparkles
+    Sparkles,
+    MessageSquare
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -729,15 +731,23 @@ export default function ClientDetailPage() {
                                                 <CardContent className="p-5 space-y-4 text-left">
                                                     <div className="space-y-2 text-left text-left">
                                                         {formula.items.map((item, idx) => (
-                                                            <div key={idx} className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight p-2 rounded-xl bg-muted/20 border-2 border-transparent text-left">
-                                                                <span className="text-slate-600 truncate mr-2 text-left">{String(item.name || 'Component')}</span>
-                                                                <span className="font-black text-slate-900 shrink-0 text-right">{safeNumber(item.quantity)}{String(item.unit || 'u')}</span>
+                                                            <div key={idx} className="p-3 rounded-xl bg-muted/20 border-2 border-transparent text-left space-y-1.5">
+                                                                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight">
+                                                                    <span className="text-slate-600 truncate mr-2 text-left">{String(item.name || 'Component')}</span>
+                                                                    <span className="font-black text-slate-900 shrink-0 text-right">{safeNumber(item.quantity)}{String(item.unit || 'u')}</span>
+                                                                </div>
+                                                                {item.note && (
+                                                                    <div className="flex items-start gap-2 pt-1 border-t border-slate-900/5">
+                                                                        <MessageSquare className="w-2.5 h-2.5 text-primary opacity-40 mt-0.5" />
+                                                                        <p className="text-[9px] font-medium text-slate-500 italic leading-tight">"{item.note}"</p>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         ))}
                                                     </div>
                                                     {formula.notes && (
                                                         <div className="pt-2 text-left text-left">
-                                                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 text-left">Audit Notes</p>
+                                                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 text-left">Global Method Audit</p>
                                                             <p className="text-10px font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3 text-left">"{String(formula.notes)}"</p>
                                                         </div>
                                                     )}
@@ -944,7 +954,7 @@ export default function ClientDetailPage() {
             <div className="p-8 space-y-8 text-left text-left text-left">
                 <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5 text-left">
                     <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest text-center text-left">Total Arrears Balance</p>
-                    <p className="text-5xl font-black text-primary tracking-tighter font-mono text-center text-left">${safeOutstandingBalance.toFixed(2)}</p>
+                    <p className="text-5xl font-black text-primary tracking-tighter font-mono text-center text-left">${safeBalance.toFixed(2)}</p>
                 </div>
                 <div className="space-y-4 text-left text-left">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Distribution Method</p>

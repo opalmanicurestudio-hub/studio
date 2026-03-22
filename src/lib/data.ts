@@ -30,6 +30,7 @@ export type CustomFormula = {
     quantity: number;
     unit: string;
     costPerUnit: number;
+    note?: string;
   }[];
   notes?: string;
 };
@@ -380,6 +381,7 @@ export type AppointmentCheckoutState = {
         quantity: number;
         unit: string;
         costPerUnit: number;
+        note?: string;
     }[];
     refreshments?: {
         id: string;

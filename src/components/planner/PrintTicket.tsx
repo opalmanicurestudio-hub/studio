@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -7,7 +8,7 @@ import { type Service, type Client, type Appointment } from '@/lib/data';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { Card, CardContent } from '../ui/card';
-import { AlertTriangle, FlaskConical, MapPin, ShieldPlus, Clock } from 'lucide-react';
+import { AlertTriangle, FlaskConical, MapPin, ShieldPlus, Clock, MessageSquare } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 
 const safeDate = (val: any): Date => {
@@ -116,20 +117,31 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
                     service.products.map((item, index) => {
                         const product = inventory.find(p => p.id === item.id);
                         const location = locations.find(l => l.id === product?.primaryLocationId);
+                        // Check if there's a note from a previous formula/checkout for this product
+                        const itemNote = appointment.checkoutState?.formula?.find(f => f.id === item.id)?.note;
+
                         return (
-                            <div key={index} className="flex items-start gap-3 p-2 rounded-md hover:bg-gray-50 print:hover:bg-transparent">
+                            <div key={index} className="flex items-start gap-3 p-2 rounded-md hover:bg-gray-50 print:hover:bg-transparent border-b last:border-none pb-3 mb-3">
                                 <Checkbox 
                                     id={`formula-item-${index}`}
                                     checked={checkedItems.has(`formula-${index}`)}
                                     onCheckedChange={() => handleCheckChange(`formula-${index}`)}
                                     className="print:border-gray-400 mt-1"
                                 />
-                                <Label htmlFor={`formula-item-${index}`} className="flex justify-between w-full cursor-pointer">
-                                    <div className="text-left">
-                                        <span className="font-bold uppercase text-[11px]">{item.name}</span>
-                                        {location && <p className="text-[9px] text-gray-500 flex items-center gap-1 uppercase font-bold"><MapPin className="w-2.5 h-2.5" />{location.name}</p>}
+                                <Label htmlFor={`formula-item-${index}`} className="flex flex-col w-full cursor-pointer gap-1">
+                                    <div className="flex justify-between w-full">
+                                        <div className="text-left">
+                                            <span className="font-bold uppercase text-[11px]">{item.name}</span>
+                                            {location && <p className="text-[9px] text-gray-500 flex items-center gap-1 uppercase font-bold"><MapPin className="w-2.5 h-2.5" />{location.name}</p>}
+                                        </div>
+                                        <span className="font-black font-mono text-xs">{item.quantityUsed || item.quantity}{item.unit}</span>
                                     </div>
-                                    <span className="font-black font-mono text-xs">{item.quantityUsed}{item.unit}</span>
+                                    {itemNote && (
+                                        <div className="flex items-start gap-2 pt-1 mt-1 border-t border-dashed">
+                                            <MessageSquare className="w-3 h-3 text-gray-400 mt-0.5" />
+                                            <p className="text-[10px] font-medium text-gray-600 italic leading-tight">"{itemNote}"</p>
+                                        </div>
+                                    )}
                                 </Label>
                             </div>
                         )
