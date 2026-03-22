@@ -13,6 +13,7 @@ import {
   CardFooter
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { 
     ArrowLeft, 
     Edit, 
@@ -120,7 +121,7 @@ export default function ProductDetailPage() {
 
     const handleProductUpdate = (updatedProduct: InventoryItem) => {
         if (!firestore || !selectedTenant) return;
-        const itemRef = doc(firestore, 'tenants', selectedTenant.id, 'inventory', updatedProduct.id);
+        const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', updatedProduct.id);
         updateDocumentNonBlocking(itemRef, updatedProduct);
         toast({ title: "Dossier Synchronized", description: "Record updates committed to ledger." });
         setIsEditDialogOpen(false);
@@ -407,7 +408,7 @@ export default function ProductDetailPage() {
                                             exit={{ opacity: 0, scale: 1.05 }}
                                             className="py-20 flex flex-col items-center justify-center text-center space-y-8"
                                         >
-                                            <div className="w-24 h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center shadow-2xl border-2 border-primary/10 rotate-6">
+                                            <div className="w-24 h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
                                                 <Lock className="w-12 h-12 text-primary -rotate-6" />
                                             </div>
                                             <div className="space-y-2">
@@ -420,7 +421,7 @@ export default function ProductDetailPage() {
                                                     <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Manager PIN</Label>
                                                     <Input 
                                                         type="password" 
-                                                        maxLength={4}
+                                                        maxLength={4} 
                                                         placeholder="••••"
                                                         value={vaultPin}
                                                         onChange={e => setVaultPin(e.target.value.replace(/\D/g, ''))}
