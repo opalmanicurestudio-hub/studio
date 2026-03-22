@@ -53,7 +53,8 @@ import {
   Shield,
   Star,
   Landmark,
-  PlusCircle
+  PlusCircle,
+  LayoutGrid
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -64,7 +65,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { cn, safeNumber } from '@/lib/utils';
+import { cn, hexToHSLComponents } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
@@ -176,7 +177,7 @@ const ServicePolicyCard = ({
             policy.mode !== 'inherit' ? "border-primary/20 bg-primary/[0.01]" : "bg-white"
         )}>
             <CardHeader className="p-4 border-b bg-muted/5 flex flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 text-left">
                     <div className="p-2 rounded-lg bg-background border shadow-sm">
                         <Star className="w-3.5 h-3.5 text-primary opacity-40" />
                     </div>
@@ -390,7 +391,7 @@ function SettingsPageImpl() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto space-y-8 md:space-y-10 p-4 md:p-10 pb-32">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
-            <div className="space-y-1">
+            <div className="space-y-1 text-left">
                 <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Settings</h1>
                 <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Studio Orchestration & Governance</p>
             </div>
@@ -425,7 +426,7 @@ function SettingsPageImpl() {
                         <SectionHeader icon={Building} title="Studio Identity" />
                         <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Registry identification and internal labeling.</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-8">
+                    <CardContent className="p-6 md:p-8 space-y-8 text-left">
                         <div className="space-y-3 text-left">
                             <Label htmlFor="studio-name-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Business Label</Label>
                             <Input 
@@ -549,6 +550,26 @@ function SettingsPageImpl() {
                         <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Define studio-wide defaults for late shifts and cancellations.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
+                        <div className="space-y-6 text-left">
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5">
+                                <div className='space-y-1 text-left'>
+                                    <Label htmlFor="tight-scheduling-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2">
+                                        <LayoutGrid className="w-4 h-4" /> Zero-Gap Protocol
+                                    </Label>
+                                    <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left'>Minimize wasted downtime by anchoring guest choice to existing blocks</p>
+                                </div>
+                                <Switch 
+                                    id="tight-scheduling-toggle" 
+                                    checked={!!tenantData.tightSchedulingEnabled} 
+                                    onCheckedChange={(val) => setTenantData(prev => ({...prev, tightSchedulingEnabled: val}))}
+                                    disabled={!isEditing}
+                                    className="scale-125 data-[state=checked]:bg-primary"
+                                />
+                            </div>
+                        </div>
+
+                        <Separator className="border-dashed" />
+
                         <div className="space-y-6">
                             <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary ml-1">Default Recovery Strategy</Label>
                             <Controller
@@ -647,7 +668,7 @@ function SettingsPageImpl() {
                             <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Service-Specific Protocols</h2>
                             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Custom logic guards per treatment unit.</p>
                         </div>
-                        <div className="relative w-full md:w-64">
+                        <div className="relative w-full md:w-64 text-left">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                             <Input 
                                 placeholder="SEARCH MENU..." 

@@ -253,13 +253,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const dayName = format(date, 'eeee').toLowerCase();
     
     let staffMembersToCheck = selectedStaffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === selectedStaffId);
-    
     if (selectedStaffId === 'any' && selectedTierId !== 'any') {
         staffMembersToCheck = staffMembersToCheck.filter(s => s.pricingTierId === selectedTierId);
     }
 
     const options: Set<string> = new Set();
-    
+    const isTightScheduling = !!tenant?.tightSchedulingEnabled;
+    const minServiceDuration = Math.min(...services.filter(s => s.type === 'service' && !s.isPrivate).map(s => s.duration), 30);
+
     staffMembersToCheck.forEach(staffMember => {
         let workingHours;
         const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
@@ -270,19 +271,26 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         if (!workingHours || !workingHours.enabled) return;
         const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
         const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
-        const busyIntervals: { start: Date, end: Date }[] = [];
+        const busyIntervals: { start: Date, end: Date, padBefore: number, padAfter: number }[] = [];
 
-        appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id).forEach(apt => {
+        appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id && apt.status !== 'cancelled').forEach(apt => {
             const aptService = services.find(s => s.id === apt.serviceId);
-            const padBefore = aptService?.padBefore || 0;
-            const padAfter = aptService?.padAfter || 0;
-            busyIntervals.push({ start: addMinutes(apt.startTime, -padBefore), end: addMinutes(apt.endTime, padAfter) });
+            busyIntervals.push({ 
+                start: apt.startTime, 
+                end: apt.endTime, 
+                padBefore: aptService?.padBefore || 0, 
+                padAfter: aptService?.padAfter || 0 
+            });
         });
 
         events.filter(evt => isSameDay(evt.startTime, date) && evt.type === 'blocked' && (!evt.staffId || evt.staffId === 'all' || evt.staffId === staffMember.id)).forEach(evt => {
-            busyIntervals.push({ start: evt.startTime, end: evt.endTime });
+            busyIntervals.push({ start: evt.startTime, end: evt.endTime, padBefore: 0, padAfter: 0 });
         });
 
+        // TIGHT SCHEDULING LOGIC
+        // If tight scheduling is enabled, a slot is only valid if it is "flush" against an existing block
+        // or if the day is empty, it's the start of the day.
+        
         let currentTime = dayStartWithBusinessHours;
         const now = new Date();
         if (isToday(date)) {
@@ -293,20 +301,59 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         }
         
         while (currentTime < dayEndWithBusinessHours) {
-            const potentialEnd = addMinutes(currentTime, service.duration + (service.padBefore || 0) + (service.padAfter || 0));
+            const totalServiceDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
+            const potentialEnd = addMinutes(currentTime, totalServiceDuration);
+            
             if (potentialEnd > dayEndWithBusinessHours) break;
-            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+
+            const isOverlapping = busyIntervals.some((interval) => {
+                const intervalStartWithPad = subMinutes(interval.start, interval.padBefore);
+                const intervalEndWithPad = addMinutes(interval.end, interval.padAfter);
+                return areIntervalsOverlapping(
+                    { start: currentTime, end: potentialEnd }, 
+                    { start: intervalStartWithPad, end: intervalEndWithPad }, 
+                    { inclusive: false }
+                );
+            });
             
             const isStaffActiveForSameDay = !isToday(date) || (staffMember.active && !staffMember.onBreak);
 
             if (!isOverlapping && isStaffActiveForSameDay) {
-                options.add(format(currentTime, 'HH:mm'));
+                if (isTightScheduling) {
+                    // 1. Is it the start of the day? (Morning Anchor)
+                    const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
+                    
+                    // 2. Does it end exactly when another appointment starts?
+                    const endsAtAnotherStart = busyIntervals.some(interval => {
+                        const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
+                        return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
+                    });
+
+                    // 3. Does it start exactly when another appointment ends?
+                    const startsAtAnotherEnd = busyIntervals.some(interval => {
+                        const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
+                        return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
+                    });
+
+                    // 4. "Building Inward" - If the day is empty, only the start of day is available.
+                    // If not empty, only flush slots are available.
+                    const isDayEmpty = busyIntervals.length === 0;
+                    
+                    if ((isDayEmpty && isStartOfDaySlot) || (!isDayEmpty && (startsAtAnotherEnd || endsAtAnotherStart))) {
+                        // Final safety: check if picking this slot creates an unusable tiny gap elsewhere
+                        // (e.g. leaves a 15 min gap between this and next apt where min service is 30)
+                        // This is a refinement to ensure the "Tightness"
+                        options.add(format(currentTime, 'HH:mm'));
+                    }
+                } else {
+                    options.add(format(currentTime, 'HH:mm'));
+                }
             }
             currentTime = addMinutes(currentTime, bookingInterval);
         }
     });
     return Array.from(options).sort();
-}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services]);
+}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services, tenant?.tightSchedulingEnabled]);
 
     const requiredForms = useMemo(() => {
         if (!service || !consentForms) return [];
@@ -468,7 +515,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent 
         side="right" 
-        className={cn(isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-2xl', 'flex flex-col p-0 border-l-0 sm:border-l bg-background overflow-hidden')}
+        className={cn(isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-2xl', 'flex flex-col p-0 border-l-0 sm:border-l bg-background overflow-hidden shadow-2xl')}
         style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}
       >
         <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-8" : "p-8 pb-6")}>
@@ -510,14 +557,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-center">Session Intel</p>
                                 <div className="flex items-start gap-4">
                                     <Calendar className="w-5 h-5 mt-0.5 text-primary opacity-40" />
-                                    <div className="space-y-1">
+                                    <div className="space-y-1 text-left">
                                         <p className="font-black uppercase text-sm">{format(date, 'EEEE, MMM d, yyyy')}</p>
                                         <p className="text-xs font-bold text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</p>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-4 pt-4 border-t border-dashed">
                                     <MapPin className="w-5 h-5 mt-0.5 text-primary opacity-40" />
-                                    <div className="space-y-1">
+                                    <div className="space-y-1 text-left">
                                         <p className="font-black uppercase text-sm">{tenant?.name || 'Studio'}</p>
                                         <p className="text-xs font-medium text-muted-foreground">123 Beauty Lane, Suite 100</p>
                                     </div>
@@ -546,11 +593,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     <div className="flex-1 min-w-0 text-left">
                                         <p className="font-black text-2xl uppercase tracking-tighter leading-none mb-2">{service?.name}</p>
                                         <div className="flex items-center gap-6">
-                                            <div className="flex flex-col">
+                                            <div className="flex flex-col text-left">
                                                 <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Duration</span>
                                                 <span className="text-sm font-bold">{service?.duration} min</span>
                                             </div>
-                                            <div className="flex flex-col">
+                                            <div className="flex flex-col text-left">
                                                 <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Investment</span>
                                                 <span className="text-sm font-black text-primary">{priceRange ? `From $${priceRange.min}` : `$${price?.toFixed(2)}`}</span>
                                             </div>
@@ -574,10 +621,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     {qualifiedStaff.map(s => <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} disabled={!!initialStaffId && s.id !== initialStaffId} />)}
                                 </RadioGroup>
                                 {selectedStaffId === 'any' && availableTiersForService.length > 0 && (
-                                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-10 border-t border-dashed">
-                                        <div className="space-y-1 text-left">
-                                            <h4 className="font-black uppercase tracking-tight text-sm">Tiered Preference</h4>
-                                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Prices vary by professional experience level</p>
+                                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-10 border-t border-dashed text-left">
+                                        <div className="space-y-1">
+                                            <h4 className="font-black uppercase tracking-tight text-sm text-left">Tiered Preference</h4>
+                                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Prices vary by professional experience level</p>
                                         </div>
                                         <RadioGroup value={selectedTierId} onValueChange={setSelectedTierId} className="grid grid-cols-1 gap-3">
                                             <label htmlFor="tier-any" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-lg">
@@ -610,7 +657,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     </h3>
                                     <p className="text-xs font-medium text-muted-foreground">Select a window that fits your schedule.</p>
                                 </div>
-                                <div className="p-8 rounded-[2.5rem] border-2 bg-muted/10 space-y-8 shadow-inner">
+                                <div className="p-8 rounded-[2.5rem] border-2 bg-muted/10 space-y-8 shadow-inner text-center">
                                     <div className="flex items-center justify-between">
                                         <Button variant="outline" size="icon" className="h-10 w-10 rounded-full bg-background shadow-md border-none" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-5 h-5" /></Button>
                                         <span className="font-black uppercase tracking-widest text-sm">{format(weekStart, 'MMMM yyyy')}</span>
@@ -651,17 +698,25 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         {timeSlots.length === 0 && (
                                             <div className="col-span-full text-center py-12 px-6 border-2 border-dashed rounded-3xl">
                                                 <Clock className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                                                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground/60">No Availability for this date</p>
+                                                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground/60">No availability matches your preference</p>
                                             </div>
                                         )}
                                     </div>
+                                    {tenant?.tightSchedulingEnabled && (
+                                        <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 flex items-start gap-3 text-left">
+                                            <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                                            <p className="text-[9px] font-bold text-slate-600 leading-relaxed uppercase tracking-tight">
+                                                Zero-Gap Protocol Active: Available slots are anchored to existing appointments or start of business to maximize studio efficiency.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
                         
                         {currentStep === 'details' && (
                             <FormProvider {...methods}>
-                                <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)} className="space-y-10">
+                                <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)} className="space-y-10 text-left">
                                     <div className="space-y-2 text-left">
                                         <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                             <User className="w-6 h-6 text-primary" />
@@ -669,23 +724,23 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         </h3>
                                         <p className="text-xs font-medium text-muted-foreground">Personalize your visit.</p>
                                     </div>
-                                    <div className="space-y-6 text-left">
+                                    <div className="space-y-6">
                                         <div className="space-y-3">
                                             <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Full Legal Name</Label>
                                             <Input id="name" {...methods.register('clientName')} className="h-14 rounded-2xl border-2 text-lg font-bold shadow-inner" placeholder="Enter your full name" />
                                         </div>
-                                        <div className="space-y-3 text-left">
+                                        <div className="space-y-3">
                                             <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Email for Confirmation</Label>
-                                            <Input id="email" type="email" {...methods.register('clientEmail')} className="h-14 rounded-2xl border-2 text-lg font-bold shadow-inner" placeholder="jane@example.com" />
+                                            <Input id="email" type="email" {...methods.register('clientEmail')} className="h-14 rounded-2xl border-2 font-bold shadow-inner" placeholder="jane@example.com" />
                                         </div>
-                                        <div className="space-y-3 text-left">
+                                        <div className="space-y-3">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile for Alerts</Label>
-                                            <PhoneInput name="clientPhone" label="" className="h-14" />
+                                            <PhoneInput name="clientPhone" label="" className="h-14 kiosk-phone-input" />
                                         </div>
                                     </div>
 
                                     <div className="space-y-4 pt-4 border-t border-dashed">
-                                        <div className="flex items-center gap-3 text-left">
+                                        <div className="flex items-center gap-3">
                                             <FileImage className="w-5 h-5 text-primary" />
                                             <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Visual Inspiration</h3>
                                         </div>
@@ -703,7 +758,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         )}
                                         {bannedClient && (
                                             <motion.div key="banned" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                                                <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-xl border-4 rounded-[2rem] p-6 text-left">
+                                                <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-xl border-4 rounded-[2rem] p-6">
                                                     <Ban className="h-6 w-6" />
                                                     <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Check-in Restricted</AlertTitle>
                                                     <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
@@ -714,7 +769,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         )}
                                         {existingClientWithBalance && !bannedClient && (
                                             <motion.div key="balance" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                                                <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl text-left">
+                                                <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl">
                                                     <Wallet className="h-6 w-6" />
                                                     <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Balance Detected</AlertTitle>
                                                     <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
@@ -729,8 +784,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         )}
 
                         {currentStep === 'consents' && (
-                            <div className="space-y-10">
-                                <div className="space-y-2 text-left">
+                            <div className="space-y-10 text-left">
+                                <div className="space-y-2">
                                     <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                         <FileSignature className="w-6 h-6 text-primary" />
                                         Agreements
@@ -761,8 +816,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         )}
 
                         {currentStep === 'summary' && (
-                             <div className="space-y-8">
-                                <div className="space-y-2 text-left">
+                             <div className="space-y-8 text-left">
+                                <div className="space-y-2">
                                     <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                         <ShieldCheck className="w-6 h-6 text-primary" />
                                         Review
@@ -818,25 +873,25 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         )}
 
                         {currentStep === 'payment' && (
-                            <div className="space-y-8">
-                                <div className="space-y-2 text-left">
+                            <div className="space-y-8 text-left">
+                                <div className="space-y-2">
                                     <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                                         <CreditCard className="w-6 h-6 text-primary" />
                                         Deposit
                                     </h3>
                                     <p className="text-xs font-medium text-muted-foreground">Secure your spot with a partial payment.</p>
                                 </div>
-                                <Card className="border-4 rounded-[3rem] shadow-2xl overflow-hidden">
+                                <Card className="border-4 rounded-[3rem] shadow-2xl overflow-hidden text-left">
                                     <CardHeader className="bg-muted/30 p-10 pb-6 text-center">
                                         <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground mb-2">Required Today</p>
                                         <p className="text-7xl font-black text-primary tracking-tighter">${depositAmount.toFixed(2)}</p>
                                     </CardHeader>
                                     <CardContent className="p-10 space-y-8">
                                         <div className="space-y-4">
-                                            <div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg" /></div>
-                                            <div className="grid grid-cols-2 gap-6"><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
+                                            <div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
+                                            <div className="grid grid-cols-2 gap-6"><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 font-mono text-lg text-center" /></div><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 font-mono text-lg text-center" /></div></div>
                                         </div>
-                                        <div className="flex items-center gap-3 p-4 bg-muted/20 rounded-2xl text-xs text-muted-foreground font-medium italic text-left">
+                                        <div className="flex items-center gap-3 p-4 bg-muted/20 rounded-2xl text-xs text-muted-foreground font-medium italic">
                                             <Lock className="w-4 h-4 shrink-0" />
                                             Your payment information is encrypted and never stored on our servers.
                                         </div>
@@ -851,7 +906,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         </ScrollArea>
         
         {currentStep !== 'confirmation' && (
-            <SheetFooter className="p-4 sm:p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20">
+            <SheetFooter className={cn("p-4 sm:p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-2xl")}>
                 <div className="flex w-full gap-4">
                     {currentStepIndex > 0 && (
                         <Button variant="ghost" onClick={handlePrevStep} className="flex-1 h-12 md:h-20 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">

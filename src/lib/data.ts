@@ -719,6 +719,7 @@ export type Tenant = {
   autoProcessMemberships?: boolean;
   complimentaryAmenityLimit?: number;
   allowGuestFeeDeferral?: boolean;
+  tightSchedulingEnabled?: boolean;
 };
 
 export type Resource = {
