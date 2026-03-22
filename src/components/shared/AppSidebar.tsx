@@ -43,6 +43,7 @@ import {
   Fingerprint,
   Zap,
   Repeat,
+  Coffee,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -228,6 +229,18 @@ export function AppSidebar() {
                     <Link href={tenantId ? `/kiosk/${tenantId}` : '#'} target="_blank">
                       <Fingerprint className="w-5 h-5 text-primary" />
                       <span>Walk-in Kiosk</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    disabled={!tenantId}
+                    className="rounded-xl h-11 font-black uppercase text-[10px] tracking-widest hover:bg-primary/10 transition-all"
+                  >
+                    <Link href={tenantId ? `/concierge/${tenantId}` : '#'} target="_blank">
+                      <Coffee className="w-5 h-5 text-primary" />
+                      <span>Lounge Concierge</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

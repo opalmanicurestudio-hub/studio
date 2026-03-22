@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -127,6 +128,11 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
                                                     <Star className="w-2.5 h-2.5 mr-1 fill-current" /> Perk
                                                 </Badge>
                                             )}
+                                            {request.isGuestKiosk && (
+                                                <Badge className="bg-amber-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase tracking-widest shadow-sm">
+                                                    Lounge Guest
+                                                </Badge>
+                                            )}
                                         </div>
                                     </div>
                                     
@@ -146,9 +152,13 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
                                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex flex-wrap items-center gap-x-2 gap-y-1">
                                         Guest: <span className="text-primary">{request.clientName}</span>
                                         <span className="opacity-40">&middot;</span>
-                                        <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {request.stationName || 'Station'}</span>
-                                        <span className="opacity-40">&middot;</span>
-                                        <span className="flex items-center gap-1"><UserIcon className="w-3 h-3"/> {request.staffName || 'Pro'}</span>
+                                        <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {request.stationName || 'Lounge'}</span>
+                                        {request.staffName && request.staffName !== 'Unassigned' && (
+                                            <>
+                                                <span className="opacity-40">&middot;</span>
+                                                <span className="flex items-center gap-1"><UserIcon className="w-3 h-3"/> {request.staffName}</span>
+                                            </>
+                                        )}
                                         <span className="opacity-40">&middot;</span>
                                         {format(safeDate(request.requestedAt), 'h:mm a')}
                                     </p>
@@ -283,7 +293,7 @@ export default function DashboardPage() {
                   currentStock -= 1;
                   currentSize += sizePerContainer;
               }
-              if (currentStock <= 0 && currentSize < 0) {
+              if (currentStock <= 0 && currentUses < 0) {
                   currentStock = 0;
                   currentSize = 0;
               }
@@ -307,8 +317,8 @@ export default function DashboardPage() {
           }));
       });
 
-      // 3. BIND TO APPOINTMENT
-      if (request.appointmentId) {
+      // 3. BIND TO APPOINTMENT (If exists)
+      if (request.appointmentId && request.appointmentId !== 'guest-walkin') {
           const aptRef = doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`);
           batch.set(aptRef, {
               checkoutState: {
@@ -322,10 +332,26 @@ export default function DashboardPage() {
                   }))
               }
           }, { merge: true });
+      } else if (request.isGuestKiosk && safeNumber(request.priceAtRequest) > 0) {
+          // It's a guest kiosk order with a price. Create a transaction now since there's no appointment to bill later.
+          const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+          batch.set(txnRef, sanitizeForFirestore({
+              id: txnRef.id,
+              date: now,
+              description: `Lounge Guest Sale: ${item.name} (x${qty})`,
+              clientOrVendor: request.clientName,
+              type: 'income',
+              context: 'Business',
+              category: 'Hospitality Revenue',
+              amount: safeNumber(request.priceAtRequest) * qty,
+              paymentMethod: 'Guest Kiosk Entry',
+              hasReceipt: false,
+              tenantId
+          }));
       }
 
       // 4. UPDATE PERK USAGE IN GUEST DOSSIER
-      if (request.isRedemption && request.clientId) {
+      if (request.isRedemption && request.clientId && request.clientId !== 'guest-walkin') {
           const clientRef = doc(firestore, `tenants/${tenantId}/clients`, request.clientId);
           batch.update(clientRef, {
               [`subscription.perkUsage.${request.itemId}`]: increment(qty),
@@ -336,7 +362,7 @@ export default function DashboardPage() {
 
       try {
           await batch.commit();
-          toast({ title: "Delivery Certified", description: `Stock reconciled and dossier updated for ${request.clientName}.` });
+          toast({ title: "Delivery Certified", description: `Stock reconciled and record updated for ${request.clientName}.` });
       } catch (e) {
           console.error("Fulfillment failed:", e);
           toast({ variant: 'destructive', title: "Process Error", description: "Audit synchronization failed." });
