@@ -46,6 +46,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
+import { Separator } from '@/components/ui/separator';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -288,7 +289,7 @@ export default function ConciergeKioskPage() {
 
                                     <form onSubmit={handleIdentify} className="max-w-md mx-auto space-y-8">
                                         <div className="space-y-4 text-left">
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 text-left">
                                                 <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Your Full Name</Label>
                                                 <Input 
                                                     autoFocus
@@ -298,7 +299,7 @@ export default function ConciergeKioskPage() {
                                                     className="h-16 rounded-2xl border-4 font-black uppercase text-xl md:text-2xl tracking-tight shadow-inner focus-visible:ring-primary/20 text-center"
                                                 />
                                             </div>
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 text-left">
                                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile Number (Optional Perk Check)</Label>
                                                 <Input 
                                                     type="tel"
@@ -343,7 +344,7 @@ export default function ConciergeKioskPage() {
                                         </div>
                                     </div>
 
-                                    <ScrollArea className="flex-1">
+                                    <ScrollArea className="flex-1 text-left">
                                         <div className="p-8 space-y-12">
                                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
                                                 {refreshments.map(item => (
