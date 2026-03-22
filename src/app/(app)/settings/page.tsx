@@ -312,6 +312,8 @@ function SettingsPageImpl() {
   const [localInterval, setLocalInterval] = useState<number>(15);
   const [localKioskSchedule, setLocalKioskSchedule] = useState<any>(null);
 
+  const tenantId = selectedTenant?.id;
+
   useEffect(() => {
     if (selectedTenant) {
       setTenantData(selectedTenant);
