@@ -43,7 +43,9 @@ import {
     Info,
     Check,
     User,
-    Delete
+    Delete,
+    Minus,
+    Plus
 } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc, getDocs, writeBatch } from 'firebase/firestore';
@@ -151,7 +153,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
     );
 };
 
-const MenuCard = ({ 
+const FloatingMenuCard = ({ 
     item, 
     onSelect, 
     isMember, 
@@ -180,46 +182,56 @@ const MenuCard = ({
     const Icon = getIcon(item.name);
 
     return (
-        <motion.div whileHover={{ y: -8 }} className="h-full">
-            <Card className={cn(
-                "rounded-[2.5rem] border-2 h-full flex flex-col overflow-hidden transition-all duration-500",
-                isPerk ? "border-primary/30 bg-primary/[0.02]" : "border-border/50 bg-white"
+        <motion.div 
+            whileTap={{ scale: 0.98 }}
+            className="group relative"
+        >
+            <div className={cn(
+                "rounded-[3rem] p-6 flex flex-col gap-6 transition-all duration-700",
+                isPerk ? "bg-indigo-600/10 border-2 border-indigo-500/20 shadow-[0_20px_50px_rgba(79,70,229,0.15)]" : "bg-white/40 backdrop-blur-2xl border-2 border-white/50 shadow-2xl hover:bg-white/60 hover:border-primary/20"
             )}>
-                <div className="relative aspect-square bg-muted/20 overflow-hidden border-b flex items-center justify-center">
+                <div className="relative aspect-square w-full rounded-[2.5rem] overflow-hidden bg-muted/20 flex items-center justify-center group-hover:shadow-2xl transition-all duration-700">
                     {item.imageUrl ? (
-                        <div className="relative w-full h-full">
-                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
-                        </div>
+                        <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-1000 group-hover:scale-110" />
                     ) : (
                         <Icon className="w-16 h-16 text-primary opacity-20" />
                     )}
+                    
                     <div className="absolute top-4 left-4 flex flex-col gap-2">
                         {item.isMembersOnly && <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest h-6 px-3 shadow-xl">Club Exclusive</Badge>}
-                        {isPerk && <Badge className="bg-primary text-white border-none font-black text-[8px] uppercase tracking-widest h-6 px-3 shadow-xl"><Star className="w-3 h-3 mr-1 fill-current"/> Member Perk</Badge>}
+                        {isPerk && <Badge className="bg-primary text-white border-none font-black text-[8px] uppercase tracking-widest h-6 px-3 shadow-xl animate-pulse"><Star className="w-3 h-3 mr-1 fill-current"/> Tier Allotment</Badge>}
                     </div>
+
                     <div className="absolute bottom-4 right-4">
                         <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-4 shadow-xl border border-white/50">
-                            <p className="text-sm font-black text-slate-900 font-mono">
+                            <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">
                                 {isPerk ? 'INCLUDED' : safeNumber(item.price) > 0 ? `$${safeNumber(item.price).toFixed(2)}` : 'COMP'}
                             </p>
                         </div>
                     </div>
                 </div>
-                <CardContent className="p-6 space-y-4 flex-1 flex flex-col justify-between text-left">
-                    <div className="space-y-1.5 text-left">
-                        <h4 className="font-black text-lg uppercase tracking-tight text-slate-900 leading-tight">{item.name}</h4>
-                        {item.description && <p className="text-xs font-medium text-slate-500 italic leading-relaxed">"{item.description}"</p>}
+
+                <div className="space-y-4 px-2">
+                    <div className="space-y-1 text-left">
+                        <h4 className="font-black text-lg md:text-xl uppercase tracking-tighter text-slate-900 leading-none">{item.name}</h4>
+                        {item.description && <p className="text-xs font-medium text-slate-500 italic leading-relaxed opacity-80">"{item.description}"</p>}
                     </div>
-                    <div className="pt-4 border-t border-dashed flex items-center justify-between">
-                        <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-1 px-3 border shadow-inner">
-                            <button onClick={() => setQty(Math.max(1, qty - 1))} className="p-1 hover:text-primary transition-all"><XCircle className="w-4 h-4 rotate-45" /></button>
+
+                    <div className="pt-4 border-t border-dashed border-slate-900/10 flex items-center justify-between">
+                        <div className="flex items-center gap-2 bg-white/40 backdrop-blur-xl rounded-xl p-1 px-2 border border-white/50 shadow-sm">
+                            <button onClick={() => setQty(Math.max(1, qty - 1))} className="p-1.5 hover:text-primary transition-all active:scale-75"><Minus className="w-4 h-4" /></button>
                             <span className="font-black font-mono text-base w-6 text-center">{qty}</span>
-                            <button onClick={() => setQty(qty + 1)} className="p-1 hover:text-primary transition-all"><PlusCircle className="w-4 h-4" /></button>
+                            <button onClick={() => setQty(qty + 1)} className="p-1.5 hover:text-primary transition-all active:scale-75"><Plus className="w-4 h-4" /></button>
                         </div>
-                        <Button onClick={() => onSelect(qty)} className="h-10 px-6 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">Request</Button>
+                        <Button 
+                            onClick={() => onSelect(qty)}
+                            className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-95 transition-all"
+                        >
+                            Request
+                        </Button>
                     </div>
-                </CardContent>
-            </Card>
+                </div>
+            </div>
         </motion.div>
     );
 };
@@ -255,6 +267,16 @@ export default function ConciergeKioskPage() {
             (!i.isMembersOnly || !!identifiedClient?.activeMembershipId)
         )
     , [inventory, identifiedClient]);
+
+    const refreshmentsByCategory = useMemo(() => {
+        const grouped: Record<string, InventoryItem[]> = {};
+        refreshments.forEach(item => {
+            const cat = item.category || 'Curated Selection';
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(item);
+        });
+        return grouped;
+    }, [refreshments]);
 
     const activeMembership = useMemo(() => {
         if (!identifiedClient?.activeMembershipId || !memberships) return null;
@@ -514,42 +536,52 @@ export default function ConciergeKioskPage() {
                                     key="menu" 
                                     initial={{ opacity: 0 }} 
                                     animate={{ opacity: 1 }} 
-                                    className="flex flex-col h-[85dvh] w-full max-w-6xl mx-auto bg-white/90 backdrop-blur-3xl rounded-[3rem] border-4 shadow-3xl overflow-hidden text-left"
+                                    className="w-full max-w-6xl mx-auto flex flex-col gap-12"
                                 >
-                                    <div className="p-8 pb-4 border-b bg-muted/5 flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
-                                        <div className="flex items-center gap-4 text-left">
-                                            <Avatar className="h-14 w-14 border-4 border-white shadow-xl rounded-[1.5rem]">
-                                                <AvatarFallback className="font-black text-xl bg-primary/10 text-primary">{(guestName || 'G')[0]}</AvatarFallback>
-                                            </Avatar>
-                                            <div className="text-left">
-                                                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Boutique Concierge</h3>
-                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 mt-1.5">Table service available throughout the lounge</p>
+                                    <div className="flex flex-col sm:flex-row items-center justify-between gap-6 px-6">
+                                        <div className="flex items-center gap-6 text-left">
+                                            <div className="relative">
+                                                <Avatar className="h-20 w-20 md:h-24 md:w-24 border-4 border-white shadow-2xl rounded-[2.5rem]">
+                                                    <AvatarFallback className="font-black text-2xl md:text-3xl bg-primary/10 text-primary">{(guestName || 'G')[0]}</AvatarFallback>
+                                                </Avatar>
+                                                {identifiedClient && <div className="absolute -top-2 -right-2 bg-indigo-600 text-white p-1.5 rounded-2xl shadow-xl border-4 border-white"><Award className="w-5 h-5" /></div>}
+                                            </div>
+                                            <div className="space-y-1">
+                                                <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Boutique Concierge</h3>
+                                                <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-[0.25em] opacity-60">Curated Menu for {guestName.split(' ')[0]}</p>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            {identifiedClient && <Badge className="bg-indigo-600 text-white border-none font-black text-[9px] h-8 px-4 rounded-xl uppercase tracking-widest shadow-lg"><Star className="w-3 h-3 mr-2 fill-current"/> Club Member</Badge>}
-                                            <Button variant="ghost" size="sm" onClick={() => setStep('identity')} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-400">Not {guestName.split(' ')[0]}?</Button>
+                                        <div className="flex gap-3">
+                                            <Button variant="ghost" onClick={() => setStep('identity')} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-400 hover:text-primary">Not {guestName.split(' ')[0]}?</Button>
                                         </div>
                                     </div>
 
-                                    <ScrollArea className="flex-1 text-left">
-                                        <div className="p-8 space-y-12">
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 text-left">
-                                                {refreshments.map(item => (
-                                                    <MenuCard 
-                                                        key={item.id} 
-                                                        item={item} 
-                                                        onSelect={(qty) => handleRequest(item, qty)}
-                                                        isMember={!!identifiedClient?.activeMembershipId}
-                                                        activeMembership={activeMembership}
-                                                        remainingPerks={identifiedClient ? 10 : 0} 
-                                                    />
-                                                ))}
-                                            </div>
+                                    <ScrollArea className="w-full h-[65dvh]">
+                                        <div className="p-6 space-y-20">
+                                            {Object.entries(refreshmentsByCategory).map(([category, items]) => (
+                                                <section key={category} className="space-y-8">
+                                                    <div className="flex items-center gap-4 px-2">
+                                                        <h4 className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] text-primary/60">{category}</h4>
+                                                        <div className="h-px flex-1 bg-primary/10" />
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                                                        {items.map(item => (
+                                                            <FloatingMenuCard 
+                                                                key={item.id} 
+                                                                item={item} 
+                                                                onSelect={(qty) => handleRequest(item, qty)}
+                                                                isMember={!!identifiedClient}
+                                                                activeMembership={activeMembership}
+                                                                remainingPerks={identifiedClient ? 10 : 0} 
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </section>
+                                            ))}
                                             {refreshments.length === 0 && (
-                                                <div className="py-32 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 mx-auto">
-                                                    <Clock className="w-16 h-16" />
-                                                    <p className="text-xl font-black uppercase tracking-widest">Menu Buffering...</p>
+                                                <div className="py-32 text-center border-4 border-dashed border-slate-900/10 rounded-[4rem] opacity-30 flex flex-col items-center gap-4">
+                                                    <Coffee className="w-16 h-16" />
+                                                    <p className="text-xl font-black uppercase tracking-widest">Menu is currently offline</p>
                                                 </div>
                                             )}
                                         </div>
@@ -559,56 +591,58 @@ export default function ConciergeKioskPage() {
 
                             {step === 'payment' && pendingItem && (
                                 <FloatingContainer key="payment" className="max-w-md text-center">
-                                    <Card className="rounded-[3rem] border-4 shadow-3xl overflow-hidden bg-white">
-                                        <CardHeader className="p-10 border-b bg-muted/5 text-center space-y-2">
-                                            <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-2">
+                                    <div className="rounded-[3rem] border-4 border-white bg-white/60 backdrop-blur-3xl shadow-3xl overflow-hidden text-center">
+                                        <div className="p-10 border-b border-slate-900/5 bg-muted/5 text-center space-y-4">
+                                            <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto">
                                                 <CreditCard className="w-8 h-8 text-primary" />
                                             </div>
-                                            <CardTitle className="text-3xl font-black uppercase tracking-tighter text-center leading-none">Secure Settlement</CardTitle>
-                                            <CardDescription className="text-xs font-bold uppercase tracking-widest text-center">Collecting for: {pendingItem.item.name} (x{pendingItem.qty})</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="p-10 space-y-8 text-center">
-                                            <div className="p-8 rounded-2xl bg-primary/5 border-2 border-primary/10 text-center space-y-2 shadow-inner">
-                                                <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Transaction</p>
-                                                <p className="text-5xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
+                                            <div className="space-y-1">
+                                                <h2 className="text-3xl font-black uppercase tracking-tighter leading-none">Secure Settlement</h2>
+                                                <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">Authorize: {pendingItem.item.name} (x{pendingItem.qty})</p>
+                                            </div>
+                                        </div>
+                                        <div className="p-10 space-y-10">
+                                            <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-2 shadow-inner">
+                                                <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Transaction Total</p>
+                                                <p className="text-6xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
                                             </div>
 
                                             <div className="space-y-6 text-left">
-                                                <div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-muted/5" /></div>
-                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
+                                                <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
+                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
                                             </div>
                                             
-                                            <div className="flex items-center justify-center gap-3 opacity-40">
+                                            <div className="flex items-center justify-center gap-3 opacity-40 pt-4">
                                                 <Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted Secure Tunnel</span>
                                             </div>
-                                        </CardContent>
-                                        <CardFooter className="p-8 pt-0 flex flex-col gap-3">
-                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all mx-auto">
-                                                {isVerifying ? <Loader className="animate-spin" /> : 'Authorize Payment'}
+                                        </div>
+                                        <div className="p-10 pt-0 flex flex-col gap-3">
+                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
+                                                {isVerifying ? <Loader className="animate-spin h-6 w-6" /> : 'Authorize Payment'}
                                             </Button>
-                                            <Button variant="ghost" onClick={() => setStep('menu')} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
-                                        </CardFooter>
-                                    </Card>
+                                            <Button variant="ghost" onClick={() => setStep('menu')} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
+                                        </div>
+                                    </div>
                                 </FloatingContainer>
                             )}
 
                             {step === 'success' && (
-                                <FloatingContainer key="success" className="p-12 md:p-24 text-center space-y-10 mx-auto">
-                                    <div className="w-32 h-32 md:w-48 md:h-48 bg-green-500/10 rounded-[3rem] flex items-center justify-center mx-auto shadow-2xl rotate-6">
+                                <FloatingContainer key="success" className="p-12 md:p-24 text-center space-y-12 mx-auto">
+                                    <div className="w-32 h-32 md:w-48 md:h-48 bg-green-500/10 rounded-[4rem] flex items-center justify-center mx-auto shadow-2xl rotate-6">
                                         <CheckCircle2 className="w-16 h-16 md:w-24 md:h-24 text-green-500 -rotate-6" />
                                     </div>
                                     <div className="space-y-4 text-center">
-                                        <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 text-center">Request Dispatched</h2>
-                                        <p className="text-sm md:text-xl font-medium text-slate-500 leading-relaxed uppercase tracking-widest opacity-80 px-10 text-center">
-                                            Our studio team has been notified. Please make yourself comfortable, we will be with you shortly.
+                                        <h2 className="text-4xl md:text-7xl font-black uppercase tracking-tighter text-slate-900 leading-none">Request Dispatched</h2>
+                                        <p className="text-sm md:text-2xl font-medium text-slate-500 leading-relaxed uppercase tracking-tight opacity-80 px-10">
+                                            Our concierge is preparing your selection. Please relax, we will be with you shortly.
                                         </p>
                                     </div>
                                     <Button 
                                         size="lg" 
                                         onClick={() => setStep('menu')}
-                                        className="h-16 md:h-20 px-12 md:px-20 rounded-[2rem] text-lg md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all mx-auto"
+                                        className="h-20 px-12 md:px-24 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all mx-auto"
                                     >
-                                        Order More
+                                        Complete Experience
                                     </Button>
                                 </FloatingContainer>
                             )}
@@ -619,13 +653,13 @@ export default function ConciergeKioskPage() {
 
             {entered && step !== 'onboarding' && (
                 <footer className="fixed bottom-8 left-0 right-0 z-20 px-8 flex justify-center pointer-events-none">
-                    <div className="bg-white/40 backdrop-blur-xl border-2 border-white/50 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 pointer-events-auto">
-                        <div className="flex items-center gap-2">
-                            <MapPin className="w-3 h-3 text-primary opacity-40" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">{tenant?.name}</span>
+                    <div className="bg-white/40 backdrop-blur-xl border-2 border-white/50 px-8 py-4 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex items-center gap-8 pointer-events-auto ring-1 ring-white/20">
+                        <div className="flex items-center gap-3">
+                            <MapPin className="w-4 h-4 text-primary opacity-40" />
+                            <span className="text-xs font-black uppercase tracking-widest text-slate-900">{tenant?.name}</span>
                         </div>
-                        <Separator orientation="vertical" className="h-4 bg-slate-900/10" />
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.3em]">Boutique Experience Portal</p>
+                        <Separator orientation="vertical" className="h-5 bg-slate-900/10" />
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Boutique Experience Terminal</p>
                     </div>
                 </footer>
             )}
