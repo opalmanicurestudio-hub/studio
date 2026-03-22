@@ -66,7 +66,7 @@ import { type Tenant, type ScheduleProfile, type DayHours, type Service, type Pr
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn, hexToHSLComponents } from '@/lib/utils';
+import { cn, safeNumber, hexToHSLComponents } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
@@ -90,10 +90,10 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
 const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: DayHours, onChange: (day: string, updates: Partial<DayHours>) => void, disabled?: boolean }) => {
     return (
         <div className={cn(
-            "flex flex-col md:flex-row items-center justify-between p-4 md:p-5 rounded-[2rem] border-2 transition-all gap-4",
+            "flex flex-col items-stretch p-4 md:p-5 rounded-[2rem] border-2 transition-all gap-4",
             data.enabled ? "bg-white border-border shadow-sm" : "bg-muted/30 border-transparent opacity-60"
         )}>
-            <div className="flex items-center gap-4 w-full md:w-auto text-left">
+            <div className="flex items-center gap-4 text-left">
                 <Switch 
                     checked={data.enabled} 
                     onCheckedChange={(val) => onChange(day, { enabled: val })} 
@@ -103,9 +103,9 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
             </div>
             
             {data.enabled && (
-                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 w-full md:w-auto">
-                    <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                        <div className="relative flex-1 sm:w-28 md:w-32 text-left">
+                <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="relative flex-1 text-left">
                             <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
                             <Input 
                                 type="text" 
@@ -113,11 +113,11 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                                 onChange={e => onChange(day, { start: e.target.value })}
                                 disabled={disabled}
                                 placeholder="09:00 AM"
-                                className="h-10 pl-8 pr-2 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs bg-background shadow-inner"
+                                className="h-10 pl-8 pr-2 rounded-xl border-2 font-black text-center text-xs bg-background shadow-inner"
                             />
                         </div>
                         <span className="text-muted-foreground opacity-40 font-black text-[9px] uppercase tracking-tighter shrink-0">to</span>
-                        <div className="relative flex-1 sm:w-28 md:w-32 text-left">
+                        <div className="relative flex-1 text-left">
                             <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
                             <Input 
                                 type="text" 
@@ -125,13 +125,12 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                                 onChange={e => onChange(day, { end: e.target.value })}
                                 disabled={disabled}
                                 placeholder="05:00 PM"
-                                className="h-10 pl-8 pr-2 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs bg-background shadow-inner"
+                                className="h-10 pl-8 pr-2 rounded-xl border-2 font-black text-center text-xs bg-background shadow-inner"
                             />
                         </div>
                     </div>
-                    <div className="w-px h-8 bg-border hidden sm:block shrink-0" />
-                    <div className="flex-1 w-full sm:w-40 md:w-48 text-left">
-                        <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1 mb-1 block">Access Tier</Label>
+                    <div className="space-y-1 text-left">
+                        <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Priority Access Tier</Label>
                         <Select 
                             value={data.accessTier || 'all'} 
                             onValueChange={(v: any) => onChange(day, { accessTier: v })}
@@ -143,14 +142,14 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                             <SelectContent className="rounded-xl border-2 shadow-2xl">
                                 <SelectItem value="all" className="font-bold uppercase text-[9px] tracking-widest">ALL GUESTS</SelectItem>
                                 <SelectItem value="returning" className="font-bold uppercase text-[9px] tracking-widest">RETURNING ONLY</SelectItem>
-                                <SelectItem value="members" className="font-bold uppercase text-[9px] tracking-widest">MEMBERS ONLY</SelectItem>
+                                <SelectItem value="members" className="font-bold uppercase text-[9px] tracking-widest">MEMBERS & PACKS</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
                 </div>
             )}
             {!data.enabled && (
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-40">Closed</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 text-left">Closed for Bookings</p>
             )}
         </div>
     );
@@ -402,12 +401,12 @@ function SettingsPageImpl() {
   }, [services, serviceSearch]);
 
   const tabs = [
-    { value: "profile", label: "Profile", icon: <Building className="w-4 h-4" /> },
-    { value: "hours", label: "Hours", icon: <Clock className="w-4 h-4" /> },
-    { value: "experience", label: "Experience", icon: <Coffee className="w-4 h-4" /> },
-    { value: "policies", label: "Policies", icon: <FileText className="w-4 h-4" /> },
-    { value: "builder", label: "Builder", icon: <Globe className="w-4 h-4" /> },
-    { value: "kiosk", label: "Kiosk", icon: <Fingerprint className="w-4 h-4" /> },
+    { value: "profile", label: "Studio Identity", icon: <Building className="w-4 h-4" /> },
+    { value: "hours", label: "Operating Window", icon: <Clock className="w-4 h-4" /> },
+    { value: "experience", label: "Hospitality & Connectivity", icon: <Coffee className="w-4 h-4" /> },
+    { value: "policies", label: "Operational Protocols", icon: <ShieldCheck className="w-4 h-4" /> },
+    { value: "builder", label: "Booking Architecture", icon: <Globe className="w-4 h-4" /> },
+    { value: "kiosk", label: "Kiosk Orchestration", icon: <Fingerprint className="w-4 h-4" /> },
   ];
 
   if (isTenantContextLoading || isInventoryLoading) return <div className="p-8 flex items-center justify-center h-full"><Loader className="animate-spin text-primary" /></div>;
@@ -434,19 +433,26 @@ function SettingsPageImpl() {
             </div>
           </div>
           
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-             <ScrollArea className="w-full">
-                <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner mb-8 flex w-max gap-1.5 overflow-x-auto scrollbar-hide">
+          <div className="space-y-4 mb-10">
+            <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground ml-1 opacity-60">Configuration Module</Label>
+            <Select value={activeTab} onValueChange={setActiveTab}>
+                <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-white">
+                    <SelectValue placeholder="Select Module" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl border-2 shadow-2xl">
                     {tabs.map(tab => (
-                    <TabsTrigger key={tab.value} value={tab.value} className="rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest px-4 md:px-6 h-10 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md transition-all text-left shrink-0">
-                        {React.cloneElement(tab.icon as React.ReactElement, { className: "mr-2 hidden sm:block" })}
-                        {tab.label}
-                    </TabsTrigger>
+                        <SelectItem key={tab.value} value={tab.value} className="font-bold uppercase text-[10px] tracking-widest py-3">
+                            <div className="flex items-center gap-2">
+                                {tab.icon}
+                                {tab.label}
+                            </div>
+                        </SelectItem>
                     ))}
-                </TabsList>
-                <ScrollBar orientation="horizontal" className="hidden" />
-             </ScrollArea>
+                </SelectContent>
+            </Select>
+          </div>
 
+          <Tabs value={activeTab} className="w-full">
             <TabsContent value="profile" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
