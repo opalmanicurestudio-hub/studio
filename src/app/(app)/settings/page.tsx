@@ -597,6 +597,22 @@ function SettingsPageImpl() {
                                     className="scale-125 data-[state=checked]:bg-primary"
                                 />
                             </div>
+
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-xl shadow-indigo-500/5">
+                                <div className='space-y-1 text-left'>
+                                    <Label htmlFor="morning-anchor-toggle" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
+                                        <Clock className="w-4 h-4" /> Morning Anchor Protocol
+                                    </Label>
+                                    <p className='text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest opacity-60 text-left'>The first appointment of an empty day must start at business opening time</p>
+                                </div>
+                                <Switch 
+                                    id="morning-anchor-toggle" 
+                                    checked={!!tenantData.morningAnchorEnabled} 
+                                    onCheckedChange={(val) => setTenantData(prev => ({...prev, morningAnchorEnabled: val}))}
+                                    disabled={!isEditing}
+                                    className="scale-125 data-[state=checked]:bg-indigo-600"
+                                />
+                            </div>
                         </div>
 
                         <Separator className="border-dashed" />

@@ -211,6 +211,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
     const options: Set<string> = new Set();
     const isTightScheduling = !!selectedTenant?.tightSchedulingEnabled && !showAllSlots;
+    const isMorningAnchor = !!selectedTenant?.morningAnchorEnabled && !showAllSlots;
 
     staffToAudit.forEach(staffMember => {
         let workingHours;
@@ -259,21 +260,33 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             });
 
             if (!isOverlapping && (watchOverride || (!isToday(watchDate) || (staffMember.active && !staffMember.onBreak)))) {
-                if (isTightScheduling) {
-                    const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
-                    const startsAtAnotherEnd = busyIntervals.some(interval => {
-                        const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
-                        return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
-                    });
-                    const endsAtAnotherStart = busyIntervals.some(interval => {
-                        const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
-                        return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
-                    });
-                    const isDayEmpty = busyIntervals.length === 0;
-                    if ((isDayEmpty && isStartOfDaySlot) || (!isDayEmpty && (startsAtAnotherEnd || endsAtAnotherStart))) {
-                        options.add(format(currentTime, 'HH:mm'));
+                const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
+                const isDayEmpty = busyIntervals.length === 0;
+
+                let allowed = true;
+
+                if (!watchOverride) {
+                    if (isMorningAnchor && isDayEmpty && !isStartOfDaySlot) {
+                        allowed = false;
                     }
-                } else {
+
+                    if (allowed && isTightScheduling && !isDayEmpty) {
+                        const startsAtAnotherEnd = busyIntervals.some(interval => {
+                            const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
+                            return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
+                        });
+                        const endsAtAnotherStart = busyIntervals.some(interval => {
+                            const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
+                            return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
+                        });
+                        
+                        if (!isStartOfDaySlot && !startsAtAnotherEnd && !endsAtAnotherStart) {
+                            allowed = false;
+                        }
+                    }
+                }
+
+                if (allowed) {
                     options.add(format(currentTime, 'HH:mm'));
                 }
             }

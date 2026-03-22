@@ -720,6 +720,7 @@ export type Tenant = {
   complimentaryAmenityLimit?: number;
   allowGuestFeeDeferral?: boolean;
   tightSchedulingEnabled?: boolean;
+  morningAnchorEnabled?: boolean;
 };
 
 export type Resource = {

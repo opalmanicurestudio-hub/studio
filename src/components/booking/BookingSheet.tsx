@@ -261,6 +261,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     const options: Set<string> = new Set();
     const isTightScheduling = !!tenant?.tightSchedulingEnabled;
+    const isMorningAnchor = !!tenant?.morningAnchorEnabled;
 
     staffMembersToCheck.forEach(staffMember => {
         let workingHours;
@@ -316,10 +317,18 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             const isStaffActiveForSameDay = !isToday(date) || (staffMember.active && !staffMember.onBreak);
 
             if (!isOverlapping && isStaffActiveForSameDay) {
-                if (isTightScheduling) {
-                    const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
-                    
-                    // Logic: Slot is flush if it starts at start of day OR exactly when a previous one ends OR ends exactly when a next one starts
+                const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
+                const isDayEmpty = busyIntervals.length === 0;
+
+                let allowed = true;
+
+                // Rule 1: Morning Anchor
+                if (isMorningAnchor && isDayEmpty && !isStartOfDaySlot) {
+                    allowed = false;
+                }
+
+                // Rule 2: Adjacency (Tight Scheduling)
+                if (allowed && isTightScheduling && !isDayEmpty) {
                     const startsAtAnotherEnd = busyIntervals.some(interval => {
                         const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
                         return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
@@ -328,11 +337,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
                         return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
                     });
-                    const isDayEmpty = busyIntervals.length === 0;
-                    if ((isDayEmpty && isStartOfDaySlot) || (!isDayEmpty && (startsAtAnotherEnd || endsAtAnotherStart))) {
-                        options.add(format(currentTime, 'HH:mm'));
+                    
+                    if (!isStartOfDaySlot && !startsAtAnotherEnd && !endsAtAnotherStart) {
+                        allowed = false;
                     }
-                } else {
+                }
+
+                if (allowed) {
                     options.add(format(currentTime, 'HH:mm'));
                 }
             }
@@ -340,7 +351,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         }
     });
     return Array.from(options).sort();
-}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services, tenant?.tightSchedulingEnabled]);
+}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services, tenant]);
 
     const requiredForms = useMemo(() => {
         if (!service || !consentForms) return [];

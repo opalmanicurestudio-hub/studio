@@ -30,6 +30,8 @@
         "cancellationFee": { "type": "number" },
         "cancellationWindowHours": { "type": "number" },
         "defaultCancellationMode": { "type": "string", "enum": ["matrix", "flat"] },
+        "tightSchedulingEnabled": { "type": "boolean", "default": false },
+        "morningAnchorEnabled": { "type": "boolean", "default": false },
         "bookingPageSettings": { "type": "object" },
         "kioskSettings": { "type": "object" }
       },
