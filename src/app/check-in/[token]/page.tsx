@@ -38,6 +38,7 @@ import {
     Headphones,
     Moon,
     VolumeX,
+    Ear,
     SunDim,
     Gamepad2,
     Trash2,
@@ -87,12 +88,12 @@ const ViewContainer = ({ children }: { children: React.ReactNode }) => (
 );
 
 const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
-    <CardHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left">
+    <CardHeader className="p-5 md:p-8 pb-4 border-b bg-muted/5 text-left">
         <div className="flex items-center gap-3 mb-2">
             {Icon ? <Icon className="w-4 h-4 md:w-5 md:h-5 text-primary" /> : <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />}
             <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
         </div>
-        <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
+        <CardTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
     </CardHeader>
 );
@@ -161,13 +162,13 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
             <CardContent className="p-0">
                 <AnimatePresence mode="wait">
                     {!submitted ? (
-                        <motion.div key="review-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 space-y-10">
+                        <motion.div key="review-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6 md:p-8 space-y-8 md:space-y-10">
                             <div className="text-center space-y-4">
-                                <div className="w-20 h-20 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
-                                    <Heart className="w-10 h-10 text-primary -rotate-6" />
+                                <div className="w-16 h-16 md:w-20 md:h-20 bg-primary/10 rounded-[2rem] md:rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
+                                    <Heart className="w-8 h-8 md:w-10 md:h-10 text-primary -rotate-6" />
                                 </div>
                                 <div className="space-y-1 text-center">
-                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">How was it?</h3>
+                                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">How was it?</h3>
                                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Help us refine our technical protocol</p>
                                 </div>
                             </div>
@@ -178,54 +179,54 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
                                         key={star} 
                                         onClick={() => setRating(star)}
                                         className={cn(
-                                            "p-2 transition-all active:scale-90",
+                                            "p-1.5 md:p-2 transition-all active:scale-90",
                                             rating >= star ? "text-amber-400" : "text-muted-foreground opacity-20 hover:opacity-40"
                                         )}
                                     >
-                                        <Star className={cn("w-10 h-10 md:w-12 md:h-12", rating >= star && "fill-current")} />
+                                        <Star className={cn("w-8 h-8 md:w-12 md:h-12", rating >= star && "fill-current")} />
                                     </button>
                                 ))}
                             </div>
 
                             <div className="space-y-3 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Share your Story</Label>
+                                <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Share your Story</Label>
                                 <Textarea 
                                     placeholder="Write a few words about your session..." 
                                     value={reviewText}
                                     onChange={e => setReviewText(e.target.value)}
-                                    className="rounded-[2rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed min-h-[120px]"
+                                    className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 p-4 md:p-6 font-medium leading-relaxed min-h-[100px]"
                                 />
                             </div>
 
                             <Button 
                                 onClick={handleReviewSubmit} 
                                 disabled={rating === 0 || isSubmitting}
-                                className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group"
+                                className="w-full h-14 md:h-16 rounded-[1.5rem] md:rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group"
                             >
-                                {isSubmitting ? <Loader className="animate-spin" /> : <>Submit Feedback <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" /></>}
+                                {isSubmitting ? <Loader className="animate-spin" /> : <>Submit Feedback <ArrowRight className="ml-2 w-4 h-4 md:w-5 md:h-5 transition-transform group-hover:translate-x-1" /></>}
                             </Button>
                         </motion.div>
                     ) : (
-                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-8">
-                            <div className="w-20 h-20 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
-                                <CheckCircle2 className="w-10 h-10 text-green-500" />
+                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-10 md:p-12 text-center space-y-8">
+                            <div className="w-16 h-16 md:w-20 md:h-20 bg-green-500/10 rounded-[2rem] md:rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
+                                <CheckCircle2 className="w-8 h-8 md:w-10 md:h-10 text-green-500" />
                             </div>
                             <div className="space-y-2 text-center">
-                                <h3 className="text-2xl font-black uppercase tracking-tighter text-center">Feedback Certified</h3>
-                                <p className="text-sm font-medium text-slate-500 uppercase tracking-tight max-w-xs mx-auto text-center">Your review has been added to our studio archive. See you next time!</p>
+                                <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-center">Feedback Certified</h3>
+                                <p className="text-[11px] md:text-sm font-medium text-slate-500 uppercase tracking-tight max-w-xs mx-auto text-center">Your review has been added to our studio archive. See you next time!</p>
                             </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
 
-                <div className="p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6">
+                <div className="p-6 md:p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
+                        <Button asChild variant="outline" className="h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
                             <Link href={`/book/${tenant?.id}`}>
                                 <Repeat className="w-4 h-4 mr-2" /> Book Again
                             </Link>
                         </Button>
-                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
+                        <Button asChild variant="outline" className="h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
                             <Link href={`/portal/${tenant?.id}/${client?.id}`}>
                                 <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
                                 My Portal
@@ -279,10 +280,10 @@ const RefreshmentCard = ({
     return (
         <motion.div
             whileTap={{ scale: 0.98 }}
-            className="shrink-0 w-64 md:w-72 h-full py-4 text-left"
+            className="shrink-0 w-[240px] md:w-72 h-full py-4 text-left"
         >
             <Card className={cn(
-                "rounded-[2.5rem] border-2 transition-all h-full flex flex-col overflow-hidden bg-white shadow-lg",
+                "rounded-[2rem] md:rounded-[2.5rem] border-2 transition-all h-full flex flex-col overflow-hidden bg-white shadow-lg",
                 (isSoldOut || hasPendingRequest) ? "opacity-40" : "border-primary/5 hover:border-primary/30",
                 isPerkAvailableNow && "border-indigo-500/20 ring-1 ring-indigo-500/10",
                 item.isMembersOnly && "border-indigo-500/30"
@@ -293,61 +294,61 @@ const RefreshmentCard = ({
                             <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
                         </div>
                     ) : (
-                        <Icon className="w-16 h-16 text-primary opacity-20" />
+                        <Icon className="w-12 h-12 md:w-16 md:h-16 text-primary opacity-20" />
                     )}
                     
-                    <div className="absolute top-4 left-4 flex flex-col gap-2">
+                    <div className="absolute top-3 md:top-4 left-3 md:left-4 flex flex-col gap-1.5">
                         {item.isMembersOnly && (
-                            <Badge className="bg-indigo-600 text-white border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl">
-                                <Award className="w-3 h-3 mr-1.5" /> Club Only
+                            <Badge className="bg-indigo-600 text-white border-none text-[7px] md:text-[8px] font-black uppercase tracking-[0.2em] h-5 md:h-6 px-2 md:px-3 shadow-xl">
+                                <Award className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1" /> Club Only
                             </Badge>
                         )}
                         {isPerkDefinition && (
                             <Badge className={cn(
-                                "border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl",
+                                "border-none text-[7px] md:text-[8px] font-black uppercase tracking-[0.2em] h-5 md:h-6 px-2 md:px-3 shadow-xl",
                                 remainingPerkUses > 0 ? "bg-primary text-white" : "bg-muted text-muted-foreground opacity-60"
                             )}>
-                                <Star className={cn("w-3 h-3 mr-1.5", remainingPerkUses > 0 && "fill-current")} /> 
-                                {remainingPerkUses > 0 ? `Perk: ${remainingPerkUses} left` : "Perks Exhausted"}
+                                <Star className={cn("w-2.5 h-2.5 md:w-3 md:h-3 mr-1", remainingPerkUses > 0 && "fill-current")} /> 
+                                {remainingPerkUses > 0 ? `Perk: ${remainingPerkUses} left` : "Exhausted"}
                             </Badge>
                         )}
                     </div>
 
-                    <div className="absolute bottom-4 right-4">
-                        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
+                    <div className="absolute bottom-3 md:bottom-4 right-3 md:right-4">
+                        <div className="bg-white/90 backdrop-blur-md rounded-xl md:rounded-2xl p-1.5 md:p-2 px-2.5 md:px-3 shadow-xl border border-white/50">
                             {isPerkAvailableNow ? (
-                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
+                                <p className="text-[8px] md:text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
                             ) : safeNumber(item.price) > 0 ? (
-                                <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${safeNumber(item.price).toFixed(2)}</p>
+                                <p className="text-xs md:text-sm font-black text-slate-900 font-mono tracking-tighter">${safeNumber(item.price).toFixed(2)}</p>
                             ) : (
-                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Comp</p>
+                                <p className="text-[8px] md:text-[10px] font-black text-green-600 uppercase tracking-widest">Comp</p>
                             )}
                         </div>
                     </div>
                 </div>
 
-                <CardContent className="p-6 flex-1 flex flex-col justify-between space-y-4 text-left">
-                    <div className="space-y-2">
-                        <h4 className="font-black text-lg uppercase tracking-tight text-slate-900 leading-none">{item.name}</h4>
+                <CardContent className="p-4 md:p-6 flex-1 flex flex-col justify-between space-y-3 md:space-y-4 text-left">
+                    <div className="space-y-1.5">
+                        <h4 className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 leading-tight truncate">{item.name}</h4>
                         {item.description && (
-                            <p className="text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-2 italic">
+                            <p className="text-[10px] md:text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-2 italic">
                                 "{item.description}"
                             </p>
                         )}
                     </div>
 
-                    <div className="pt-4 border-t border-dashed space-y-4">
+                    <div className="pt-3 md:pt-4 border-t border-dashed space-y-3 md:space-y-4">
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-1 px-3 h-10 border shadow-inner">
-                                <button onClick={() => onQtyChange(-1)} disabled={isSoldOut || hasPendingRequest} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-4 h-4" /></button>
-                                <span className="font-black font-mono text-base w-6 text-center">{qty}</span>
-                                <button onClick={() => onQtyChange(1)} disabled={isSoldOut || hasPendingRequest} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Plus className="w-4 h-4" /></button>
+                            <div className="flex items-center gap-2 md:gap-3 bg-muted/50 rounded-lg md:rounded-xl p-1 px-2 md:px-3 h-8 md:h-10 border shadow-inner">
+                                <button onClick={() => onQtyChange(-1)} disabled={isSoldOut || hasPendingRequest} className="p-0.5 md:p-1 hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-3 h-3 md:w-4 md:h-4" /></button>
+                                <span className="font-black font-mono text-sm md:text-base w-4 md:w-6 text-center">{qty}</span>
+                                <button onClick={() => onQtyChange(1)} disabled={isSoldOut || hasPendingRequest} className="p-0.5 md:p-1 hover:text-primary transition-colors disabled:opacity-20"><Plus className="w-3 h-3 md:w-4 md:h-4" /></button>
                             </div>
                             <Button 
                                 size="sm" 
                                 disabled={isRequesting || hasPendingRequest || isSoldOut}
                                 onClick={onRequest}
-                                className="h-10 px-6 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-95"
+                                className="h-8 md:h-10 px-4 md:px-6 rounded-lg md:rounded-xl font-black uppercase text-[9px] md:text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-95"
                             >
                                 {hasPendingRequest ? 'Pending' : isSoldOut ? 'Void' : 'Order'}
                             </Button>
@@ -522,16 +523,16 @@ const ConciergeExperienceView = ({
                 subtitle={isWaiting ? "Make yourself at home" : "Your session is active"} 
                 icon={isWaiting ? Sofa : Clock} 
             />
-            <CardContent className="p-0 space-y-12">
-                <div className="p-8 text-center space-y-6 bg-primary/5 border-b-2 border-primary/10 shadow-inner">
-                    <div className="w-20 h-20 bg-white rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
-                        {isWaiting ? <Sofa className="w-10 h-10 text-primary -rotate-6" /> : <Activity className="w-10 h-10 text-primary -rotate-6" />}
+            <CardContent className="p-0 space-y-8 md:space-y-12">
+                <div className="p-6 md:p-8 text-center space-y-4 md:space-y-6 bg-primary/5 border-b-2 border-primary/10 shadow-inner">
+                    <div className="w-16 h-16 md:w-20 md:h-20 bg-white rounded-[2rem] md:rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
+                        {isWaiting ? <Sofa className="w-8 h-8 md:w-10 md:h-10 text-primary -rotate-6" /> : <Activity className="w-8 h-8 md:w-10 md:h-10 text-primary -rotate-6" />}
                     </div>
-                    <div className="space-y-2">
-                        <p className="font-black text-2xl uppercase tracking-tighter text-slate-900">
+                    <div className="space-y-1">
+                        <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none">
                             {isWaiting ? "While You Wait" : "Enjoy the Flow"}
                         </p>
-                        <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-widest opacity-60">
+                        <p className="text-[9px] md:text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-widest opacity-60">
                             {isWaiting 
                                 ? "Select an amenity below and we'll bring it to you." 
                                 : `Service in progress at ${stationName}`
@@ -540,26 +541,26 @@ const ConciergeExperienceView = ({
                     </div>
                 </div>
 
-                <div className="space-y-16 py-8">
+                <div className="space-y-12 md:space-y-16 py-4 md:py-8">
                     {hasActiveRequest && (
-                        <div className="px-8 space-y-4">
-                            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Active Request Ledger</h3>
-                            <div className="grid gap-3">
+                        <div className="px-5 md:px-8 space-y-4">
+                            <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary">Active Request Ledger</h3>
+                            <div className="grid gap-2 md:gap-3">
                                 {pendingRequestsForThisSession.map(req => (
-                                    <div key={req.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-primary/5 border-primary/10 animate-pulse">
+                                    <div key={req.id} className="flex items-center justify-between p-3 md:p-4 rounded-2xl border-2 bg-primary/5 border-primary/10 animate-pulse">
                                         <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-white rounded-xl shadow-inner"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
+                                            <div className="p-1.5 md:p-2 bg-white rounded-lg shadow-inner"><Loader className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary animate-spin" /></div>
                                             <div className="text-left">
-                                                <p className="text-xs font-black uppercase text-slate-900">{req.itemName}</p>
+                                                <p className="text-[11px] md:text-xs font-black uppercase text-slate-900 leading-none mb-1">{req.itemName}</p>
                                                 <div className="flex items-center gap-2">
-                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Qty: {safeNumber(req.quantity || 1)}</p>
+                                                    <p className="text-[7px] md:text-[8px] font-bold text-primary/60 uppercase">Qty: {safeNumber(req.quantity || 1)}</p>
                                                     {req.isRedemption && <Badge className="bg-primary text-white border-none text-[6px] h-3 px-1 font-black uppercase">Club Perk</Badge>}
                                                 </div>
                                             </div>
                                         </div>
                                         <button 
                                             onClick={() => handleCancelRequest(req.id)}
-                                            className="h-8 px-3 rounded-lg font-black uppercase text-[9px] tracking-widest text-destructive hover:bg-destructive/10"
+                                            className="h-7 md:h-8 px-3 rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-widest text-destructive hover:bg-destructive/10"
                                         >
                                             Recall
                                         </button>
@@ -574,25 +575,20 @@ const ConciergeExperienceView = ({
                         const isComfort = category === 'Comfort & Environment';
                         
                         return (
-                            <section key={category} className="space-y-6">
-                                <div className="flex items-center justify-between px-8">
+                            <section key={category} className="space-y-4 md:space-y-6">
+                                <div className="flex items-center justify-between px-5 md:px-8">
                                     <h3 className={cn(
-                                        "text-xs md:text-sm font-black uppercase tracking-[0.3em]",
+                                        "text-[10px] md:text-sm font-black uppercase tracking-[0.3em]",
                                         isExclusive ? "text-indigo-600" : isComfort ? "text-primary" : "text-muted-foreground opacity-40"
                                     )}>
-                                        {isExclusive && <Award className="inline-block w-4 h-4 mr-2 -mt-1" />}
-                                        {isComfort && <Zap className="inline-block w-4 h-4 mr-2 -mt-1" />}
+                                        {isExclusive && <Award className="inline-block w-3.5 h-3.5 md:w-4 md:h-4 mr-2 -mt-1" />}
+                                        {isComfort && <Zap className="inline-block w-3.5 h-3.5 md:w-4 md:h-4 mr-2 -mt-1" />}
                                         {category}
                                     </h3>
-                                    <div className="flex gap-1">
-                                        <div className="w-1 h-1 rounded-full bg-border" />
-                                        <div className="w-1 h-1 rounded-full bg-border" />
-                                        <div className="w-1 h-1 rounded-full bg-border" />
-                                    </div>
                                 </div>
 
                                 <ScrollArea className="w-full">
-                                    <div className="flex gap-6 px-8 pb-6">
+                                    <div className="flex gap-4 md:gap-6 px-5 md:px-8 pb-6">
                                         {items.map((item, idx) => {
                                             const hasPendingRequest = pendingRequestsForThisSession.some(r => r.itemId === item.id);
                                             return (
@@ -627,25 +623,25 @@ const ConciergeExperienceView = ({
                     })}
                 </div>
 
-                <div className="p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-8">
+                <div className="p-6 md:p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6 md:space-y-8">
                     {tenant?.wifiNetwork && (
-                        <div className="p-6 rounded-[2rem] border-2 bg-white shadow-xl flex items-center justify-between gap-6">
-                            <div className="flex items-center gap-4 text-left">
-                                <div className="p-3 bg-primary/10 rounded-2xl text-primary shadow-inner shrink-0">
-                                    <Wifi className="w-6 h-6" />
+                        <div className="p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 bg-white shadow-xl flex items-center justify-between gap-4 md:gap-6">
+                            <div className="flex items-center gap-3 md:gap-4 text-left">
+                                <div className="p-2 md:p-3 bg-primary/10 rounded-xl text-primary shadow-inner shrink-0">
+                                    <Wifi className="w-5 h-5 md:w-6 md:h-6" />
                                 </div>
                                 <div className="text-left">
-                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-40">Private WiFi</p>
-                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900">{tenant.wifiNetwork}</p>
+                                    <p className="text-[8px] md:text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-40">Private WiFi</p>
+                                    <p className="font-black text-[11px] md:text-sm uppercase tracking-tight text-slate-900 truncate max-w-[120px] md:max-w-none">{tenant.wifiNetwork}</p>
                                 </div>
                             </div>
                             <div className="text-right shrink-0">
-                                <Badge variant="outline" className="font-mono font-black text-xs h-10 px-4 border-2 shadow-sm rounded-xl select-all">{tenant.wifiPassword}</Badge>
+                                <Badge variant="outline" className="font-mono font-black text-[10px] md:text-xs h-8 md:h-10 px-3 md:px-4 border-2 shadow-sm rounded-lg md:rounded-xl select-all">{tenant.wifiPassword}</Badge>
                             </div>
                         </div>
                     )}
-                    <div className="pt-4 text-center">
-                        <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                    <div className="pt-2 md:pt-4 text-center">
+                        <Button asChild variant="outline" className="w-full h-12 md:h-14 rounded-xl md:rounded-2xl border-2 font-black uppercase text-[9px] md:text-[10px] tracking-widest bg-white shadow-sm">
                             <Link href={`/portal/${tenant?.id}/${client?.id}`}>
                                 <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
                                 Access Main Studio Portal
@@ -760,7 +756,6 @@ export default function CheckInPage() {
         );
     }
     
-    // NEW: Lounge Experience for Arrived or Servicing guests
     if (appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing') {
         return (
             <ConciergeExperienceView 
@@ -780,38 +775,38 @@ export default function CheckInPage() {
     return (
         <ViewContainer>
             <ViewHeader title="Portal Ready" subtitle="Manage your session" icon={Fingerprint} />
-            <CardContent className="p-8 text-center space-y-8">
-                <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
-                    <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
+            <CardContent className="p-6 md:p-8 text-center space-y-8">
+                <div className="p-6 md:p-8 rounded-[2rem] md:rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
+                    <CalendarIcon className="w-10 h-10 md:w-12 md:h-12 text-primary mx-auto opacity-40" />
                     <div className="space-y-1">
                         <p className="text-[10px] font-black uppercase text-primary tracking-widest">Current Booking</p>
-                        <h3 className="text-xl font-black uppercase text-slate-900">{service?.name}</h3>
-                        <p className="text-xs font-bold text-muted-foreground uppercase">{format(safeDate(appointmentData?.startTime), 'EEEE, MMM d @ h:mm a')}</p>
+                        <h3 className="text-lg md:text-xl font-black uppercase text-slate-900">{service?.name}</h3>
+                        <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase">{format(safeDate(appointmentData?.startTime), 'EEEE, MMM d @ h:mm a')}</p>
                     </div>
                 </div>
 
                 <div className="space-y-6">
-                    <p className="text-sm font-medium text-slate-500 leading-relaxed px-4">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please certify your arrival status below.</p>
+                    <p className="text-[13px] md:text-sm font-medium text-slate-500 leading-relaxed px-4">Welcome, <strong>{client?.name}</strong>! Your session is scheduled for today. Please certify your arrival status below.</p>
                     
                     <div className="grid gap-3">
                         <Button 
                             onClick={() => updateStatus('arrived')} 
-                            className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-tight shadow-3xl shadow-primary/30 group"
+                            className="w-full h-14 md:h-16 rounded-[1.5rem] md:rounded-[2rem] text-base md:text-lg font-black uppercase tracking-tight shadow-3xl shadow-primary/30 group"
                         >
-                            I Have Arrived <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
+                            I Have Arrived <ArrowRight className="ml-2 w-4 h-4 md:w-5 md:h-5 transition-transform group-hover:translate-x-1" />
                         </Button>
                         <div className="grid grid-cols-2 gap-3">
                             <Button 
                                 variant="outline" 
                                 onClick={() => updateStatus('on_my_way')} 
-                                className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"
+                                className="h-12 md:h-14 rounded-xl md:rounded-2xl border-2 font-black uppercase text-[9px] md:text-[10px] tracking-widest bg-white shadow-sm"
                             >
                                 <Car className="w-4 h-4 mr-2 text-primary" /> En Route
                             </Button>
                             <Button 
                                 variant="outline" 
                                 onClick={() => updateStatus('running_late', 15)} 
-                                className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"
+                                className="h-12 md:h-14 rounded-xl md:rounded-2xl border-2 font-black uppercase text-[9px] md:text-[10px] tracking-widest bg-white shadow-sm"
                             >
                                 <AlertTriangle className="w-4 h-4 mr-2 text-amber-500" /> Late
                             </Button>
@@ -819,21 +814,21 @@ export default function CheckInPage() {
                     </div>
 
                     {assignedStaff && (
-                        <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
-                            <Avatar className="h-12 h-12 border-2 border-background shadow-xl rounded-[1.5rem] shrink-0">
+                        <div className="flex items-center gap-4 p-4 rounded-xl md:rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
+                            <Avatar className="h-10 w-10 md:h-12 md:w-12 border-2 border-background shadow-xl rounded-lg md:rounded-[1.5rem] shrink-0">
                                 <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
-                                <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
+                                <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
                             </Avatar>
                             <div className="text-left flex-1 min-w-0">
-                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1 text-left">Your Professional</p>
-                                <p className="font-black text-sm uppercase text-slate-800 leading-none truncate text-left">{assignedStaff.name}</p>
+                                <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1 text-left">Your Professional</p>
+                                <p className="font-black text-xs md:text-sm uppercase text-slate-800 leading-none truncate text-left">{assignedStaff.name}</p>
                             </div>
                         </div>
                     )}
                 </div>
                 
-                <div className="pt-6 border-t border-dashed">
-                    <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                <div className="pt-4 md:pt-6 border-t border-dashed">
+                    <Button asChild variant="outline" className="w-full h-12 md:h-14 rounded-xl md:rounded-2xl border-2 font-black uppercase text-[9px] md:text-[10px] tracking-widest bg-white shadow-sm">
                         <Link href={`/portal/${tenantId}/${clientId}`}>
                             <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
                             Access Main Studio Portal
