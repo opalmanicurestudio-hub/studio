@@ -61,7 +61,8 @@ import {
     Lock,
     User,
     Building,
-    Landmark
+    Landmark,
+    ImageIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
@@ -113,6 +114,7 @@ const editProductSchema = z.object({
   manufacturerPhone: z.string().optional(),
   manufacturingSop: z.string().optional(),
   labelTemplateUrl: z.string().optional(),
+  labelImageUrl: z.string().optional(),
   moq: z.coerce.number().optional(),
   leadTimeDays: z.coerce.number().optional(),
 });
@@ -397,7 +399,7 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                     </Card>
 
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><Landmark className="w-4 h-4 text-primary" /> Wholesale Matrix</CardTitle></CardHeader>
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><Landmark className="w-4 h-4 text-primary" /> Wholesale Matrix</CardTitle></CardHeader>
                         <CardContent className="p-6 md:p-8 space-y-5 text-left">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Min. Order (MOQ)</Label><Input type="number" placeholder="50" {...register('moq')} className="h-11 rounded-xl border-2 font-bold" /></div>
@@ -405,6 +407,12 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                             </div>
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shop / Reorder URL</Label><Input placeholder="https://supplier.com/order/..." {...register('purchaseLink')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Label Design Source (URL)</Label><Input placeholder="Cloud design link..." {...register('labelTemplateUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1 flex items-center gap-2">
+                                    <ImageIcon className="w-3 h-3 opacity-40" /> Direct Label Visual
+                                </Label>
+                                <Controller name="labelImageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
@@ -489,6 +497,7 @@ export const EditProductDialog: React.FC<{
             manufacturerPhone: product.manufacturerPhone || '',
             manufacturingSop: product.manufacturingSop || '',
             labelTemplateUrl: product.labelTemplateUrl || '',
+            labelImageUrl: product.labelImageUrl || '',
             moq: product.moq || 0,
             leadTimeDays: product.leadTimeDays || 0,
         });
@@ -519,15 +528,15 @@ export const EditProductDialog: React.FC<{
     <FormProvider {...methods}>
       <form id={`edit-product-form-${product.id}`} onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-3 mb-2 text-left">
             <Edit className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Refinement</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Refinement</span>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Modify Asset Record</DialogTitle>
-          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Refining record ID: {product.id.slice(-6).toUpperCase()}</DialogDescription>
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Modify Asset Record</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Refining record ID: {product.id.slice(-6).toUpperCase()}</DialogDescription>
           <div className="pt-6"><Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" /></div>
         </DialogHeader>
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 text-left">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
                 {step === 2 && <Step2 />}

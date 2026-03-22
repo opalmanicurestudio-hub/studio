@@ -6,18 +6,18 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
   SheetDescription,
   SheetFooter,
+  SheetHeader,
+  SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,7 +65,8 @@ import {
     Phone,
     Link as LinkIcon,
     FileText,
-    Landmark
+    Landmark,
+    ImageIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -114,6 +115,7 @@ const productSchema = z.object({
   manufacturerPhone: z.string().optional(),
   manufacturingSop: z.string().optional(),
   labelTemplateUrl: z.string().optional(),
+  labelImageUrl: z.string().optional(),
   moq: z.coerce.number().optional(),
   leadTimeDays: z.coerce.number().optional(),
 });
@@ -410,6 +412,12 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
                             </div>
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shop / Reorder URL</Label><Input placeholder="https://supplier.com/order/..." {...register('purchaseLink')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Label Design Source (URL)</Label><Input placeholder="Cloud link to design files..." {...register('labelTemplateUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1 flex items-center gap-2">
+                                    <ImageIcon className="w-3 h-3 opacity-40" /> Direct Label Visual
+                                </Label>
+                                <Controller name="labelImageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
@@ -522,6 +530,7 @@ export const AddProductDialog: React.FC<{
         manufacturerPhone: data.manufacturerPhone,
         manufacturingSop: data.manufacturingSop,
         labelTemplateUrl: data.labelTemplateUrl,
+        labelImageUrl: data.labelImageUrl,
         moq: data.moq,
         leadTimeDays: data.leadTimeDays,
         batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock || 0, costPerUnit: costPerUnit, receivedDate: new Date().toISOString(), expirationDate: data.expirationDate?.toISOString() }],

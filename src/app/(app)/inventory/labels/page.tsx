@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, Suspense } from 'react';
@@ -16,7 +15,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowLeft, Printer, Download, Search, Sheet, ChevronsUpDown } from 'lucide-react';
+import { ArrowLeft, Printer, Download, Search, Sheet, ChevronsUpDown, ImageIcon, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem } from '@/lib/data';
@@ -32,6 +31,7 @@ interface LabelContentOptions {
   showPrice: boolean;
   showQRCode: boolean;
   showSKU: boolean;
+  useCustomImage: boolean;
 }
 
 const CustomizationSidebar = ({
@@ -58,92 +58,98 @@ const CustomizationSidebar = ({
   );
 
   return (
-    <Card className="lg:sticky top-24">
-      <CardHeader>
-        <CardTitle>Customize Labels</CardTitle>
-        <CardDescription>Select products, content, and print format.</CardDescription>
+    <Card className="lg:sticky top-24 border-2 rounded-[2rem] overflow-hidden shadow-sm bg-white">
+      <CardHeader className="bg-muted/5 border-b p-6">
+        <CardTitle className="text-sm font-black uppercase tracking-widest">Customize Labels</CardTitle>
+        <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Select products, content, and print format.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-2">
+      <CardContent className="p-6 space-y-8">
+        <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <Label>Print Format</Label>
-                 <div className="flex items-center space-x-2">
-                    <Sheet className="h-4 w-4" />
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Print Format</Label>
+                 <div className="flex items-center space-x-3">
+                    <Sheet className="h-4 w-4 text-muted-foreground opacity-40" />
                     <Switch
                         checked={printMode === 'single'}
                         onCheckedChange={(checked) => onPrintModeChange(checked ? 'single' : 'sheet')}
                     />
-                    <ChevronsUpDown className="h-4 w-4" />
+                    <ChevronsUpDown className="h-4 w-4 text-primary" />
                  </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-                Toggle for {printMode === 'sheet' ? 'Full Sheet (Avery 5160)' : 'Single Label (Thermal)'}.
-            </p>
+            <div className="p-3 rounded-xl bg-muted/20 border-2 border-dashed text-[10px] font-bold uppercase text-slate-600 leading-relaxed">
+                Mode: {printMode === 'sheet' ? 'Full Sheet (Avery 5160)' : 'Single Label (Thermal)'}.
+            </div>
         </div>
 
 
-        <div className="space-y-2">
-          <Label>Products</Label>
+        <div className="space-y-4">
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Registry</Label>
           <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
             <Input 
-              placeholder="Search products..." 
-              className="pl-8" 
+              placeholder="SEARCH ASSETS..." 
+              className="pl-9 h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner" 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <ScrollArea className="h-48 border rounded-md p-2">
-             {filteredProducts.map(product => (
-                <div key={product.id} className="flex items-center space-x-2 p-1.5 rounded-md hover:bg-muted">
-                  <Checkbox 
-                    id={`product-${product.id}`} 
-                    checked={selectedProducts.has(product.id)}
-                    onCheckedChange={() => onProductSelect(product.id)}
-                    disabled={printMode === 'single' && selectedProducts.size > 0 && !selectedProducts.has(product.id)}
-                  />
-                  <Label htmlFor={`product-${product.id}`} className="text-sm font-normal flex-1 cursor-pointer">
-                    {product.name}
-                  </Label>
-                </div>
-              ))}
+          <ScrollArea className="h-48 border-2 rounded-2xl p-2 bg-background">
+             <div className="space-y-1.5">
+                {filteredProducts.map(product => (
+                    <div key={product.id} className="flex items-center space-x-3 p-2 rounded-xl hover:bg-primary/5 transition-all">
+                    <Checkbox 
+                        id={`product-${product.id}`} 
+                        checked={selectedProducts.has(product.id)}
+                        onCheckedChange={() => onProductSelect(product.id)}
+                        disabled={printMode === 'single' && selectedProducts.size > 0 && !selectedProducts.has(product.id)}
+                        className="h-5 w-5 rounded-md border-2"
+                    />
+                    <Label htmlFor={`product-${product.id}`} className="text-[11px] font-black uppercase tracking-tight flex-1 cursor-pointer truncate">
+                        {product.name}
+                    </Label>
+                    </div>
+                ))}
+             </div>
           </ScrollArea>
         </div>
-        <div className="space-y-4">
-          <Label>Label Content</Label>
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="show-product-name" 
-                checked={labelContent.showProductName}
-                onCheckedChange={(checked) => onLabelContentChange({...labelContent, showProductName: !!checked})}
-              />
-              <Label htmlFor="show-product-name">Show Product Name</Label>
+
+        <div className="space-y-6">
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Label Architecture</SectionHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-primary/5 border-primary/10 shadow-inner">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white rounded-lg shadow-sm"><ImageIcon className="w-4 h-4 text-primary" /></div>
+                    <Label htmlFor="use-custom-img" className="text-[11px] font-black uppercase tracking-tight cursor-pointer">Use Master Label Image</Label>
+                </div>
+                <Switch 
+                    id="use-custom-img" 
+                    checked={labelContent.useCustomImage}
+                    onCheckedChange={(checked) => onLabelContentChange({...labelContent, useCustomImage: checked})}
+                />
             </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="show-price" 
-                checked={labelContent.showPrice}
-                onCheckedChange={(checked) => onLabelContentChange({...labelContent, showPrice: !!checked})}
-              />
-              <Label htmlFor="show-price">Show Price</Label>
-            </div>
-             <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="show-sku" 
-                checked={labelContent.showSKU}
-                onCheckedChange={(checked) => onLabelContentChange({...labelContent, showSKU: !!checked})}
-              />
-              <Label htmlFor="show-sku">Show SKU / Barcode</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="show-qr-code" 
-                checked={labelContent.showQRCode}
-                onCheckedChange={(checked) => onLabelContentChange({...labelContent, showQRCode: !!checked})}
-              />
-              <Label htmlFor="show-qr-code">Show QR Code</Label>
-            </div>
+
+            <AnimatePresence>
+                {!labelContent.useCustomImage && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-3 overflow-hidden">
+                        {[
+                            { id: 'show-product-name', label: 'Display Name', field: 'showProductName' },
+                            { id: 'show-price', label: 'Display Price', field: 'showPrice' },
+                            { id: 'show-sku', label: 'Display SKU', field: 'showSKU' },
+                            { id: 'show-qr-code', label: 'Display QR', field: 'showQRCode' },
+                        ].map((opt) => (
+                            <div key={opt.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-background">
+                                <Label htmlFor={opt.id} className="text-[10px] font-black uppercase tracking-widest text-slate-600">{opt.label}</Label>
+                                <Checkbox 
+                                    id={opt.id} 
+                                    checked={(labelContent as any)[opt.field]}
+                                    onCheckedChange={(checked) => onLabelContentChange({...labelContent, [opt.field]: !!checked})}
+                                    className="h-5 w-5 rounded-md border-2"
+                                />
+                            </div>
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
           </div>
         </div>
       </CardContent>
@@ -153,16 +159,23 @@ const CustomizationSidebar = ({
 
 const GeneratedLabel = ({ product, options }: { product: InventoryItem, options: LabelContentOptions }) => {
     const price = useMemo(() => {
-        const retailBatch = product.batches.find(b => b.costPerUnit > 0);
-        return retailBatch ? retailBatch.costPerUnit * 1.5 : undefined; // Mocked-up MSRP for demo
+        return product.msrp || product.price || (product.costPerUnit ? product.costPerUnit * 1.5 : 0);
     }, [product]);
 
+    if (options.useCustomImage && product.labelImageUrl) {
+        return (
+            <div className="relative w-full h-full p-1 border border-dashed border-gray-400 bg-white">
+                <Image src={product.labelImageUrl} alt="Custom Label" fill className="object-contain" unoptimized />
+            </div>
+        )
+    }
+
     return (
-        <div className="p-1 border border-dashed border-gray-400 text-center flex flex-col items-center justify-around break-words h-full">
+        <div className="p-1 border border-dashed border-gray-400 text-center flex flex-col items-center justify-around break-words h-full bg-white">
             <div className="leading-tight space-y-0.5">
-                {options.showProductName && <p className="font-bold text-[8px]">{product.name}</p>}
-                {options.showPrice && price && <p className="font-mono text-[7px]">${price.toFixed(2)}</p>}
-                {options.showSKU && <p className="font-mono text-[6px]">SKU: {product.id.slice(-6)}</p>}
+                {options.showProductName && <p className="font-bold text-[8px] uppercase">{product.name}</p>}
+                {options.showPrice && price > 0 && <p className="font-mono text-[7px] font-black">${price.toFixed(2)}</p>}
+                {options.showSKU && <p className="font-mono text-[6px]">SKU: {product.sku || product.id.slice(-6).toUpperCase()}</p>}
             </div>
             {options.showQRCode && (
                  <div className="flex-shrink-0">
@@ -181,16 +194,23 @@ const GeneratedLabel = ({ product, options }: { product: InventoryItem, options:
 
 const SingleLabel = ({ product, options }: { product: InventoryItem, options: LabelContentOptions }) => {
     const price = useMemo(() => {
-        const retailBatch = product.batches.find(b => b.costPerUnit > 0);
-        return retailBatch ? retailBatch.costPerUnit * 1.5 : undefined;
+        return product.msrp || product.price || (product.costPerUnit ? product.costPerUnit * 1.5 : 0);
     }, [product]);
 
+    if (options.useCustomImage && product.labelImageUrl) {
+        return (
+            <div className="relative w-full h-full p-2 bg-white">
+                <Image src={product.labelImageUrl} alt="Custom Label" fill className="object-contain" unoptimized />
+            </div>
+        )
+    }
+
     return (
-        <div className="text-center flex flex-col items-center justify-around h-full w-full break-words text-black">
+        <div className="text-center flex flex-col items-center justify-around h-full w-full break-words text-black bg-white">
             <div className="leading-tight space-y-1">
-                {options.showProductName && <p className="font-bold text-[10px]">{product.name}</p>}
-                {options.showPrice && price && <p className="font-mono text-[10px]">${price.toFixed(2)}</p>}
-                {options.showSKU && <p className="font-mono text-[8px]">SKU: {product.id.slice(-6)}</p>}
+                {options.showProductName && <p className="font-black uppercase text-[10px] tracking-tight">{product.name}</p>}
+                {options.showPrice && price > 0 && <p className="font-mono text-[10px] font-black">${price.toFixed(2)}</p>}
+                {options.showSKU && <p className="font-mono text-[8px]">SKU: {product.sku || product.id.slice(-6).toUpperCase()}</p>}
             </div>
             {options.showQRCode && (
                 <div className="flex-shrink-0">
@@ -241,27 +261,28 @@ const PrintPreview = ({
   
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Sheet Preview</CardTitle>
-        <CardDescription>Real-time preview of a standard label sheet.</CardDescription>
+    <Card className="border-4 rounded-[3rem] overflow-hidden shadow-2xl bg-white">
+      <CardHeader className="bg-muted/5 border-b p-6 text-left">
+        <CardTitle className="text-base font-black uppercase tracking-widest">Protocol Preview</CardTitle>
+        <CardDescription className="text-[10px] font-bold uppercase opacity-60">Real-time rendering of technical collateral.</CardDescription>
       </CardHeader>
-      <CardContent className="bg-muted/50 rounded-md p-4">
+      <CardContent className="bg-muted/30 p-4 sm:p-10 flex flex-col items-center">
         {selectedProducts.length > 0 ? (
             printMode === 'sheet' ? (
-                <div id="label-sheet" className="grid grid-cols-3 grid-rows-10 gap-x-2 gap-y-0 p-4 bg-white shadow-lg aspect-[8.5/11]">
+                <div id="label-sheet" className="grid grid-cols-3 grid-rows-10 gap-x-2 gap-y-0 p-4 bg-white shadow-2xl aspect-[8.5/11] border border-border w-full max-w-[600px]">
                     {labelsToRender.map((product, index) => (
                         product ? <GeneratedLabel key={`${product.id}-${index}`} product={product} options={labelContent} /> : <div key={index} className="border border-dashed border-gray-400"></div>
                     ))}
                 </div>
             ) : (
-                <div id="single-label-preview" className="bg-white shadow-lg mx-auto" style={{ width: '2.25in', height: '1.25in', padding: '0.1in' }}>
+                <div id="single-label-preview" className="bg-white shadow-2xl mx-auto border-2 rounded-xl flex items-center justify-center" style={{ width: '2.25in', height: '1.25in', padding: '0.1in' }}>
                    {labelsToRender[0] && <SingleLabel product={labelsToRender[0]} options={labelContent} />}
                 </div>
             )
         ) : (
-             <div className="h-[600px] flex items-center justify-center">
-                <p className="text-muted-foreground">Select a product to see a preview.</p>
+             <div className="h-[600px] w-full flex flex-col items-center justify-center border-4 border-dashed rounded-[3rem] opacity-30 gap-4">
+                <Sparkles className="w-16 h-16 text-muted-foreground" />
+                <p className="font-black uppercase tracking-widest text-sm">Select Assets to Render</p>
             </div>
         )}
       </CardContent>
@@ -284,6 +305,7 @@ function LabelPageContent() {
     showPrice: true,
     showQRCode: true,
     showSKU: false,
+    useCustomImage: !!initialProductId, // Default to custom image if coming from product detail
   });
   
   const [printMode, setPrintMode] = useState<'sheet' | 'single'>(initialProductId ? 'single' : 'sheet');
@@ -320,8 +342,8 @@ function LabelPageContent() {
     if (selectedProducts.size === 0) {
         toast({
             variant: 'destructive',
-            title: "No Products Selected",
-            description: "Please select at least one product to print labels for."
+            title: "Registry Empty",
+            description: "Select at least one asset to initialize printing protocol."
         });
         return;
     }
@@ -329,31 +351,34 @@ function LabelPageContent() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Print Labels" />
-      <main className="flex-1 p-4 md:p-8" id="main-content">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-            <div className="flex items-center gap-4">
-              <Button variant="outline" asChild className="print:hidden">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+      <AppHeader title="Registry Collateral" />
+      <main className="flex-1 p-4 md:p-10" id="main-content">
+        <div className="max-w-7xl mx-auto space-y-10">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div className="flex items-center gap-4 text-left">
+              <Button variant="outline" asChild className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm print:hidden">
                 <Link href="/inventory">
                   <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back to Inventory
+                  Return
                 </Link>
               </Button>
-              <h1 className="text-3xl font-bold">Print Labels</h1>
+              <div className="space-y-1">
+                <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Print Station</h1>
+                <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 print:hidden">Physical asset identifier generator</p>
+              </div>
             </div>
-            <div className="flex items-center gap-2 print:hidden">
-              <Button variant="outline">
-                <Download className="mr-2 h-4 w-4" /> Download PDF
+            <div className="flex items-center gap-3 print:hidden w-full sm:w-auto">
+              <Button variant="outline" className="flex-1 sm:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                <Download className="mr-2 h-4 w-4 opacity-40" /> PDF Manifest
               </Button>
-              <Button onClick={handlePrint}>
-                <Printer className="mr-2 h-4 w-4" /> Print Labels
+              <Button onClick={handlePrint} className="flex-1 sm:flex-none h-14 px-10 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20">
+                <Printer className="mr-2 h-4 w-4" /> Finalize Print
               </Button>
             </div>
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-8 items-start">
+          <div className="grid lg:grid-cols-3 gap-10 items-start">
             <div className="lg:col-span-1 print:hidden">
               <CustomizationSidebar
                 products={allProducts}
@@ -407,7 +432,6 @@ function LabelPageContent() {
             page: thermal;
         }
       `}</style>
-       {/* Assign a class to the container based on print mode for targeted print styles */}
        <div className={cn('label-print-area', printMode === 'single' ? 'thermal-print' : 'sheet-print')}>
            <div className="hidden">
              <PrintPreview products={allProducts} selectedProductIds={selectedProducts} labelContent={labelContent} printMode={printMode} />
@@ -419,12 +443,8 @@ function LabelPageContent() {
 
 export default function LabelPage() {
     return (
-        <Suspense fallback={<div>Loading...</div>}>
+        <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader className="animate-spin text-primary h-8 w-8" /></div>}>
             <LabelPageContent />
         </Suspense>
     );
 }
-
-
-
-

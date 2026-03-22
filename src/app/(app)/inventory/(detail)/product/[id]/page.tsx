@@ -49,7 +49,8 @@ import {
     User,
     Mail,
     Phone,
-    Link as LinkIcon
+    Link as LinkIcon,
+    ImageIcon
 } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -217,12 +218,12 @@ export default function ProductDetailPage() {
     return (
         <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
             <AppHeader title="Product Dossier" />
-            <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0">
+            <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0 text-left">
                 
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
                     <div className="space-y-1 text-left">
-                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Product Record</h1>
-                        <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Asset definition & usage matrix</p>
+                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Product Record</h1>
+                        <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Asset definition & usage matrix</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                         <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Link href="/inventory" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link></Button>
@@ -243,7 +244,7 @@ export default function ProductDetailPage() {
                         </div>
                         <div className="space-y-4 flex-1 min-w-0 text-left">
                             <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4 text-left">
-                                <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 truncate leading-none">{product.name}</h2>
+                                <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 truncate leading-none text-left">{product.name}</h2>
                                 <div className="flex gap-2">
                                     <Badge variant="outline" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase tracking-widest border-2">{product.category}</Badge>
                                     <Badge variant="secondary" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase border-none bg-primary/10 text-primary">{product.type}</Badge>
@@ -257,18 +258,18 @@ export default function ProductDetailPage() {
                             
                             <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2 text-left">
                                 <div className="space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified SKU</p>
-                                    <p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary">{product.sku || product.id.slice(-6).toUpperCase()}</p>
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Verified SKU</p>
+                                    <p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary text-left">{product.sku || product.id.slice(-6).toUpperCase()}</p>
                                 </div>
                                 <div className="space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Vendor Origin</p>
-                                    <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700">{product.supplier || 'Private Stock'}</p>
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Vendor Origin</p>
+                                    <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700 text-left">{product.supplier || 'Private Stock'}</p>
                                 </div>
                             </div>
 
                             {product.description && (
                                 <div className="pt-4 space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Operational Context</p>
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Operational Context</p>
                                     <p className="text-xs md:text-sm font-medium text-slate-600 leading-relaxed italic border-l-4 border-primary/20 pl-4 text-left">
                                         "{product.description}"
                                     </p>
@@ -297,21 +298,21 @@ export default function ProductDetailPage() {
                 </Card>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
+                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
                         <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Package className="w-3 h-3"/>Full Stock</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">{product.totalStock}</p></CardContent>
+                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono text-left">{product.totalStock}</p></CardContent>
                     </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
+                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
                         <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><DollarSign className="w-3 h-3"/>Stock Value</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">${stockValue.toFixed(2)}</p></CardContent>
+                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono text-left">${stockValue.toFixed(2)}</p></CardContent>
                     </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
+                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
                         <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><AlertCircle className="w-3 h-3"/>Threshold</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">{product.reorderPoint || '—'}</p></CardContent>
+                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono text-left">{product.reorderPoint || '—'}</p></CardContent>
                     </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
+                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
                         <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Calculator className="w-3 h-3"/>Landed / Unit</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">${(product.costPerUnit || 0).toFixed(2)}</p></CardContent>
+                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono text-left">${(product.costPerUnit || 0).toFixed(2)}</p></CardContent>
                     </Card>
                 </div>
 
@@ -332,7 +333,7 @@ export default function ProductDetailPage() {
                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                                     <Input placeholder="SEARCH LEDGER BY GUEST OR TECH..." className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner" value={ledgerSearchTerm} onChange={(e) => setLedgerSearchTerm(e.target.value)} />
                                 </div>
-                                <div className="space-y-3">
+                                <div className="space-y-3 text-left">
                                     {filteredLedger.length > 0 ? filteredLedger.map((correction: any) => (
                                         <div key={correction.id} className="flex flex-col sm:flex-row items-center justify-between p-5 rounded-[1.5rem] bg-white border-2 border-border/50 hover:border-primary/20 transition-all gap-4 text-left shadow-sm">
                                             <div className="flex items-center gap-4 w-full sm:w-auto text-left">
@@ -341,10 +342,10 @@ export default function ProductDetailPage() {
                                                 </div>
                                                 <div className="min-w-0 text-left">
                                                     <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate text-left">{correction.displayReason}</p>
-                                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60 mt-0.5">{format(safeDate(correction.date), 'MMM d, yyyy @ h:mm a')}</p>
+                                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60 mt-0.5 text-left">{format(safeDate(correction.date), 'MMM d, yyyy @ h:mm a')}</p>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-6 justify-between sm:justify-end w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-none border-dashed border-border/50">
+                                            <div className="flex items-center gap-6 justify-between sm:justify-end w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-none border-dashed border-border/50 text-left">
                                                 <div className="text-right">
                                                     <p className={cn("font-black font-mono text-sm tracking-tighter leading-none", correction.change > 0 ? "text-green-600" : "text-destructive")}>
                                                         {correction.change > 0 ? '+' : ''}{correction.change} {correction.unit}
@@ -355,16 +356,16 @@ export default function ProductDetailPage() {
                                                         </p>
                                                     )}
                                                 </div>
-                                                <div className="text-right bg-primary/[0.03] p-2.5 rounded-xl border border-primary/5 shadow-inner">
-                                                    <p className="font-black font-mono text-[11px] tracking-tighter text-primary leading-none">
+                                                <div className="text-right bg-primary/[0.03] p-2.5 rounded-xl border border-primary/5 shadow-inner text-left">
+                                                    <p className="font-black font-mono text-[11px] tracking-tighter text-primary leading-none text-right">
                                                         {correction.stockAfter}u {product.costingMethod === 'uses' ? `+ ${correction.partialAfter}${product.useUnit || 'u'}` : product.costingMethod === 'size' ? `+ ${correction.partialAfter}${product.unit || 'ml'}` : ''}
                                                     </p>
-                                                    <p className="text-[8px] font-black uppercase text-primary/40 mt-1">Net Stock</p>
+                                                    <p className="text-[8px] font-black uppercase text-primary/40 mt-1 text-right">Net Stock</p>
                                                 </div>
                                             </div>
                                         </div>
                                     )) : (
-                                        <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                        <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
                                             <Book className="w-12 h-12" />
                                             <p className="text-[10px] font-black uppercase tracking-widest text-center">No entries found</p>
                                         </div>
@@ -373,25 +374,25 @@ export default function ProductDetailPage() {
                             </TabsContent>
 
                             <TabsContent value="manufacturing" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
-                                <section className="space-y-6">
+                                <section className="space-y-6 text-left">
                                     <div className="flex items-center gap-3 px-1 text-left">
                                         <ShieldCheck className="w-5 h-5 text-primary" />
-                                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Institutional Knowledge Vault</h3>
+                                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Institutional Knowledge Vault</h3>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
                                         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
                                             <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><Building className="w-4 h-4 opacity-40"/> Manufacturer Matrix</CardTitle></CardHeader>
                                             <CardContent className="p-6 space-y-6 text-left">
-                                                <div className="space-y-4">
-                                                    <div className="space-y-1">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Company Identity</p>
-                                                        <p className="text-base font-black uppercase tracking-tight text-slate-900">{product.manufacturerName || 'Private Label Registry'}</p>
+                                                <div className="space-y-4 text-left">
+                                                    <div className="space-y-1 text-left">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Company Identity</p>
+                                                        <p className="text-base font-black uppercase tracking-tight text-slate-900 text-left">{product.manufacturerName || 'Private Label Registry'}</p>
                                                     </div>
-                                                    <div className="space-y-1">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Primary Account Contact</p>
-                                                        <p className="text-sm font-bold uppercase text-slate-700">{product.manufacturerContactName || 'No contact on file'}</p>
+                                                    <div className="space-y-1 text-left">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Primary Account Contact</p>
+                                                        <p className="text-sm font-bold uppercase text-slate-700 text-left">{product.manufacturerContactName || 'No contact on file'}</p>
                                                     </div>
-                                                    <div className="pt-4 border-t border-dashed space-y-3">
+                                                    <div className="pt-4 border-t border-dashed space-y-3 text-left">
                                                         {product.manufacturerEmail && (
                                                             <a href={`mailto:${product.manufacturerEmail}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
                                                                 <Mail className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
@@ -410,21 +411,21 @@ export default function ProductDetailPage() {
                                         </Card>
 
                                         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
-                                            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><Landmark className="w-4 h-4 opacity-40"/> Procurement Protocols</CardTitle></CardHeader>
+                                            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Landmark className="w-4 h-4 opacity-40"/> Procurement Protocols</CardTitle></CardHeader>
                                             <CardContent className="p-6 space-y-6 text-left">
-                                                <div className="grid grid-cols-2 gap-4">
+                                                <div className="grid grid-cols-2 gap-4 text-left">
                                                     <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1">Min. Order (MOQ)</p>
-                                                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{product.moq || 'None'}</p>
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1 text-left">Min. Order (MOQ)</p>
+                                                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900 text-left">{product.moq || 'None'}</p>
                                                     </div>
                                                     <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1">Lead Time</p>
-                                                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{product.leadTimeDays || '—'} <span className='text-[10px]'>Days</span></p>
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1 text-left">Lead Time</p>
+                                                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900 text-left">{product.leadTimeDays || '—'} <span className='text-[10px]'>Days</span></p>
                                                     </div>
                                                 </div>
-                                                <div className="pt-4 border-t border-dashed space-y-4">
-                                                    <div className="space-y-2">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Order Portal</p>
+                                                <div className="pt-4 border-t border-dashed space-y-4 text-left">
+                                                    <div className="space-y-2 text-left">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Order Portal</p>
                                                         {product.supplierUrl ? (
                                                             <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
                                                                 <a href={product.supplierUrl} target="_blank" rel="noopener noreferrer">
@@ -433,13 +434,13 @@ export default function ProductDetailPage() {
                                                                 </a>
                                                             </Button>
                                                         ) : (
-                                                            <div className="p-4 rounded-xl border-2 border-dashed opacity-40 text-center">
+                                                            <div className="p-4 rounded-xl border-2 border-dashed opacity-40 text-center text-left">
                                                                 <p className="text-[10px] font-bold uppercase tracking-widest">No shop URL archived</p>
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <div className="space-y-2">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Brand Assets</p>
+                                                    <div className="space-y-2 text-left">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Brand Assets</p>
                                                         {product.labelTemplateUrl ? (
                                                             <a href={product.labelTemplateUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all group">
                                                                 <div className="flex items-center gap-3">
@@ -449,7 +450,7 @@ export default function ProductDetailPage() {
                                                                 <LinkIcon className="w-4 h-4 text-primary opacity-40 group-hover:translate-x-1 transition-transform" />
                                                             </a>
                                                         ) : (
-                                                            <div className="p-4 rounded-2xl border-2 border-dashed border-border flex items-center gap-3 opacity-40">
+                                                            <div className="p-4 rounded-2xl border-2 border-dashed border-border flex items-center gap-3 opacity-40 text-left">
                                                                 <FileText className="w-5 h-5 text-muted-foreground" />
                                                                 <span className="text-[10px] font-black uppercase tracking-widest">No labels archived</span>
                                                             </div>
@@ -460,9 +461,34 @@ export default function ProductDetailPage() {
                                         </Card>
                                     </div>
 
+                                    {product.labelImageUrl && (
+                                        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                            <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-row items-center justify-between">
+                                                <div className="space-y-1 text-left">
+                                                    <CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left">
+                                                        <ImageIcon className="w-4 h-4 text-primary opacity-40" />
+                                                        Verified Brand Label
+                                                    </CardTitle>
+                                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Master asset for print production.</p>
+                                                </div>
+                                                <Button variant="outline" size="sm" asChild className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white">
+                                                    <Link href={`/inventory/labels?product=${product.id}`}>
+                                                        <Printer className="w-3.5 h-3.5 mr-2" />
+                                                        Print Custom Label
+                                                    </Link>
+                                                </Button>
+                                            </CardHeader>
+                                            <CardContent className="p-6 md:p-10 flex justify-center bg-muted/10">
+                                                <div className="relative aspect-video w-full max-w-lg rounded-2xl overflow-hidden border-2 shadow-2xl bg-white">
+                                                    <Image src={product.labelImageUrl} alt="Product Label" fill className="object-contain p-4" />
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    )}
+
                                     <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
-                                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3"><Landmark className="w-4 h-4 text-primary opacity-40" /> Standard Operating Procedure (SOP)</CardTitle></CardHeader>
-                                        <CardContent className="p-6 md:p-10">
+                                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left"><Landmark className="w-4 h-4 text-primary opacity-40" /> Standard Operating Procedure (SOP)</CardTitle></CardHeader>
+                                        <CardContent className="p-6 md:p-10 text-left">
                                             {product.manufacturingSop ? (
                                                 <div className="prose prose-sm max-w-none text-left">
                                                     <p className="whitespace-pre-wrap font-medium text-slate-700 leading-relaxed italic border-l-4 border-primary/20 pl-6 text-left">
@@ -470,7 +496,7 @@ export default function ProductDetailPage() {
                                                     </p>
                                                 </div>
                                             ) : (
-                                                <div className="py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                                <div className="py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
                                                     <Book className="w-12 h-12" />
                                                     <p className="text-[10px] font-black uppercase tracking-widest text-center px-10">No technical protocol established for this asset.</p>
                                                 </div>
@@ -481,7 +507,7 @@ export default function ProductDetailPage() {
                             </TabsContent>
 
                             <TabsContent value="batches" className="m-0 animate-in fade-in duration-500 text-left">
-                                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white text-left">
                                     <CardContent className="p-0 overflow-x-auto text-left">
                                         <Table>
                                             <TableHeader className="bg-muted/10 border-b-2">
@@ -497,7 +523,7 @@ export default function ProductDetailPage() {
                                                         <TableCell className="p-6 text-left">
                                                             <p className="font-black uppercase tracking-tight text-xs text-slate-900 text-left">{format(safeDate(batch.receivedDate), 'MMMM d, yyyy')}</p>
                                                             {batch.expirationDate && (
-                                                                <p className={cn("text-[9px] font-black uppercase tracking-widest mt-1 flex items-center gap-1.5", isPast(safeDate(batch.expirationDate)) ? "text-destructive" : "text-muted-foreground opacity-60")}>
+                                                                <p className={cn("text-[9px] font-black uppercase tracking-widest mt-1 flex items-center gap-1.5 text-left", isPast(safeDate(batch.expirationDate)) ? "text-destructive" : "text-muted-foreground opacity-60")}>
                                                                     <Clock className="w-2.5 h-2.5" /> Expiry: {format(safeDate(batch.expirationDate), 'MMM d, yyyy')}
                                                                 </p>
                                                             )}
@@ -527,7 +553,7 @@ export default function ProductDetailPage() {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="p-8 pt-4 space-y-8 text-left">
-                                <div className="space-y-4">
+                                <div className="space-y-4 text-left">
                                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">
                                         <span>Landed Cost</span>
                                         <span className="font-mono text-slate-900">${(product.costPerUnit || 0).toFixed(2)}</span>
@@ -536,19 +562,19 @@ export default function ProductDetailPage() {
                                     
                                     {(product.type === 'retail' || product.type === 'refreshment') ? (
                                         <>
-                                            <div className="p-6 rounded-[2rem] bg-primary/5 border-2 border-primary/10 space-y-4 shadow-inner">
+                                            <div className="p-6 rounded-[2rem] bg-primary/5 border-2 border-primary/10 space-y-4 shadow-inner text-left">
                                                 <p className="text-[9px] font-black uppercase text-primary tracking-widest text-center">Price Strategy</p>
-                                                <div className="flex justify-between items-baseline">
+                                                <div className="flex justify-between items-baseline text-left">
                                                     <div className="flex flex-col text-left">
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Display Rate</span>
                                                         <span className="text-2xl font-black tracking-tighter font-mono text-slate-900">${(product.msrp || product.price || 0).toFixed(2)}</span>
                                                     </div>
-                                                    <div className="text-right flex flex-col items-end">
+                                                    <div className="text-right flex flex-col items-end text-left">
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-right">Unit Profit</span>
                                                         <span className="text-3xl font-black tracking-tighter font-mono text-primary">${((product.msrp || product.price || 0) - (product.costPerUnit || 0)).toFixed(2)}</span>
                                                     </div>
                                                 </div>
-                                                <div className="pt-4 border-t border-primary/10 flex justify-between items-center">
+                                                <div className="pt-4 border-t border-primary/10 flex justify-between items-center text-left">
                                                     <span className="text-[10px] font-black uppercase text-slate-600">Net Margin</span>
                                                     <Badge className="bg-primary text-white border-none font-black text-xs font-mono">
                                                         {((product.msrp || product.price || 0) > 0 ? (((product.msrp || product.price || 0) - (product.costPerUnit || 0)) / (product.msrp || product.price || 1)) * 100 : 0).toFixed(1)}%
@@ -565,17 +591,17 @@ export default function ProductDetailPage() {
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Method</span>
                                                         <span className="text-sm font-black uppercase tracking-tight text-slate-900">By {product.costingMethod || 'Unit'}</span>
                                                     </div>
-                                                    <div className="text-right flex flex-col items-end">
+                                                    <div className="text-right flex flex-col items-end text-left">
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-right">Landed / Use</span>
                                                         <span className="text-3xl font-black tracking-tighter font-mono text-indigo-600">${((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)).toFixed(2)}</span>
                                                     </div>
                                                 </div>
-                                                <div className="pt-4 border-t border-indigo-500/10 space-y-2">
-                                                    <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-600">
+                                                <div className="pt-4 border-t border-indigo-500/10 space-y-2 text-left">
+                                                    <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-600 text-left">
                                                         <span>Markup (Reserve)</span>
                                                         <span>{product.restockingMarkup || 0}%</span>
                                                     </div>
-                                                    <div className="flex justify-between items-center text-sm font-black uppercase tracking-tight text-indigo-700">
+                                                    <div className="flex justify-between items-center text-sm font-black uppercase tracking-tight text-indigo-700 text-left">
                                                         <span>Final Cost / Use</span>
                                                         <span className="font-mono">${(((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)) * (1 + (product.restockingMarkup || 0) / 100)).toFixed(2)}</span>
                                                     </div>
@@ -591,12 +617,12 @@ export default function ProductDetailPage() {
             </main>
 
             <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>
-                <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden">
-                    <DialogHeader className="p-8 pb-4 border-b bg-muted/5">
-                        <DialogTitle className="text-2xl font-black uppercase tracking-tighter">{qrModalContent.title}</DialogTitle>
+                <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden text-left">
+                    <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
+                        <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">{qrModalContent.title}</DialogTitle>
                         <DialogDescription className="sr-only">Scanning asset token for hardware reordering and tracking.</DialogDescription>
                     </DialogHeader>
-                    <div className="flex flex-col items-center justify-center p-12 space-y-8">
+                    <div className="flex flex-col items-center justify-center p-12 space-y-8 text-left">
                         <div className="p-6 bg-white rounded-[2.5rem] shadow-2xl border-4 border-primary/10">
                             <Image src={qrModalContent.url} alt={qrModalContent.alt} width={220} height={220} className="rounded-xl" />
                         </div>

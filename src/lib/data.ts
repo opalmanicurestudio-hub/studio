@@ -368,6 +368,7 @@ export type InventoryItem = {
   manufacturerPhone?: string;
   manufacturingSop?: string;
   labelTemplateUrl?: string;
+  labelImageUrl?: string;
   moq?: number; // Minimum Order Quantity
   leadTimeDays?: number;
 };
@@ -501,7 +502,6 @@ export type Order = {
   notes?: string;
   invoiceUrl?: string;
   paymentMethod?: string;
-  paymentContext?: 'Business' | 'Personal';
   paymentMethodIdentifier?: string;
   shippingCost?: number;
   taxCost?: number;
