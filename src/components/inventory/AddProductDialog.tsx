@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -56,7 +57,11 @@ import {
     Calendar as CalendarIcon,
     Pipette,
     CheckCircle,
-    ArrowRight
+    ArrowRight,
+    User,
+    ShieldCheck,
+    Link as LinkIcon,
+    FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -97,6 +102,16 @@ const productSchema = z.object({
   initialStock: z.coerce.number().min(1, 'Initial stock is required'),
   expirationDate: z.date().optional(),
   primaryLocationId: z.string().optional(),
+
+  // Manufacturing & SOP
+  manufacturerName: z.string().optional(),
+  manufacturerContactName: z.string().optional(),
+  manufacturerEmail: z.string().optional(),
+  manufacturerPhone: z.string().optional(),
+  manufacturingSop: z.string().optional(),
+  labelTemplateUrl: z.string().optional(),
+  moq: z.coerce.number().optional(),
+  leadTimeDays: z.coerce.number().optional(),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
@@ -215,11 +230,6 @@ const Step1 = ({
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dossier Visual</Label>
                     <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
                 </div>
-
-                <div className="space-y-2 text-left">
-                    <Label htmlFor="internalNotes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Internal Log</Label>
-                    <Textarea id="internalNotes" placeholder="Logistics caveats or storage instructions..." {...register('internalNotes')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium" />
-                </div>
             </div>
         </div>
     );
@@ -298,14 +308,20 @@ const Step2 = () => {
                                 render={({ field }) => (
                                     <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
                                         <label htmlFor="size-wizard" className="cursor-pointer">
-                                            <div className={cn("flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                            <div className={cn(
+                                                "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all",
+                                                field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background"
+                                            )}>
                                                 <Pipette className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest">By Volume</span>
                                                 <RadioGroupItem value="size" id="size-wizard" className="sr-only" />
                                             </div>
                                         </label>
                                         <label htmlFor="uses-wizard" className="cursor-pointer">
-                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                            <div className={cn(
+                                                "flex flex-col items-center justify-center p-3 rounded-xl border-2 text-center transition-all",
+                                                field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background"
+                                            )}>
                                                 <CheckCircle className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest">By Uses</span>
                                                 <RadioGroupItem value="uses" id="uses-wizard" className="sr-only" />
@@ -366,56 +382,67 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
     const { register, control, formState: { errors } } = useFormContext<ProductFormData>();
     return (
         <div className="space-y-10">
-            <SectionHeader icon={Truck} title="Logistics & Source" step={3} />
+            <SectionHeader icon={Truck} title="Logistics & Continuity" step={3} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
-                <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Source Intel</CardTitle></CardHeader>
-                    <CardContent className="p-6 space-y-5 text-left">
-                        <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Supplier / Vendor</Label><Input placeholder="e.g., SalonCentric" {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                        <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Asset SKU</Label><Input placeholder="Barcode or identifier" {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
-                        <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Digital Source (URL)</Label><Input placeholder="https://..." {...register('purchaseLink')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Stock Control</CardTitle></CardHeader>
-                    <CardContent className="p-6 space-y-5 text-left">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Starting Stock</Label><Input type="number" placeholder="Qty" {...register('initialStock')} className="h-11 rounded-xl border-2 font-black text-lg" />{errors.initialStock && <p className="text-[8px] font-black text-destructive uppercase">{errors.initialStock.message}</p>}</div>
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Alert</Label><Input type="number" placeholder="Min" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg" /></div>
-                        </div>
-                        <div className="space-y-1.5 text-left">
-                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Active Expiry</Label>
-                            <Controller name="expirationDate" control={control} render={({ field }) => (
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button variant="outline" className="w-full h-11 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5 shadow-inner">
-                                            <CalendarIcon className="mr-2 h-4 w-4 opacity-40" />
-                                            {field.value ? format(field.value, 'MMM d, yyyy') : 'No date set'}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
-                                </Popover>
-                            )}/>
-                        </div>
-                        <div className="space-y-1.5 pt-2 border-t border-dashed border-border/50 text-left">
-                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Placement Zone</Label>
-                            <div className="flex gap-2">
-                                <Controller name="primaryLocationId" control={control} render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest flex-1 bg-muted/5 shadow-inner">
-                                            <SelectValue placeholder="Select Zone" />
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            {locations.map(loc => (<SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>))}
-                                        </SelectContent>
-                                    </Select>
-                                )}/>
-                                <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button" className="h-11 w-11 rounded-xl border-2 shrink-0"><PlusCircle className="h-5 w-5" /></Button>
+                <div className="space-y-8">
+                    <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Manufacturing Intelligence</CardTitle></CardHeader>
+                        <CardContent className="p-6 space-y-5 text-left">
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manufacturer Name</Label><Input placeholder="e.g., Global Formula Labs" {...register('manufacturerName')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manufacturer Contact</Label><Input placeholder="Primary Account Manager" {...register('manufacturerContactName')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Direct Email</Label><Input type="email" placeholder="rep@mfg.com" {...register('manufacturerEmail')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Direct Phone</Label><Input placeholder="555-000-0000" {...register('manufacturerPhone')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
                             </div>
-                        </div>
-                    </CardContent>
-                </Card>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Wholesale Rules</CardTitle></CardHeader>
+                        <CardContent className="p-6 space-y-5 text-left">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Min. Order Qty (MOQ)</Label><Input type="number" placeholder="e.g., 50" {...register('moq')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Lead Time (Days)</Label><Input type="number" placeholder="e.g., 14" {...register('leadTimeDays')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            </div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Label Design Template (URL)</Label><Input placeholder="Cloud link to design files..." {...register('labelTemplateUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                <div className="space-y-8">
+                    <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Standard Operating Procedure (SOP)</CardTitle></CardHeader>
+                        <CardContent className="p-6">
+                            <Textarea placeholder="Detail the exact technical protocol for this asset..." {...register('manufacturingSop')} className="rounded-xl border-2 bg-muted/5 min-h-[200px] focus-visible:ring-primary/20 font-medium" />
+                        </CardContent>
+                    </Card>
+
+                    <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Registry & Stock</CardTitle></CardHeader>
+                        <CardContent className="p-6 space-y-5 text-left">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Starting Stock</Label><Input type="number" placeholder="Qty" {...register('initialStock')} className="h-11 rounded-xl border-2 font-black text-lg" />{errors.initialStock && <p className="text-[8px] font-black text-destructive uppercase">{errors.initialStock.message}</p>}</div>
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">SKU identifier</Label><Input placeholder="Registry ID" {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
+                            </div>
+                            <div className="space-y-1.5 text-left">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Placement Zone</Label>
+                                <div className="flex gap-2">
+                                    <Controller name="primaryLocationId" control={control} render={({ field }) => (
+                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest flex-1 bg-muted/5 shadow-inner">
+                                                <SelectValue placeholder="Select Zone" />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                                {locations.map(loc => (<SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>))}
+                                            </SelectContent>
+                                        </Select>
+                                    )}/>
+                                    <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button" className="h-11 w-11 rounded-xl border-2 shrink-0"><PlusCircle className="h-5 w-5" /></Button>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
         </div>
     )
@@ -461,12 +488,7 @@ export const AddProductDialog: React.FC<{
   const onSubmit = (data: ProductFormData) => {
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
     
-    let finalPurchaseLink = data.purchaseLink;
-    if (finalPurchaseLink && !/^(https?:\/\/)/i.test(finalPurchaseLink)) {
-        finalPurchaseLink = `https://${finalPurchaseLink}`;
-    }
-
-    const newProduct: InventoryItem = {
+    onProductAdded({
         id: `prod-${nanoid(8)}`,
         name: data.name,
         type: data.type,
@@ -474,7 +496,7 @@ export const AddProductDialog: React.FC<{
         description: data.description,
         totalStock: data.initialStock || 0,
         supplier: data.supplier || '',
-        supplierUrl: finalPurchaseLink,
+        supplierUrl: data.purchaseLink,
         costPerUnit: costPerUnit,
         reorderPoint: data.reorderPoint,
         imageUrl: data.imageUrl,
@@ -489,9 +511,16 @@ export const AddProductDialog: React.FC<{
         wholesalePrice: data.wholesalePrice,
         packagingCost: data.packagingCost,
         shippingCostToCustomer: data.shippingCostToCustomer,
+        manufacturerName: data.manufacturerName,
+        manufacturerContactName: data.manufacturerContactName,
+        manufacturerEmail: data.manufacturerEmail,
+        manufacturerPhone: data.manufacturerPhone,
+        manufacturingSop: data.manufacturingSop,
+        labelTemplateUrl: data.labelTemplateUrl,
+        moq: data.moq,
+        leadTimeDays: data.leadTimeDays,
         batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock || 0, costPerUnit: costPerUnit, receivedDate: new Date().toISOString(), expirationDate: data.expirationDate?.toISOString() }],
-    };
-    onProductAdded(newProduct);
+    });
     onOpenChange(false);
   };
   

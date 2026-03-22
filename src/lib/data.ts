@@ -360,6 +360,16 @@ export type InventoryItem = {
   internalNotes?: string;
   sku?: string;
   restockingMarkup?: number;
+
+  // Manufacturing & Business Continuity Fields
+  manufacturerName?: string;
+  manufacturerContactName?: string;
+  manufacturerEmail?: string;
+  manufacturerPhone?: string;
+  manufacturingSop?: string;
+  labelTemplateUrl?: string;
+  moq?: number; // Minimum Order Quantity
+  leadTimeDays?: number;
 };
 
 export type AppointmentCheckoutState = {
@@ -729,6 +739,7 @@ export type Tenant = {
   tightSchedulingEnabled?: boolean;
   morningAnchorEnabled?: boolean;
   flashYieldEnabled?: boolean;
+  guardianProtocolEnabled?: boolean;
 };
 
 export type Resource = {

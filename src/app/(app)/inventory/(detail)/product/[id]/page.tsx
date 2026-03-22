@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -42,7 +43,13 @@ import {
     Printer,
     Pipette,
     Coffee,
-    Award
+    Award,
+    ShieldCheck,
+    Building,
+    User,
+    Mail,
+    Phone,
+    Link as LinkIcon
 } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -202,33 +209,6 @@ export default function ProductDetailPage() {
         return ledgerWithRunningStock.filter(correction => correction.displayReason.toLowerCase().includes(lowercasedSearch));
     }, [ledgerWithRunningStock, ledgerSearchTerm]);
 
-    const professionalPerformance = useMemo(() => {
-        if (!product || (product.type !== 'professional' && product.type !== 'overhead' && product.type !== 'refreshment') || !stockCorrections) return { consumptionYTD: 0, totalCostOfUse: 0, unit: '' };
-        const yearStart = new Date(new Date().getFullYear(), 0, 1);
-        const relevantCorrections = stockCorrections.filter(sc => sc.productId === product.id && sc.change < 0 && parseISO(sc.date) >= yearStart);
-        const totalConsumption = relevantCorrections.reduce((acc, sc) => acc + Math.abs(sc.change), 0);
-        const costPerUnit = product.costPerUnit || 0;
-        let costPerBaseUnit = 0;
-        if (product.costingMethod === 'size' && product.size) costPerBaseUnit = costPerUnit / product.size;
-        else if (product.costingMethod === 'uses' && product.estimatedUses) costPerBaseUnit = costPerUnit / product.estimatedUses;
-        else costPerBaseUnit = costPerUnit;
-        const totalCost = totalConsumption * costPerBaseUnit;
-        const unit = product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'units');
-        return { consumptionYTD: totalConsumption, totalCostOfUse: totalCost, unit };
-    }, [product, stockCorrections]);
-
-    const retailPerformance = useMemo(() => {
-        if (product?.type !== 'retail' || !transactions) return null;
-        const landedCost = product.costPerUnit || 0;
-        const retailPrice = product.msrp || landedCost;
-        const profitPerUnit = retailPrice - landedCost;
-        const retailSaleCorrections = transactions.filter(t => t.description.includes(product.name) && t.category === 'Retail');
-        const unitsSold = retailSaleCorrections.length;
-        const totalPurchased = unitsSold + product.totalStock;
-        const sellThroughRate = totalPurchased > 0 ? (unitsSold / totalPurchased) * 100 : 0;
-        return { landedCost, retailPrice, profitPerUnit, profitMargin: retailPrice > 0 ? (profitPerUnit / retailPrice) * 100 : 0, unitsSold, sellThroughRate, totalProfit: unitsSold * profitPerUnit };
-    }, [product, transactions]);
-
     if (isInventoryLoading) return <div className="flex min-h-screen w-full flex-col bg-background justify-center items-center"><Loader className="w-8 h-8 animate-spin text-primary" /></div>;
     if (!product) return notFound();
 
@@ -276,13 +256,13 @@ export default function ProductDetailPage() {
                             </div>
                             
                             <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2 text-left">
-                                <div className="space-y-1">
+                                <div className="space-y-1 text-left">
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified SKU</p>
+                                    <p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary">{product.sku || product.id.slice(-6).toUpperCase()}</p>
+                                </div>
+                                <div className="space-y-1 text-left">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Vendor Origin</p>
                                     <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700">{product.supplier || 'Private Stock'}</p>
-                                </div>
-                                <div className="space-y-1">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Short ID / SKU</p>
-                                    <p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary">{product.sku || product.id.slice(-6).toUpperCase()}</p>
                                 </div>
                             </div>
 
@@ -307,15 +287,8 @@ export default function ProductDetailPage() {
                                     <QrCode className="mr-2 h-3.5 w-3.5" /> Internal QR
                                 </Button>
                                 {product.supplierUrl && (
-                                    <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm" onClick={() => {
-                                        setQrModalContent({
-                                            url: `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(product.supplierUrl!)}`,
-                                            alt: `Reorder QR for ${product.name}`,
-                                            title: 'Direct Reorder Code'
-                                        });
-                                        setIsQrModalOpen(true);
-                                    }}>
-                                        <Truck className="mr-2 h-3.5 w-3.5" /> Reorder QR
+                                    <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm" onClick={() => window.open(product.supplierUrl, '_blank')}>
+                                        <Truck className="mr-2 h-3.5 w-3.5" /> Reorder URL
                                     </Button>
                                 )}
                             </div>
@@ -337,29 +310,22 @@ export default function ProductDetailPage() {
                         <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">{product.reorderPoint || '—'}</p></CardContent>
                     </Card>
                     <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
-                        <CardHeader className="p-4 pb-1 text-left">
-                            {(product.type === 'professional' || product.type === 'overhead' || product.type === 'refreshment') ? (
-                                <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShoppingCart className="w-3 h-3"/>Usage (YTD)</CardTitle>
-                            ) : (
-                                <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><BarChart className="w-3 h-3"/>Yield (YTD)</CardTitle>
-                            )}
-                        </CardHeader>
-                        <CardContent className="p-4 pt-0 text-left">
-                            <p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">
-                                {(product.type === 'professional' || product.type === 'overhead' || product.type === 'refreshment') ? `$${professionalPerformance.totalCostOfUse.toFixed(2)}` : `$${(retailPerformance?.totalProfit || 0).toFixed(2)}`}
-                            </p>
-                        </CardContent>
+                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Calculator className="w-3 h-3"/>Landed / Unit</CardTitle></CardHeader>
+                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">${(product.costPerUnit || 0).toFixed(2)}</p></CardContent>
                     </Card>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10">
                     <div className="lg:col-span-2 xl:col-span-3 space-y-10 min-w-0 order-2 lg:order-1 text-left">
                         <Tabs defaultValue="history" className="w-full">
-                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 overflow-x-auto scrollbar-hide">
-                                <TabsTrigger value="history" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Audit Ledger</TabsTrigger>
-                                <TabsTrigger value="performance" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Performance</TabsTrigger>
-                                <TabsTrigger value="batches" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logistics</TabsTrigger>
-                            </TabsList>
+                            <ScrollArea className="w-full">
+                                <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-max">
+                                    <TabsTrigger value="history" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Audit Ledger</TabsTrigger>
+                                    <TabsTrigger value="manufacturing" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Manufacturing Archive</TabsTrigger>
+                                    <TabsTrigger value="batches" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logistics</TabsTrigger>
+                                </TabsList>
+                                <ScrollBar orientation="horizontal" className="hidden" />
+                            </ScrollArea>
                             
                             <TabsContent value="history" className="m-0 space-y-6 animate-in fade-in duration-500 text-left">
                                 <div className="relative text-left">
@@ -406,47 +372,101 @@ export default function ProductDetailPage() {
                                 </div>
                             </TabsContent>
 
-                            <TabsContent value="performance" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
-                                {product.type === 'retail' && retailPerformance && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                        {[
-                                            { label: 'Units Liquidated', value: retailPerformance.unitsSold, icon: TrendingUp },
-                                            { label: 'Sell-Through Rate', value: `${retailPerformance.sellThroughRate.toFixed(1)}%`, icon: Percent },
-                                            { label: 'Margin Precision', value: `${retailPerformance.profitMargin.toFixed(1)}%`, icon: Target },
-                                            { label: 'Total Contribution', value: `$${retailPerformance.totalProfit.toFixed(2)}`, icon: DollarSign, color: 'text-primary' },
-                                        ].map(kpi => (
-                                            <div key={kpi.label} className="p-6 rounded-[2rem] bg-white border-2 flex items-center justify-between group hover:border-primary/20 transition-all shadow-sm">
-                                                <div className='text-left'>
-                                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">{kpi.label}</p>
-                                                    <p className={cn("text-3xl font-black tracking-tighter font-mono", kpi.color || "text-slate-900")}>{kpi.value}</p>
+                            <TabsContent value="manufacturing" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
+                                <section className="space-y-6">
+                                    <div className="flex items-center gap-3 px-1 text-left">
+                                        <ShieldCheck className="w-5 h-5 text-primary" />
+                                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Institutional Knowledge Vault</h3>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><Building className="w-4 h-4 opacity-40"/> Manufacturer Matrix</CardTitle></CardHeader>
+                                            <CardContent className="p-6 space-y-6 text-left">
+                                                <div className="space-y-4">
+                                                    <div className="space-y-1">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Company Identity</p>
+                                                        <p className="text-base font-black uppercase tracking-tight text-slate-900">{product.manufacturerName || 'Private Label Registry'}</p>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Primary Account Contact</p>
+                                                        <p className="text-sm font-bold uppercase text-slate-700">{product.manufacturerContactName || 'No contact on file'}</p>
+                                                    </div>
+                                                    <div className="pt-4 border-t border-dashed space-y-3">
+                                                        {product.manufacturerEmail && (
+                                                            <a href={`mailto:${product.manufacturerEmail}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
+                                                                <Mail className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
+                                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 truncate">{product.manufacturerEmail}</span>
+                                                            </a>
+                                                        )}
+                                                        {product.manufacturerPhone && (
+                                                            <a href={`tel:${product.manufacturerPhone}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
+                                                                <Phone className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
+                                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">{product.manufacturerPhone}</span>
+                                                            </a>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div className="p-3 bg-muted/30 rounded-2xl shadow-inner group-hover:bg-primary/10 transition-colors"><kpi.icon className="w-6 h-6 text-muted-foreground/40 group-hover:text-primary transition-colors" /></div>
-                                            </div>
-                                        ))}
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><Landmark className="w-4 h-4 opacity-40"/> Procurement Protocols</CardTitle></CardHeader>
+                                            <CardContent className="p-6 space-y-6 text-left">
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1">Min. Order (MOQ)</p>
+                                                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{product.moq || 'None'}</p>
+                                                    </div>
+                                                    <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1">Lead Time</p>
+                                                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{product.leadTimeDays || '—'} <span className='text-[10px]'>Days</span></p>
+                                                    </div>
+                                                </div>
+                                                <div className="pt-4 border-t border-dashed space-y-4">
+                                                    <div className="space-y-1">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Brand Compliance</p>
+                                                        {product.labelTemplateUrl ? (
+                                                            <a href={product.labelTemplateUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all group">
+                                                                <div className="flex items-center gap-3">
+                                                                    <FileText className="w-5 h-5 text-primary" />
+                                                                    <span className="text-[10px] font-black uppercase tracking-widest text-primary">Label Template Source</span>
+                                                                </div>
+                                                                <LinkIcon className="w-4 h-4 text-primary opacity-40 group-hover:translate-x-1 transition-transform" />
+                                                            </a>
+                                                        ) : (
+                                                            <div className="p-4 rounded-2xl border-2 border-dashed border-border flex items-center gap-3 opacity-40">
+                                                                <FileText className="w-5 h-5 text-muted-foreground" />
+                                                                <span className="text-[10px] font-black uppercase tracking-widest">No template archived</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
                                     </div>
-                                )}
-                                {(product.type === 'professional' || product.type === 'overhead' || product.type === 'refreshment') && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                        <div className="p-6 rounded-[2rem] bg-white border-2 flex items-center justify-between group hover:border-primary/20 transition-all shadow-sm">
-                                            <div className='text-left'>
-                                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Volumetric Use</p>
-                                                <p className="text-3xl font-black tracking-tighter font-mono text-slate-900">{professionalPerformance.consumptionYTD.toFixed(1)}<span className='text-xs ml-1'>{professionalPerformance.unit}</span></p>
-                                            </div>
-                                            <div className="p-3 bg-muted/30 rounded-2xl shadow-inner group-hover:bg-primary/10 transition-colors"><Pipette className="w-6 h-6 text-muted-foreground/40 group-hover:text-primary transition-colors" /></div>
-                                        </div>
-                                        <div className="p-6 rounded-[2rem] bg-white border-2 flex items-center justify-between group hover:border-primary/20 transition-all shadow-sm">
-                                            <div className='text-left'>
-                                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Cost Burn (YTD)</p>
-                                                <p className="text-3xl font-black tracking-tighter font-mono text-primary">${professionalPerformance.totalCostOfUse.toFixed(2)}</p>
-                                            </div>
-                                            <div className="p-3 bg-muted/30 rounded-2xl shadow-inner group-hover:bg-primary/10 transition-colors"><DollarSign className="w-6 h-6 text-muted-foreground/40 group-hover:text-primary transition-colors" /></div>
-                                        </div>
-                                    </div>
-                                )}
+
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3"><Landmark className="w-4 h-4 text-primary opacity-40" /> Standard Operating Procedure (SOP)</CardTitle></CardHeader>
+                                        <CardContent className="p-6 md:p-10">
+                                            {product.manufacturingSop ? (
+                                                <div className="prose prose-sm max-w-none text-left">
+                                                    <p className="whitespace-pre-wrap font-medium text-slate-700 leading-relaxed italic border-l-4 border-primary/20 pl-6 text-left">
+                                                        "{product.manufacturingSop}"
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                                    <Book className="w-12 h-12" />
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-center px-10">No technical protocol established for this asset.</p>
+                                                </div>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                </section>
                             </TabsContent>
 
                             <TabsContent value="batches" className="m-0 animate-in fade-in duration-500 text-left">
-                                <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+                                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                                     <CardContent className="p-0 overflow-x-auto text-left">
                                         <Table>
                                             <TableHeader className="bg-muted/10 border-b-2">
