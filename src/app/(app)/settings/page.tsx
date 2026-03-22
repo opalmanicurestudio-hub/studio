@@ -59,13 +59,13 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, deleteField } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn, hexToHSLComponents } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
@@ -172,7 +172,8 @@ const ServicePolicyCard = ({
     onPolicyChange: (updates: any) => void 
 }) => {
     const floor = useMemo(() => {
-        const totalDuration = (service.duration / 60) + ((service.padBefore || 0) + (service.padAfter || 0)) / 60;
+        const duration = safeNumber(service.duration);
+        const totalDuration = (duration / 60) + ((service.padBefore || 0) + (service.padAfter || 0)) / 60;
         const timeCost = totalDuration * tmhr;
         const matCost = (service.products || []).reduce((acc, p) => {
             const item = inventory.find(i => i.id === p.id);
@@ -352,7 +353,6 @@ function SettingsPageImpl() {
           });
       }
 
-      // Sync Service Specific Policies
       Object.entries(servicePolicies).forEach(([id, p]) => {
           const svcRef = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
           const originalService = services.find(s => s.id === id);
@@ -473,7 +473,7 @@ function SettingsPageImpl() {
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Clock} title="Operating Window" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure your weekly studio availability and access tiers.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Configure your weekly studio availability and access tiers.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10">
                         <div className="space-y-4 max-w-sm text-left">
