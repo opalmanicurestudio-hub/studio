@@ -50,7 +50,8 @@ import {
   Globe,
   Phone,
   Smartphone,
-  Undo2
+  Undo2,
+  HeartHandshake
 } from 'lucide-react';
 import {
   Select,
@@ -106,9 +107,9 @@ const safeDate = (val: any): Date => {
 };
 
 const KpiStat = ({ label, value, subLabel, icon: Icon, colorClass, trend }: any) => (
-    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white/50 backdrop-blur-sm group hover:border-primary/20 transition-all">
-        <CardContent className="p-5 space-y-4">
-            <div className="flex justify-between items-start">
+    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white/50 backdrop-blur-sm group hover:border-primary/20 transition-all text-left">
+        <CardContent className="p-5 space-y-4 text-left">
+            <div className="flex justify-between items-start text-left">
                 <div className={cn("p-2 rounded-xl bg-muted/50 group-hover:bg-primary transition-all duration-500", colorClass)}>
                     <Icon className="w-4 h-4 group-hover:text-white transition-colors" />
                 </div>
@@ -120,9 +121,9 @@ const KpiStat = ({ label, value, subLabel, icon: Icon, colorClass, trend }: any)
                 )}
             </div>
             <div className="space-y-1 text-left">
-                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none">{label}</p>
-                <p className="text-2xl font-black tracking-tighter text-slate-900 font-mono leading-none">{value}</p>
-                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 truncate">{subLabel}</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none text-left">{label}</p>
+                <p className="text-2xl font-black tracking-tighter text-slate-900 font-mono leading-none text-left">{value}</p>
+                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 truncate text-left">{subLabel}</p>
             </div>
         </CardContent>
     </Card>
@@ -384,25 +385,25 @@ export default function ReportsPage() {
     };
   }, [staff, appointments, services, transactions, activityLogs, inventory, clients, businessProfiles, effectiveFrom, effectiveTo, selectedTenant]);
 
-  if (isLoading) return <div className="h-screen flex flex-col items-center justify-center gap-4"><Loader className="animate-spin text-primary h-10 w-10" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Synthesizing Dossier...</p></div>;
+  if (isLoading) return <div className="h-screen flex flex-col items-center justify-center gap-4 text-left"><Loader className="animate-spin text-primary h-10 w-10" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Synthesizing Dossier...</p></div>;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden text-left">
       <AppHeader title="Intelligence Dossier" />
-      <main className="relative z-10 flex-1 p-4 md:p-10 space-y-10 w-full max-w-7xl mx-auto min-w-0">
+      <main className="relative z-10 flex-1 p-4 md:p-10 space-y-10 w-full max-w-7xl mx-auto min-w-0 text-left">
         
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
-          <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Pulse</h1>
-            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Strategic Performance Audit</p>
+          <div className="space-y-1 text-left">
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Studio Pulse</h1>
+            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Strategic Performance Audit</p>
           </div>
-          <div className="flex items-center gap-3 w-full md:w-auto">
-             <Button variant="outline" className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" /> Export Report</Button>
+          <div className="flex items-center gap-3 w-full md:w-auto text-left">
+             <Button variant="outline" className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm text-left" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" /> Export Report</Button>
           </div>
         </div>
 
-        <div className="p-6 rounded-[2.5rem] bg-muted/30 border-2 border-dashed border-border/50">
-            <div className="flex flex-col sm:flex-row items-center gap-6">
+        <div className="p-6 rounded-[2.5rem] bg-muted/30 border-2 border-dashed border-border/50 text-left">
+            <div className="flex flex-col sm:flex-row items-center gap-6 text-left">
                 <div className="flex-1 w-full space-y-2 text-left">
                     <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze Period</Label>
                     <Select value={periodPreset} onValueChange={setPeriodPreset}>
@@ -420,7 +421,7 @@ export default function ReportsPage() {
                     </Select>
                 </div>
                 {periodPreset === 'custom' && (
-                    <div className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                    <div className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full text-left">
                         <div className="space-y-2 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
                             <input type="date" value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''} onChange={(e) => { const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined; setDateRange(prev => ({ from: d || prev?.from, to: prev?.to })); }} className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm outline-none" />
@@ -434,43 +435,43 @@ export default function ReportsPage() {
             </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6 w-full">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6 w-full text-left">
             <KpiStat label="Gross Yield" value={`$${analyticsData.overall.totalRevenue.toFixed(0)}`} subLabel="Direct period sales" icon={TrendingUp} colorClass="text-primary" />
             <KpiStat label="Overall Util." value={`${analyticsData.overall.utilization.toFixed(1)}%`} subLabel="Team productivity mean" icon={Target} />
             <KpiStat label="Labor Load" value={`$${analyticsData.overall.totalLaborLoad.toFixed(0)}`} subLabel="Payroll + Tax Burden" icon={Users} colorClass="text-amber-600" />
             <KpiStat label="Fixed Overhead" value={`$${analyticsData.overall.totalReconciledOpEx.toFixed(0)}`} subLabel="Reconciled OpEx" icon={Landmark} colorClass="text-indigo-600" />
         </div>
 
-        <section className="space-y-6">
-            <div className="flex items-center gap-2 px-1 text-left">
+        <section className="space-y-6 text-left">
+            <div className="flex items-center gap-2 px-1 text-left text-left">
                 <ShieldCheck className="w-4 h-4 text-primary" />
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Acquisition Matrix</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
                 {analyticsData.channelStats.map(channel => (
-                    <Card key={channel.id} className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:border-primary/20 transition-all group">
-                        <CardHeader className="p-6 pb-2 border-b bg-muted/5">
-                            <div className="flex justify-between items-start">
-                                <div className="flex items-center gap-3">
+                    <Card key={channel.id} className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:border-primary/20 transition-all group text-left">
+                        <CardHeader className="p-6 pb-2 border-b bg-muted/5 text-left">
+                            <div className="flex justify-between items-start text-left">
+                                <div className="flex items-center gap-3 text-left">
                                     <div className={cn("p-2.5 rounded-xl bg-background border shadow-inner", channel.color)}>
                                         <channel.icon className="w-5 h-5" />
                                     </div>
-                                    <div className="text-left">
-                                        <CardTitle className="text-sm font-black uppercase tracking-tight">{channel.label}</CardTitle>
-                                        <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest opacity-60">Acquisition Channel</p>
+                                    <div className="text-left text-left">
+                                        <CardTitle className="text-sm font-black uppercase tracking-tight text-left">{channel.label}</CardTitle>
+                                        <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest opacity-60 text-left">Acquisition Channel</p>
                                     </div>
                                 </div>
                                 <Badge className="bg-primary text-white border-none font-black font-mono text-[10px]">{channel.percentage.toFixed(0)}%</Badge>
                             </div>
                         </CardHeader>
-                        <CardContent className="p-6 pt-4 grid grid-cols-2 gap-4">
-                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border shadow-inner">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Volume</p>
-                                <p className="text-lg font-black font-mono tracking-tighter text-slate-900">{channel.count} <span className="text-[8px]">Sessions</span></p>
+                        <CardContent className="p-6 pt-4 grid grid-cols-2 gap-4 text-left text-left">
+                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border shadow-inner text-left">
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Volume</p>
+                                <p className="text-lg font-black font-mono tracking-tighter text-slate-900 text-left">{channel.count} <span className="text-[8px]">Sessions</span></p>
                             </div>
-                            <div className="space-y-1 text-right p-3 rounded-xl bg-primary/5 border border-primary/10 transition-all">
-                                <p className="text-[8px] font-black uppercase text-primary tracking-widest">Yield</p>
-                                <p className="text-lg font-black font-mono tracking-tighter text-primary">${channel.revenue.toFixed(0)}</p>
+                            <div className="space-y-1 text-right p-3 rounded-xl bg-primary/5 border border-primary/10 transition-all text-left">
+                                <p className="text-[8px] font-black uppercase text-primary tracking-widest text-right">Yield</p>
+                                <p className="text-lg font-black font-mono tracking-tighter text-primary text-right">${channel.revenue.toFixed(0)}</p>
                             </div>
                         </CardContent>
                     </Card>
@@ -478,93 +479,93 @@ export default function ReportsPage() {
             </div>
         </section>
 
-        <section className="space-y-6">
-            <div className="flex items-center gap-2 px-1 text-left">
+        <section className="space-y-6 text-left">
+            <div className="flex items-center gap-2 px-1 text-left text-left">
                 <Scale className="w-4 h-4 text-primary" />
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Certified Profit & Loss Statement</h3>
             </div>
-            <Card className="border-4 rounded-[3rem] shadow-3xl bg-white overflow-hidden">
-                <CardContent className="p-8 sm:p-12 space-y-10">
-                    <div className="space-y-6">
-                        <div className="flex justify-between items-baseline border-b-2 border-slate-100 pb-2">
-                            <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground">Category</h4>
-                            <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground">Yield / (Load)</h4>
+            <Card className="border-4 rounded-[3rem] shadow-3xl bg-white overflow-hidden text-left">
+                <CardContent className="p-8 sm:p-12 space-y-10 text-left">
+                    <div className="space-y-6 text-left">
+                        <div className="flex justify-between items-baseline border-b-2 border-slate-100 pb-2 text-left">
+                            <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground text-left">Category</h4>
+                            <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground text-right">Yield / (Load)</h4>
                         </div>
                         
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center group">
-                                <span className="text-sm font-bold uppercase text-slate-600">Gross Operating Revenue</span>
-                                <span className="font-black font-mono text-lg text-green-600">${analyticsData.overall.totalRevenue.toFixed(2)}</span>
+                        <div className="space-y-4 text-left">
+                            <div className="flex justify-between items-center group text-left">
+                                <span className="text-sm font-bold uppercase text-slate-600 text-left">Gross Operating Revenue</span>
+                                <span className="font-black font-mono text-lg text-green-600 text-right">${analyticsData.overall.totalRevenue.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between items-center group">
-                                <span className="text-sm font-bold uppercase text-slate-600">Cost of Goods Sold (Materials)</span>
-                                <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalCOGS.toFixed(2)}</span>
+                            <div className="flex justify-between items-center group text-left">
+                                <span className="text-sm font-bold uppercase text-slate-600 text-left">Cost of Goods Sold (Materials)</span>
+                                <span className="font-black font-mono text-lg text-destructive text-right">-${analyticsData.overall.totalCOGS.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between items-center group">
-                                <span className="text-sm font-bold uppercase text-slate-600">Reconciled OpEx (Overhead)</span>
-                                <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalReconciledOpEx.toFixed(2)}</span>
+                            <div className="flex justify-between items-center group text-left">
+                                <span className="text-sm font-bold uppercase text-slate-600 text-left">Reconciled OpEx (Overhead)</span>
+                                <span className="font-black font-mono text-lg text-destructive text-right">-${analyticsData.overall.totalReconciledOpEx.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between items-center group">
-                                <span className="text-sm font-bold uppercase text-slate-600">Total Labor Burden (Payroll + Taxes)</span>
-                                <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalLaborLoad.toFixed(2)}</span>
+                            <div className="flex justify-between items-center group text-left">
+                                <span className="text-sm font-bold uppercase text-slate-600 text-left">Total Labor Burden (Payroll + Taxes)</span>
+                                <span className="font-black font-mono text-lg text-destructive text-right">-${analyticsData.overall.totalLaborLoad.toFixed(2)}</span>
                             </div>
                             {analyticsData.overall.totalRecoveryLoss > 0 && (
-                                <div className="flex justify-between items-center group">
-                                    <span className="text-sm font-bold uppercase text-amber-600">Service Recovery Investment (Comped)</span>
-                                    <span className="font-black font-mono text-lg text-amber-600">-${analyticsData.overall.totalRecoveryLoss.toFixed(2)}</span>
+                                <div className="flex justify-between items-center group text-left">
+                                    <span className="text-sm font-bold uppercase text-amber-600 text-left">Service Recovery Investment (Comped)</span>
+                                    <span className="font-black font-mono text-lg text-amber-600 text-right">-${analyticsData.overall.totalRecoveryLoss.toFixed(2)}</span>
                                 </div>
                             )}
                         </div>
                     </div>
 
-                    <div className="p-10 rounded-[3rem] bg-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-10 shadow-3xl text-left relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-10 opacity-5 transition-opacity group-hover:opacity-10"><DollarSign className="w-48 h-48" /></div>
-                        <div className="space-y-3 relative z-10">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Certified Performance Audit</p>
-                            <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-[0.9]">Net Period Yield</h3>
-                            <p className="text-xs font-medium text-slate-400 max-w-sm uppercase tracking-tight">Definitive studio cash remaining post burdened labor, overhead, and direct material costs.</p>
+                    <div className="p-10 rounded-[3rem] bg-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-10 shadow-3xl text-left relative overflow-hidden group text-left">
+                        <div className="absolute top-0 right-0 p-10 opacity-5 transition-opacity group-hover:opacity-10 text-left"><DollarSign className="w-48 h-48" /></div>
+                        <div className="space-y-3 relative z-10 text-left">
+                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary text-left">Certified Performance Audit</p>
+                            <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-[0.9] text-left">Net Period Yield</h3>
+                            <p className="text-xs font-medium text-slate-400 max-w-sm uppercase tracking-tight text-left">Definitive studio cash remaining post burdened labor, overhead, and direct material costs.</p>
                         </div>
-                        <div className="flex items-baseline gap-4 relative z-10">
-                            <span className={cn("text-6xl md:text-9xl font-black tracking-tighter font-mono", analyticsData.overall.netIncome >= 0 ? "text-primary" : "text-destructive")}>
+                        <div className="flex items-baseline gap-4 relative z-10 text-left">
+                            <span className={cn("text-6xl md:text-9xl font-black tracking-tighter font-mono text-left", analyticsData.overall.netIncome >= 0 ? "text-primary" : "text-destructive")}>
                                 ${analyticsData.overall.netIncome.toFixed(0)}
                             </span>
-                            <span className="text-[10px] font-black uppercase opacity-40 tracking-widest">USD</span>
+                            <span className="text-[10px] font-black uppercase opacity-40 tracking-widest text-left">USD</span>
                         </div>
                     </div>
                 </CardContent>
             </Card>
         </section>
 
-        <section className="space-y-6">
-            <div className="flex items-center gap-2 px-1 text-left">
+        <section className="space-y-6 text-left">
+            <div className="flex items-center gap-2 px-1 text-left text-left">
                 <HeartHandshake className="w-4 h-4 text-primary" />
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Service Recovery Ledger</h3>
             </div>
-            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardContent className="p-0">
-                    <div className="overflow-x-auto">
+            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white text-left">
+                <CardContent className="p-0 text-left">
+                    <div className="overflow-x-auto text-left">
                         <Table>
                             <TableHeader className="bg-muted/10 border-b-2">
                                 <TableRow>
-                                    <TableHead className="p-6 font-black text-[9px] uppercase tracking-widest text-slate-900">Guest</TableHead>
-                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900">Recovery Reason</TableHead>
-                                    <TableHead className="text-right font-black text-[9px] uppercase tracking-widest text-amber-600 pr-10">Value Comped</TableHead>
+                                    <TableHead className="p-6 font-black text-[9px] uppercase tracking-widest text-slate-900 text-left">Guest</TableHead>
+                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-left">Recovery Reason</TableHead>
+                                    <TableHead className="text-right font-black text-[9px] uppercase tracking-widest text-amber-600 pr-10 text-right">Value Comped</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {analyticsData.recoveryLedger.length > 0 ? analyticsData.recoveryLedger.map(entry => (
                                     <TableRow key={entry.id} className="hover:bg-amber-[0.01]">
                                         <TableCell className="p-6 text-left">
-                                            <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
-                                            <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">{format(safeDate(entry.date), 'MMM d, p')}</p>
+                                            <p className="font-bold uppercase text-[10px] text-slate-900 text-left">{entry.clientName}</p>
+                                            <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40 text-left">{format(safeDate(entry.date), 'MMM d, p')}</p>
                                         </TableCell>
-                                        <TableCell className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[200px] text-left">
-                                            {entry.reason}
+                                        <TableCell className="text-left">
+                                            <p className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[200px] text-left">{entry.reason}</p>
                                         </TableCell>
-                                        <TableCell className="text-right pr-10 font-black font-mono text-amber-600">-${entry.amount.toFixed(2)}</TableCell>
+                                        <TableCell className="text-right pr-10 font-black font-mono text-amber-600 text-right">-${entry.amount.toFixed(2)}</TableCell>
                                     </TableRow>
                                 )) : (
-                                    <TableRow><TableCell colSpan={3} className="p-12 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">No service recoveries in this period</TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={3} className="p-12 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 text-center">No service recoveries in this period</TableCell></TableRow>
                                 )}
                             </TableBody>
                         </Table>
@@ -573,36 +574,40 @@ export default function ReportsPage() {
             </Card>
         </section>
 
-        <section className="space-y-6">
-            <div className="flex items-center gap-2 px-1 text-left">
+        <section className="space-y-6 text-left">
+            <div className="flex items-center gap-2 px-1 text-left text-left">
                 <ShieldAlert className="w-4 h-4 text-destructive" />
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Absorption Audit (Fee Waivers)</h3>
             </div>
-            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardContent className="p-0">
-                    <div className="overflow-x-auto">
+            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white text-left">
+                <CardContent className="p-0 text-left">
+                    <div className="overflow-x-auto text-left">
                         <Table>
                             <TableHeader className="bg-muted/10 border-b-2">
                                 <TableRow>
-                                    <TableHead className="p-6 font-black text-[9px] uppercase tracking-widest text-slate-900">Guest</TableHead>
-                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900">Authorized By</TableHead>
-                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900">Reason</TableHead>
-                                    <TableHead className="text-right font-black text-[9px] uppercase tracking-widest text-destructive pr-10">Value Abs.</TableHead>
+                                    <TableHead className="p-6 font-black text-[9px] uppercase tracking-widest text-slate-900 text-left">Guest</TableHead>
+                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-left">Authorized By</TableHead>
+                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-left">Reason</TableHead>
+                                    <TableHead className="text-right font-black text-[9px] uppercase tracking-widest text-destructive pr-10 text-right">Value Abs.</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {analyticsData.absorbedLedger.length > 0 ? analyticsData.absorbedLedger.map(entry => (
                                     <TableRow key={entry.id} className="hover:bg-destructive/[0.01]">
                                         <TableCell className="p-6 text-left">
-                                            <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
-                                            <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">{format(safeDate(entry.date), 'MMM d, p')}</p>
+                                            <p className="font-bold uppercase text-[10px] text-slate-900 text-left">{entry.clientName}</p>
+                                            <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40 text-left">{format(safeDate(entry.date), 'MMM d, p')}</p>
                                         </TableCell>
-                                        <TableCell className="text-[10px] font-black uppercase text-primary text-left">{entry.authorizer}</TableCell>
-                                        <TableCell className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[120px] text-left">{entry.reason}</TableCell>
-                                        <TableCell className="text-right pr-10 font-black font-mono text-destructive">-${entry.amount.toFixed(2)}</TableCell>
+                                        <TableCell className="text-left text-left">
+                                            <p className="text-[10px] font-black uppercase text-primary text-left">{entry.authorizer}</p>
+                                        </TableCell>
+                                        <TableCell className="text-left text-left">
+                                            <p className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[120px] text-left">{entry.reason}</p>
+                                        </TableCell>
+                                        <TableCell className="text-right pr-10 font-black font-mono text-destructive text-right">-${entry.amount.toFixed(2)}</TableCell>
                                     </TableRow>
                                 )) : (
-                                    <TableRow><TableCell colSpan={4} className="p-12 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">No fees absorbed in this period</TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={4} className="p-12 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 text-center">No fees absorbed in this period</TableCell></TableRow>
                                 )}
                             </TableBody>
                         </Table>

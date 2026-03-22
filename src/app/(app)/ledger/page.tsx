@@ -227,14 +227,13 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         const svc = services.find((s: Service) => s.id === apt.serviceId);
         if (!svc) return { overhead: 0, materials: 0, labor: 0, total: 0, staffMember: null };
 
-        // 1. MATERIAL COSTS: Pulling from Actual Technician Review (Formula)
+        // 1. MATERIAL COSTS
         let materials = 0;
         if (apt.checkoutState?.formula && apt.checkoutState.formula.length > 0) {
             materials = apt.checkoutState.formula.reduce((acc: number, item: any) => {
                 return acc + (item.quantity * item.costPerUnit);
             }, 0);
         } else if (svc.products && svc.products.length > 0) {
-            // Fallback to library standard if review formula is missing
             materials = svc.products.reduce((acc: number, p: any) => {
                 const item = inventory.find((i: any) => i.id === p.id);
                 if (!item) return acc;
@@ -245,13 +244,13 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
             }, 0);
         }
 
-        // 2. OVERHEAD COSTS: Pulling from Actual Duration
+        // 2. OVERHEAD COSTS
         const actualDuration = apt.actualStartTime && apt.actualEndTime 
             ? differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime))
             : (apt.checkoutState?.actualDuration || svc.duration || 60);
         const overhead = (actualDuration / 60) * tmhr;
         
-        // 3. LABOR COSTS: Based on assigned professional
+        // 3. LABOR COSTS
         const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
         let labor = 0;
         if (staffMember?.payStructure === 'commission') {
@@ -275,16 +274,12 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
             setRefundTip(!!transaction.tipAmount);
             setReason('');
             setLogIncident(false);
-            
-            // Default toggles
             setWithholdOverhead(false);
             setWithholdMaterials(false);
-            // Default labor recovery to true for hourly staff, false for commission (as commission is usually automatically lost)
             setWithholdLabor(costsBreakdown.staffMember.payStructure === 'hourly');
         }
     }, [transaction, costsBreakdown.staffMember]);
 
-    // Update refund amount based on toggles
     useEffect(() => {
         if (!transaction) return;
         let totalWithheld = 0;
@@ -329,12 +324,12 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
                 <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-3 mb-2 text-left">
                         <Undo2 className="w-5 h-5 text-destructive" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Revenue Reversal</span>
                     </div>
-                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Refund Protocol</DialogTitle>
-                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Initiating reversal sequence.</DialogDescription>
+                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Refund Protocol</DialogTitle>
+                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Initiating reversal sequence.</DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="max-h-[60vh]">
                     <div className="p-8 space-y-8">
@@ -351,7 +346,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
 
                         <div className="space-y-4">
                             <div className="flex items-center justify-between px-1">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 text-left">
                                     <Scale className="w-3.5 h-3.5" />
                                     Cost Recovery Matrix
                                 </p>
@@ -375,7 +370,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                     <div className="flex justify-between items-center group">
                                         <div className="flex items-center gap-3">
                                             <Switch checked={withholdLabor} onCheckedChange={setWithholdLabor} />
-                                            <div className="space-y-0.5">
+                                            <div className="space-y-0.5 text-left">
                                                 <span className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2"><Users className="w-3 h-3" /> Labor</span>
                                                 <p className="text-[7px] font-black text-primary/60 uppercase leading-none pl-5">{costsBreakdown.staffMember?.payStructure === 'commission' ? 'Protect Commission' : 'Protect Hourly'}</p>
                                             </div>
@@ -390,7 +385,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                         </div>
 
                         <div className="space-y-6 text-left">
-                            <div className="space-y-3">
+                            <div className="space-y-3 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reversal Parameters</Label>
                                 <div className="p-4 rounded-2xl border-2 bg-muted/5 space-y-4 shadow-inner">
                                     <div className="flex justify-between items-center">
@@ -403,7 +398,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                     {transaction.tipAmount > 0 && (
                                         <div className="pt-4 border-t border-dashed border-border/50 space-y-4">
                                             <div className="flex items-center justify-between">
-                                                <div className="space-y-0.5">
+                                                <div className="space-y-0.5 text-left">
                                                     <span className="text-[11px] font-black uppercase text-slate-700">Refund Gratuity (${transaction.tipAmount.toFixed(2)})</span>
                                                     <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Return tip to guest</p>
                                                 </div>
@@ -411,9 +406,9 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                             </div>
                                             <AnimatePresence>
                                                 {refundTip && (
-                                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 pt-2">
+                                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 pt-2 text-left">
                                                         <Label className="text-[9px] font-black uppercase tracking-widest text-primary ml-1">Tip Allocation Adjustment</Label>
-                                                        <RadioGroup value={tipStrategy} onValueChange={(v: any) => setTipStrategy(v)} className="grid grid-cols-2 gap-2">
+                                                        <RadioGroup value={tipStrategy} onValueChange={(v: any) => setTipStrategy(v)} className="grid grid-cols-2 gap-2 text-left">
                                                             <label htmlFor="strategy-clawback" className="cursor-pointer">
                                                                 <div className={cn("p-2 rounded-xl border-2 text-center transition-all", tipStrategy === 'clawback' ? "border-primary bg-primary/5 shadow-sm text-primary" : "border-border bg-white text-slate-400")}>
                                                                     <span className="text-[9px] font-black uppercase">Clawback</span>
@@ -435,7 +430,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                 </div>
                             </div>
 
-                            <div className="space-y-3 pt-4 border-t border-dashed">
+                            <div className="space-y-3 pt-4 border-t border-dashed text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Justification Required</Label>
                                 <Textarea 
                                     placeholder="Provide detailed reasoning for this revenue reversal..." 
@@ -445,15 +440,15 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                                 />
                             </div>
 
-                            <div className="flex items-center justify-between p-5 rounded-2xl border-2 border-dashed bg-muted/5 shadow-inner">
+                            <div className="flex items-center justify-between p-5 rounded-2xl border-2 border-dashed bg-muted/5 shadow-inner text-left">
                                 <div className="space-y-0.5 text-left">
-                                    <Label className="text-xs font-black uppercase tracking-tight flex items-center gap-2"><FileWarning className="w-4 h-4 text-amber-600" /> Log as Incident</Label>
-                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">File a report in the guest dossier</p>
+                                    <Label className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left text-left"><FileWarning className="w-4 h-4 text-amber-600" /> Log as Incident</Label>
+                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">File a report in the guest dossier</p>
                                 </div>
                                 <Switch checked={logIncident} onCheckedChange={setLogIncident} />
                             </div>
 
-                            <div className="space-y-4 pt-4 border-t border-dashed">
+                            <div className="space-y-4 pt-4 border-t border-dashed text-left">
                                 <div className="flex items-center gap-3 px-1">
                                     <div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-slate-400" /></div>
                                     <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Manager PIN Authorization</Label>
@@ -472,7 +467,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                 </ScrollArea>
                 <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 shrink-0">
                     <Button onClick={handleAction} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Authorize Reversal</Button>
-                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest text-slate-400">Abort Reversal</Button>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Reversal</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -487,19 +482,19 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
         <Sheet open={open} onOpenChange={onOpenChange}>
             <SheetContent side="right" className="w-full sm:max-w-xl p-0 flex flex-col border-l-0 sm:border-l bg-background overflow-hidden">
                 <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-3 mb-2 text-left">
                         <ShieldCheck className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Audit Intelligence</span>
                     </div>
-                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Record Dossier</SheetTitle>
+                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Record Dossier</SheetTitle>
                     <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Registry ID: {transaction.id.slice(-8).toUpperCase()}</SheetDescription>
                 </SheetHeader>
 
                 <ScrollArea className="flex-1">
-                    <div className="p-8 space-y-10">
+                    <div className="p-8 space-y-10 text-left">
                         <div className="p-8 rounded-[2.5rem] bg-muted/10 border-4 border-border/50 text-center space-y-4 shadow-inner relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-6 opacity-5"><DollarSign className="w-20 h-20 text-slate-900" /></div>
-                            <div className="space-y-1">
+                            <div className="space-y-1 text-center">
                                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-60">Accounting Entry</p>
                                 <p className={cn("text-5xl font-black font-mono tracking-tighter", transaction.type === 'income' ? 'text-green-600' : 'text-destructive')}>
                                     {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
@@ -512,36 +507,36 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
                         </div>
 
                         <div className="space-y-6 text-left">
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Entity Reference</Label>
-                                <p className="text-xl font-black uppercase tracking-tight text-slate-900">{transaction.description}</p>
-                                <p className="text-xs font-bold text-slate-500 uppercase tracking-tight">{transaction.clientOrVendor}</p>
+                                <p className="text-xl font-black uppercase tracking-tight text-slate-900 text-left">{transaction.description}</p>
+                                <p className="text-xs font-bold text-slate-500 uppercase tracking-tight text-left">{transaction.clientOrVendor}</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-6 pt-4 border-t border-dashed">
-                                <div className="space-y-1">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Timestamp</p>
-                                    <p className="font-black text-sm uppercase tracking-tight">{format(safeDate(transaction.date), 'MMMM d, yyyy')}</p>
-                                    <p className="text-[10px] font-bold text-primary uppercase tracking-widest">{format(safeDate(transaction.date), 'h:mm a')}</p>
+                                <div className="space-y-1 text-left text-left">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Timestamp</p>
+                                    <p className="font-black text-sm uppercase tracking-tight text-left">{format(safeDate(transaction.date), 'MMMM d, yyyy')}</p>
+                                    <p className="text-[10px] font-bold text-primary uppercase tracking-widest text-left">{format(safeDate(transaction.date), 'h:mm a')}</p>
                                 </div>
-                                <div className="space-y-1">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Settlement</p>
-                                    <p className="font-black text-sm uppercase tracking-tight">{transaction.paymentMethod}</p>
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{transaction.context} Account</p>
+                                <div className="space-y-1 text-left text-left">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Settlement</p>
+                                    <p className="font-black text-sm uppercase tracking-tight text-left">{transaction.paymentMethod}</p>
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-left">{transaction.context} Account</p>
                                 </div>
                             </div>
 
                             {staffMember && (
                                 <div className="pt-6 border-t border-dashed space-y-3">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Authorized By</p>
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Authorized By</p>
                                     <div className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-white shadow-sm">
                                         <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
                                             <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
                                             <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
                                         </Avatar>
-                                        <div className="min-w-0">
-                                            <p className="font-black text-sm uppercase tracking-tight truncate">{staffMember.name}</p>
-                                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{staffMember.role}</p>
+                                        <div className="min-w-0 text-left">
+                                            <p className="font-black text-sm uppercase tracking-tight truncate text-left">{staffMember.name}</p>
+                                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">{staffMember.role}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -549,10 +544,10 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
 
                             {(transaction.relatedOrderId || transaction.relatedBillInstanceId || transaction.appointmentId) && (
                                 <div className="pt-6 border-t border-dashed space-y-4">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Protocol Linkages</p>
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Protocol Linkages</p>
                                     <div className="grid gap-2">
                                         {transaction.relatedOrderId && (
-                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white">
+                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white text-left">
                                                 <Link href="/inventory">
                                                     <ShoppingCart className="mr-3 h-4 w-4 text-primary opacity-40" />
                                                     View Purchase Order
@@ -560,7 +555,7 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
                                             </Button>
                                         )}
                                         {transaction.appointmentId && (
-                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white">
+                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white text-left">
                                                 <Link href="/planner">
                                                     <CalendarCheck className="mr-3 h-4 w-4 text-primary opacity-40" />
                                                     Examine Session
@@ -568,7 +563,7 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
                                             </Button>
                                         )}
                                         {transaction.relatedBillInstanceId && (
-                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white">
+                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white text-left">
                                                 <Link href="/bills">
                                                     <Landmark className="mr-3 h-4 w-4 text-primary opacity-40" />
                                                     View Bill Context
@@ -637,7 +632,7 @@ const TransactionFilters = ({
 
   return (
     <Card className="h-fit border-2 shadow-sm rounded-3xl overflow-hidden">
-      <CardHeader className="hidden md:block border-b bg-muted/5">
+      <CardHeader className="hidden md:block border-b bg-muted/5 text-left">
         <CardTitle className="text-sm font-black uppercase tracking-widest">Ledger Filters</CardTitle>
         <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Filter studio cash flow.</CardDescription>
       </CardHeader>
@@ -649,7 +644,7 @@ const TransactionFilters = ({
                     <SelectTrigger className="h-12 rounded-2xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
                         <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                    <SelectContent className="rounded-xl border-2 shadow-2xl">
                         <SelectItem value="today" className="font-bold">TODAY</SelectItem>
                         <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
                         <SelectItem value="30days" className="font-bold">LAST 30 DAYS</SelectItem>
@@ -664,7 +659,7 @@ const TransactionFilters = ({
                 {periodPreset === 'custom' && (
                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                         <div className="grid grid-cols-1 gap-3 pt-2">
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 text-left">
                                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">From</Label>
                                 <input 
                                     type="date" 
@@ -676,7 +671,7 @@ const TransactionFilters = ({
                                     className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all shadow-inner"
                                 />
                             </div>
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 text-left">
                                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">To</Label>
                                 <input 
                                     type="date" 
@@ -722,7 +717,7 @@ const TransactionFilters = ({
                     <SelectTrigger className="h-12 rounded-2xl border-2 focus:ring-primary/20">
                         <SelectValue placeholder="All Categories" />
                     </SelectTrigger>
-                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                    <SelectContent className="rounded-xl border-2 shadow-2xl">
                         <SelectItem value="all" className="font-bold">All Categories</SelectItem>
                         {categories.map(cat => <SelectItem key={cat} value={cat} className="font-bold">{cat}</SelectItem>)}
                     </SelectContent>
@@ -732,9 +727,9 @@ const TransactionFilters = ({
 
         <Separator />
 
-        <div className='p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-4 text-left'>
+        <div className='p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-4 text-left text-left'>
             <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Period Performance</p>
-            <div className='space-y-2.5 text-xs'>
+            <div className='space-y-2.5 text-xs text-left'>
                 <div className='flex justify-between font-bold'><span>Total Revenue:</span><span className='font-mono text-green-600'>${financialSummary.revenue.toFixed(2)}</span></div>
                 <div className='flex justify-between font-bold'><span>COGS:</span><span className='font-mono text-destructive'>-${financialSummary.cogs.toFixed(2)}</span></div>
                 <div className='flex justify-between border-t border-primary/10 pt-2 font-black'><span>Gross Profit:</span><span className="font-mono text-slate-900">${financialSummary.grossProfit.toFixed(2)}</span></div>
@@ -760,13 +755,13 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
           <div className={cn("p-2 rounded-full shrink-0", transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-primary/10')}>
             <TransactionIcon type={transaction.type} />
           </div>
-          <div className='flex flex-col min-w-0'>
-            <span className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate">{transaction.description}</span>
-            <span className='text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-60 truncate'>{transaction.clientOrVendor}</span>
+          <div className='flex flex-col min-w-0 text-left'>
+            <span className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate text-left">{transaction.description}</span>
+            <span className='text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-60 truncate text-left'>{transaction.clientOrVendor}</span>
           </div>
         </div>
       </TableCell>
-      <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-70">{format(safeDate(transaction.date), 'MMM d, p')}</TableCell>
+      <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-70 text-left">{format(safeDate(transaction.date), 'MMM d, p')}</TableCell>
       <TableCell>
         {staffMember ? (
             <div className="flex items-center gap-2">
@@ -789,15 +784,15 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
           {transaction.context}
         </Badge>
       </TableCell>
-      <TableCell className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider text-left">
-          <div className="flex items-center gap-2">
+      <TableCell className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider text-left text-left">
+          <div className="flex items-center gap-2 text-left">
             <CreditCard className="w-3.5 h-3.5 opacity-40 shrink-0"/>
-            <span className="truncate">{transaction.paymentMethod}</span>
+            <span className="truncate text-left">{transaction.paymentMethod}</span>
           </div>
       </TableCell>
-      <TableCell className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60 text-left">{transaction.category}</TableCell>
+      <TableCell className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60 text-left text-left">{transaction.category}</TableCell>
       <TableCell className="text-right">
-        <div className='flex items-center justify-end gap-3'>
+        <div className='flex items-center justify-end gap-3 text-left'>
             {transaction.hasReceipt && (
                 <Button 
                     variant="ghost" 
@@ -844,8 +839,8 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
 const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails, onRefundClick }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void, onPreviewReceipt: (t: Transaction) => void, onViewDetails: (t: Transaction) => void, onRefundClick: (t: Transaction) => void }) => {
     return (
         <Card className="border-2 shadow-sm rounded-3xl overflow-hidden group cursor-pointer" onClick={() => onViewDetails(transaction)}>
-            <CardContent className="p-5 space-y-4">
-                <div className="flex items-start gap-4">
+            <CardContent className="p-5 space-y-4 text-left">
+                <div className="flex items-start gap-4 text-left">
                     <div className={cn("p-2.5 rounded-2xl shadow-inner shrink-0", {
                         'bg-green-500/10': transaction.type === 'income',
                         'bg-destructive/10': transaction.type === 'expense' || transaction.type === 'payment',
@@ -853,20 +848,20 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
                     })}>
                         <TransactionIcon type={transaction.type} />
                     </div>
-                    <div className="flex-1 space-y-1 min-w-0 text-left">
-                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{transaction.description}</p>
-                        <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest opacity-60">{transaction.clientOrVendor} &middot; {format(safeDate(transaction.date), 'MMM d, p')}</p>
+                    <div className="flex-1 space-y-1 min-w-0 text-left text-left">
+                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate text-left">{transaction.description}</p>
+                        <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest opacity-60 text-left">{transaction.clientOrVendor} &middot; {format(safeDate(transaction.date), 'MMM d, p')}</p>
                         {staffMember && (
-                            <div className="flex items-center gap-2 mt-2">
+                            <div className="flex items-center gap-2 mt-2 text-left">
                                 <Avatar className="h-6 w-6 border rounded-xl shadow-sm shrink-0">
                                     <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
                                     <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0).toUpperCase()}</AvatarFallback>
                                 </Avatar>
-                                <span className="text-[10px] font-black uppercase text-primary tracking-tight truncate">{staffMember.name}</span>
+                                <span className="text-[10px] font-black uppercase text-primary tracking-tight truncate text-left">{staffMember.name}</span>
                             </div>
                         )}
                     </div>
-                    <div className='text-right shrink-0'>
+                    <div className='text-right shrink-0 text-left'>
                         <p className={cn('font-black font-mono text-lg tracking-tighter', {
                             'text-green-600': transaction.type === 'income',
                             'text-destructive': transaction.type === 'expense' || transaction.type === 'payment',
@@ -886,8 +881,8 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
                         )}
                     </div>
                 </div>
-                 <div className="flex items-center justify-between pt-4 border-t border-dashed mt-2">
-                    <div className='flex items-center gap-2'>
+                 <div className="flex items-center justify-between pt-4 border-t border-dashed mt-2 text-left">
+                    <div className='flex items-center gap-2 text-left'>
                         <Badge
                             variant="secondary"
                             className={cn("text-[9px] h-5 px-2 font-black uppercase tracking-widest border-none", {
@@ -899,8 +894,8 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
                         </Badge>
                         <Badge variant="outline" className="text-[9px] h-5 px-2 uppercase font-black tracking-widest text-muted-foreground/60 border-2">{transaction.category}</Badge>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="text-[9px] text-muted-foreground font-black uppercase tracking-widest opacity-50 flex items-center gap-1.5 truncate max-w-[80px]">
+                    <div className="flex items-center gap-2 text-left">
+                        <div className="text-[9px] text-muted-foreground font-black uppercase tracking-widest opacity-50 flex items-center gap-1.5 truncate max-w-[80px] text-left">
                             <CreditCard className="w-3 h-3 shrink-0"/> {transaction.paymentMethod}
                         </div>
                         <DropdownMenu>
@@ -1127,29 +1122,29 @@ const LedgerPage = () => {
 
   return (
     <>
-    <div className="no-print flex min-h-screen w-full flex-col overflow-x-hidden bg-background">
+    <div className="no-print flex min-h-screen w-full flex-col overflow-x-hidden bg-background text-left">
       <AppHeader title="Studio Ledger" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
-            <div className="space-y-1 text-left">
-                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Ledger</h1>
-                <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
+            <div className="space-y-1 text-left text-left">
+                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">The Ledger</h1>
+                <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">
                     Official financial audit trail
                 </p>
             </div>
-            <div className="flex items-center gap-3 w-full md:w-auto">
-                <Button variant="outline" onClick={handlePrint} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm"><Printer className='mr-2 h-4 w-4' /> Print Log</Button>
+            <div className="flex items-center gap-3 w-full md:w-auto text-left">
+                <Button variant="outline" onClick={handlePrint} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white"><Printer className='mr-2 h-4 w-4' /> Print Log</Button>
                 <Button onClick={() => setIsAddTxnOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20"><PlusCircle className='mr-2 h-4 w-4' /> New Entry</Button>
             </div>
         </div>
 
-        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8 items-start">
-          <div className="md:col-span-1 lg:col-span-1">
+        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8 items-start text-left">
+          <div className="md:col-span-1 lg:col-span-1 text-left">
             {isMobile ? (
                 <Accordion type="single" collapsible className="w-full mb-6">
                     <AccordionItem value="filters" className="border-none">
                         <AccordionTrigger className="p-5 bg-primary/5 rounded-[2rem] border-2 border-primary/10 hover:no-underline shadow-sm text-left">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 text-left">
                                 <Filter className="w-5 h-5 text-primary" />
                                 <span className="font-black uppercase text-xs tracking-widest text-primary">Summary & Filters</span>
                             </div>
@@ -1191,17 +1186,17 @@ const LedgerPage = () => {
           </div>
           
           <div className="md:col-span-2 lg:col-span-3 space-y-6 min-w-0 text-left">
-            <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden">
-              <CardContent className='p-0 overflow-x-auto'>
+            <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-white text-left">
+              <CardContent className='p-0 overflow-x-auto text-left'>
                 <Table>
                   <TableHeader className="bg-muted/30 border-b-2">
                     <TableRow>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-slate-900">Description & Entity</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Timestamp</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Provider</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Context</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Account</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Category</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-slate-900 text-left">Description & Entity</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900 text-left">Timestamp</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900 text-left">Provider</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900 text-left">Context</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900 text-left">Account</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900 text-left">Category</TableHead>
                       <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-primary pr-10">Amount</TableHead>
                       <TableHead><span className='sr-only'>Actions</span></TableHead>
                     </TableRow>
@@ -1242,15 +1237,15 @@ const LedgerPage = () => {
                 </Table>
               </CardContent>
             </Card>
-            <div className="md:hidden space-y-4">
+            <div className="md:hidden space-y-4 text-left">
                  {isLoading && (
-                    <div className="flex flex-col items-center justify-center py-24">
+                    <div className="flex flex-col items-center justify-center py-24 text-left">
                         <Loader className="w-10 h-10 animate-spin text-primary mb-4" />
                         <p className="text-[10px] font-black uppercase tracking-widest text-primary">Syncing Ledger...</p>
                     </div>
                  )}
                  {!isLoading && filteredTransactions.length > 0 ? (
-                    <div className="grid gap-4">
+                    <div className="grid gap-4 text-left">
                         {filteredTransactions.map((transaction) => (
                             <TransactionCard 
                                 key={transaction.id} 
@@ -1264,7 +1259,7 @@ const LedgerPage = () => {
                         ))}
                     </div>
                  ) : !isLoading && (
-                    <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
+                    <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4 text-left">
                         <BookOpen className="w-16 h-16" />
                         <p className="text-sm font-black uppercase tracking-widest">No entries found</p>
                     </div>
@@ -1277,7 +1272,6 @@ const LedgerPage = () => {
 
     <div className="print-only">
         <PrintableReport 
-            ref={reportRef} 
             transactions={filteredTransactions} 
             staff={staff || []}
             financialSummary={financialSummary} 
@@ -1307,16 +1301,16 @@ const LedgerPage = () => {
     />
     
     <AlertDialog open={!!transactionToRevert} onOpenChange={() => setTransactionToRevert(null)}>
-        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-            <AlertDialogHeader className="p-6 pb-0">
+        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl bg-background">
+            <AlertDialogHeader className="p-6 pb-0 text-left">
             <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl text-left">Confirm Reversal</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed text-left uppercase tracking-tight">
+            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed text-left uppercase tracking-tight text-left">
                 You are about to create an audit-trail reversal for &quot;{transactionToRevert?.description}&quot;. This will permanently record an opposite entry to zero-out this balance.
             </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3 text-left">
                 <Button onClick={() => handleRevertTransaction()} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Yes, Revert Entry</Button>
-                <AlertDialogCancel onClick={() => setTransactionToRevert(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
+                <AlertDialogCancel onClick={() => setTransactionToRevert(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none bg-transparent text-left">Cancel</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
     </AlertDialog>
