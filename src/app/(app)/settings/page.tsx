@@ -59,7 +59,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
 import { doc, writeBatch, deleteField } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
@@ -267,7 +267,7 @@ const ServicePolicyCard = ({
                                 </div>
                             )}
 
-                            <div className="p-4 rounded-xl bg-muted/20 border-2 border-dashed flex justify-between items-center shadow-inner">
+                            <div className="p-4 rounded-xl border-2 border-dashed bg-muted/20 flex justify-between items-center shadow-inner">
                                 <div className="flex items-center gap-2 text-left">
                                     <Landmark className="w-3.5 h-3.5 text-primary opacity-40" />
                                     <span className="text-[9px] font-black uppercase text-muted-foreground">House Floor Minimum</span>
@@ -281,6 +281,8 @@ const ServicePolicyCard = ({
         </Card>
     );
 }
+
+const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 function SettingsPageImpl() {
   const { toast } = useToast();
@@ -438,7 +440,7 @@ function SettingsPageImpl() {
                 <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest shadow-inner bg-white">
                     <SelectValue placeholder="Select Module" />
                 </SelectTrigger>
-                <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                <SelectContent className="rounded-xl border-2 shadow-2xl">
                     {tabs.map(tab => (
                         <SelectItem key={tab.value} value={tab.value} className="font-bold uppercase text-[10px] tracking-widest py-3">
                             <div className="flex items-center gap-2">
@@ -508,15 +510,18 @@ function SettingsPageImpl() {
 
                         {localSchedule ? (
                             <div className="space-y-3">
-                                {Object.entries(localSchedule).map(([day, hours]: [any, any]) => (
-                                    <DayHoursRow 
-                                        key={day} 
-                                        day={day} 
-                                        data={hours} 
-                                        onChange={handleScheduleChange} 
-                                        disabled={!isEditing} 
-                                    />
-                                ))}
+                                {dayOrder.map((day) => {
+                                    const hours = localSchedule[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' };
+                                    return (
+                                        <DayHoursRow 
+                                            key={day} 
+                                            day={day} 
+                                            data={hours} 
+                                            onChange={handleScheduleChange} 
+                                            disabled={!isEditing} 
+                                        />
+                                    );
+                                })}
                             </div>
                         ) : (
                             <div className="py-12 text-center opacity-30 text-left">
@@ -927,7 +932,7 @@ function SettingsPageImpl() {
                                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 pt-4 border-t border-dashed text-left">
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Walk-in Window Schedule</Label>
                                         <div className="space-y-3">
-                                            {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => (
+                                            {dayOrder.map(day => (
                                                 <DayHoursRow 
                                                     key={`kiosk-${day}`} 
                                                     day={day} 
