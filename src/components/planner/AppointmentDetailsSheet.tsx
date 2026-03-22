@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
@@ -68,6 +67,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Label } from '../ui/label';
@@ -90,6 +90,7 @@ import { nanoid } from 'nanoid';
 import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Textarea } from '../ui/textarea';
 import Image from 'next/image';
 import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -140,6 +141,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
   const [isMarkupOpen, setIsMarkupOpen] = useState(false);
   const [isEscalating, setIsEscalating] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolutionNote, setResolutionNote] = useState('');
 
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
@@ -161,11 +164,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
       const now = new Date().toISOString();
 
-      // Set escalation flag on appointment
       const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
       batch.update(appointmentRef, { isEscalated: true });
 
-      // If walk-in, flag the walk-in too
       if (appointment.isWalkIn) {
           const walkInId = appointment.id.replace('apt-walkin-', '');
           const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
@@ -192,6 +193,38 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           toast({ variant: 'destructive', title: "Escalation Failed" });
       } finally {
           setIsEscalating(false);
+      }
+  };
+
+  const handleResolveEscalation = async () => {
+      if (!firestore || !tenantId || !appointment) return;
+      setIsResolving(true);
+      
+      const batch = writeBatch(firestore);
+      const now = new Date().toISOString();
+
+      const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
+      batch.update(appointmentRef, { 
+          isEscalated: false, 
+          resolutionNotes: resolutionNote,
+          resolvedAt: now,
+          resolvedBy: currentUser?.uid
+      });
+
+      if (appointment.isWalkIn) {
+          const walkInId = appointment.id.replace('apt-walkin-', '');
+          const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+          batch.update(walkInRef, { isEscalated: false });
+      }
+
+      try {
+          await batch.commit();
+          toast({ title: "Escalation Resolved", description: "High-alert flags cleared from studio manifest." });
+          setResolutionNote('');
+      } catch (e) {
+          toast({ variant: 'destructive', title: "Resolution Failed" });
+      } finally {
+          setIsResolving(false);
       }
   };
 
@@ -448,7 +481,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                                     <div className="grid gap-2">
                                         {client.customFormulas.map((f: any) => (
                                             <div key={f.id} className="p-3 rounded-xl bg-white border-2 border-transparent hover:border-primary/10 transition-all flex justify-between items-center shadow-sm">
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 text-left">
                                                     <span className="text-[10px] font-black uppercase tracking-tight truncate block">{f.name}</span>
                                                     <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{format(safeDate(f.date), 'MMM d, yyyy')}</span>
                                                 </div>
@@ -467,34 +500,56 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <div className="space-y-4 pt-4 border-t border-dashed text-left">
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-primary text-left">Service Recovery & Panic</h3>
                     <div className={cn(
-                        "flex items-center justify-between p-6 rounded-[2rem] border-4 transition-all shadow-xl",
-                        appointment.isEscalated ? "bg-destructive text-white border-destructive shadow-destructive/20 animate-pulse" : "border-destructive/20 bg-destructive/[0.02] shadow-destructive/5"
+                        "flex flex-col gap-4 p-6 rounded-[2rem] border-4 transition-all shadow-xl",
+                        appointment.isEscalated ? "bg-destructive text-white border-destructive shadow-destructive/20" : "border-destructive/20 bg-destructive/[0.02] shadow-destructive/5"
                     )}>
-                        <div className="space-y-1 text-left">
-                            <Label htmlFor="escalate-panic" className={cn("text-base font-black uppercase tracking-tight flex items-center gap-2 text-left", appointment.isEscalated ? "text-white" : "text-destructive")}>
-                                <ShieldAlert className="w-4 h-4" /> 
-                                {appointment.isEscalated ? "Priority Escalated" : "Manager Escalation"}
-                            </Label>
-                            <p className={cn("text-[10px] font-bold uppercase tracking-widest text-left", appointment.isEscalated ? "text-white/80" : "text-destructive/60")}>
-                                {appointment.isEscalated ? "Manager dispatch active" : "Immediate technical or guest issue"}
-                            </p>
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="space-y-1 text-left">
+                                <Label htmlFor="escalate-panic" className={cn("text-base font-black uppercase tracking-tight flex items-center gap-2 text-left", appointment.isEscalated ? "text-white" : "text-destructive")}>
+                                    <ShieldAlert className="w-4 h-4" /> 
+                                    {appointment.isEscalated ? "Priority Escalated" : "Manager Escalation"}
+                                </Label>
+                                <p className={cn("text-[10px] font-bold uppercase tracking-widest text-left", appointment.isEscalated ? "text-white/80" : "text-destructive/60")}>
+                                    {appointment.isEscalated ? "Manager dispatch active" : "Immediate technical or guest issue"}
+                                </p>
+                            </div>
+                            <Button 
+                                variant={appointment.isEscalated ? "secondary" : "destructive"}
+                                size="icon" 
+                                disabled={isEscalating}
+                                onClick={appointment.isEscalated ? undefined : handleEscalate}
+                                className={cn("h-14 w-14 rounded-2xl shadow-xl", !appointment.isEscalated && "shadow-destructive/20 animate-pulse")}
+                            >
+                                {isEscalating ? <Loader className="animate-spin" /> : appointment.isEscalated ? <CheckCircle2 className="w-6 h-6" /> : <AlertCircle className="w-6 h-6" />}
+                            </Button>
                         </div>
-                        <Button 
-                            variant={appointment.isEscalated ? "secondary" : "destructive"}
-                            size="icon" 
-                            disabled={isEscalating || appointment.isEscalated}
-                            onClick={handleEscalate}
-                            className={cn("h-14 w-14 rounded-2xl shadow-xl", !appointment.isEscalated && "shadow-destructive/20 animate-pulse")}
-                        >
-                            {isEscalating ? <Loader className="animate-spin" /> : appointment.isEscalated ? <ShieldCheck className="w-6 h-6" /> : <AlertCircle className="w-6 h-6" />}
-                        </Button>
+
+                        {appointment.isEscalated && isOwnerOrAdminUser && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-4 border-t border-white/20">
+                                <div className="space-y-2 text-left">
+                                    <Label className="text-[10px] font-black uppercase text-white/60 ml-1">Resolution Protocol Summary</Label>
+                                    <Textarea 
+                                        value={resolutionNote} 
+                                        onChange={e => setResolutionNote(e.target.value)}
+                                        placeholder="Detail the manager intervention..."
+                                        className="bg-white/10 border-white/20 text-white placeholder:text-white/40 min-h-[80px] rounded-xl focus-visible:ring-white/20"
+                                    />
+                                </div>
+                                <Button 
+                                    onClick={handleResolveEscalation} 
+                                    disabled={isResolving || !resolutionNote.trim()}
+                                    className="w-full h-12 bg-white text-destructive hover:bg-white/90 rounded-xl font-black uppercase text-[10px] tracking-widest"
+                                >
+                                    {isResolving ? <Loader className="animate-spin" /> : 'Certify Resolution & Clear Alert'}
+                                </Button>
+                            </motion.div>
+                        )}
                     </div>
-                    <p className="text-[8px] font-bold text-muted-foreground uppercase text-center px-4 leading-relaxed opacity-60">
-                        {appointment.isEscalated 
-                            ? "This session is flagged across all studio dashboards. A manager has been dispatched to assist." 
-                            : "This protocol bypasses all standard queues and dispatches a high-priority alert to all studio leadership instantly."
-                        }
-                    </p>
+                    {!appointment.isEscalated && (
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase text-center px-4 leading-relaxed opacity-60">
+                            This protocol bypasses standard queues and dispatches high-priority pressure to studio leadership instantly.
+                        </p>
+                    )}
                 </div>
 
                 {appointment.inspirationPhotoUrl && (
