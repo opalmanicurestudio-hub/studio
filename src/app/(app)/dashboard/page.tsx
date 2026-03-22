@@ -46,7 +46,9 @@ import {
   Timer,
   XCircle,
   Award,
-  Star
+  Star,
+  MessageSquare,
+  Eye
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Appointment, type Event, type Transaction, type Service, Staff, ActivityLog, InventoryItem, WalkIn, RefreshmentRequest } from '@/lib/data';
@@ -118,7 +120,7 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
                                         {safeQuantity}
                                     </div>
                                 </div>
-                                <div className="space-y-1 text-left w-full sm:w-auto">
+                                <div className="space-y-1 text-left w-full sm:w-auto flex-1">
                                     <div className="flex items-center gap-3">
                                         <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
                                         <div className="flex items-center gap-2">
@@ -149,19 +151,37 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
                                         </div>
                                     )}
 
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex flex-wrap items-center gap-x-2 gap-y-1">
-                                        Guest: <span className="text-primary">{request.clientName}</span>
-                                        <span className="opacity-40">&middot;</span>
-                                        <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {request.stationName || 'Lounge'}</span>
-                                        {request.staffName && request.staffName !== 'Unassigned' && (
-                                            <>
-                                                <span className="opacity-40">&middot;</span>
-                                                <span className="flex items-center gap-1"><UserIcon className="w-3 h-3"/> {request.staffName}</span>
-                                            </>
+                                    <div className="flex flex-col gap-2 mt-2">
+                                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex flex-wrap items-center gap-x-2 gap-y-1">
+                                            Guest: <span className="text-primary">{request.clientName}</span>
+                                            <span className="opacity-40">&middot;</span>
+                                            <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {request.stationName || 'Lounge'}</span>
+                                            {request.staffName && request.staffName !== 'Unassigned' && (
+                                                <>
+                                                    <span className="opacity-40">&middot;</span>
+                                                    <span className="flex items-center gap-1"><UserIcon className="w-3 h-3"/> {request.staffName}</span>
+                                                </>
+                                            )}
+                                            <span className="opacity-40">&middot;</span>
+                                            {format(safeDate(request.requestedAt), 'h:mm a')}
+                                        </p>
+                                        
+                                        {(request.guestDescription || request.notes) && (
+                                            <div className="p-3 rounded-xl bg-primary/[0.03] border-2 border-primary/5 space-y-2 mt-1">
+                                                {request.guestDescription && (
+                                                    <p className="text-[10px] font-black text-primary uppercase flex items-center gap-2">
+                                                        <Eye className="w-3.5 h-3.5" />
+                                                        ID: {request.guestDescription}
+                                                    </p>
+                                                )}
+                                                {request.notes && (
+                                                    <p className="text-[10px] font-medium text-slate-600 leading-relaxed italic border-l-2 border-primary/20 pl-3">
+                                                        "{request.notes}"
+                                                    </p>
+                                                )}
+                                            </div>
                                         )}
-                                        <span className="opacity-40">&middot;</span>
-                                        {format(safeDate(request.requestedAt), 'h:mm a')}
-                                    </p>
+                                    </div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-3 w-full sm:w-auto">

@@ -45,7 +45,9 @@ import {
     User,
     Delete,
     Minus,
-    Plus
+    Plus,
+    MessageSquare,
+    Target
 } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc, getDocs, writeBatch } from 'firebase/firestore';
@@ -58,6 +60,7 @@ import Image from 'next/image';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Separator } from '@/components/ui/separator';
 import { type Client, type InventoryItem, type Membership, type Tenant } from '@/lib/data';
+import { Textarea } from '@/components/ui/textarea';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -244,12 +247,17 @@ export default function ConciergeKioskPage() {
     const { toast } = useToast();
 
     const [entered, setEntered] = useState(false);
-    const [step, setStep] = useState<'onboarding' | 'identity' | 'phone_pad' | 'menu' | 'payment' | 'success'>('onboarding');
+    const [step, setStep] = useState<'onboarding' | 'identity' | 'phone_pad' | 'menu' | 'delivery_detail' | 'payment' | 'success'>('onboarding');
     const [guestName, setGuestName] = useState('');
     const [phonePadValue, setPhonePadValue] = useState('');
     const [identifiedClient, setIdentifiedClient] = useState<Client | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
     const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
+    
+    // Delivery Details
+    const [seatNumber, setSeatNumber] = useState('');
+    const [guestDescription, setGuestDescription] = useState('');
+    const [orderNotes, setOrderNotes] = useState('');
 
     const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
     const { data: tenant } = useDoc<Tenant>(tenantRef);
@@ -335,16 +343,22 @@ export default function ConciergeKioskPage() {
     };
 
     const handleRequest = async (item: InventoryItem, qty: number) => {
-        const isPerk = activeMembership?.includedProducts?.some((p: any) => p.id === item.id);
-        const price = safeNumber(item.price);
+        setPendingItem({ item, qty });
+        setStep('delivery_detail');
+    };
+
+    const handleDeliveryDetailSubmit = () => {
+        if (!pendingItem) return;
+        
+        const isPerk = activeMembership?.includedProducts?.some((p: any) => p.id === pendingItem.item.id);
+        const price = safeNumber(pendingItem.item.price);
 
         if (price > 0 && !isPerk) {
-            setPendingItem({ item, qty });
             setStep('payment');
             return;
         }
 
-        finalizeRequest(item, qty);
+        finalizeRequest(pendingItem.item, pendingItem.qty);
     };
 
     const finalizeRequest = async (item: InventoryItem, qty: number) => {
@@ -365,7 +379,9 @@ export default function ConciergeKioskPage() {
                 quantity: qty,
                 status: 'pending',
                 requestedAt: new Date().toISOString(),
-                stationName: 'Lounge / Waiting Area',
+                stationName: seatNumber ? `Seat/Table #${seatNumber}` : 'Lounge / Waiting Area',
+                guestDescription: guestDescription,
+                notes: orderNotes,
                 priceAtRequest: safeNumber(item.price),
                 isGuestKiosk: true
             });
@@ -391,6 +407,10 @@ export default function ConciergeKioskPage() {
             await batch.commit();
             toast({ title: "Order Dispatched", description: "Our concierge will be with you shortly." });
             setStep('success');
+            // Reset delivery fields for next potential order
+            setSeatNumber('');
+            setGuestDescription('');
+            setOrderNotes('');
         } catch (e) {
             toast({ variant: 'destructive', title: "Request Failed" });
         } finally {
@@ -588,6 +608,59 @@ export default function ConciergeKioskPage() {
                                 </motion.div>
                             )}
 
+                            {step === 'delivery_detail' && pendingItem && (
+                                <FloatingContainer key="delivery_detail" className="max-w-md text-center space-y-10 py-12">
+                                    <div className="space-y-3 text-center">
+                                        <div className="w-16 h-16 md:w-20 md:h-20 bg-primary/10 rounded-[1.5rem] md:rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                                            <MapPin className="w-8 h-8 md:w-10 md:h-10 text-primary" />
+                                        </div>
+                                        <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 text-center leading-none">Delivery Protocol</h2>
+                                        <p className="text-[10px] md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Help us find you in the lounge.</p>
+                                    </div>
+
+                                    <div className="space-y-6 text-left">
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Table or Seat #</Label>
+                                            <Input 
+                                                value={seatNumber}
+                                                onChange={e => setSeatNumber(e.target.value)}
+                                                placeholder="e.g., 4"
+                                                className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-white/80 text-center"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Visual Identifier</Label>
+                                            <Input 
+                                                value={guestDescription}
+                                                onChange={e => setGuestDescription(e.target.value)}
+                                                placeholder="e.g., Wearing a green hoodie"
+                                                className="h-14 rounded-2xl border-2 font-bold bg-white/80"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">General Notes</Label>
+                                            <Textarea 
+                                                value={orderNotes}
+                                                onChange={e => setOrderNotes(e.target.value)}
+                                                placeholder="Any special requests? (e.g., Extra ice)"
+                                                className="rounded-2xl border-2 bg-white/80 min-h-[100px] font-medium"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-4">
+                                        <Button 
+                                            size="lg" 
+                                            onClick={handleDeliveryDetailSubmit}
+                                            className="w-full h-16 md:h-20 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
+                                        >
+                                            Confirm Details <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2"/>
+                                        </Button>
+                                        <Button variant="ghost" onClick={() => setStep('menu')} className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Change Item</Button>
+                                    </div>
+                                </FloatingContainer>
+                            )}
+
                             {step === 'payment' && pendingItem && (
                                 <FloatingContainer key="payment" className="max-w-md text-center">
                                     <div className="rounded-[3rem] border-4 border-white bg-white/60 backdrop-blur-3xl shadow-3xl overflow-hidden text-center">
@@ -608,7 +681,7 @@ export default function ConciergeKioskPage() {
 
                                             <div className="space-y-6 text-left">
                                                 <div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
-                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
+                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
                                             </div>
                                             
                                             <div className="flex items-center justify-center gap-3 opacity-40 pt-4">
@@ -616,7 +689,7 @@ export default function ConciergeKioskPage() {
                                             </div>
                                         </div>
                                         <div className="p-8 md:p-10 pt-0 flex flex-col gap-3">
-                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 md:h-20 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
+                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
                                                 {isVerifying ? <Loader className="animate-spin h-6 w-6" /> : 'Authorize Payment'}
                                             </Button>
                                             <Button variant="ghost" onClick={() => setStep('menu')} className="w-full font-black uppercase text-[9px] md:text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
