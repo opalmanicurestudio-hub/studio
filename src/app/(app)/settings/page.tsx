@@ -90,7 +90,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
 const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: DayHours, onChange: (day: string, updates: Partial<DayHours>) => void, disabled?: boolean }) => {
     return (
         <div className={cn(
-            "flex flex-col md:flex-row items-center justify-between p-4 rounded-2xl border-2 transition-all gap-4",
+            "flex flex-col md:flex-row items-center justify-between p-4 md:p-5 rounded-[2rem] border-2 transition-all gap-4",
             data.enabled ? "bg-white border-border shadow-sm" : "bg-muted/30 border-transparent opacity-60"
         )}>
             <div className="flex items-center gap-4 w-full md:w-auto text-left">
@@ -116,7 +116,7 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                                 className="h-10 pl-8 pr-2 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs bg-background shadow-inner"
                             />
                         </div>
-                        <span className="text-muted-foreground opacity-40 font-black text-[9px] uppercase tracking-tighter">to</span>
+                        <span className="text-muted-foreground opacity-40 font-black text-[9px] uppercase tracking-tighter shrink-0">to</span>
                         <div className="relative flex-1 sm:w-28 md:w-32 text-left">
                             <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
                             <Input 
@@ -129,7 +129,7 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                             />
                         </div>
                     </div>
-                    <div className="w-px h-8 bg-border hidden sm:block" />
+                    <div className="w-px h-8 bg-border hidden sm:block shrink-0" />
                     <div className="flex-1 w-full sm:w-40 md:w-48 text-left">
                         <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1 mb-1 block">Access Tier</Label>
                         <Select 
@@ -195,7 +195,7 @@ const ServicePolicyCard = ({
 
     return (
         <Card className={cn(
-            "transition-all border-2 rounded-2xl overflow-hidden shadow-sm",
+            "transition-all border-2 rounded-[2rem] overflow-hidden shadow-sm",
             policy.mode !== 'inherit' ? "border-primary/20 bg-primary/[0.01]" : "bg-white"
         )}>
             <CardHeader className="p-4 border-b bg-muted/5 flex flex-row items-center justify-between gap-4">
@@ -438,7 +438,7 @@ function SettingsPageImpl() {
              <ScrollArea className="w-full">
                 <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner mb-8 flex w-max gap-1.5 overflow-x-auto scrollbar-hide">
                     {tabs.map(tab => (
-                    <TabsTrigger key={tab.value} value={tab.value} className="rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest px-4 md:px-6 h-10 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md transition-all text-left">
+                    <TabsTrigger key={tab.value} value={tab.value} className="rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest px-4 md:px-6 h-10 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md transition-all text-left shrink-0">
                         {React.cloneElement(tab.icon as React.ReactElement, { className: "mr-2 hidden sm:block" })}
                         {tab.label}
                     </TabsTrigger>
@@ -530,8 +530,8 @@ function SettingsPageImpl() {
                         <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Configure the in-service refreshment and amenity module.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                        <div className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6">
-                            <div className="space-y-1 text-center sm:text-left">
+                        <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6">
+                            <div className="space-y-1 text-left">
                                 <Label htmlFor="refreshment-toggle" className="text-base font-black uppercase tracking-tight text-slate-900">Activate Refreshment Menu</Label>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Allows guests to request in-stock items from their portal</p>
                             </div>
@@ -605,7 +605,7 @@ function SettingsPageImpl() {
                         <div className="space-y-6 text-left">
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 transition-all">
                                 <div className='space-y-1 text-left'>
-                                    <Label htmlFor="tight-scheduling-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2">
+                                    <Label htmlFor="tight-scheduling-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2 text-left">
                                         <LayoutGrid className="w-4 h-4" /> Zero-Gap Protocol
                                     </Label>
                                     <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left'>Minimize wasted downtime by anchoring guest choice to existing blocks</p>
@@ -621,7 +621,7 @@ function SettingsPageImpl() {
 
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-xl shadow-indigo-500/5 transition-all">
                                 <div className='space-y-1 text-left'>
-                                    <Label htmlFor="morning-anchor-toggle" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
+                                    <Label htmlFor="morning-anchor-toggle" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2 text-left">
                                         <Clock className="w-4 h-4" /> Morning Anchor Protocol
                                     </Label>
                                     <p className='text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest opacity-60 text-left'>The first appointment of an empty day must start at business opening time</p>
@@ -637,7 +637,7 @@ function SettingsPageImpl() {
 
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-amber-500/20 bg-amber-500/5 shadow-xl shadow-amber-500/5 transition-all">
                                 <div className='space-y-1 text-left'>
-                                    <Label htmlFor="flash-yield-toggle" className="text-base font-black uppercase tracking-tight text-amber-700 flex items-center gap-2">
+                                    <Label htmlFor="flash-yield-toggle" className="text-base font-black uppercase tracking-tight text-amber-700 flex items-center gap-2 text-left">
                                         <Flame className="w-4 h-4" /> Flash Yield Protocol
                                     </Label>
                                     <p className='text-[10px] font-bold text-amber-600/60 uppercase tracking-widest opacity-60 text-left'>Flag 48h cancellations as "magnetic" slots that bypass Zero-Gap restrictions</p>

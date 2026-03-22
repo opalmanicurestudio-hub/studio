@@ -482,7 +482,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const currentAssignedPro = useMemo(() => staff?.find(s => s.id === assignedStaffId), [staff, assignedStaffId]);
 
   return (
-    <Sheet theme-color="primary" open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
@@ -763,7 +763,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 <p className="text-muted-foreground font-medium max-w-xs mx-auto leading-relaxed text-center">The session has been successfully pinned to the studio manifest.</p>
                             </div>
                             
-                            <div className="grid gap-6 max-w-sm mx-auto">
+                            <div className="grid gap-6 max-sm mx-auto">
                                 <Card className="p-6 rounded-[2.5rem] border-2 bg-white shadow-2xl flex flex-col items-center gap-4 text-left">
                                     <p className="text-[9px] font-black uppercase tracking-widest text-primary">Assigned Professional</p>
                                     <div className="flex items-center gap-4 w-full">

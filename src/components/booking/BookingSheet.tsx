@@ -293,7 +293,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             if (apt.status === 'cancelled') {
                 if (isFlashYield) {
                     const hoursSinceCancellation = differenceInHours(new Date(), safeDate(apt.startTime));
-                    // If cancelled within last 48h, mark as a hot slot
                     if (Math.abs(hoursSinceCancellation) < 48) {
                         dayCancelledSlots.push({ start: safeDate(apt.startTime), end: safeDate(apt.endTime) });
                     }
@@ -351,13 +350,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
                 let allowed = true;
 
-                if (!isHotSlot) { // Hot slots bypass Zero-Gap/Anchor rules
-                    // Rule 1: Morning Anchor
+                if (!isHotSlot) { 
                     if (isMorningAnchor && isDayEmpty && !isStartOfDaySlot) {
                         allowed = false;
                     }
 
-                    // Rule 2: Adjacency (Tight Scheduling)
                     if (allowed && isTightScheduling && !isDayEmpty) {
                         const startsAtAnotherEnd = busyIntervals.some(interval => {
                             const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
@@ -455,7 +452,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         
         if (bannedClient || existingClientWithBalance) return;
 
-        // --- TIERED ACCESS CHECK ---
         const dayAccess = activeDaySchedule?.accessTier || 'all';
         if (dayAccess === 'members') {
             const isClientMember = !!(matchedClient?.activeMembershipId || matchedClient?.subscription);
