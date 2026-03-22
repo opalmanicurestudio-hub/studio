@@ -184,48 +184,50 @@ const FloatingMenuCard = ({
     return (
         <motion.div 
             whileTap={{ scale: 0.98 }}
-            className="group relative"
+            className="group relative shrink-0 w-[200px] md:w-72"
         >
             <div className={cn(
-                "rounded-[3rem] p-6 flex flex-col gap-6 transition-all duration-700",
+                "rounded-[2.5rem] md:rounded-[3rem] p-4 md:p-6 flex flex-col gap-4 md:gap-6 transition-all duration-700 h-full",
                 isPerk ? "bg-indigo-600/10 border-2 border-indigo-500/20 shadow-[0_20px_50px_rgba(79,70,229,0.15)]" : "bg-white/40 backdrop-blur-2xl border-2 border-white/50 shadow-2xl hover:bg-white/60 hover:border-primary/20"
             )}>
-                <div className="relative aspect-square w-full rounded-[2.5rem] overflow-hidden bg-muted/20 flex items-center justify-center group-hover:shadow-2xl transition-all duration-700">
+                <div className="relative aspect-square w-full rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-muted/20 flex items-center justify-center group-hover:shadow-2xl transition-all duration-700">
                     {item.imageUrl ? (
-                        <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-1000 group-hover:scale-110" />
+                        <div className="relative w-full h-full">
+                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-1000 group-hover:scale-110" />
+                        </div>
                     ) : (
-                        <Icon className="w-16 h-16 text-primary opacity-20" />
+                        <Icon className="w-10 h-10 md:w-16 md:h-16 text-primary opacity-20" />
                     )}
                     
-                    <div className="absolute top-4 left-4 flex flex-col gap-2">
-                        {item.isMembersOnly && <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest h-6 px-3 shadow-xl">Club Exclusive</Badge>}
-                        {isPerk && <Badge className="bg-primary text-white border-none font-black text-[8px] uppercase tracking-widest h-6 px-3 shadow-xl animate-pulse"><Star className="w-3 h-3 mr-1 fill-current"/> Tier Allotment</Badge>}
+                    <div className="absolute top-3 left-3 flex flex-col gap-1.5">
+                        {item.isMembersOnly && <Badge className="bg-indigo-600 text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl">Club Only</Badge>}
+                        {isPerk && <Badge className="bg-primary text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl animate-pulse"><Star className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1 fill-current"/> Perk</Badge>}
                     </div>
 
-                    <div className="absolute bottom-4 right-4">
-                        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-4 shadow-xl border border-white/50">
-                            <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">
+                    <div className="absolute bottom-3 right-3">
+                        <div className="bg-white/90 backdrop-blur-md rounded-xl md:rounded-2xl p-1.5 px-3 md:p-2 md:px-4 shadow-xl border border-white/50">
+                            <p className="text-[10px] md:text-sm font-black text-slate-900 font-mono tracking-tighter">
                                 {isPerk ? 'INCLUDED' : safeNumber(item.price) > 0 ? `$${safeNumber(item.price).toFixed(2)}` : 'COMP'}
                             </p>
                         </div>
                     </div>
                 </div>
 
-                <div className="space-y-4 px-2">
+                <div className="space-y-3 md:space-y-4 px-1 md:px-2 flex-1 flex flex-col justify-between">
                     <div className="space-y-1 text-left">
-                        <h4 className="font-black text-lg md:text-xl uppercase tracking-tighter text-slate-900 leading-none">{item.name}</h4>
-                        {item.description && <p className="text-xs font-medium text-slate-500 italic leading-relaxed opacity-80">"{item.description}"</p>}
+                        <h4 className="font-black text-xs md:text-xl uppercase tracking-tighter text-slate-900 leading-tight truncate">{item.name}</h4>
+                        {item.description && <p className="text-[10px] md:text-xs font-medium text-slate-500 italic leading-relaxed opacity-80 line-clamp-2">"{item.description}"</p>}
                     </div>
 
-                    <div className="pt-4 border-t border-dashed border-slate-900/10 flex items-center justify-between">
-                        <div className="flex items-center gap-2 bg-white/40 backdrop-blur-xl rounded-xl p-1 px-2 border border-white/50 shadow-sm">
-                            <button onClick={() => setQty(Math.max(1, qty - 1))} className="p-1.5 hover:text-primary transition-all active:scale-75"><Minus className="w-4 h-4" /></button>
-                            <span className="font-black font-mono text-base w-6 text-center">{qty}</span>
-                            <button onClick={() => setQty(qty + 1)} className="p-1.5 hover:text-primary transition-all active:scale-75"><Plus className="w-4 h-4" /></button>
+                    <div className="pt-3 md:pt-4 border-t border-dashed border-slate-900/10 flex items-center justify-between mt-auto">
+                        <div className="flex items-center gap-1.5 md:gap-2 bg-white/40 backdrop-blur-xl rounded-lg md:rounded-xl p-1 px-2 border border-white/50 shadow-sm h-8 md:h-10">
+                            <button onClick={() => setQty(Math.max(1, qty - 1))} className="p-1 hover:text-primary transition-all active:scale-75"><Minus className="w-3 h-3 md:w-4 md:h-4" /></button>
+                            <span className="font-black font-mono text-xs md:text-base w-4 md:w-6 text-center">{qty}</span>
+                            <button onClick={() => setQty(qty + 1)} className="p-1 hover:text-primary transition-all active:scale-75"><Plus className="w-3 h-3 md:w-4 md:h-4" /></button>
                         </div>
                         <Button 
                             onClick={() => onSelect(qty)}
-                            className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-95 transition-all"
+                            className="h-8 md:h-12 px-4 md:px-8 rounded-lg md:rounded-2xl font-black uppercase text-[8px] md:text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-95 transition-all"
                         >
                             Request
                         </Button>
@@ -249,7 +251,6 @@ export default function ConciergeKioskPage() {
     const [isVerifying, setIsVerifying] = useState(false);
     const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
 
-    // --- DATA ---
     const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
     const { data: tenant } = useDoc<Tenant>(tenantRef);
 
@@ -444,24 +445,24 @@ export default function ConciergeKioskPage() {
                             {step === 'onboarding' && (
                                 <FloatingContainer key="onboarding" className="text-center space-y-12">
                                     <div className="space-y-4 text-center">
-                                        <div className="w-24 h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
-                                            <Sparkles className="w-12 h-12 text-primary -rotate-6" />
+                                        <div className="w-20 h-20 md:w-24 md:h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
+                                            <Sparkles className="w-10 h-10 md:w-12 md:h-12 text-primary -rotate-6" />
                                         </div>
-                                        <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none text-center">Your Boutique Experience</h2>
-                                        <p className="text-sm md:text-xl font-bold text-muted-foreground uppercase tracking-[0.3em] opacity-60 text-center">How the protocol works</p>
+                                        <h2 className="text-3xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none text-center">Your Boutique Experience</h2>
+                                        <p className="text-[10px] md:text-xl font-bold text-muted-foreground uppercase tracking-[0.3em] opacity-60 text-center">How the protocol works</p>
                                     </div>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center max-w-3xl mx-auto">
                                         {[
                                             { icon: User, label: "Identify", desc: "Share your name so we can recognize you." },
                                             { icon: Coffee, label: "Select", desc: "Browse our curated artisanal menu." },
                                             { icon: HandHeart, label: "Relax", desc: "We deliver directly to your lounge seat." },
                                         ].map((item, idx) => (
-                                            <div key={idx} className="p-8 rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white shadow-xl flex flex-col items-center gap-4 text-center">
-                                                <div className="p-4 bg-primary/5 rounded-2xl text-primary"><item.icon className="w-8 h-8" /></div>
+                                            <div key={idx} className="p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white shadow-xl flex flex-col items-center gap-4 text-center">
+                                                <div className="p-3 md:p-4 bg-primary/5 rounded-2xl text-primary"><item.icon className="w-6 h-6 md:w-8 md:h-8" /></div>
                                                 <div className="space-y-1 text-center">
-                                                    <p className="font-black uppercase text-sm tracking-tight text-center">{item.label}</p>
-                                                    <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-center">{item.desc}</p>
+                                                    <p className="font-black uppercase text-[10px] md:text-sm tracking-tight text-center">{item.label}</p>
+                                                    <p className="text-[8px] md:text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-center">{item.desc}</p>
                                                 </div>
                                             </div>
                                         ))}
@@ -470,9 +471,9 @@ export default function ConciergeKioskPage() {
                                     <Button 
                                         size="lg" 
                                         onClick={handleOnboardingComplete}
-                                        className="h-20 px-12 md:px-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
+                                        className="h-16 md:h-20 px-8 md:px-20 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
                                     >
-                                        Begin Experience <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2" />
+                                        Begin Experience <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2" />
                                     </Button>
                                 </FloatingContainer>
                             )}
@@ -480,37 +481,37 @@ export default function ConciergeKioskPage() {
                             {step === 'identity' && (
                                 <FloatingContainer key="identity" className="text-center space-y-12">
                                     <div className="space-y-3 text-center">
-                                        <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
-                                            <HandHeart className="w-10 h-10 text-primary" />
+                                        <div className="w-16 h-16 md:w-20 md:h-20 bg-primary/10 rounded-[1.5rem] md:rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                                            <HandHeart className="w-8 h-8 md:w-10 md:h-10 text-primary" />
                                         </div>
-                                        <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center">Welcome to the Lounge</h2>
-                                        <p className="text-sm md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Please identify yourself to begin your experience.</p>
+                                        <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center leading-none">Welcome</h2>
+                                        <p className="text-[10px] md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Please identify yourself to begin.</p>
                                     </div>
 
                                     <form onSubmit={handleIdentitySubmit} className="max-w-md mx-auto space-y-8 text-center">
                                         <div className="space-y-2 text-left">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Your Full Name</Label>
+                                            <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary ml-1">Your Full Name</Label>
                                             <Input 
                                                 autoFocus
                                                 value={guestName}
                                                 onChange={e => setGuestName(e.target.value)}
                                                 placeholder="ENTER NAME"
-                                                className="h-16 rounded-2xl border-4 font-black uppercase text-xl md:text-2xl tracking-tight shadow-inner focus-visible:ring-primary/20 text-center bg-white/80"
+                                                className="h-14 md:h-16 rounded-2xl border-2 md:border-4 font-black uppercase text-lg md:text-2xl tracking-tight shadow-inner focus-visible:ring-primary/20 text-center bg-white/80"
                                             />
                                         </div>
                                         <div className="flex flex-col gap-4">
                                             <Button 
                                                 type="submit" 
                                                 disabled={!guestName.trim() || isVerifying}
-                                                className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
+                                                className="w-full h-16 md:h-20 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
                                             >
-                                                Explore Menu <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2"/>
+                                                Explore Menu <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2"/>
                                             </Button>
                                             <Button 
                                                 type="button"
                                                 variant="ghost"
                                                 onClick={() => setStep('phone_pad')}
-                                                className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline"
+                                                className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary hover:underline"
                                             >
                                                 Recognize My Perks (Member)
                                             </Button>
@@ -536,35 +537,32 @@ export default function ConciergeKioskPage() {
                                     key="menu" 
                                     initial={{ opacity: 0 }} 
                                     animate={{ opacity: 1 }} 
-                                    className="w-full max-w-6xl mx-auto flex flex-col gap-12"
+                                    className="w-full max-w-6xl mx-auto flex flex-col gap-8 md:gap-12"
                                 >
-                                    <div className="flex flex-col sm:flex-row items-center justify-between gap-6 px-6">
-                                        <div className="flex items-center gap-6 text-left">
+                                    <div className="flex flex-row items-center justify-between gap-4 px-6 md:px-12">
+                                        <div className="flex items-center gap-4 text-left">
                                             <div className="relative">
-                                                <Avatar className="h-20 w-20 md:h-24 md:w-24 border-4 border-white shadow-2xl rounded-[2.5rem]">
-                                                    <AvatarFallback className="font-black text-2xl md:text-3xl bg-primary/10 text-primary">{(guestName || 'G')[0]}</AvatarFallback>
+                                                <Avatar className="h-14 w-14 md:h-24 md:w-24 border-2 md:border-4 border-white shadow-xl rounded-[1.5rem] md:rounded-[3rem]">
+                                                    <AvatarFallback className="font-black text-lg md:text-3xl bg-primary/10 text-primary">{(guestName || 'G')[0]}</AvatarFallback>
                                                 </Avatar>
-                                                {identifiedClient && <div className="absolute -top-2 -right-2 bg-indigo-600 text-white p-1.5 rounded-2xl shadow-xl border-4 border-white"><Award className="w-5 h-5" /></div>}
+                                                {identifiedClient && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-1 rounded-xl shadow-lg border-2 border-white"><Award className="w-3 h-3 md:w-5 md:h-5" /></div>}
                                             </div>
-                                            <div className="space-y-1">
-                                                <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Boutique Concierge</h3>
-                                                <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-[0.25em] opacity-60">Curated Menu for {guestName.split(' ')[0]}</p>
+                                            <div className="space-y-0.5">
+                                                <h3 className="text-xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Boutique Menu</h3>
+                                                <p className="text-[8px] md:text-xs font-bold text-muted-foreground uppercase tracking-[0.25em] opacity-60 text-left">Curated for {guestName.split(' ')[0]}</p>
                                             </div>
                                         </div>
-                                        <div className="flex gap-3">
-                                            <Button variant="ghost" onClick={() => setStep('identity')} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-400 hover:text-primary">Not {guestName.split(' ')[0]}?</Button>
-                                        </div>
+                                        <Button variant="ghost" onClick={() => setStep('identity')} className="h-10 md:h-12 rounded-xl font-black uppercase text-[8px] md:text-[10px] tracking-widest text-slate-400 hover:text-primary">Change Guest</Button>
                                     </div>
 
-                                    <ScrollArea className="w-full h-[65dvh]">
-                                        <div className="p-6 space-y-20">
-                                            {Object.entries(refreshmentsByCategory).map(([category, items]) => (
-                                                <section key={category} className="space-y-8">
-                                                    <div className="flex items-center gap-4 px-2">
-                                                        <h4 className="text-[11px] md:text-sm font-black uppercase tracking-[0.4em] text-primary/60">{category}</h4>
-                                                        <div className="h-px flex-1 bg-primary/10" />
-                                                    </div>
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                                    <div className="space-y-12 md:space-y-20 pb-20">
+                                        {Object.entries(refreshmentsByCategory).map(([category, items]) => (
+                                            <section key={category} className="space-y-4 md:space-y-8">
+                                                <div className="px-6 md:px-12">
+                                                    <h4 className="text-[10px] md:text-sm font-black uppercase tracking-[0.4em] text-primary/60 text-left">{category}</h4>
+                                                </div>
+                                                <ScrollArea className="w-full">
+                                                    <div className="flex gap-4 md:gap-8 px-6 md:px-12 pb-6">
                                                         {items.map(item => (
                                                             <FloatingMenuCard 
                                                                 key={item.id} 
@@ -576,71 +574,72 @@ export default function ConciergeKioskPage() {
                                                             />
                                                         ))}
                                                     </div>
-                                                </section>
-                                            ))}
-                                            {refreshments.length === 0 && (
-                                                <div className="py-32 text-center border-4 border-dashed border-slate-900/10 rounded-[4rem] opacity-30 flex flex-col items-center gap-4">
-                                                    <Coffee className="w-16 h-16" />
-                                                    <p className="text-xl font-black uppercase tracking-widest">Menu is currently offline</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </ScrollArea>
+                                                    <ScrollBar orientation="horizontal" className="hidden" />
+                                                </ScrollArea>
+                                            </section>
+                                        ))}
+                                        {refreshments.length === 0 && (
+                                            <div className="py-32 text-center border-4 border-dashed border-slate-900/10 rounded-[4rem] opacity-30 flex flex-col items-center gap-4 mx-6">
+                                                <Coffee className="w-16 h-16" />
+                                                <p className="text-xl font-black uppercase tracking-widest">Menu is currently offline</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </motion.div>
                             )}
 
                             {step === 'payment' && pendingItem && (
                                 <FloatingContainer key="payment" className="max-w-md text-center">
                                     <div className="rounded-[3rem] border-4 border-white bg-white/60 backdrop-blur-3xl shadow-3xl overflow-hidden text-center">
-                                        <div className="p-10 border-b border-slate-900/5 bg-muted/5 text-center space-y-4">
-                                            <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto">
-                                                <CreditCard className="w-8 h-8 text-primary" />
+                                        <div className="p-8 md:p-10 border-b border-slate-900/5 bg-muted/5 text-center space-y-4">
+                                            <div className="p-3 md:p-4 bg-primary/10 rounded-full w-fit mx-auto">
+                                                <CreditCard className="w-6 h-6 md:w-8 md:h-8 text-primary" />
                                             </div>
                                             <div className="space-y-1">
-                                                <h2 className="text-3xl font-black uppercase tracking-tighter leading-none">Secure Settlement</h2>
-                                                <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">Authorize: {pendingItem.item.name} (x{pendingItem.qty})</p>
+                                                <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter leading-none">Secure Settlement</h2>
+                                                <p className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60">Authorize: {pendingItem.item.name} (x{pendingItem.qty})</p>
                                             </div>
                                         </div>
-                                        <div className="p-10 space-y-10">
-                                            <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-2 shadow-inner">
-                                                <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Transaction Total</p>
-                                                <p className="text-6xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
+                                        <div className="p-8 md:p-10 space-y-10">
+                                            <div className="p-6 md:p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-2 shadow-inner">
+                                                <p className="text-[9px] md:text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Transaction Total</p>
+                                                <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
                                             </div>
 
                                             <div className="space-y-6 text-left">
-                                                <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
-                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
+                                                <div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
+                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
                                             </div>
                                             
                                             <div className="flex items-center justify-center gap-3 opacity-40 pt-4">
-                                                <Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted Secure Tunnel</span>
+                                                <Lock className="w-4 h-4"/><span className="text-[8px] md:text-[9px] font-black uppercase tracking-widest">Encrypted Secure Tunnel</span>
                                             </div>
                                         </div>
-                                        <div className="p-10 pt-0 flex flex-col gap-3">
-                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
+                                        <div className="p-8 md:p-10 pt-0 flex flex-col gap-3">
+                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 md:h-20 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
                                                 {isVerifying ? <Loader className="animate-spin h-6 w-6" /> : 'Authorize Payment'}
                                             </Button>
-                                            <Button variant="ghost" onClick={() => setStep('menu')} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
+                                            <Button variant="ghost" onClick={() => setStep('menu')} className="w-full font-black uppercase text-[9px] md:text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
                                         </div>
                                     </div>
                                 </FloatingContainer>
                             )}
 
                             {step === 'success' && (
-                                <FloatingContainer key="success" className="p-12 md:p-24 text-center space-y-12 mx-auto">
-                                    <div className="w-32 h-32 md:w-48 md:h-48 bg-green-500/10 rounded-[4rem] flex items-center justify-center mx-auto shadow-2xl rotate-6">
-                                        <CheckCircle2 className="w-16 h-16 md:w-24 md:h-24 text-green-500 -rotate-6" />
+                                <FloatingContainer key="success" className="p-8 md:p-24 text-center space-y-12 mx-auto">
+                                    <div className="w-24 h-24 md:w-48 md:h-48 bg-green-500/10 rounded-[3rem] md:rounded-[4rem] flex items-center justify-center mx-auto shadow-2xl rotate-6">
+                                        <CheckCircle2 className="w-12 h-12 md:w-24 md:h-24 text-green-500 -rotate-6" />
                                     </div>
                                     <div className="space-y-4 text-center">
-                                        <h2 className="text-4xl md:text-7xl font-black uppercase tracking-tighter text-slate-900 leading-none">Request Dispatched</h2>
-                                        <p className="text-sm md:text-2xl font-medium text-slate-500 leading-relaxed uppercase tracking-tight opacity-80 px-10">
-                                            Our concierge is preparing your selection. Please relax, we will be with you shortly.
+                                        <h2 className="text-3xl md:text-7xl font-black uppercase tracking-tighter text-slate-900 leading-none">Request Dispatched</h2>
+                                        <p className="text-xs md:text-2xl font-medium text-slate-500 leading-relaxed uppercase tracking-tight opacity-80 px-6 md:px-10">
+                                            Preparing your selection now. Please relax, we will be with you shortly.
                                         </p>
                                     </div>
                                     <Button 
                                         size="lg" 
                                         onClick={() => setStep('menu')}
-                                        className="h-20 px-12 md:px-24 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all mx-auto"
+                                        className="h-16 md:h-20 px-8 md:px-24 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all mx-auto"
                                     >
                                         Complete Experience
                                     </Button>
@@ -652,14 +651,14 @@ export default function ConciergeKioskPage() {
             </AnimatePresence>
 
             {entered && step !== 'onboarding' && (
-                <footer className="fixed bottom-8 left-0 right-0 z-20 px-8 flex justify-center pointer-events-none">
-                    <div className="bg-white/40 backdrop-blur-xl border-2 border-white/50 px-8 py-4 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex items-center gap-8 pointer-events-auto ring-1 ring-white/20">
-                        <div className="flex items-center gap-3">
-                            <MapPin className="w-4 h-4 text-primary opacity-40" />
-                            <span className="text-xs font-black uppercase tracking-widest text-slate-900">{tenant?.name}</span>
+                <footer className="fixed bottom-6 md:bottom-8 left-0 right-0 z-20 px-6 flex justify-center pointer-events-none">
+                    <div className="bg-white/40 backdrop-blur-xl border-2 border-white/50 px-6 md:px-8 py-3 md:py-4 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex items-center gap-4 md:gap-8 pointer-events-auto ring-1 ring-white/20">
+                        <div className="flex items-center gap-2 md:gap-3">
+                            <MapPin className="w-3 h-3 md:w-4 md:h-4 text-primary opacity-40" />
+                            <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-900">{tenant?.name}</span>
                         </div>
-                        <Separator orientation="vertical" className="h-5 bg-slate-900/10" />
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Boutique Experience Terminal</p>
+                        <Separator orientation="vertical" className="h-4 md:h-5 bg-slate-900/10" />
+                        <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Boutique Terminal</p>
                     </div>
                 </footer>
             )}
