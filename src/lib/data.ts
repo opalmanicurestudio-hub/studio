@@ -127,7 +127,7 @@ export type WaivedFee = {
 export type Redemption = {
     id: string;
     clientId: string;
-    type: 'membership' | 'package';
+    type: 'membership' | 'package' | 'gift';
     offeringId: string;
     offeringName: string;
     serviceId: string;
@@ -144,6 +144,17 @@ export type CardOnFile = {
     expiryMonth: number;
     expiryYear: number;
     token: string; 
+};
+
+export type OneTimePerk = {
+    id: string;
+    name: string;
+    type: 'service' | 'product';
+    grantedAt: string;
+    reason: string;
+    grantedBy: string;
+    isRedeemed?: boolean;
+    redeemedAt?: string;
 };
 
 export type Client = {
@@ -184,6 +195,7 @@ export type Client = {
     packageId: string;
     sessionsRemaining: number;
   }[];
+  oneTimePerks?: OneTimePerk[];
   referralCode?: string;
   referredBy?: string;
   successfulReferrals?: string[];
@@ -434,6 +446,7 @@ export type Appointment = {
   actualEndTime?: any;
   checkoutState?: AppointmentCheckoutState;
   checkInStatus?: 'pending' | 'on_my_way' | 'arrived' | 'running_late' | 'auto_cancelled';
+  checkInStatusTimestamp?: string;
   checkInToken?: string;
   lateTimeMinutes?: number;
   automatedRescheduleOffered?: boolean;

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -53,7 +54,9 @@ import {
     Scale,
     Target,
     Sparkles,
-    MessageSquare
+    MessageSquare,
+    HeartHandshake,
+    Gift
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -67,6 +70,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { EditClientDialog } from '@/components/clients/EditClientDialog';
 import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
+import { IssueRecoveryDialog } from '@/components/clients/IssueRecoveryDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking, useCollection } from '@/firebase';
@@ -216,6 +220,7 @@ export default function ClientDetailPage() {
   const [isQuickSettleOpen, setIsQuickSettleOpen] = useState(false);
   const [isSettleProcessing, setIsSettleProcessing] = useState(false);
   const [isReconciling, setIsReconciling] = useState(false);
+  const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
 
   const appointmentsForThisClient = useMemo(() => (allAppointments || []).filter(apt => apt.clientId === clientId).map(apt => ({ ...apt, service: services.find(s => s.id === apt.serviceId) })), [clientId, allAppointments, services]);
   const clientRedemptions = useMemo(() => (allRedemptions || []).filter(r => r.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allRedemptions]);
@@ -933,6 +938,12 @@ export default function ClientDetailPage() {
                             </div>
                         </CardContent>
                         <CardFooter className="p-6 pt-0 flex flex-col gap-3 text-left">
+                            <Button 
+                                className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white text-left"
+                                onClick={() => setIsRecoveryDialogOpen(true)}
+                            >
+                                <HeartHandshake className="mr-2 h-4 w-4 text-left" /> Issue Recovery Protocol
+                            </Button>
                             {hasDebt && hasCardOnFile && (
                                 <Button 
                                     className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white text-left"
@@ -958,6 +969,7 @@ export default function ClientDetailPage() {
       
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), data); toast({ title: "Profile Updated" }); }} />
       <AddFormulaDialog open={isAddFormulaOpen} onOpenChange={(val) => { setIsAddFormulaOpen(val); if(!val) setEditingFormula(null); }} clientName={client.name} onSave={handleSaveFormula} formulaToEdit={editingFormula} />
+      <IssueRecoveryDialog open={isRecoveryDialogOpen} onOpenChange={setIsRecoveryDialogOpen} client={client} />
 
       <Dialog open={isQuickSettleOpen} onOpenChange={setIsQuickSettleOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden text-left">

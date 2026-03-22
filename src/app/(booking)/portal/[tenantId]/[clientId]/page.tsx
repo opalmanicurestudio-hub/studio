@@ -1,8 +1,9 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, writeBatch, increment, arrayUnion, deleteField, getDocs } from 'firebase/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -50,7 +51,8 @@ import {
     Heart,
     Landmark,
     LayoutDashboard,
-    PlusCircle
+    PlusCircle,
+    Gift
 } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption, type RefreshmentRequest, type Discount, type Staff, type Review, type InventoryItem, type PricingTier } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -682,6 +684,36 @@ export default function ClientPortalPage() {
                     </ScrollArea>
 
                     <TabsContent value="appointments" className="space-y-12 animate-in fade-in duration-500 text-left">
+                        {/* STUDIO GIFTS (Post-Op Recovery) */}
+                        {client.oneTimePerks && client.oneTimePerks.filter(p => !p.isRedeemed).length > 0 && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-3 px-1">
+                                    <Gift className="w-5 h-5 text-primary" />
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Studio Gifts</h3>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {client.oneTimePerks.filter(p => !p.isRedeemed).map(perk => (
+                                        <Card key={perk.id} className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] overflow-hidden shadow-xl shadow-primary/5">
+                                            <CardContent className="p-6 flex items-center gap-4">
+                                                <div className="p-3 bg-white rounded-2xl shadow-inner border border-primary/10">
+                                                    {perk.type === 'service' ? <Sparkles className="w-6 h-6 text-primary" /> : <Coffee className="w-6 h-6 text-primary" />}
+                                                </div>
+                                                <div className="min-w-0 text-left">
+                                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{perk.name}</p>
+                                                    <p className="text-[9px] font-bold text-primary uppercase tracking-widest opacity-60">Verified Recovery Reward</p>
+                                                </div>
+                                            </CardContent>
+                                            <div className="px-6 pb-6 pt-0">
+                                                <p className="text-[10px] font-medium text-slate-600 leading-relaxed italic border-l-2 border-primary/20 pl-3">
+                                                    "{perk.reason}"
+                                                </p>
+                                            </div>
+                                        </Card>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         <div className="space-y-6 text-left">
                             <div className="flex items-center justify-between px-1">
                                 <div className="flex items-center gap-3">
@@ -970,7 +1002,7 @@ export default function ClientPortalPage() {
                                                 </div>
                                             ) : (
                                                 <div className="space-y-4">
-                                                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-muted/5" /></div>
+                                                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
                                                     <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
                                                 </div>
                                             )}
@@ -979,7 +1011,7 @@ export default function ClientPortalPage() {
                                 </div>
                                 <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 text-left"><Button onClick={handleSettleArrears} disabled={isProcessing} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">{isProcessing ? <Loader className="animate-spin" /> : `Authorize $${safeBalance.toFixed(2)}`}</Button><Button variant="ghost" onClick={() => setIsSettlementOpen(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button></DialogFooter>
                             </motion.div>
-                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 text-center space-y-10"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
+                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 md:p-20 text-center space-y-10"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
                     </AnimatePresence>
                 </DialogContent>
             </Dialog>
