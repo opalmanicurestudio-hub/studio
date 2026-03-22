@@ -30,7 +30,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { cn, hexToHSLComponents } from '@/lib/utils';
+import { cn, safeNumber, hexToHSLComponents } from '@/lib/utils';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card';
 import {
   startOfWeek,
@@ -427,14 +427,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       }, [service, selectedStaffId, selectedTierId, staff]);
 
     const depositAmount = useMemo(() => {
-        // --- DYNAMIC RISK ENFORCEMENT ---
         const poorHistory = matchedClient && (safeNumber(matchedClient.noShowCount) + safeNumber(matchedClient.cancellationCount)) > 2;
         const isGuardianActive = tenant?.guardianProtocolEnabled !== false;
         
         if (!service || (service.depositType === 'none' && (!poorHistory || !isGuardianActive))) return 0;
         
         if (isGuardianActive && poorHistory && service.depositType === 'none') {
-            return Math.ceil(price * 0.5); // Force 50% for high-risk guests
+            return Math.ceil(price * 0.5);
         }
 
         if (service.depositType === 'full') return price;

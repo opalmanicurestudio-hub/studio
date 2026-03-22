@@ -55,7 +55,8 @@ import {
   PlusCircle,
   LayoutGrid,
   Sparkles,
-  Flame
+  Flame,
+  Workflow
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -646,12 +647,28 @@ function SettingsPageImpl() {
                                 />
                             </div>
 
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 transition-all">
+                                <div className='space-y-1 text-left'>
+                                    <Label htmlFor="tight-scheduling-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2 text-left">
+                                        <Workflow className="w-4 h-4" /> Zero-Gap Adjacency Protocol
+                                    </Label>
+                                    <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left'>Force client bookings to be flush against existing blocks</p>
+                                </div>
+                                <Switch 
+                                    id="tight-scheduling-toggle" 
+                                    checked={!!tenantData.tightSchedulingEnabled} 
+                                    onCheckedChange={(val) => setTenantData(prev => ({...prev, tightSchedulingEnabled: val}))}
+                                    disabled={!isEditing}
+                                    className="scale-125 data-[state=checked]:bg-primary"
+                                />
+                            </div>
+
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-amber-500/20 bg-amber-500/5 shadow-xl shadow-amber-500/5 transition-all">
                                 <div className='space-y-1 text-left'>
                                     <Label htmlFor="flash-yield-toggle" className="text-base font-black uppercase tracking-tight text-amber-700 flex items-center gap-2 text-left">
                                         <Flame className="w-4 h-4" /> Flash Yield Protocol
                                     </Label>
-                                    <p className='text-[10px] font-bold text-amber-600/60 uppercase tracking-widest opacity-60 text-left'>Flag 48h cancellations as "magnetic" slots that bypass Zero-Gap restrictions</p>
+                                    <p className='text-[10px] font-bold text-amber-600/60 uppercase tracking-widest opacity-60 text-left'>Flag 48h cancellations as "magnetic" slots that bypass standard restrictions</p>
                                 </div>
                                 <Switch 
                                     id="flash-yield-toggle" 
@@ -825,7 +842,7 @@ function SettingsPageImpl() {
             <TabsContent value="builder" className="mt-0 space-y-10 animate-in fade-in duration-500">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
-                        <SectionHeader icon={Globe} title="Booking Page Architecture" />
+                        <SectionHeader icon={Globe} title="Booking Architecture" />
                         <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Configure your guest-facing digital presence.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">

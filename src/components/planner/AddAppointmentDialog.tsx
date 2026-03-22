@@ -120,6 +120,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const [clientSearch, setClientSearch] = useState('');
   const [checkInToken, setCheckInToken] = useState('');
   const [inspirationPhotoUrl, setInspirationPhotoUrl] = useState('');
+  // By default, follow the studio protocol if it exists
   const [showAllSlots, setShowAllSlots] = useState(false);
 
   const methods = useForm({
@@ -149,7 +150,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         setClientSearch('');
         setCheckInToken('');
         setInspirationPhotoUrl('');
-        setShowAllSlots(false);
+        // Initialize showAllSlots based on the opposite of tightSchedulingEnabled
+        setShowAllSlots(selectedTenant?.tightSchedulingEnabled === false);
+        
         const staffDefault = (role === 'staff' && user) ? user.uid : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
         reset({
             clientId: initialClient?.id || appointmentToRebook?.clientId || '',
@@ -166,7 +169,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             paymentMethod: 'card_on_file',
         });
     }
-  }, [open, initialClient, appointmentToRebook, reset, role, user]);
+  }, [open, initialClient, appointmentToRebook, reset, role, user, selectedTenant]);
 
   const watchClientId = watch('clientId');
   const watchServiceId = watch('serviceId');
@@ -485,7 +488,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2 text-left">
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
             </div>
@@ -661,17 +664,15 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         </TooltipProvider>
                                     </div>
                                 </div>
-                                {selectedTenant?.tightSchedulingEnabled && (
-                                    <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 shadow-inner">
-                                        <div className="space-y-0.5 text-left">
-                                            <Label className="text-xs font-black uppercase text-primary flex items-center gap-2">
-                                                <Workflow className="w-3.5 h-3.5" /> Filter Optimized Slots
-                                            </Label>
-                                            <p className="text-[8px] font-bold text-primary/60 uppercase">Hide orphaned gaps in schedule</p>
-                                        </div>
-                                        <Switch checked={!showAllSlots} onCheckedChange={(val) => setShowAllSlots(!val)} className="data-[state=checked]:bg-primary" />
+                                <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 shadow-inner">
+                                    <div className="space-y-0.5 text-left">
+                                        <Label className="text-xs font-black uppercase text-primary flex items-center gap-2">
+                                            <Workflow className="w-3.5 h-3.5" /> Filter Optimized Slots
+                                        </Label>
+                                        <p className="text-[8px] font-bold text-primary/60 uppercase">Hide orphaned gaps in schedule</p>
                                     </div>
-                                )}
+                                    <Switch checked={!showAllSlots} onCheckedChange={(val) => setShowAllSlots(!val)} className="data-[state=checked]:bg-primary" />
+                                </div>
                             </div>
                             <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
                                 <div className="flex items-center justify-between">
