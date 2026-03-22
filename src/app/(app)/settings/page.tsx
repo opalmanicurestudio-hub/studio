@@ -90,10 +90,10 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
 const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: DayHours, onChange: (day: string, updates: Partial<DayHours>) => void, disabled?: boolean }) => {
     return (
         <div className={cn(
-            "flex flex-col sm:flex-row items-center justify-between p-4 rounded-2xl border-2 transition-all gap-4",
-            data.enabled ? "bg-white border-border" : "bg-muted/30 border-transparent opacity-60"
+            "flex flex-col md:flex-row items-center justify-between p-4 rounded-2xl border-2 transition-all gap-4",
+            data.enabled ? "bg-white border-border shadow-sm" : "bg-muted/30 border-transparent opacity-60"
         )}>
-            <div className="flex items-center gap-4 w-full sm:w-auto text-left">
+            <div className="flex items-center gap-4 w-full md:w-auto text-left">
                 <Switch 
                     checked={data.enabled} 
                     onCheckedChange={(val) => onChange(day, { enabled: val })} 
@@ -103,9 +103,9 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
             </div>
             
             {data.enabled && (
-                <div className="flex items-center gap-6 w-full sm:w-auto">
-                    <div className="flex items-center gap-3">
-                        <div className="relative flex-1 sm:w-32 text-left">
+                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 w-full md:w-auto">
+                    <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                        <div className="relative flex-1 sm:w-28 md:w-32 text-left">
                             <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
                             <Input 
                                 type="text" 
@@ -113,11 +113,11 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                                 onChange={e => onChange(day, { start: e.target.value })}
                                 disabled={disabled}
                                 placeholder="09:00 AM"
-                                className="h-10 pl-8 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs"
+                                className="h-10 pl-8 pr-2 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs bg-background shadow-inner"
                             />
                         </div>
-                        <span className="text-muted-foreground opacity-40 font-black text-[10px]">TO</span>
-                        <div className="relative flex-1 sm:w-32 text-left">
+                        <span className="text-muted-foreground opacity-40 font-black text-[9px] uppercase tracking-tighter">to</span>
+                        <div className="relative flex-1 sm:w-28 md:w-32 text-left">
                             <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
                             <Input 
                                 type="text" 
@@ -125,12 +125,12 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                                 onChange={e => onChange(day, { end: e.target.value })}
                                 disabled={disabled}
                                 placeholder="05:00 PM"
-                                className="h-10 pl-8 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs"
+                                className="h-10 pl-8 pr-2 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs bg-background shadow-inner"
                             />
                         </div>
                     </div>
                     <div className="w-px h-8 bg-border hidden sm:block" />
-                    <div className="flex-1 sm:w-48 text-left">
+                    <div className="flex-1 w-full sm:w-40 md:w-48 text-left">
                         <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1 mb-1 block">Access Tier</Label>
                         <Select 
                             value={data.accessTier || 'all'} 
@@ -230,7 +230,7 @@ const ServicePolicyCard = ({
                                         onChange={e => onPolicyChange({ window: parseInt(e.target.value) || 0 })}
                                         disabled={!isEditing}
                                         placeholder="Studio Default"
-                                        className="h-10 rounded-xl border-2 font-black text-center"
+                                        className="h-10 rounded-xl border-2 font-black text-center bg-background shadow-inner"
                                     />
                                 </div>
                                 <div className="space-y-2 text-left">
@@ -240,7 +240,7 @@ const ServicePolicyCard = ({
                                         onValueChange={(v: any) => onPolicyChange({ mode: v })}
                                         disabled={!isEditing}
                                     >
-                                        <SelectTrigger className="h-10 rounded-xl border-2 font-black uppercase text-[9px]">
+                                        <SelectTrigger className="h-10 rounded-xl border-2 font-black uppercase text-[9px] bg-background shadow-inner">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -262,7 +262,7 @@ const ServicePolicyCard = ({
                                             value={policy.value || ''} 
                                             onChange={e => onPolicyChange({ value: parseFloat(e.target.value) || 0 })}
                                             disabled={!isEditing}
-                                            className={cn("h-12 rounded-xl border-2 font-black text-lg", policy.mode === 'flat' ? "pl-8" : "pr-8")}
+                                            className={cn("h-12 rounded-xl border-2 font-black text-lg bg-background shadow-inner", policy.mode === 'flat' ? "pl-8" : "pr-8")}
                                         />
                                     </div>
                                 </div>
@@ -322,7 +322,7 @@ function SettingsPageImpl() {
             policies[s.id] = {
                 mode: s.cancellationFeeMode || 'inherit',
                 window: s.cancellationWindowHours,
-                value: s.customCancellationFee || s.cancellationFeeValue
+                value: s.cancellationFeeValue || s.customCancellationFee
             };
         });
         setServicePolicies(policies);
@@ -436,7 +436,7 @@ function SettingsPageImpl() {
           
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
              <ScrollArea className="w-full">
-                <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner mb-8 flex w-max gap-1.5">
+                <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner mb-8 flex w-max gap-1.5 overflow-x-auto scrollbar-hide">
                     {tabs.map(tab => (
                     <TabsTrigger key={tab.value} value={tab.value} className="rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest px-4 md:px-6 h-10 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md transition-all text-left">
                         {React.cloneElement(tab.icon as React.ReactElement, { className: "mr-2 hidden sm:block" })}
