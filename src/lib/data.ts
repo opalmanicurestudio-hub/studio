@@ -700,6 +700,13 @@ export type KioskSettings = {
     };
 };
 
+export type RecoveryPreset = {
+    id: string;
+    label: string;
+    type: 'fixed' | 'percentage';
+    value: number;
+};
+
 export type Tenant = {
   id: string;
   name: string;
@@ -750,6 +757,7 @@ export type Tenant = {
   maxAutonomousRecoveryAmount?: number;
   maxAutonomousRecoveryPercent?: number;
   escalationPolicy?: string;
+  recoveryPresets?: RecoveryPreset[];
 };
 
 export type Resource = {

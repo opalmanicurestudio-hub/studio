@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -114,7 +115,7 @@ export default function SignupPage() {
 
       const tenantDocRef = doc(db, "tenants", tenantId);
       
-      // Initialize Tenant
+      // Initialize Tenant with Best Practice Defaults
       batch.set(tenantDocRef, {
         id: tenantId,
         name: data.businessName,
@@ -123,8 +124,18 @@ export default function SignupPage() {
         subscriptionStatus: "inactive",
         subscriptionTier: "none",
         tmhr: 50, 
+        employerTaxBurdenPct: 10,
         createdAt: new Date().toISOString(),
         onboardingComplete: false,
+        maxAutonomousRecoveryAmount: 50,
+        maxAutonomousRecoveryPercent: 25,
+        escalationPolicy: "1. Autonomy: Staff are authorized to resolve minor hospitality or technical lapses up to their limit. 2. Criteria: Use 'Recovery Adjustment' for delays > 15m or minor inconsistencies. 3. Immediate Escalation: Mandatory for medical reactions, property damage, or guest hostility. 4. Documentation: Always log specific reasoning in the Checkout Hub.",
+        recoveryPresets: [
+            { id: 'wait-time', label: 'Wait Time Recovery', type: 'fixed', value: 15 },
+            { id: 'tech-adj', label: 'Technical Revision', type: 'percentage', value: 20 },
+            { id: 'hospitality', label: 'Hospitality Lapse', type: 'fixed', value: 10 },
+            { id: 'protocol-fail', label: 'Protocol Failure', type: 'percentage', value: 100 }
+        ],
         bookingPageSettings: {
             heroTitle: `Welcome to ${data.businessName}`,
             primaryColor: '#7955c4',
@@ -234,7 +245,7 @@ export default function SignupPage() {
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Legal Name</Label>
                                         <div className="relative">
                                             <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                            <Input placeholder="ALEXANDER SMITH" {...register('name')} className="h-14 pl-12 rounded-2xl border-2 font-black uppercase text-lg shadow-inner focus-visible:ring-primary/20" />
+                                            <Input placeholder="ALEXANDER SMITH" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg shadow-inner focus-visible:ring-primary/20" />
                                         </div>
                                         {errors.name && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                                     </div>
@@ -313,7 +324,7 @@ export default function SignupPage() {
                                                     <label htmlFor="solo-mode" className="cursor-pointer">
                                                         <div className={cn(
                                                             "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all",
-                                                            field.value === 'solo' ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
+                                                            field.value === 'solo' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white hover:border-primary/20"
                                                         )}>
                                                             <User className={cn("mb-2 h-8 w-8", field.value === 'solo' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                             <span className="text-[10px] font-black uppercase tracking-widest">Solo Master</span>
@@ -323,7 +334,7 @@ export default function SignupPage() {
                                                     <label htmlFor="team-mode" className="cursor-pointer">
                                                         <div className={cn(
                                                             "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all",
-                                                            field.value === 'team' ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
+                                                            field.value === 'team' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white hover:border-primary/20"
                                                         )}>
                                                             <Users className={cn("mb-2 h-8 w-8", field.value === 'team' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                             <span className="text-[10px] font-black uppercase tracking-widest">Studio Team</span>

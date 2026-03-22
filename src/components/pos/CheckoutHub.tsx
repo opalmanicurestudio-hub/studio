@@ -386,6 +386,18 @@ export const CheckoutHub = ({
         toast({ title: 'Entitlement Applied', description: `${entitlement.label} redeemed.` });
     };
 
+    const handleApplyRecoveryPreset = (preset: any) => {
+        let amount = 0;
+        if (preset.type === 'percentage') {
+            amount = subtotal * (preset.value / 100);
+        } else {
+            amount = preset.value;
+        }
+        setRecoveryAmount(Number(amount.toFixed(2)));
+        setRecoveryReason(preset.label);
+        toast({ title: 'Protocol Active', description: `${preset.label} applied.` });
+    };
+
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
     
     // Financial logic synchronization
@@ -571,8 +583,27 @@ export const CheckoutHub = ({
                                                 </AlertDescription>
                                             </Alert>
                                         )}
+
+                                        {/* RECOVERY PRESETS */}
+                                        <div className="space-y-3">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tactical Presets</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {(selectedTenant?.recoveryPresets || []).map((preset: RecoveryPreset) => (
+                                                    <Button 
+                                                        key={preset.id} 
+                                                        variant="outline" 
+                                                        size="sm" 
+                                                        onClick={() => handleApplyRecoveryPreset(preset)}
+                                                        className="h-8 rounded-xl border-2 font-black uppercase text-[9px] tracking-tight bg-white shadow-sm hover:border-primary/40"
+                                                    >
+                                                        {preset.label}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                        </div>
+
                                         <div className="space-y-3 text-left">
-                                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Recovery Adjustment ($)</Label>
+                                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manual Recovery Adjustment ($)</Label>
                                             <div className="relative">
                                                 <DollarSign className={cn("absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 opacity-40", isOverAutonomy ? "text-destructive" : "text-primary")} />
                                                 <Input 
@@ -760,7 +791,7 @@ export const CheckoutHub = ({
                                             </div>
                                         )}
 
-                                        {!isWaived && (adjustments || additionalCharge > 0) && (
+                                        {!isWaive && (adjustments || additionalCharge > 0) && (
                                             <div className="pt-3 border-t border-dashed space-y-2">
                                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Strategic Adjustments</p>
                                                 {adjustments && (safeNumber(adjustments.rescheduleFee) > 0 || safeNumber(adjustments.timeOverage) > 0 || safeNumber(adjustments.materialOverage) > 0) ? (
