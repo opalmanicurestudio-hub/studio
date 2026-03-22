@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -53,11 +54,12 @@ import {
   Mail,
   Cake,
   Star,
-  FileImage
+  FileImage,
+  Workflow
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, endOfDay } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, endOfDay, subMinutes, differenceInMinutes } from 'date-fns';
 import { nanoid } from 'nanoid';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { Switch } from '../ui/switch';
@@ -118,6 +120,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const [clientSearch, setClientSearch] = useState('');
   const [checkInToken, setCheckInToken] = useState('');
   const [inspirationPhotoUrl, setInspirationPhotoUrl] = useState('');
+  const [showAllSlots, setShowAllSlots] = useState(false);
 
   const methods = useForm({
     defaultValues: {
@@ -146,6 +149,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         setClientSearch('');
         setCheckInToken('');
         setInspirationPhotoUrl('');
+        setShowAllSlots(false);
         const staffDefault = (role === 'staff' && user) ? user.uid : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
         reset({
             clientId: initialClient?.id || appointmentToRebook?.clientId || '',
@@ -206,6 +210,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     }
 
     const options: Set<string> = new Set();
+    const isTightScheduling = !!selectedTenant?.tightSchedulingEnabled && !showAllSlots;
+
     staffToAudit.forEach(staffMember => {
         let workingHours;
         const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
@@ -218,14 +224,14 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         
         if (!watchOverride && (!workingHours || !workingHours.enabled)) return;
 
-        const busyIntervals: { start: Date, end: Date }[] = [];
+        const busyIntervals: { start: Date, end: Date, padBefore: number, padAfter: number }[] = [];
         appointmentsFromDB.filter(apt => isSameDay(safeDate(apt.startTime), watchDate) && apt.staffId === staffMember.id && apt.status !== 'cancelled').forEach(apt => {
             const aptService = services.find(s => s.id === apt.serviceId);
-            busyIntervals.push({ start: addMinutes(safeDate(apt.startTime), -(aptService?.padBefore || 0)), end: addMinutes(safeDate(apt.endTime), (aptService?.padAfter || 0)) });
+            busyIntervals.push({ start: safeDate(apt.startTime), end: safeDate(apt.endTime), padBefore: aptService?.padBefore || 0, padAfter: aptService?.padAfter || 0 });
         });
 
         (eventsFromDB || []).filter(evt => isSameDay(safeDate(evt.startTime), watchDate) && evt.type === 'blocked' && (!evt.staffIds || evt.staffIds.includes('all') || evt.staffIds.includes(staffMember.id))).forEach(evt => {
-            busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) });
+            busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime), padBefore: 0, padAfter: 0 });
         });
 
         let currentTime = dayStartWithBusinessHours;
@@ -238,17 +244,44 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         }
         
         while (currentTime < dayEndWithBusinessHours) {
-            const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
+            const totalServiceDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
+            const potentialEnd = addMinutes(currentTime, totalServiceDuration);
             if (potentialEnd > dayEndWithBusinessHours) break;
-            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+
+            const isOverlapping = busyIntervals.some((interval) => {
+                const intervalStartWithPad = subMinutes(interval.start, interval.padBefore);
+                const intervalEndWithPad = addMinutes(interval.end, interval.padAfter);
+                return areIntervalsOverlapping(
+                    { start: currentTime, end: potentialEnd }, 
+                    { start: intervalStartWithPad, end: intervalEndWithPad }, 
+                    { inclusive: false }
+                );
+            });
+
             if (!isOverlapping && (watchOverride || (!isToday(watchDate) || (staffMember.active && !staffMember.onBreak)))) {
-                options.add(format(currentTime, 'HH:mm'));
+                if (isTightScheduling) {
+                    const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
+                    const startsAtAnotherEnd = busyIntervals.some(interval => {
+                        const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
+                        return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
+                    });
+                    const endsAtAnotherStart = busyIntervals.some(interval => {
+                        const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
+                        return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
+                    });
+                    const isDayEmpty = busyIntervals.length === 0;
+                    if ((isDayEmpty && isStartOfDaySlot) || (!isDayEmpty && (startsAtAnotherEnd || endsAtAnotherStart))) {
+                        options.add(format(currentTime, 'HH:mm'));
+                    }
+                } else {
+                    options.add(format(currentTime, 'HH:mm'));
+                }
             }
             currentTime = addMinutes(currentTime, bookingInterval);
         }
     });
     return Array.from(options).sort();
-  }, [watchDate, watchStaffId, watchTierId, qualifiedStaff, selectedService, staff, appointmentsFromDB, eventsFromDB, publicScheduleProfile, services, watchOverride]);
+  }, [watchDate, watchStaffId, watchTierId, qualifiedStaff, selectedService, staff, appointmentsFromDB, eventsFromDB, publicScheduleProfile, services, watchOverride, selectedTenant, showAllSlots]);
 
   const depositDetails = useMemo(() => {
     if (!selectedService || selectedService.depositType === 'none') return null;
@@ -598,21 +631,34 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
                     {step === 'timing' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
-                            <div className="flex items-center justify-between">
-                                <SelectionHeader icon={Clock} title="Schedule Window" stepNum={3} />
-                                <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div className="flex items-center gap-2">
-                                                    <Unlock className={cn("w-3.5 h-3.5 transition-colors", watchOverride ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                    <Switch checked={watchOverride} onCheckedChange={(val) => setValue('overrideBusinessHours', val)} />
-                                                </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Lock</TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
+                            <div className="flex flex-col gap-4">
+                                <div className="flex items-center justify-between">
+                                    <SelectionHeader icon={Clock} title="Schedule Window" stepNum={3} />
+                                    <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <div className="flex items-center gap-2">
+                                                        <Unlock className={cn("w-3.5 h-3.5 transition-colors", watchOverride ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                        <Switch checked={watchOverride} onCheckedChange={(val) => setValue('overrideBusinessHours', val)} />
+                                                    </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Lock</TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
                                 </div>
+                                {selectedTenant?.tightSchedulingEnabled && (
+                                    <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 shadow-inner">
+                                        <div className="space-y-0.5 text-left">
+                                            <Label className="text-xs font-black uppercase text-primary flex items-center gap-2">
+                                                <Workflow className="w-3.5 h-3.5" /> Filter Optimized Slots
+                                            </Label>
+                                            <p className="text-[8px] font-bold text-primary/60 uppercase">Hide orphaned gaps in schedule</p>
+                                        </div>
+                                        <Switch checked={!showAllSlots} onCheckedChange={(val) => setShowAllSlots(!val)} className="data-[state=checked]:bg-primary" />
+                                    </div>
+                                )}
                             </div>
                             <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
                                 <div className="flex items-center justify-between">

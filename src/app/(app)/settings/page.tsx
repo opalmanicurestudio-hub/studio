@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
@@ -150,7 +151,8 @@ const ServicePolicyCard = ({
     onPolicyChange: (updates: any) => void 
 }) => {
     const floor = useMemo(() => {
-        const timeCost = (service.duration / 60) * tmhr;
+        const totalDuration = (service.duration / 60) + ((service.padBefore || 0) + (service.padAfter || 0)) / 60;
+        const timeCost = totalDuration * tmhr;
         const matCost = (service.products || []).reduce((acc, p) => {
             const item = inventory.find(i => i.id === p.id);
             let cpu = 0;
@@ -249,8 +251,8 @@ const ServicePolicyCard = ({
                                 <div className="flex items-center gap-2 text-left">
                                     <Landmark className="w-3.5 h-3.5 text-primary opacity-40" />
                                     <span className="text-[9px] font-black uppercase text-muted-foreground">House Floor Minimum</span>
+                                    <span className="font-black font-mono text-sm text-slate-900">${floor.toFixed(2)}</span>
                                 </div>
-                                <span className="font-black font-mono text-sm text-slate-900">${floor.toFixed(2)}</span>
                             </div>
                         </CardContent>
                     </motion.div>

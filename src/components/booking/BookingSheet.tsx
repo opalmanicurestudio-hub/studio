@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -317,13 +318,15 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             if (!isOverlapping && isStaffActiveForSameDay) {
                 if (isTightScheduling) {
                     const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
-                    const endsAtAnotherStart = busyIntervals.some(interval => {
-                        const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
-                        return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
-                    });
+                    
+                    // Logic: Slot is flush if it starts at start of day OR exactly when a previous one ends OR ends exactly when a next one starts
                     const startsAtAnotherEnd = busyIntervals.some(interval => {
                         const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
                         return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
+                    });
+                    const endsAtAnotherStart = busyIntervals.some(interval => {
+                        const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
+                        return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
                     });
                     const isDayEmpty = busyIntervals.length === 0;
                     if ((isDayEmpty && isStartOfDaySlot) || (!isDayEmpty && (startsAtAnotherEnd || endsAtAnotherStart))) {
@@ -479,7 +482,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         serviceId: service.id, 
         staffId: finalStaffId, 
         startTime: startDateTime.toISOString(), 
-        timeout: 120000,
         endTime: endDateTime.toISOString(), 
         status: 'confirmed', 
         isWalkIn: false,
@@ -687,14 +689,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                             </div>
                                         )}
                                     </div>
-                                    {tenant?.tightSchedulingEnabled && (
-                                        <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 flex items-start gap-3 text-left">
-                                            <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                                            <p className="text-[9px] font-bold text-slate-600 leading-relaxed uppercase tracking-tight">
-                                                Zero-Gap Protocol Active: Available slots are anchored to existing appointments or start of business to maximize studio efficiency.
-                                            </p>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         )}
