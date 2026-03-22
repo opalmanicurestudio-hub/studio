@@ -198,7 +198,7 @@ const Step1 = ({
                 <div className="space-y-2 text-left">
                     <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Department</Label>
                     {isAddingCategory ? (
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 text-left">
                             <Input
                                 placeholder="New category name..."
                                 value={newCategoryName}
@@ -408,7 +408,8 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
                                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Min. Order (MOQ)</Label><Input type="number" placeholder="50" {...register('moq')} className="h-11 rounded-xl border-2 font-bold" /></div>
                                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Lead Time (Days)</Label><Input type="number" placeholder="14" {...register('leadTimeDays')} className="h-11 rounded-xl border-2 font-bold" /></div>
                             </div>
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Label Design Template (URL)</Label><Input placeholder="Cloud link to design files..." {...register('labelTemplateUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shop / Reorder URL</Label><Input placeholder="https://supplier.com/order/..." {...register('purchaseLink')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Label Design Source (URL)</Label><Input placeholder="Cloud link to design files..." {...register('labelTemplateUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
                         </CardContent>
                     </Card>
                 </div>

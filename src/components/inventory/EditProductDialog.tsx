@@ -125,7 +125,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
             <Icon className="w-5 h-5" />
         </div>
         <div className="space-y-0.5 text-left">
-            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
     </div>
@@ -293,6 +293,10 @@ const Step2 = () => {
                             <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Amount</Label><Input type="number" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
                             <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Qty</Label><Input type="number" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
                         </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shipping</Label><Input type="number" {...register('shippingCost')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Taxes</Label><Input type="number" {...register('taxCost')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
+                        </div>
                         <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center shadow-inner text-left">
                             <span className="text-[10px] font-black uppercase text-primary tracking-widest">Landed / Unit</span>
                             <span className="text-2xl font-black text-primary tracking-tighter font-mono">${landedCostPerItem.toFixed(2)}</span>
@@ -314,7 +318,7 @@ const Step2 = () => {
                                         </div>
                                     </label>
                                     <label htmlFor="uses-e" className="cursor-pointer">
-                                        <div className={cn("flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:bg-muted/50")}>
+                                        <div className={cn("flex items-center justify-center gap-2 p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:bg-muted/50")}>
                                             <CheckCircle className={cn("w-4 h-4", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                             <span className="text-[10px] font-black uppercase tracking-widest">Uses</span>
                                             <RadioGroupItem value="uses" id="uses-e" className="sr-only" />
@@ -399,6 +403,7 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Min. Order (MOQ)</Label><Input type="number" placeholder="50" {...register('moq')} className="h-11 rounded-xl border-2 font-bold" /></div>
                                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Lead Time (Days)</Label><Input type="number" placeholder="14" {...register('leadTimeDays')} className="h-11 rounded-xl border-2 font-bold" /></div>
                             </div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shop / Reorder URL</Label><Input placeholder="https://supplier.com/order/..." {...register('purchaseLink')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Label Design Source (URL)</Label><Input placeholder="Cloud design link..." {...register('labelTemplateUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
                         </CardContent>
                     </Card>
@@ -406,7 +411,7 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
 
                 <div className="space-y-8">
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><FileText className="w-4 h-4 text-primary" /> Tech Protocol (SOP)</CardTitle></CardHeader>
+                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><FileText className="w-4 h-4 text-primary opacity-40" /> Tech Protocol (SOP)</CardTitle></CardHeader>
                         <CardContent className="p-6 md:p-8">
                             <Textarea placeholder="Document the exact Standard Operating Procedure for this asset..." {...register('manufacturingSop')} className="rounded-xl border-2 bg-muted/5 min-h-[200px] focus-visible:ring-primary/20 font-medium" />
                         </CardContent>
@@ -549,7 +554,7 @@ export const EditProductDialog: React.FC<{
   const DialogContainer = isMobile ? Sheet : Dialog;
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-5xl max-h-[90dvh]")} side="right">
+      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-4xl max-h-[90dvh]")} side="right">
         {formBody}
       </DialogContent>
     </DialogContainer>

@@ -288,7 +288,7 @@ export default function ProductDetailPage() {
                                 </Button>
                                 {product.supplierUrl && (
                                     <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm" onClick={() => window.open(product.supplierUrl, '_blank')}>
-                                        <Truck className="mr-2 h-3.5 w-3.5" /> Reorder URL
+                                        <ShoppingCart className="mr-2 h-3.5 w-3.5" /> Shop Asset
                                     </Button>
                                 )}
                             </div>
@@ -423,20 +423,35 @@ export default function ProductDetailPage() {
                                                     </div>
                                                 </div>
                                                 <div className="pt-4 border-t border-dashed space-y-4">
-                                                    <div className="space-y-1">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Brand Compliance</p>
+                                                    <div className="space-y-2">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Order Portal</p>
+                                                        {product.supplierUrl ? (
+                                                            <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
+                                                                <a href={product.supplierUrl} target="_blank" rel="noopener noreferrer">
+                                                                    <ShoppingCart className="w-4 h-4 mr-2" />
+                                                                    Visit Shop & Reorder
+                                                                </a>
+                                                            </Button>
+                                                        ) : (
+                                                            <div className="p-4 rounded-xl border-2 border-dashed opacity-40 text-center">
+                                                                <p className="text-[10px] font-bold uppercase tracking-widest">No shop URL archived</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Brand Assets</p>
                                                         {product.labelTemplateUrl ? (
                                                             <a href={product.labelTemplateUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all group">
                                                                 <div className="flex items-center gap-3">
                                                                     <FileText className="w-5 h-5 text-primary" />
-                                                                    <span className="text-[10px] font-black uppercase tracking-widest text-primary">Label Template Source</span>
+                                                                    <span className="text-[10px] font-black uppercase tracking-widest text-primary">Label Source (Canva/PDF)</span>
                                                                 </div>
                                                                 <LinkIcon className="w-4 h-4 text-primary opacity-40 group-hover:translate-x-1 transition-transform" />
                                                             </a>
                                                         ) : (
                                                             <div className="p-4 rounded-2xl border-2 border-dashed border-border flex items-center gap-3 opacity-40">
                                                                 <FileText className="w-5 h-5 text-muted-foreground" />
-                                                                <span className="text-[10px] font-black uppercase tracking-widest">No template archived</span>
+                                                                <span className="text-[10px] font-black uppercase tracking-widest">No labels archived</span>
                                                             </div>
                                                         )}
                                                     </div>
