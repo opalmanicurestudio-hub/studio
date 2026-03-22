@@ -333,6 +333,7 @@ export default function ClientDetailPage() {
       const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
       updateDocumentNonBlocking(clientRef, { customFormulas: arrayUnion(formula) });
       toast({ title: "Protocol Archived", description: `"${formula.name}" registered in technical library.` });
+      setIsAddFormulaOpen(false);
   }
 
   const handleDeleteFormula = (formulaId: string) => {
@@ -818,7 +819,7 @@ export default function ClientDetailPage() {
                                     <span className={cn("text-xl font-black font-mono", cancelTotal > 0 ? "text-amber-600" : "text-slate-900")}>{cancelTotal}</span>
                                 </div>
                                 <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
-                                    <span className="text-[8px] font-black text-muted-foreground uppercase">Reschedules</span>
+                                    <span className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Reschedules</span>
                                     <span className={cn("text-xl font-black font-mono", rescheduleTotal > 0 ? "text-blue-600" : "text-slate-900")}>{rescheduleTotal}</span>
                                 </div>
                             </div>

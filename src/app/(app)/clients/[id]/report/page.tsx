@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -314,7 +315,6 @@ const ClientReportPage = () => {
                                                         )
                                                     })}
                                                 </div>
-                                                {/* Find signature if it exists */}
                                                 {Object.values(consent.formData || {}).map((value: any, idx) => {
                                                     if (typeof value === 'string' && value.startsWith('data:image')) {
                                                         return (
@@ -332,6 +332,30 @@ const ClientReportPage = () => {
                                         </Card>
                                     ))
                                 ) : <p className="text-center text-muted-foreground py-4">No signed forms on record.</p>}
+                            </div>
+                        </div>
+
+                        <div>
+                            <h2 className="text-xl font-semibold mb-4">Technical Formulas</h2>
+                            <div className="space-y-4">
+                                {(client.customFormulas || []).map((formula, index) => (
+                                    <Card key={index} className="bg-muted/30">
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-base flex items-center gap-2"><FlaskConical className="w-4 h-4 text-primary"/>{formula.name}</CardTitle>
+                                            <p className="text-xs text-muted-foreground">Established {format(parseISO(formula.date), 'PPP')}</p>
+                                        </CardHeader>
+                                        <CardContent className="space-y-2">
+                                            {formula.items.map((item, itemIndex) => (
+                                                <div key={itemIndex} className="text-sm p-2 bg-white border rounded-md shadow-sm flex justify-between">
+                                                    <p className="font-bold">{item.name}</p>
+                                                    <p className="font-mono">{item.quantity}{item.unit}</p>
+                                                </div>
+                                            ))}
+                                            {formula.notes && <p className="text-xs text-muted-foreground italic pt-2">"{formula.notes}"</p>}
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                                {(!client.customFormulas || client.customFormulas.length === 0) && <p className="text-center text-muted-foreground py-4">No custom formulas archived.</p>}
                             </div>
                         </div>
 
