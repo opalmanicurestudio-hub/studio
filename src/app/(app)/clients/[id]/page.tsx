@@ -51,7 +51,9 @@ import {
     CheckCircle,
     Database,
     Coffee,
-    Scale
+    Scale,
+    Target,
+    Sparkles
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -438,9 +440,10 @@ export default function ClientDetailPage() {
                         <ScrollArea className="w-full overflow-hidden">
                             <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max">
                                 <TabsTrigger value="overview" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
+                                <TabsTrigger value="preferences" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Preferences</TabsTrigger>
                                 <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
                                 <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
-                                <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Technical Archive</TabsTrigger>
+                                <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</TabsTrigger>
                                 <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
                             </TabsList>
                             <ScrollBar orientation="horizontal" className="hidden" />
@@ -567,6 +570,73 @@ export default function ClientDetailPage() {
                             </Card>
                         </TabsContent>
 
+                        <TabsContent value="preferences" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
+                            <div className="space-y-8">
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
+                                    <Sparkles className="w-5 h-5 text-primary" />
+                                    Guest Discovery & Preferences
+                                </h3>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm">
+                                        <CardHeader className="bg-muted/5 border-b p-5">
+                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2">
+                                                <Target className="w-4 h-4 text-primary opacity-40" />
+                                                Strategic Goals
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="p-5">
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic">
+                                                {client.notes?.goals ? `"${client.notes.goals}"` : "No specific goals archived."}
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm">
+                                        <CardHeader className="bg-muted/5 border-b p-5">
+                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2">
+                                                <RefreshCw className="w-4 h-4 text-primary opacity-40" />
+                                                Current Routine
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="p-5">
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic">
+                                                {client.notes?.routine ? `"${client.notes.routine}"` : "No routine details on file."}
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm">
+                                        <CardHeader className="bg-muted/5 border-b p-5">
+                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2">
+                                                <History className="w-4 h-4 text-primary opacity-40" />
+                                                Service History Notes
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="p-5">
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic">
+                                                {client.notes?.history ? `"${client.notes.history}"` : "No historical context archived."}
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm">
+                                        <CardHeader className="bg-muted/5 border-b p-5">
+                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2">
+                                                <Ear className="w-4 h-4 text-primary opacity-40" />
+                                                Sensory & Environment
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="p-5">
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic">
+                                                {client.sensoryNeeds ? `"${client.sensoryNeeds}"` : "No sensory preferences recorded."}
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+                                </div>
+                            </div>
+                        </TabsContent>
+
                         <TabsContent value="history" className="m-0 space-y-8 md:space-y-10 animate-in fade-in duration-500 text-left">
                             <div className="space-y-4">
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Scheduled Events</h3>
@@ -585,7 +655,7 @@ export default function ClientDetailPage() {
                         <TabsContent value="hospitality" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                             <div className="space-y-6">
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
-                                    <Coffee className="w-5 h-5" />
+                                    <Coffee className="w-5 h-5 text-primary" />
                                     Concierge Service Log
                                 </h3>
                                 
@@ -628,7 +698,7 @@ export default function ClientDetailPage() {
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
                                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left">
                                         <FlaskConical className="w-5 h-5 text-primary" />
-                                        Technical Archive
+                                        Technical Archive (Formulas)
                                     </h3>
                                     <Button variant="ghost" size="sm" onClick={() => setIsAddFormulaOpen(true)} className="h-8 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10">
                                         <PlusCircle className="mr-2 h-3.5 w-3.5" /> Establish Protocol
@@ -854,16 +924,16 @@ export default function ClientDetailPage() {
       <AddFormulaDialog open={isAddFormulaOpen} onOpenChange={setIsAddFormulaOpen} clientName={client.name} onSave={handleSaveFormula} />
 
       <Dialog open={isQuickSettleOpen} onOpenChange={setIsQuickSettleOpen}>
-        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden">
+        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden text-left">
             <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-3 mb-2 text-left">
                     <ShieldCheck className="w-5 h-5 text-primary" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Strategic Settlement</span>
                 </div>
                 <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Confirm Vault Charge</DialogTitle>
                 <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authorize debt reconciliation for: <strong>{client.name}</strong></DialogDescription>
             </DialogHeader>
-            <div className="p-8 space-y-8">
+            <div className="p-8 space-y-8 text-left">
                 <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                     <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Arrears Balance</p>
                     <p className="text-5xl font-black text-primary tracking-tighter font-mono">${safeOutstandingBalance.toFixed(2)}</p>

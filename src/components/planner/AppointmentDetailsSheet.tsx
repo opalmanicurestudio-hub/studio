@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
@@ -36,7 +37,11 @@ import {
   FileImage,
   ImageIcon,
   Maximize2,
-  Zap
+  Zap,
+  FlaskConical,
+  Target,
+  RefreshCw,
+  History
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -84,6 +89,7 @@ import { Switch } from '../ui/switch';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import Image from 'next/image';
 import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -354,6 +360,62 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
                     </Button>
                   </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-dashed text-left">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Dossier Intelligence</h3>
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="pref-notes" className="border-2 rounded-2xl overflow-hidden bg-muted/5 mb-2 shadow-inner">
+                            <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+                                <Sparkles className="w-3.5 h-3.5 mr-2 opacity-40" /> Preferences & Notes
+                            </AccordionTrigger>
+                            <AccordionContent className="px-4 pb-4 pt-2 space-y-4 text-left">
+                                {client.notes?.goals && (
+                                    <div className="space-y-1">
+                                        <p className="text-[8px] font-black uppercase text-primary/60">Strategic Goals</p>
+                                        <p className="text-[10px] font-medium leading-relaxed italic">"{client.notes.goals}"</p>
+                                    </div>
+                                )}
+                                {client.sensoryNeeds && (
+                                    <div className="space-y-1">
+                                        <p className="text-[8px] font-black uppercase text-blue-600/60">Sensory Needs</p>
+                                        <p className="text-[10px] font-medium leading-relaxed italic">"{client.sensoryNeeds}"</p>
+                                    </div>
+                                )}
+                                {client.notes?.history && (
+                                    <div className="space-y-1">
+                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">History Alert</p>
+                                        <p className="text-[10px] font-medium leading-relaxed italic">"{client.notes.history}"</p>
+                                    </div>
+                                )}
+                                {!client.notes?.goals && !client.sensoryNeeds && !client.notes?.history && (
+                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">No preference data archived</p>
+                                )}
+                            </AccordionContent>
+                        </AccordionItem>
+                        <AccordionItem value="prev-formulas" className="border-2 rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
+                            <AccordionTrigger className="px-4 py-3 h-10 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+                                <FlaskConical className="w-3.5 h-3.5 mr-2 opacity-40" /> Technical Formulas
+                            </AccordionTrigger>
+                            <AccordionContent className="px-4 pb-4 pt-2 space-y-3 text-left">
+                                {client.customFormulas && client.customFormulas.length > 0 ? (
+                                    <div className="grid gap-2">
+                                        {client.customFormulas.map((f: any) => (
+                                            <div key={f.id} className="p-3 rounded-xl bg-white border-2 border-transparent hover:border-primary/10 transition-all flex justify-between items-center shadow-sm">
+                                                <div className="min-w-0">
+                                                    <span className="text-[10px] font-black uppercase tracking-tight truncate block">{f.name}</span>
+                                                    <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{format(safeDate(f.date), 'MMM d, yyyy')}</span>
+                                                </div>
+                                                <ArrowRight className="w-3 h-3 text-primary opacity-20" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">No historical formulas found</p>
+                                )}
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
                 </div>
 
                 {appointment.inspirationPhotoUrl && (
