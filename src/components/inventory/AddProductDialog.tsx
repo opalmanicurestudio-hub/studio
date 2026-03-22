@@ -60,8 +60,12 @@ import {
     ArrowRight,
     User,
     ShieldCheck,
+    Building,
+    Mail,
+    Phone,
     Link as LinkIcon,
-    FileText
+    FileText,
+    Landmark
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -118,7 +122,7 @@ type ProductFormData = z.infer<typeof productSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number }) => (
     <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
         <div className="space-y-0.5 text-left">
@@ -284,12 +288,12 @@ const Step2 = () => {
                     <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Landed Cost Engine</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-6">
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Invoice Total</Label><Input type="number" placeholder="0.00" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Unit Count</Label><Input type="number" placeholder="Qty" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Total</Label><Input type="number" placeholder="0.00" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Count</Label><Input type="number" placeholder="Qty" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold" /></div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Shipping</Label><Input type="number" placeholder="0.00" {...register('shippingCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Taxes</Label><Input type="number" placeholder="0.00" {...register('taxCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shipping</Label><Input type="number" placeholder="0.00" {...register('shippingCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Taxes</Label><Input type="number" placeholder="0.00" {...register('taxCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
                         </div>
                         <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center shadow-inner text-left">
                             <span className="text-[10px] font-black uppercase text-primary tracking-widest">Landed / Unit</span>
@@ -335,7 +339,7 @@ const Step2 = () => {
                                     <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label><Input type="number" placeholder="1000" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
                                     <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
                                         <Controller name="containerUnit" control={control} render={({ field }) => (
-                                            <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem></SelectContent></Select>
+                                            <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl shadow-xl border-2"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem></SelectContent></Select>
                                         )}/>
                                     </div>
                                 </div>
@@ -386,8 +390,8 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
                 <div className="space-y-8">
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Manufacturing Intelligence</CardTitle></CardHeader>
-                        <CardContent className="p-6 space-y-5 text-left">
+                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><Building className="w-4 h-4 text-primary" /> Manufacturing Vault</CardTitle></CardHeader>
+                        <CardContent className="p-6 md:p-8 space-y-6 text-left">
                             <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manufacturer Name</Label><Input placeholder="e.g., Global Formula Labs" {...register('manufacturerName')} className="h-11 rounded-xl border-2 font-bold" /></div>
                             <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manufacturer Contact</Label><Input placeholder="Primary Account Manager" {...register('manufacturerContactName')} className="h-11 rounded-xl border-2 font-bold" /></div>
                             <div className="grid grid-cols-2 gap-4">
@@ -398,21 +402,21 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
                     </Card>
 
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Wholesale Rules</CardTitle></CardHeader>
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><Landmark className="w-4 h-4 text-primary" /> Wholesale Matrix</CardTitle></CardHeader>
                         <CardContent className="p-6 space-y-5 text-left">
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Min. Order Qty (MOQ)</Label><Input type="number" placeholder="e.g., 50" {...register('moq')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Lead Time (Days)</Label><Input type="number" placeholder="e.g., 14" {...register('leadTimeDays')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Min. Order (MOQ)</Label><Input type="number" placeholder="50" {...register('moq')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Lead Time (Days)</Label><Input type="number" placeholder="14" {...register('leadTimeDays')} className="h-11 rounded-xl border-2 font-bold" /></div>
                             </div>
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Label Design Template (URL)</Label><Input placeholder="Cloud link to design files..." {...register('labelTemplateUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Label Design Template (URL)</Label><Input placeholder="Cloud link to design files..." {...register('labelTemplateUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
                         </CardContent>
                     </Card>
                 </div>
 
                 <div className="space-y-8">
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Standard Operating Procedure (SOP)</CardTitle></CardHeader>
-                        <CardContent className="p-6">
+                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><FileText className="w-4 h-4 text-primary opacity-40" /> Standard Operating Procedure (SOP)</CardTitle></CardHeader>
+                        <CardContent className="p-6 md:p-8">
                             <Textarea placeholder="Detail the exact technical protocol for this asset..." {...register('manufacturingSop')} className="rounded-xl border-2 bg-muted/5 min-h-[200px] focus-visible:ring-primary/20 font-medium" />
                         </CardContent>
                     </Card>

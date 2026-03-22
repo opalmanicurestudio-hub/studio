@@ -19,7 +19,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -60,7 +60,8 @@ import {
     FileText,
     Lock,
     User,
-    Building
+    Building,
+    Landmark
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
@@ -124,7 +125,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
             <Icon className="w-5 h-5" />
         </div>
         <div className="space-y-0.5 text-left">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
     </div>
@@ -166,6 +167,7 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                                 className="h-12 rounded-xl border-2 font-bold uppercase text-xs"
                             />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
+                            <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-slate-400 font-bold uppercase text-[10px]">Cancel</Button>
                         </div>
                     ) : (
                         <div className="flex gap-3">
@@ -391,8 +393,8 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                     </Card>
 
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><Landmark className="w-4 h-4 text-primary" /> Wholesale Matrix</CardTitle></CardHeader>
-                        <CardContent className="p-6 space-y-5 text-left">
+                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-sm font-black uppercase tracking-widest text-left flex items-center gap-3"><Landmark className="w-4 h-4 text-primary" /> Wholesale Matrix</CardTitle></CardHeader>
+                        <CardContent className="p-6 md:p-8 space-y-5 text-left">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Min. Order (MOQ)</Label><Input type="number" placeholder="50" {...register('moq')} className="h-11 rounded-xl border-2 font-bold" /></div>
                                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Lead Time (Days)</Label><Input type="number" placeholder="14" {...register('leadTimeDays')} className="h-11 rounded-xl border-2 font-bold" /></div>
