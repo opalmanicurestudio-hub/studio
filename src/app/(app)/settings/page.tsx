@@ -280,6 +280,7 @@ function SettingsPageImpl() {
 
   const activeProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
   const [localSchedule, setLocalSchedule] = useState<any>(null);
+  const [localInterval, setLocalInterval] = useState<number>(15);
   const [localKioskSchedule, setLocalKioskSchedule] = useState<any>(null);
 
   useEffect(() => {
@@ -291,6 +292,7 @@ function SettingsPageImpl() {
     }
     if (activeProfile) {
         setLocalSchedule(activeProfile.week);
+        setLocalInterval(activeProfile.bookingSlotInterval || 15);
     }
     if (services) {
         const policies: Record<string, any> = {};
@@ -322,7 +324,10 @@ function SettingsPageImpl() {
 
       if (activeProfile && localSchedule) {
           const profileRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`, activeProfile.id);
-          batch.update(profileRef, { week: localSchedule });
+          batch.update(profileRef, { 
+              week: localSchedule, 
+              bookingSlotInterval: localInterval 
+          });
       }
 
       // Sync Service Specific Policies
@@ -448,7 +453,32 @@ function SettingsPageImpl() {
                         <SectionHeader icon={Clock} title="Operating Window" />
                         <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure your weekly studio availability.</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8">
+                    <CardContent className="p-6 md:p-8 space-y-10">
+                        <div className="space-y-4 max-w-sm text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
+                                <Sparkles className="w-3.5 h-3.5" /> Booking Precision (Interval)
+                            </Label>
+                            <Select 
+                                value={String(localInterval)} 
+                                onValueChange={(v) => setLocalInterval(parseInt(v))}
+                                disabled={!isEditing}
+                            >
+                                <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                    <SelectItem value="15" className="font-bold">15 MINUTE SLOTS</SelectItem>
+                                    <SelectItem value="30" className="font-bold">30 MINUTE SLOTS</SelectItem>
+                                    <SelectItem value="60" className="font-bold">60 MINUTE SLOTS</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase leading-relaxed ml-1 opacity-60">
+                                This determines the time gaps between available sessions on your booking page.
+                            </p>
+                        </div>
+
+                        <Separator className="border-dashed" />
+
                         {localSchedule ? (
                             <div className="space-y-3">
                                 {Object.entries(localSchedule).map(([day, hours]: [any, any]) => (

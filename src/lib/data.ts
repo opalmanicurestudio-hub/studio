@@ -888,6 +888,27 @@ export type TillSession = {
     verifiedBySignature?: string;
 };
 
+export type ScheduleProfile = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  isPublic?: boolean;
+  bookingSlotInterval?: number;
+  week: {
+      sunday: DayHours;
+      monday: DayHours;
+      tuesday: DayHours;
+      wednesday: DayHours;
+      thursday: DayHours;
+      friday: DayHours;
+      saturday: DayHours;
+  };
+  timeOff?: {
+      vacationDays: number;
+      holidays: number;
+  }
+};
+
 export const getServicePrice = (service: Service | undefined, staffMember: Staff | undefined): number => {
     if (!service) return 0;
     if (!staffMember || !staffMember.pricingTierId || !service.serviceTiers) {
