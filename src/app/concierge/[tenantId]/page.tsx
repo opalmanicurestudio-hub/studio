@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -41,7 +40,8 @@ import {
     CreditCard,
     Lock,
     Info,
-    Check
+    Check,
+    User
 } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc, getDocs, writeBatch } from 'firebase/firestore';
@@ -58,7 +58,13 @@ import { type Client, type InventoryItem, type Membership, type Tenant } from '@
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'string') {
+        try {
+            return new Date(val);
+        } catch {
+            return new Date();
+        }
+    }
     return new Date(val);
 };
 
@@ -67,7 +73,7 @@ const FloatingContainer = ({ children, className }: { children: React.ReactNode,
         initial={{ opacity: 0, y: 30 }} 
         animate={{ opacity: 1, y: 0 }} 
         exit={{ opacity: 0, scale: 0.95 }}
-        className={cn("w-full max-w-2xl mx-auto px-6 z-10", className)}
+        className={cn("w-full max-w-4xl mx-auto px-6 z-10", className)}
     >
         {children}
     </motion.div>
@@ -128,7 +134,7 @@ const MenuCard = ({
                     </div>
                 </div>
                 <CardContent className="p-6 space-y-4 flex-1 flex flex-col justify-between text-left">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                         <h4 className="font-black text-lg uppercase tracking-tight text-slate-900 leading-tight">{item.name}</h4>
                         {item.description && <p className="text-xs font-medium text-slate-500 italic leading-relaxed">"{item.description}"</p>}
                     </div>
@@ -316,28 +322,28 @@ export default function ConciergeKioskPage() {
                             )}
                         </div>
                         <div className="space-y-4">
-                            <h1 className="text-4xl md:text-7xl font-black tracking-tighter uppercase text-slate-900 leading-none">{tenant?.name || 'Studio'}</h1>
-                            <p className="text-primary text-xs md:text-xl font-bold tracking-[0.5em] uppercase animate-pulse opacity-60">Concierge Active</p>
+                            <h1 className="text-4xl md:text-7xl font-black tracking-tighter uppercase text-slate-900 leading-none text-center">{tenant?.name || 'Studio'}</h1>
+                            <p className="text-primary text-xs md:text-xl font-bold tracking-[0.5em] uppercase animate-pulse opacity-60 text-center">Concierge Active</p>
                         </div>
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-16 flex flex-col items-center gap-4">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-16 flex flex-col items-center gap-4 text-center">
                             <span className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Tap to Browse Menu</span>
                             <ArrowDown className="w-6 h-6 animate-bounce text-slate-300" />
                         </motion.div>
                     </motion.div>
                 ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center min-h-[80vh] z-10">
+                    <div className="w-full h-full flex flex-col items-center justify-center min-h-[80vh] z-10 text-center">
                         <AnimatePresence mode="wait">
                             {step === 'onboarding' && (
                                 <FloatingContainer key="onboarding" className="text-center space-y-12">
-                                    <div className="space-y-4">
+                                    <div className="space-y-4 text-center">
                                         <div className="w-24 h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
                                             <Sparkles className="w-12 h-12 text-primary -rotate-6" />
                                         </div>
-                                        <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none">Your Boutique Experience</h2>
-                                        <p className="text-sm md:text-xl font-bold text-muted-foreground uppercase tracking-[0.3em] opacity-60">How the protocol works</p>
+                                        <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none text-center">Your Boutique Experience</h2>
+                                        <p className="text-sm md:text-xl font-bold text-muted-foreground uppercase tracking-[0.3em] opacity-60 text-center">How the protocol works</p>
                                     </div>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
                                         {[
                                             { icon: User, label: "Identify", desc: "Share your name so we can recognize you." },
                                             { icon: Coffee, label: "Select", desc: "Browse our curated artisanal menu." },
@@ -345,9 +351,9 @@ export default function ConciergeKioskPage() {
                                         ].map((item, idx) => (
                                             <div key={idx} className="p-8 rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white shadow-xl flex flex-col items-center gap-4 text-center">
                                                 <div className="p-4 bg-primary/5 rounded-2xl text-primary"><item.icon className="w-8 h-8" /></div>
-                                                <div className="space-y-1">
-                                                    <p className="font-black uppercase text-sm tracking-tight">{item.label}</p>
-                                                    <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed">{item.desc}</p>
+                                                <div className="space-y-1 text-center">
+                                                    <p className="font-black uppercase text-sm tracking-tight text-center">{item.label}</p>
+                                                    <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-center">{item.desc}</p>
                                                 </div>
                                             </div>
                                         ))}
@@ -356,7 +362,7 @@ export default function ConciergeKioskPage() {
                                     <Button 
                                         size="lg" 
                                         onClick={handleOnboardingComplete}
-                                        className="h-20 px-12 md:px-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group"
+                                        className="h-20 px-12 md:px-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
                                     >
                                         Begin Experience <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2" />
                                     </Button>
@@ -365,17 +371,17 @@ export default function ConciergeKioskPage() {
 
                             {step === 'identity' && (
                                 <FloatingContainer key="identity" className="text-center space-y-12">
-                                    <div className="space-y-3">
+                                    <div className="space-y-3 text-center">
                                         <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
                                             <HandHeart className="w-10 h-10 text-primary" />
                                         </div>
-                                        <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900">Welcome to the Lounge</h2>
-                                        <p className="text-sm md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60">Please identify yourself to begin your experience.</p>
+                                        <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center">Welcome to the Lounge</h2>
+                                        <p className="text-sm md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Please identify yourself to begin your experience.</p>
                                     </div>
 
-                                    <form onSubmit={handleIdentify} className="max-w-md mx-auto space-y-8">
+                                    <form onSubmit={handleIdentify} className="max-w-md mx-auto space-y-8 text-center">
                                         <div className="space-y-4 text-left">
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 text-left">
                                                 <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Your Full Name</Label>
                                                 <Input 
                                                     autoFocus
@@ -385,7 +391,7 @@ export default function ConciergeKioskPage() {
                                                     className="h-16 rounded-2xl border-4 font-black uppercase text-xl md:text-2xl tracking-tight shadow-inner focus-visible:ring-primary/20 text-center bg-white/80"
                                                 />
                                             </div>
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 text-left">
                                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile Number (Optional Perk Check)</Label>
                                                 <Input 
                                                     type="tel"
@@ -399,7 +405,7 @@ export default function ConciergeKioskPage() {
                                         <Button 
                                             type="submit" 
                                             disabled={!guestName.trim() || isVerifying}
-                                            className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group"
+                                            className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
                                         >
                                             {isVerifying ? <Loader className="animate-spin" /> : <>Explore Menu <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2"/></>}
                                         </Button>
@@ -412,7 +418,7 @@ export default function ConciergeKioskPage() {
                                     key="menu" 
                                     initial={{ opacity: 0 }} 
                                     animate={{ opacity: 1 }} 
-                                    className="flex flex-col h-[85dvh] w-full max-w-6xl mx-auto bg-white/90 backdrop-blur-3xl rounded-[3rem] border-4 shadow-3xl overflow-hidden"
+                                    className="flex flex-col h-[85dvh] w-full max-w-6xl mx-auto bg-white/90 backdrop-blur-3xl rounded-[3rem] border-4 shadow-3xl overflow-hidden text-left"
                                 >
                                     <div className="p-8 pb-4 border-b bg-muted/5 flex flex-col sm:flex-row items-center justify-between gap-6 text-left">
                                         <div className="flex items-center gap-4 text-left">
@@ -432,7 +438,7 @@ export default function ConciergeKioskPage() {
 
                                     <ScrollArea className="flex-1 text-left">
                                         <div className="p-8 space-y-12">
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 text-left">
                                                 {refreshments.map(item => (
                                                     <MenuCard 
                                                         key={item.id} 
@@ -445,7 +451,7 @@ export default function ConciergeKioskPage() {
                                                 ))}
                                             </div>
                                             {refreshments.length === 0 && (
-                                                <div className="py-32 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                                <div className="py-32 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 mx-auto">
                                                     <Clock className="w-16 h-16" />
                                                     <p className="text-xl font-black uppercase tracking-widest">Menu Buffering...</p>
                                                 </div>
@@ -456,24 +462,24 @@ export default function ConciergeKioskPage() {
                             )}
 
                             {step === 'payment' && pendingItem && (
-                                <FloatingContainer key="payment" className="max-w-md">
+                                <FloatingContainer key="payment" className="max-w-md text-center">
                                     <Card className="rounded-[3rem] border-4 shadow-3xl overflow-hidden bg-white">
                                         <CardHeader className="p-10 border-b bg-muted/5 text-center space-y-2">
                                             <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-2">
                                                 <CreditCard className="w-8 h-8 text-primary" />
                                             </div>
-                                            <CardTitle className="text-3xl font-black uppercase tracking-tighter">Secure Settlement</CardTitle>
-                                            <CardDescription className="text-xs font-bold uppercase tracking-widest">Collecting for: {pendingItem.item.name} (x{pendingItem.qty})</CardDescription>
+                                            <CardTitle className="text-3xl font-black uppercase tracking-tighter text-center leading-none">Secure Settlement</CardTitle>
+                                            <CardDescription className="text-xs font-bold uppercase tracking-widest text-center">Collecting for: {pendingItem.item.name} (x{pendingItem.qty})</CardDescription>
                                         </CardHeader>
-                                        <CardContent className="p-10 space-y-8">
+                                        <CardContent className="p-10 space-y-8 text-center">
                                             <div className="p-8 rounded-2xl bg-primary/5 border-2 border-primary/10 text-center space-y-2 shadow-inner">
                                                 <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Transaction</p>
                                                 <p className="text-5xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
                                             </div>
 
                                             <div className="space-y-6 text-left">
-                                                <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-muted/5" /></div>
-                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
+                                                <div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-muted/5" /></div>
+                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
                                             </div>
                                             
                                             <div className="flex items-center justify-center gap-3 opacity-40">
@@ -481,7 +487,7 @@ export default function ConciergeKioskPage() {
                                             </div>
                                         </CardContent>
                                         <CardFooter className="p-8 pt-0 flex flex-col gap-3">
-                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">
+                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all mx-auto">
                                                 {isVerifying ? <Loader className="animate-spin" /> : 'Authorize Payment'}
                                             </Button>
                                             <Button variant="ghost" onClick={() => setStep('menu')} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
@@ -491,20 +497,20 @@ export default function ConciergeKioskPage() {
                             )}
 
                             {step === 'success' && (
-                                <FloatingContainer key="success" className="p-12 md:p-24 text-center space-y-10">
+                                <FloatingContainer key="success" className="p-12 md:p-24 text-center space-y-10 mx-auto">
                                     <div className="w-32 h-32 md:w-48 md:h-48 bg-green-500/10 rounded-[3rem] flex items-center justify-center mx-auto shadow-2xl rotate-6">
                                         <CheckCircle2 className="w-16 h-16 md:w-24 md:h-24 text-green-500 -rotate-6" />
                                     </div>
-                                    <div className="space-y-4">
-                                        <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900">Request Dispatched</h2>
-                                        <p className="text-sm md:text-xl font-medium text-slate-500 leading-relaxed uppercase tracking-widest opacity-80 px-10">
+                                    <div className="space-y-4 text-center">
+                                        <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 text-center">Request Dispatched</h2>
+                                        <p className="text-sm md:text-xl font-medium text-slate-500 leading-relaxed uppercase tracking-widest opacity-80 px-10 text-center">
                                             Our studio team has been notified. Please make yourself comfortable, we will be with you shortly.
                                         </p>
                                     </div>
                                     <Button 
                                         size="lg" 
                                         onClick={() => setStep('menu')}
-                                        className="h-16 md:h-20 px-12 md:px-20 rounded-[2rem] text-lg md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all"
+                                        className="h-16 md:h-20 px-12 md:px-20 rounded-[2rem] text-lg md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all mx-auto"
                                     >
                                         Order More
                                     </Button>
