@@ -47,6 +47,20 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+/**
+ * Recursively removes any keys with undefined values from an object.
+ * Firestore does not support undefined values in payloads.
+ */
+const sanitizeForFirestore = (obj: any): any => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([_, v]) => v !== undefined)
+      .map(([k, v]) => [k, sanitizeForFirestore(v)])
+  );
+};
+
 export default function BookingPage() {
   const params = useParams();
   const tenantId = params.tenantId as string;
@@ -142,7 +156,7 @@ export default function BookingPage() {
                 lastAppointment: new Date().toISOString(),
                 status: 'active',
             };
-            batch.set(newClientRef, { ...newClient, id: clientId });
+            batch.set(newClientRef, sanitizeForFirestore({ ...newClient, id: clientId }));
         } else {
             const existingClientDoc = querySnapshot.docs[0];
             clientId = existingClientDoc.id;
@@ -164,22 +178,22 @@ export default function BookingPage() {
             checkInToken: checkInToken,
         };
 
-        batch.set(appointmentRef, newAppointment);
-        batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), newAppointment);
+        batch.set(appointmentRef, sanitizeForFirestore(newAppointment));
+        batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), sanitizeForFirestore(newAppointment));
 
         signedForms.forEach(form => {
             const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`));
-            batch.set(consentDocRef, {
+            batch.set(consentDocRef, sanitizeForFirestore({
                 ...form,
                 id: consentDocRef.id,
                 clientId,
                 signedAt: new Date().toISOString(),
-            });
+            }));
         });
 
         if (newAppointment.staffId) {
             const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-            batch.set(notificationRef, {
+            batch.set(notificationRef, sanitizeForFirestore({
                 id: nanoid(),
                 userId: newAppointment.staffId,
                 type: 'new_appointment',
@@ -187,7 +201,7 @@ export default function BookingPage() {
                 link: '/planner',
                 createdAt: new Date().toISOString(),
                 read: false,
-            });
+            }));
         }
         
         await batch.commit();

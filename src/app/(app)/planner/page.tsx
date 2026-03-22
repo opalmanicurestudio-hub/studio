@@ -9,7 +9,7 @@ import { query, where, collection, doc, writeBatch, increment, arrayUnion, delet
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
@@ -259,9 +259,9 @@ function PlannerPageContent() {
                 const fee = Number((overheadRecovery + materialRecovery).toFixed(2));
 
                 const batch = writeBatch(firestore);
-                batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: cancelReason, cancellationFeeApplied: fee });
+                batch.update(docRef, sanitizeForFirestore({ checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: cancelReason, cancellationFeeApplied: fee }));
                 if (fee > 0 && apt.clientId) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (${fullSessionBlock}m session block)` }) });
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion(sanitizeForFirestore({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (${fullSessionBlock}m session block)` })) });
                 }
                 batch.commit().then(() => {
                     toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Session block overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond grace.` });
@@ -272,9 +272,9 @@ function PlannerPageContent() {
                 const fee = Number((timeLostCost + premium).toFixed(2));
                 
                 const batch = writeBatch(firestore);
-                batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
+                batch.update(docRef, sanitizeForFirestore({ checkInStatus: 'running_late', lateTimeMinutes: lateMinutes }));
                 if (apt.clientId && fee > 0) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Foundation Recovery + Premium)` }) });
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion(sanitizeForFirestore({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Foundation Recovery + Premium)` })) });
                 }
                 batch.commit().then(() => {
                     toast({ title: "Status Updated: Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty.` });
@@ -298,25 +298,25 @@ function PlannerPageContent() {
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
 
-    batch.update(appointmentRef, { 
+    batch.update(appointmentRef, sanitizeForFirestore({ 
         status: 'cancelled', 
         cancellationReason: data.reason, 
         cancellationFeeApplied: data.feeAmount, 
         cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') 
-    });
+    }));
     
     if (selectedAppointment.checkInToken) {
-        batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), { status: 'cancelled', cancellationReason: data.reason, tenantId });
+        batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }));
     }
 
     if (data.chargeFee && data.feeAmount > 0) {
         if (data.paymentMethod === 'card_on_file') {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { 
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ 
                 date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId 
-            });
+            }));
         } else if (data.paymentMethod === 'add_to_balance') {
             batch.update(clientRef, { 
-                unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), 
+                unpaidFees: arrayUnion(sanitizeForFirestore({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId })), 
                 outstandingBalance: increment(data.feeAmount) 
             });
         }
@@ -337,9 +337,9 @@ function PlannerPageContent() {
                 batch.update(clientRef, { 'subscription.perkUsage': nextUsage, 'subscription.perkLastUsed': now });
                 
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
-                batch.set(redemptionRef, {
+                batch.set(redemptionRef, sanitizeForFirestore({
                     id: redemptionRef.id, clientId: currentClient.id, type: 'membership', offeringId: membership!.id, offeringName: membership!.name, serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true
-                });
+                }));
             }
         }
 
@@ -358,9 +358,9 @@ function PlannerPageContent() {
 
             const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
             const pkgDef = packages.find(pkg => pkg.id === activePack.packageId);
-            batch.set(redemptionRef, {
+            batch.set(redemptionRef, sanitizeForFirestore({
                 id: redemptionRef.id, clientId: currentClient.id, type: 'package', offeringId: activePack.packageId, offeringName: pkgDef?.name || 'Package', serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true
-            });
+            }));
         }
     }
 
@@ -418,7 +418,7 @@ function PlannerPageContent() {
             updates['checkoutState.additionalCharge'] = increment(feeAmount);
         } else {
             const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(txnRef, {
+            batch.set(txnRef, sanitizeForFirestore({
                 id: txnRef.id,
                 date: now,
                 description: `Reschedule Protocol Fee: ${aptData.clientName}`,
@@ -432,11 +432,11 @@ function PlannerPageContent() {
                 hasReceipt: false,
                 appointmentId: aptData.id,
                 staffId: aptData.staffId
-            });
+            }));
         }
     }
 
-    batch.update(appointmentRef, updates);
+    batch.update(appointmentRef, sanitizeForFirestore(updates));
 
     try {
         await batch.commit();
@@ -507,17 +507,17 @@ function PlannerPageContent() {
             notes: checkoutState.reviewNotes
         };
         batch.update(clientRef, {
-            customFormulas: arrayUnion(newFormula)
+            customFormulas: arrayUnion(sanitizeForFirestore(newFormula))
         });
     }
 
     if (allComplete) {
-        batch.update(appointmentRef, {
+        batch.update(appointmentRef, sanitizeForFirestore({
             status: 'ready_for_checkout',
             checkoutState: sanitizedCheckoutState,
             actualEndTime: new Date().toISOString(),
-        });
-        if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+        }));
+        if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'ready_for_checkout', tenantId }));
         
         const involvedIds = new Set<string>();
         if (apt.staffId) involvedIds.add(apt.staffId);
@@ -528,7 +528,7 @@ function PlannerPageContent() {
         }
         involvedIds.forEach(sid => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }); });
     } else {
-        batch.update(appointmentRef, { checkoutState: sanitizedCheckoutState });
+        batch.update(appointmentRef, sanitizeForFirestore({ checkoutState: sanitizedCheckoutState }));
         
         const overrides = checkoutState.serviceStaffOverrides || {};
         const involvedStaffIdsSet = new Set<string>();

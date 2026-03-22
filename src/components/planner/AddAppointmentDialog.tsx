@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -103,6 +102,20 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     return d;
 }
 
+/**
+ * Recursively removes any keys with undefined values from an object.
+ * Firestore does not support undefined values in payloads.
+ */
+const sanitizeForFirestore = (obj: any): any => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([_, v]) => v !== undefined)
+      .map(([k, v]) => [k, sanitizeForFirestore(v)])
+  );
+};
+
 type Step = 'details' | 'assignment' | 'timing' | 'deposit' | 'success';
 
 export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client: initialClient, appointmentToRebook }) => {
@@ -120,7 +133,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const [clientSearch, setClientSearch] = useState('');
   const [checkInToken, setCheckInToken] = useState('');
   const [inspirationPhotoUrl, setInspirationPhotoUrl] = useState('');
-  // By default, follow the studio protocol if it exists
   const [showAllSlots, setShowAllSlots] = useState(false);
 
   const methods = useForm({
@@ -150,7 +162,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         setClientSearch('');
         setCheckInToken('');
         setInspirationPhotoUrl('');
-        // Initialize showAllSlots based on the opposite of tightSchedulingEnabled
         setShowAllSlots(selectedTenant?.tightSchedulingEnabled === false);
         
         const staffDefault = (role === 'staff' && user) ? user.uid : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
@@ -360,7 +371,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     if (finalClientId === 'new') {
         const newClientRef = doc(collection(firestore!, `tenants/${tenantId}/clients`));
         finalClientId = newClientRef.id;
-        batch.set(newClientRef, {
+        batch.set(newClientRef, sanitizeForFirestore({
             id: finalClientId,
             name: data.newClientName,
             email: data.newClientEmail,
@@ -369,7 +380,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             lifetimeValue: 0,
             lastAppointment: now,
             status: 'active'
-        });
+        }));
     }
 
     let finalStaffId = data.staffId;
@@ -421,12 +432,12 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         inspirationPhotoUrl: inspirationPhotoUrl || undefined
     };
 
-    batch.set(aptRef, payload);
-    batch.set(checkInRef, payload);
+    batch.set(aptRef, sanitizeForFirestore(payload));
+    batch.set(checkInRef, sanitizeForFirestore(payload));
 
     if (depositDetails && data.paymentMethod !== 'none') {
         const txnRef = doc(collection(firestore!, `tenants/${tenantId}/transactions`));
-        batch.set(txnRef, {
+        batch.set(txnRef, sanitizeForFirestore({
             id: txnRef.id,
             date: now,
             description: `Retainer: ${selectedService?.name}`,
@@ -439,7 +450,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             paymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Manual Entry',
             appointmentId: aptId,
             staffId: finalStaffId
-        });
+        }));
     }
 
     try {
