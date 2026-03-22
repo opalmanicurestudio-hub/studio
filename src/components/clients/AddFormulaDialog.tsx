@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -60,19 +59,23 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     </div>
 );
 
-const AddFormulaForm = ({
-  onSave,
-  clientName
-}: {
-  onSave: (formula: CustomFormula) => void;
-  clientName: string;
-}) => {
+export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpenChange, onSave, clientName }) => {
+  const isMobile = useIsMobile();
   const { inventory } = useInventory();
+  const { toast } = useToast();
+
   const [formulaName, setFormulaName] = useState('');
   const [items, setItems] = useState<EditableFormulaItem[]>([]);
   const [notes, setNotes] = useState('');
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
-  const { toast } = useToast();
+
+  useEffect(() => {
+    if (open) {
+      setFormulaName('');
+      setItems([]);
+      setNotes('');
+    }
+  }, [open]);
 
   const handleAddProducts = (products: InventoryItem[]) => {
     const newItems: EditableFormulaItem[] = products.map(p => {
@@ -133,95 +136,6 @@ const AddFormulaForm = ({
     onSave(newFormula);
   };
 
-  return (
-    <div className="space-y-12">
-        <div className="space-y-8">
-            <SectionHeader icon={Tag} title="Protocol Identity" />
-            <div className="space-y-3 text-left">
-                <Label htmlFor="formula-name-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Formula Label</Label>
-                <Input
-                    id="formula-name-manual"
-                    placeholder="e.g., WINTER GLOSS PRO"
-                    value={formulaName}
-                    onChange={e => setFormulaName(e.target.value)}
-                    className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner"
-                />
-            </div>
-        </div>
-
-        <Separator className="border-dashed" />
-
-        <div className="space-y-8">
-            <div className="flex items-center justify-between px-1">
-                <SectionHeader icon={FlaskConical} title="Composition Matrix" />
-                <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button" className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
-                    <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
-                </Button>
-            </div>
-            
-            <div className="space-y-3">
-                {items.length > 0 ? (
-                    <div className="grid gap-2">
-                        {items.map(item => (
-                            <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
-                                <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{item.name}</span>
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center gap-2">
-                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
-                                        <Input 
-                                            type="number" 
-                                            value={item.quantity} 
-                                            onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                            className="w-16 h-9 rounded-lg border-2 text-center font-black font-mono" 
-                                            step="0.1" 
-                                        />
-                                        <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60 text-left">{item.unit}</span>
-                                    </div>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveItem(item.id)}><Trash2 className="w-4 h-4" /></Button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                        <Activity className="w-12 h-12" />
-                        <p className="text-[10px] font-black uppercase tracking-widest">Awaiting Recipe Components</p>
-                    </div>
-                )}
-            </div>
-        </div>
-
-        <Separator className="border-dashed" />
-
-        <div className="space-y-8">
-            <SectionHeader icon={Landmark} title="Procedural Context" />
-            <div className="space-y-3 text-left">
-                <Label htmlFor="formula-notes-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Technical Notes</Label>
-                <Textarea 
-                    id="formula-notes-manual" 
-                    placeholder="Specific application instructions or mixing details..." 
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    className="rounded-[2rem] border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium p-6"
-                />
-            </div>
-        </div>
-
-        <BrowseProductsDialog
-            open={isProductBrowserOpen}
-            onOpenChange={setIsProductBrowserOpen}
-            onSelect={handleAddProducts}
-            allProducts={inventory.filter(p => p.type === 'professional')}
-            initialSelected={[]}
-        />
-        
-        <Button id="submit-manual-formula-btn" className="hidden" onClick={handleSaveClick}>Save</Button>
-    </div>
-  );
-};
-
-export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpenChange, onSave, clientName }) => {
-  const isMobile = useIsMobile();
   const title = "Establish Formula";
   const description = `Registering a new technical recipe for ${clientName}.`;
 
@@ -230,28 +144,106 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-10 pb-6")}>
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2 text-left">
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
             </div>
-            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
+            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">{title}</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">{description}</DialogDescription>
         </DialogHeader>
         
         <ScrollArea className="flex-1">
-            <div className={cn("p-8", isMobile && "p-6")}>
-                <AddFormulaForm onSave={onSave} clientName={clientName} />
+            <div className={cn("p-8 space-y-12", isMobile && "p-6")}>
+                <div className="space-y-8">
+                    <SectionHeader icon={Tag} title="Protocol Identity" />
+                    <div className="space-y-3 text-left">
+                        <Label htmlFor="formula-name-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Formula Label</Label>
+                        <Input
+                            id="formula-name-manual"
+                            placeholder="e.g., WINTER GLOSS PRO"
+                            value={formulaName}
+                            onChange={e => setFormulaName(e.target.value)}
+                            className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner"
+                        />
+                    </div>
+                </div>
+
+                <Separator className="border-dashed" />
+
+                <div className="space-y-8">
+                    <div className="flex items-center justify-between px-1 text-left">
+                        <SectionHeader icon={FlaskConical} title="Composition Matrix" />
+                        <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button" className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                            <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
+                        </Button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        {items.length > 0 ? (
+                            <div className="grid gap-2">
+                                {items.map(item => (
+                                    <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group transition-all hover:border-primary/20">
+                                        <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{item.name}</span>
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2">
+                                                <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
+                                                <Input 
+                                                    type="number" 
+                                                    value={item.quantity} 
+                                                    onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                                                    className="w-16 h-9 rounded-lg border-2 text-center font-black font-mono" 
+                                                    step="0.1" 
+                                                />
+                                                <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60 text-left">{item.unit}</span>
+                                            </div>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveItem(item.id)}><Trash2 className="w-4 h-4" /></Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                <Activity className="w-12 h-12" />
+                                <p className="text-[10px] font-black uppercase tracking-widest">Awaiting Recipe Components</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <Separator className="border-dashed" />
+
+                <div className="space-y-8">
+                    <SectionHeader icon={Landmark} title="Procedural Context" />
+                    <div className="space-y-3 text-left">
+                        <Label htmlFor="formula-notes-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Technical Notes</Label>
+                        <Textarea 
+                            id="formula-notes-manual" 
+                            placeholder="Specific application instructions or mixing details..." 
+                            value={notes}
+                            onChange={e => setNotes(e.target.value)}
+                            className="rounded-[2rem] border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium p-6"
+                        />
+                    </div>
+                </div>
             </div>
         </ScrollArea>
 
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-10 pt-4")}>
             <div className="grid grid-cols-2 gap-3 w-full">
                 <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
-                <Button onClick={() => document.getElementById('submit-manual-formula-btn')?.click()} className="h-14 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Archive Formula <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+                <Button onClick={handleSaveClick} className="h-14 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Archive Formula <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
             </div>
         </DialogFooter>
+
+        <BrowseProductsDialog
+            open={isProductBrowserOpen}
+            onOpenChange={setIsProductBrowserOpen}
+            onSelect={handleAddProducts}
+            allProducts={inventory.filter(p => p.type === 'professional')}
+            initialSelected={[]}
+        />
       </ContentComponent>
     </DialogContainer>
   );

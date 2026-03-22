@@ -22,8 +22,19 @@ const sanitizeDataForFirebase = (data: any, stripId: boolean = false): any => {
     if (data === null || typeof data !== 'object') return data;
     if (data instanceof Date) return data;
     
-    // Do not traverse into Firestore FieldValue objects. 
-    if (data.constructor && (data.constructor.name === 'FieldValue' || data.constructor.name === 'FieldValueImpl')) {
+    /**
+     * CRITICAL FIX: Robust FieldValue detection.
+     * In some build environments, constructor.name might be mangled.
+     * We check for known FieldValue signatures to ensure arrayUnion/increment 
+     * are never recursed into or stripped.
+     */
+    const isFieldValue = data && (
+        data.constructor?.name?.includes('FieldValue') || 
+        '_methodName' in data || 
+        (typeof data.toJSON === 'function' && data.toJSON()?.['_methodName'])
+    );
+
+    if (isFieldValue) {
         return data;
     }
 

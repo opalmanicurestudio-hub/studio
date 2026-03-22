@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -115,31 +114,31 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                 {client.status === 'banned' && (
                     <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Ban className="w-4 h-4 text-white" /></div>
-                        <span className="text-[10px] md:text-xs font-black text-destructive uppercase tracking-widest">Banned Guest</span>
+                        <span className="text-[10px] md:text-xs font-black text-destructive uppercase tracking-widest text-left">Banned Guest</span>
                     </div>
                 )}
                 {client.intel?.hasIncidents && (
                      <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-purple-50/10 rounded-xl border border-purple-500/20 text-purple-600"><ShieldAlert className="w-4 h-4" /></div>
-                        <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-purple-600">Incident History</span>
+                        <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-purple-600 text-left">Incident History</span>
                     </div>
                 )}
                 {client.medicalNotes && (
                     <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-red-500/10 rounded-xl border border-red-500/20 text-red-600"><ShieldPlus className="w-4 h-4" /></div>
-                        <span className="text-[10px] md:text-xs font-black text-red-600 uppercase tracking-widest">Medical Alert</span>
+                        <span className="text-[10px] md:text-xs font-black text-red-600 uppercase tracking-widest text-left">Medical Alert</span>
                     </div>
                 )}
                 {client.allergyNotes && (
                     <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-orange-500/10 rounded-xl border-orange-500/20 text-orange-600 border"><AlertTriangle className="w-4 h-4" /></div>
-                        <span className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest">Allergy Warning</span>
+                        <span className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest text-left">Allergy Warning</span>
                     </div>
                 )}
                  {client.sensoryNeeds && (
                     <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-blue-500/10 rounded-xl border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div>
-                        <span className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest">Sensory Intel</span>
+                        <span className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest text-left">Sensory Intel</span>
                     </div>
                 )}
             </CardContent>
@@ -157,11 +156,11 @@ const AppointmentHistoryCard = ({
   const total = safeNumber(appointment.revenue || appointment.service?.price || 0) + safeNumber(appointment.tipAmount || 0);
   return (
     <Card className="flex flex-col border-2 rounded-[1.5rem] shadow-sm overflow-hidden group hover:border-primary/20 transition-all bg-white text-left">
-      <CardContent className="p-5 space-y-4 flex-1">
-        <div className="flex justify-between items-start">
+      <CardContent className="p-5 space-y-4 flex-1 text-left">
+        <div className="flex justify-between items-start text-left">
             <div className="min-w-0 flex-1 text-left">
-                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{appointment.service?.name || 'Session'}</p>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1 opacity-60">
+                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate text-left">{appointment.service?.name || 'Session'}</p>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1 opacity-60 text-left">
                 {format(safeDate(appointment.startTime), 'MMMM d, yyyy')}
                 </p>
             </div>
@@ -175,9 +174,9 @@ const AppointmentHistoryCard = ({
                 {appointment.status}
             </Badge>
         </div>
-        <div className="flex justify-between items-center text-sm pt-3 border-t border-dashed">
-          <span className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Total Yield</span>
-          <span className="font-black text-lg font-mono tracking-tighter text-slate-900">
+        <div className="flex justify-between items-center text-sm pt-3 border-t border-dashed text-left">
+          <span className="text-[9px] font-black uppercase text-muted-foreground opacity-40 text-left">Total Yield</span>
+          <span className="font-black text-lg font-mono tracking-tighter text-slate-900 text-right">
             ${total.toFixed(2)}
           </span>
         </div>
@@ -331,7 +330,15 @@ export default function ClientDetailPage() {
   const handleSaveFormula = (formula: CustomFormula) => {
       if (!firestore || !tenantId || !client) return;
       const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-      updateDocumentNonBlocking(clientRef, { customFormulas: arrayUnion(formula) });
+      
+      /**
+       * CRITICAL FIX: Ensure arrayUnion is processed via updateDocumentNonBlocking.
+       * We pass the formula as a plain object which will be wrapped in arrayUnion.
+       */
+      updateDocumentNonBlocking(clientRef, { 
+          customFormulas: arrayUnion(formula) 
+      });
+      
       toast({ title: "Protocol Archived", description: `"${formula.name}" registered in technical library.` });
       setIsAddFormulaOpen(false);
   }
@@ -360,7 +367,7 @@ export default function ClientDetailPage() {
   }, [noShowTotal, cancelTotal]);
 
   if (isUserLoading || isTenantLoading || clientLoading) {
-      return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
+      return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center text-left"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
   }
   if (clientError || !client || !tenantId) return notFound();
 
@@ -371,33 +378,33 @@ export default function ClientDetailPage() {
   const hasCardOnFile = !!client.cardOnFile?.token;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden text-left">
       <AppHeader title="Guest Dossier" />
-      <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0">
+      <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0 text-left">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 text-left">
-                <div className="space-y-1">
-                    <h1 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Record Detail</h1>
-                    <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Identity & performance profile</p>
+                <div className="space-y-1 text-left">
+                    <h1 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Record Detail</h1>
+                    <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Identity & performance profile</p>
                 </div>
-                <div className="flex items-center gap-2 md:gap-3 w-full sm:w-auto">
+                <div className="flex items-center gap-2 md:gap-3 w-full sm:w-auto text-left">
                     <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Link href="/clients" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link></Button>
                     {isOwnerOrAdmin && <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)} className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Edit className="h-4 w-4 mr-2" />Modify</Button>}
                 </div>
             </div>
             
-            <Card className={cn("border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white/80 backdrop-blur-xl transition-all", client.status === 'banned' && "border-destructive ring-4 ring-destructive/10")}>
+            <Card className={cn("border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white/80 backdrop-blur-xl transition-all text-left", client.status === 'banned' && "border-destructive ring-4 ring-destructive/10")}>
                  <CardContent className="p-6 md:p-12 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 md:gap-12">
-                    <div className="relative shrink-0">
+                    <div className="relative shrink-0 text-left">
                         <Avatar className="w-28 h-28 md:w-40 md:h-40 text-2xl border-4 border-white shadow-2xl rounded-[2.5rem] md:rounded-[3rem]">
                             <AvatarImage src={client.avatarUrl} alt={client.name} className="object-cover" />
-                            <AvatarFallback className="font-black bg-primary/10 text-primary">{getInitials(client.name)}</AvatarFallback>
+                            <AvatarFallback className="font-black bg-primary/10 text-primary uppercase">{getInitials(client.name)}</AvatarFallback>
                         </Avatar>
                         {activeMembership && <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-indigo-600 text-white p-1.5 md:p-2 rounded-2xl shadow-xl border-4 border-white"><Award className="w-4 h-4 md:w-6 md:h-6" /></div>}
                     </div>
-                    <div className="space-y-4 flex-1 min-w-0 w-full text-left">
+                    <div className="space-y-4 flex-1 min-w-0 w-full text-left text-left">
                         <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start sm:items-baseline gap-3 md:gap-4 text-left">
-                            <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate leading-none w-full sm:w-auto", client.name.length > 15 ? "text-xl md:text-4xl" : "text-2xl md:text-5xl")}>{client.name}</h2>
-                            <div className="flex gap-2 shrink-0">
+                            <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate leading-none w-full sm:w-auto text-left", client.name.length > 15 ? "text-xl md:text-4xl" : "text-2xl md:text-5xl")}>{client.name}</h2>
+                            <div className="flex gap-2 shrink-0 text-left">
                                 {activeMembership && <Badge className="bg-indigo-500/10 text-indigo-700 border-none font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Master Member</Badge>}
                                 {client.status === 'banned' && <Badge variant="destructive" className="animate-pulse font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Hard Restriction</Badge>}
                             </div>
@@ -405,23 +412,23 @@ export default function ClientDetailPage() {
                         <div className="flex flex-wrap justify-center sm:justify-start gap-x-6 sm:gap-x-10 gap-y-4 pt-2 w-full text-left">
                             {isOwnerOrAdmin ? (
                                 <div className="space-y-1 min-w-0 max-w-full text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
-                                    <a href={`mailto:${client.email}`} className="text-xs md:sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full">{String(client.email || '')}</a>
-                                    <p className="text-xs md:sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(String(client.phone)) : 'N/A'}</p>
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left text-left">Verified Contact</p>
+                                    <a href={`mailto:${client.email}`} className="text-xs md:sm font-black uppercase tracking-tight text-primary hover:underline block truncate w-full text-left">{String(client.email || '')}</a>
+                                    <p className="text-xs md:sm font-black tracking-tight text-slate-700 text-left">{client.phone ? formatPhoneNumber(String(client.phone)) : 'N/A'}</p>
                                 </div>
                             ) : (
-                                <div className="space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
-                                    <p className="text-xs md:sm font-black uppercase tracking-tight text-muted-foreground italic">Contact Restricted</p>
+                                <div className="space-y-1 text-left text-left">
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Verified Contact</p>
+                                    <p className="text-xs md:sm font-black uppercase tracking-tight text-muted-foreground italic text-left">Contact Restricted</p>
                                 </div>
                             )}
                             <div className="space-y-1 text-left">
-                                <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Discovery Source</p>
-                                <p className="text-xs md:sm font-black uppercase tracking-tight text-slate-700">{String(client.intel?.referralSource || 'Unknown')}</p>
+                                <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Discovery Source</p>
+                                <p className="text-xs md:sm font-black uppercase tracking-tight text-slate-700 text-left">{String(client.intel?.referralSource || 'Unknown')}</p>
                             </div>
-                            <div className="space-y-1 text-left">
-                                <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Strategic Origin</p>
-                                <div className="flex items-center gap-2">
+                            <div className="space-y-1 text-left text-left">
+                                <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Strategic Origin</p>
+                                <div className="flex items-center gap-2 text-left">
                                     <Badge variant="secondary" className="h-6 px-2.5 rounded-lg border-2 font-black text-[8px] md:text-[9px] uppercase tracking-widest bg-white shadow-sm flex items-center gap-1.5 w-fit">
                                         <Globe className="w-3 h-3" />
                                         Online
@@ -435,11 +442,11 @@ export default function ClientDetailPage() {
 
             <ClientIntelBanner client={client} />
             
-            <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10">
-                <div className="lg:col-span-2 xl:col-span-3 space-y-8 md:space-y-10 min-w-0">
-                    <Tabs defaultValue="overview">
-                        <ScrollArea className="w-full overflow-hidden">
-                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max">
+            <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10 text-left">
+                <div className="lg:col-span-2 xl:col-span-3 space-y-8 md:space-y-10 min-w-0 text-left text-left">
+                    <Tabs defaultValue="overview" className="text-left">
+                        <ScrollArea className="w-full overflow-hidden text-left">
+                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max text-left">
                                 <TabsTrigger value="overview" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
                                 <TabsTrigger value="preferences" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Preferences</TabsTrigger>
                                 <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
@@ -452,7 +459,7 @@ export default function ClientDetailPage() {
                         
                         <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500 text-left">
                             {activeMembership && (
-                                <div className="space-y-4">
+                                <div className="space-y-4 text-left">
                                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3 text-left">
                                         <Award className="w-5 h-5" />
                                         Active Privilege Matrix
@@ -465,19 +472,19 @@ export default function ClientDetailPage() {
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
                                                     <CardContent className="p-5 space-y-4 text-left">
-                                                        <div className="flex justify-between items-start gap-2">
+                                                        <div className="flex justify-between items-start gap-2 text-left">
                                                             <div className="min-w-0 text-left">
-                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
-                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Service Allotment</p>
+                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
+                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Monthly Service Allotment</p>
                                                             </div>
                                                             <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
                                                                 {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Star className="w-4 h-4" />}
                                                             </div>
                                                         </div>
-                                                        <div className="space-y-2">
-                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                        <div className="space-y-2 text-left">
+                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
                                                                 <span>Allotment Usage</span>
-                                                                <div className="flex items-center gap-1">
+                                                                <div className="flex items-center gap-1 text-left">
                                                                     <span>{usage.total} / {safeNumber(perk.quantity)}</span>
                                                                     {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
                                                                 </div>
@@ -494,20 +501,20 @@ export default function ClientDetailPage() {
                                             const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
-                                                    <CardContent className="p-5 space-y-4">
-                                                        <div className="flex justify-between items-start">
-                                                            <div className="min-w-0 text-left">
-                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
-                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Enhancement Allotment</p>
+                                                    <CardContent className="p-5 space-y-4 text-left">
+                                                        <div className="flex justify-between items-start text-left">
+                                                            <div className="min-w-0 text-left text-left">
+                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
+                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Monthly Enhancement Allotment</p>
                                                             </div>
                                                             <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600")}>
                                                                 {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
                                                             </div>
                                                         </div>
-                                                        <div className="space-y-2">
-                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                        <div className="space-y-2 text-left">
+                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
                                                                 <span>Allotment Usage</span>
-                                                                <div className="flex items-center gap-1">
+                                                                <div className="flex items-center gap-1 text-left">
                                                                     <span>{usage.total} / {safeNumber(perk.quantity)}</span>
                                                                     {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
                                                                 </div>
@@ -524,20 +531,20 @@ export default function ClientDetailPage() {
                                             const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
                                             return (
                                                 <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left">
-                                                    <CardContent className="p-5 space-y-4">
-                                                        <div className="flex justify-between items-start">
-                                                            <div className="min-w-0 text-left">
-                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{perk.name}</p>
-                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Monthly Hospitality Allotment</p>
+                                                    <CardContent className="p-5 space-y-4 text-left">
+                                                        <div className="flex justify-between items-start text-left">
+                                                            <div className="min-w-0 text-left text-left">
+                                                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
+                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Monthly Hospitality Allotment</p>
                                                             </div>
                                                             <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-primary/10 text-primary")}>
                                                                 {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Coffee className="w-4 h-4" />}
                                                             </div>
                                                         </div>
-                                                        <div className="space-y-2">
-                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">
+                                                        <div className="space-y-2 text-left">
+                                                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
                                                                 <span>Allotment Usage</span>
-                                                                <div className="flex items-center gap-1">
+                                                                <div className="flex items-center gap-1 text-left">
                                                                     <span>{usage.total} / {safeNumber(perk.quantity)}</span>
                                                                     {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
                                                                 </div>
@@ -553,83 +560,83 @@ export default function ClientDetailPage() {
                             )}
 
                             <Card className="border-2 shadow-sm rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-white text-left">
-                                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 pb-4 text-left">
-                                    <CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3"><BadgeInfo className="w-4 h-4 text-primary" /> Dossier Details</CardTitle>
+                                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 pb-4 text-left text-left">
+                                    <CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3 text-left"><BadgeInfo className="w-4 h-4 text-primary" /> Dossier Details</CardTitle>
                                 </CardHeader>
                                 <CardContent className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 text-left">
                                     <div className="space-y-6 text-left">
                                         <div className="space-y-1 text-left">
-                                            <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Birth Milestone</p>
-                                            <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
+                                            <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Birth Milestone</p>
+                                            <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight text-left">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
                                         </div>
-                                        {client.address && <div className="space-y-1 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight">{String(client.address.street || '')}<br/>{String(client.address.city || '')}, {String(client.address.state || '')} {String(client.address.zip || '')}</p></div>}
+                                        {client.address && <div className="space-y-1 text-left text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Primary Domicile</p><p className="text-xs md:sm font-bold text-slate-700 leading-relaxed uppercase tracking-tight text-left">{String(client.address.street || '')}<br/>{String(client.address.city || '')}, {String(client.address.state || '')} {String(client.address.zip || '')}</p></div>}
                                     </div>
                                     <div className="space-y-6 text-left">
-                                        {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight">{String(client.emergencyContact.name || '')}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60">{String(client.emergencyContact.relationship || '')}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2">{client.emergencyContact.phone ? formatPhoneNumber(String(client.emergencyContact.phone)) : 'N/A'}</p></div>}
+                                        {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2 text-left">Emergency Protocol</p><p className="text-xs md:sm font-black text-slate-900 uppercase tracking-tight text-left">{String(client.emergencyContact.name || '')}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60 text-left">{String(client.emergencyContact.relationship || '')}</p><p className="text-xs md:sm font-black text-primary tracking-tight mt-2 text-left">{client.emergencyContact.phone ? formatPhoneNumber(String(client.emergencyContact.phone)) : 'N/A'}</p></div>}
                                     </div>
                                 </CardContent>
                             </Card>
                         </TabsContent>
 
                         <TabsContent value="preferences" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
-                            <div className="space-y-8">
+                            <div className="space-y-8 text-left">
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
                                     <Sparkles className="w-5 h-5 text-primary" />
                                     Guest Discovery & Preferences
                                 </h3>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm">
-                                        <CardHeader className="bg-muted/5 border-b p-5">
-                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                        <CardHeader className="bg-muted/5 border-b p-5 text-left text-left">
+                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left text-left">
                                                 <Target className="w-4 h-4 text-primary opacity-40" />
                                                 Strategic Goals
                                             </CardTitle>
                                         </CardHeader>
-                                        <CardContent className="p-5">
-                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic">
+                                        <CardContent className="p-5 text-left">
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">
                                                 {client.notes?.goals ? `"${client.notes.goals}"` : "No specific goals archived."}
                                             </p>
                                         </CardContent>
                                     </Card>
 
-                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm">
-                                        <CardHeader className="bg-muted/5 border-b p-5">
-                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2">
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left text-left">
+                                        <CardHeader className="bg-muted/5 border-b p-5 text-left text-left">
+                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                                 <RefreshCw className="w-4 h-4 text-primary opacity-40" />
                                                 Current Routine
                                             </CardTitle>
                                         </CardHeader>
-                                        <CardContent className="p-5">
-                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic">
+                                        <CardContent className="p-5 text-left">
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">
                                                 {client.notes?.routine ? `"${client.notes.routine}"` : "No routine details on file."}
                                             </p>
                                         </CardContent>
                                     </Card>
 
-                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm">
-                                        <CardHeader className="bg-muted/5 border-b p-5">
-                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2">
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                        <CardHeader className="bg-muted/5 border-b p-5 text-left">
+                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                                 <History className="w-4 h-4 text-primary opacity-40" />
                                                 Service History Notes
                                             </CardTitle>
                                         </CardHeader>
-                                        <CardContent className="p-5">
-                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic">
+                                        <CardContent className="p-5 text-left">
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">
                                                 {client.notes?.history ? `"${client.notes.history}"` : "No historical context archived."}
                                             </p>
                                         </CardContent>
                                     </Card>
 
-                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm">
-                                        <CardHeader className="bg-muted/5 border-b p-5">
-                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2">
+                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                        <CardHeader className="bg-muted/5 border-b p-5 text-left">
+                                            <CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                                 <Ear className="w-4 h-4 text-primary opacity-40" />
                                                 Sensory & Environment
                                             </CardTitle>
                                         </CardHeader>
-                                        <CardContent className="p-5">
-                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic">
+                                        <CardContent className="p-5 text-left text-left">
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">
                                                 {client.sensoryNeeds ? `"${client.sensoryNeeds}"` : "No sensory preferences recorded."}
                                             </p>
                                         </CardContent>
@@ -639,55 +646,55 @@ export default function ClientDetailPage() {
                         </TabsContent>
 
                         <TabsContent value="history" className="m-0 space-y-8 md:space-y-10 animate-in fade-in duration-500 text-left">
-                            <div className="space-y-4">
+                            <div className="space-y-4 text-left">
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Scheduled Events</h3>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+                                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-left">No upcoming sessions</p></div>}
                                 </div>
                             </div>
-                            <div className="space-y-4 pt-6 border-t border-dashed">
+                            <div className="space-y-4 pt-6 border-t border-dashed text-left">
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Historical Records</h3>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">Empty history</p></div>}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+                                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2 text-left"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-left">Empty history</p></div>}
                                 </div>
                             </div>
                         </TabsContent>
 
                         <TabsContent value="hospitality" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
-                            <div className="space-y-6">
+                            <div className="space-y-6 text-left">
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
                                     <Coffee className="w-5 h-5 text-primary" />
                                     Concierge Service Log
                                 </h3>
                                 
                                 {clientRefreshments.length > 0 ? (
-                                    <div className="grid gap-3">
+                                    <div className="grid gap-3 text-left">
                                         {clientRefreshments.map((req) => (
                                             <Card key={req.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left group">
-                                                <CardContent className="p-5 flex items-center justify-between gap-4">
-                                                    <div className="flex items-center gap-4">
+                                                <CardContent className="p-5 flex items-center justify-between gap-4 text-left">
+                                                    <div className="flex items-center gap-4 text-left">
                                                         <div className={cn("p-2.5 rounded-xl shadow-inner", req.status === 'delivered' ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-700")}>
                                                             <Coffee className="w-5 h-5" />
                                                         </div>
                                                         <div className="min-w-0 text-left">
-                                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{req.itemName}</p>
-                                                            <div className="flex items-center gap-2">
-                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Served {format(safeDate(req.requestedAt), 'MMM d, h:mm a')}</p>
+                                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{req.itemName}</p>
+                                                            <div className="flex items-center gap-2 text-left">
+                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(safeDate(req.requestedAt), 'MMM d, h:mm a')}</p>
                                                                 <Badge variant="outline" className={cn("h-4 px-1 text-[7px] font-black uppercase border-none", req.status === 'delivered' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>{req.status}</Badge>
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="text-right shrink-0">
-                                                        <p className="font-black text-sm font-mono text-slate-900">x{safeNumber(req.quantity) || 1}</p>
-                                                        {safeNumber(req.priceAtRequest) > 0 ? <p className="text-[8px] font-black uppercase text-primary">${(safeNumber(req.priceAtRequest) * (safeNumber(req.quantity) || 1)).toFixed(2)}</p> : <p className="text-[8px] font-black uppercase text-green-600">COMP</p>}
+                                                    <div className="text-right shrink-0 text-left">
+                                                        <p className="font-black text-sm font-mono text-slate-900 text-right">x{safeNumber(req.quantity) || 1}</p>
+                                                        {safeNumber(req.priceAtRequest) > 0 ? <p className="text-[8px] font-black uppercase text-primary text-right">${(safeNumber(req.priceAtRequest) * (safeNumber(req.quantity) || 1)).toFixed(2)}</p> : <p className="text-[8px] font-black uppercase text-green-600 text-right">COMP</p>}
                                                     </div>
                                                 </CardContent>
                                             </Card>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                                        <Coffee className="w-16 h-16" />
+                                    <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
+                                        <Coffee className="w-16 h-16 text-left" />
                                         <p className="text-[10px] font-black uppercase tracking-widest text-center px-8 leading-relaxed">No concierge requests logged. Hospitality events appear here as they are certified in-session.</p>
                                     </div>
                                 )}
@@ -695,8 +702,8 @@ export default function ClientDetailPage() {
                         </TabsContent>
 
                         <TabsContent value="archive" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
-                            <div className="space-y-6">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
+                            <div className="space-y-6 text-left">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1 text-left">
                                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left">
                                         <FlaskConical className="w-5 h-5 text-primary" />
                                         Technical Archive (Formulas)
@@ -707,31 +714,31 @@ export default function ClientDetailPage() {
                                 </div>
                                 
                                 {client.customFormulas && client.customFormulas.length > 0 ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left text-left">
                                         {client.customFormulas.map((formula) => (
                                             <Card key={formula.id} className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all group text-left">
-                                                <CardHeader className="bg-muted/5 border-b p-5 flex flex-row items-center justify-between text-left">
-                                                    <div className="space-y-0.5 text-left">
-                                                        <CardTitle className="text-xs font-black uppercase tracking-tight">{String(formula.name || 'Untitled Formula')}</CardTitle>
+                                                <CardHeader className="bg-muted/5 border-b p-5 flex flex-row items-center justify-between text-left text-left">
+                                                    <div className="space-y-0.5 text-left text-left">
+                                                        <CardTitle className="text-xs font-black uppercase tracking-tight text-left">{String(formula.name || 'Untitled Formula')}</CardTitle>
                                                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Established {format(safeDate(formula.date), 'MMM d, yyyy')}</p>
                                                     </div>
                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeleteFormula(formula.id)}>
                                                         <Trash2 className="w-3.5 h-3.5" />
                                                     </Button>
                                                 </CardHeader>
-                                                <CardContent className="p-5 space-y-4">
-                                                    <div className="space-y-2">
+                                                <CardContent className="p-5 space-y-4 text-left">
+                                                    <div className="space-y-2 text-left text-left">
                                                         {formula.items.map((item, idx) => (
-                                                            <div key={idx} className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight p-2 rounded-xl bg-muted/20 border-2 border-transparent">
-                                                                <span className="text-slate-600 truncate mr-2">{String(item.name || 'Component')}</span>
-                                                                <span className="font-black text-slate-900 shrink-0">{safeNumber(item.quantity)}{String(item.unit || 'u')}</span>
+                                                            <div key={idx} className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tight p-2 rounded-xl bg-muted/20 border-2 border-transparent text-left">
+                                                                <span className="text-slate-600 truncate mr-2 text-left">{String(item.name || 'Component')}</span>
+                                                                <span className="font-black text-slate-900 shrink-0 text-right">{safeNumber(item.quantity)}{String(item.unit || 'u')}</span>
                                                             </div>
                                                         ))}
                                                     </div>
                                                     {formula.notes && (
-                                                        <div className="pt-2 text-left">
-                                                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1">Audit Notes</p>
-                                                            <p className="text-10px font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3">"{String(formula.notes)}"</p>
+                                                        <div className="pt-2 text-left text-left">
+                                                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 text-left">Audit Notes</p>
+                                                            <p className="text-10px font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3 text-left">"{String(formula.notes)}"</p>
                                                         </div>
                                                     )}
                                                 </CardContent>
@@ -739,58 +746,58 @@ export default function ClientDetailPage() {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                                        <FlaskConical className="w-16 h-16" />
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-center px-8 leading-relaxed">No strategic formulas archived. Save a formula during technical review or manually build a protocol above.</p>
+                                    <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
+                                        <FlaskConical className="w-16 h-16 text-left text-left" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-center px-8 leading-relaxed text-left">No strategic formulas archived. Save a formula during technical review or manually build a protocol above.</p>
                                     </div>
                                 )}
                             </div>
                         </TabsContent>
 
                         <TabsContent value="ledger" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
-                            <div className="space-y-4">
-                                <h3 className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1">Unpaid Protocol Fees</h3>
+                            <div className="space-y-4 text-left text-left">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1 text-left">Unpaid Protocol Fees</h3>
                                 {client.unpaidFees && client.unpaidFees.length > 0 ? (
-                                    <div className="grid gap-3">
+                                    <div className="grid gap-3 text-left">
                                         {client.unpaidFees.map((fee) => (
-                                            <div key={fee.feeId} className="flex justify-between items-center p-5 rounded-2xl border-2 border-destructive/20 bg-destructive/[0.02] shadow-sm">
+                                            <div key={fee.feeId} className="flex justify-between items-center p-5 rounded-2xl border-2 border-destructive/20 bg-destructive/[0.02] shadow-sm text-left">
                                                 <div className="space-y-1 text-left">
-                                                    <p className="font-black text-sm uppercase tracking-tight text-destructive">{String(fee.reason || 'Outstanding Balance')}</p>
-                                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p>
+                                                    <p className="font-black text-sm uppercase tracking-tight text-destructive text-left">{String(fee.reason || 'Outstanding Balance')}</p>
+                                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p>
                                                 </div>
-                                                <p className="text-xl font-black font-mono tracking-tighter text-destructive">${safeNumber(fee.feeAmount).toFixed(2)}</p>
+                                                <p className="text-xl font-black font-mono tracking-tighter text-destructive text-right">${safeNumber(fee.feeAmount).toFixed(2)}</p>
                                             </div>
                                         ))}
                                     </div>
-                                ) : <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3"><CheckCircle2 className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">Account Clear</p></div>}
+                                ) : <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3 text-left"><CheckCircle2 className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest text-left">Account Clear</p></div>}
                             </div>
 
                             <Separator className="border-dashed" />
 
                             <div className="space-y-4 text-left">
-                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Certified Redemptions & Waivers</h3>
-                                <div className="grid gap-3">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Certified Redemptions & Waivers</h3>
+                                <div className="grid gap-3 text-left">
                                     {clientRedemptions.map(r => (
-                                        <div key={r.id} className={cn("flex items-center justify-between p-4 rounded-2xl border-2 bg-white", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
-                                            <div className="flex items-center gap-4">
-                                                <div className={cn("p-2 rounded-xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
+                                        <div key={r.id} className={cn("flex items-center justify-between p-4 rounded-2xl border-2 bg-white text-left", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
+                                            <div className="flex items-center gap-4 text-left">
+                                                <div className={cn("p-2 rounded-xl shadow-inner text-left", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
                                                     {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.type === 'membership' ? <Award className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
                                                 </div>
-                                                <div className="min-w-0 text-left">
-                                                    <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate">{String(r.serviceName || 'Benefit')}</p>
-                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Via {String(r.offeringName || 'Offer')}</p>
+                                                <div className="min-w-0 text-left text-left">
+                                                    <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate text-left">{String(r.serviceName || 'Benefit')}</p>
+                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Via {String(r.offeringName || 'Offer')}</p>
                                                 </div>
                                             </div>
-                                            <div className="text-right">
-                                                <p className="text-[10px] font-black font-mono">{format(safeDate(r.date), 'MMM d, yy')}</p>
-                                                <Badge variant={r.isForfeit ? "destructive" : "outline"} className="h-4 px-1 text-[7px] font-black uppercase mt-1 border-none shadow-sm">{r.isForfeit ? "FORFEITED" : "REDEEMED"}</Badge>
+                                            <div className="text-right text-left">
+                                                <p className="text-[10px] font-black font-mono text-right">{format(safeDate(r.date), 'MMM d, yy')}</p>
+                                                <Badge variant={r.isForfeit ? "destructive" : "outline"} className="h-4 px-1 text-[7px] font-black uppercase mt-1 border-none shadow-sm text-right">{r.isForfeit ? "FORFEITED" : "REDEEMED"}</Badge>
                                             </div>
                                         </div>
                                     ))}
                                     {clientRedemptions.length === 0 && (
-                                        <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
+                                        <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3 text-left">
                                             <History className="w-10 h-10" />
-                                            <p className="text-[10px] font-black uppercase tracking-widest">No Redemption History</p>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-left">No Redemption History</p>
                                         </div>
                                     )}
                                 </div>
@@ -799,118 +806,118 @@ export default function ClientDetailPage() {
                     </Tabs>
                 </div>
 
-                <div className="lg:col-span-1 space-y-8 text-left">
+                <div className="lg:col-span-1 space-y-8 text-left text-left">
                     <Card className={cn(
-                        "border-4 rounded-[2.5rem] overflow-hidden shadow-2xl relative group",
+                        "border-4 rounded-[2.5rem] overflow-hidden shadow-2xl relative group text-left",
                         isHighRisk ? "border-destructive/20 bg-destructive/[0.02]" : "border-primary/10 bg-white"
                     )}>
-                        <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
-                            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reliability Audit</CardTitle>
+                        <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between text-left">
+                            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground text-left">Reliability Audit</CardTitle>
                             {isHighRisk && <Badge variant="destructive" className="animate-bounce font-black text-[7px] h-4">High Risk Profile</Badge>}
                         </CardHeader>
-                        <CardContent className="p-6 space-y-6">
-                            <div className="grid grid-cols-1 gap-3">
-                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
-                                    <span className="text-[8px] font-black text-muted-foreground uppercase">No-Shows</span>
-                                    <span className={cn("text-xl font-black font-mono", noShowTotal > 0 ? "text-destructive" : "text-slate-900")}>{noShowTotal}</span>
+                        <CardContent className="p-6 space-y-6 text-left">
+                            <div className="grid grid-cols-1 gap-3 text-left text-left">
+                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background text-left">
+                                    <span className="text-[8px] font-black text-muted-foreground uppercase text-left">No-Shows</span>
+                                    <span className={cn("text-xl font-black font-mono text-right", noShowTotal > 0 ? "text-destructive" : "text-slate-900")}>{noShowTotal}</span>
                                 </div>
-                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
-                                    <span className="text-[8px] font-black text-muted-foreground uppercase">Late Cancels</span>
-                                    <span className={cn("text-xl font-black font-mono", cancelTotal > 0 ? "text-amber-600" : "text-slate-900")}>{cancelTotal}</span>
+                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background text-left">
+                                    <span className="text-[8px] font-black text-muted-foreground uppercase text-left">Late Cancels</span>
+                                    <span className={cn("text-xl font-black font-mono text-right", cancelTotal > 0 ? "text-amber-600" : "text-slate-900")}>{cancelTotal}</span>
                                 </div>
-                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
-                                    <span className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Reschedules</span>
-                                    <span className={cn("text-xl font-black font-mono", rescheduleTotal > 0 ? "text-blue-600" : "text-slate-900")}>{rescheduleTotal}</span>
+                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background text-left">
+                                    <span className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Reschedules</span>
+                                    <span className={cn("text-xl font-black font-mono text-right", rescheduleTotal > 0 ? "text-blue-600" : "text-slate-900")}>{rescheduleTotal}</span>
                                 </div>
                             </div>
                             <AnimatePresence>
                                 {(isHighRisk && selectedTenant?.guardianProtocolEnabled !== false) && (
-                                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5 text-destructive space-y-2">
-                                        <div className="flex items-center gap-2 text-left">
-                                            <Lock className="w-4 h-4 shrink-0" />
-                                            <span className="text-[10px] font-black uppercase text-left">Guardian Lock Active</span>
+                                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5 text-destructive space-y-2 text-left">
+                                        <div className="flex items-center gap-2 text-left text-left">
+                                            <Lock className="w-4 h-4 shrink-0 text-left" />
+                                            <span className="text-[10px] font-black uppercase text-left text-left">Guardian Lock Active</span>
                                         </div>
-                                        <p className="text-[10px] font-bold leading-relaxed uppercase text-left">High-risk behavior detected. Booking engine will now strictly enforce upfront deposits for all sessions.</p>
+                                        <p className="text-[10px] font-bold leading-relaxed uppercase text-left text-left">High-risk behavior detected. Booking engine will now strictly enforce upfront deposits for all sessions.</p>
                                     </motion.div>
                                 )}
                             </AnimatePresence>
                         </CardContent>
                     </Card>
 
-                    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white text-left">
-                        <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
-                            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Financial Vault</CardTitle>
+                    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white text-left text-left">
+                        <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between text-left">
+                            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground text-left">Financial Vault</CardTitle>
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <button 
                                             onClick={handleReconcileLtv}
                                             disabled={isReconciling}
-                                            className="h-8 w-8 rounded-xl text-primary hover:bg-primary/5 border border-primary/10 shadow-sm flex items-center justify-center transition-colors disabled:opacity-50"
+                                            className="h-8 w-8 rounded-xl text-primary hover:bg-primary/5 border border-primary/10 shadow-sm flex items-center justify-center transition-colors disabled:opacity-50 text-left"
                                         >
-                                            {isReconciling ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                                            {isReconciling ? <Loader className="w-4 h-4 animate-spin text-left" /> : <Database className="w-4 h-4 text-left" />}
                                         </button>
                                     </TooltipTrigger>
                                     <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Reconcile LTV from Ledger</TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         </CardHeader>
-                        <CardContent className="p-6 space-y-6 text-left">
-                            <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group">
-                                <div className="absolute top-0 right-0 p-4 opacity-5"><TrendingUp className="w-10 h-10 md:w-12 md:h-12 text-primary"/></div>
-                                <p className="text-[8px] md:text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">Lifetime Yield</p>
-                                <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none">${safeLTV.toFixed(2)}</p>
+                        <CardContent className="p-6 space-y-6 text-left text-left">
+                            <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group text-left">
+                                <div className="absolute top-0 right-0 p-4 opacity-5 text-left"><TrendingUp className="w-10 h-10 md:w-12 md:h-12 text-primary text-left"/></div>
+                                <p className="text-[8px] md:text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1 text-left">Lifetime Yield</p>
+                                <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none text-left">${safeLTV.toFixed(2)}</p>
                             </div>
                             
-                            <div className="grid grid-cols-1 gap-4 text-left">
-                                <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Store Credit</p>
-                                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono">${safeWalletCredit.toFixed(2)}</p>
+                            <div className="grid grid-cols-1 gap-4 text-left text-left">
+                                <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner text-left text-left">
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60 text-left">Store Credit</p>
+                                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono text-left">${safeWalletCredit.toFixed(2)}</p>
                                 </div>
-                                <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all text-left", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Account Arrears</p>
-                                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${safeOutstandingBalance.toFixed(2)}</p>
+                                <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all text-left text-left text-left", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60 text-left">Account Arrears</p>
+                                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono text-left">${safeOutstandingBalance.toFixed(2)}</p>
                                 </div>
                             </div>
 
                             <Separator className="border-dashed" />
 
-                            <div className="space-y-4 text-left">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2">
-                                    <Lock className="w-3 h-3" /> Secure Card on File
+                            <div className="space-y-4 text-left text-left text-left">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2 text-left">
+                                    <Lock className="w-3 h-3 text-left" /> Secure Card on File
                                 </p>
                                 {client.cardOnFile ? (
-                                    <div className="p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] flex items-center justify-between">
-                                        <div className="flex items-center gap-3 text-left">
-                                            <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><CreditCard className="w-5 h-5 text-primary" /></div>
-                                            <div className="text-left">
-                                                <p className="text-xs font-black uppercase tracking-tighter text-slate-900">{String(client.cardOnFile.brand || 'Card')} •••• {String(client.cardOnFile.last4 || '****')}</p>
-                                                <p className="text-[8px] font-bold text-muted-foreground uppercase">Exp: {safeNumber(client.cardOnFile.expiryMonth)}/{safeNumber(client.cardOnFile.expiryYear)}</p>
+                                    <div className="p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] flex items-center justify-between text-left">
+                                        <div className="flex items-center gap-3 text-left text-left">
+                                            <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10 text-left"><CreditCard className="w-5 h-5 text-primary text-left" /></div>
+                                            <div className="text-left text-left">
+                                                <p className="text-xs font-black uppercase tracking-tighter text-slate-900 text-left">{String(client.cardOnFile.brand || 'Card')} •••• {String(client.cardOnFile.last4 || '****')}</p>
+                                                <p className="text-[8px] font-bold text-muted-foreground uppercase text-left">Exp: {safeNumber(client.cardOnFile.expiryMonth)}/{safeNumber(client.cardOnFile.expiryYear)}</p>
                                             </div>
                                         </div>
-                                        <button onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5 flex items-center justify-center rounded-lg transition-colors"><RefreshCw className="w-3.5 h-3.5" /></button>
+                                        <button onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5 flex items-center justify-center rounded-lg transition-colors text-left"><RefreshCw className="w-3.5 h-3.5 text-left" /></button>
                                     </div>
                                 ) : (
-                                    <Button variant="outline" onClick={() => setIsEditClientOpen(true)} className="w-full h-12 rounded-xl border-2 border-dashed font-black uppercase text-[9px] tracking-widest bg-muted/5 hover:bg-primary/[0.02] hover:border-primary/20 transition-all">
-                                        <PlusCircle className="mr-2 h-3.5 w-3.5 opacity-40" /> Vault Security Card
+                                    <Button variant="outline" onClick={() => setIsEditClientOpen(true)} className="w-full h-12 rounded-xl border-2 border-dashed font-black uppercase text-[9px] tracking-widest bg-muted/5 hover:bg-primary/[0.02] hover:border-primary/20 transition-all text-left">
+                                        <PlusCircle className="mr-2 h-3.5 w-3.5 opacity-40 text-left" /> Vault Security Card
                                     </Button>
                                 )}
                             </div>
                         </CardContent>
-                        <CardFooter className="p-6 pt-0 flex flex-col gap-3">
+                        <CardFooter className="p-6 pt-0 flex flex-col gap-3 text-left">
                             {hasDebt && hasCardOnFile && (
                                 <Button 
-                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white"
+                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white text-left"
                                     onClick={handleQuickSettle}
                                     disabled={isSettleProcessing}
                                 >
-                                    {isSettleProcessing ? <Loader className="animate-spin" /> : <><Zap className="mr-2 h-4 w-4" /> Charge Card on File</>}
+                                    {isSettleProcessing ? <Loader className="animate-spin text-left" /> : <><Zap className="mr-2 h-4 w-4 text-left" /> Charge Card on File</>}
                                 </Button>
                             )}
                             <Button 
                                 disabled={!hasDebt} 
                                 variant="outline"
-                                className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs border-2" 
+                                className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs border-2 text-left" 
                                 asChild
                             >
                                 <Link href={`/pos?payer_id=${client.id}&action=settle`}>Initialize POS Settlement</Link>
@@ -926,37 +933,37 @@ export default function ClientDetailPage() {
 
       <Dialog open={isQuickSettleOpen} onOpenChange={setIsQuickSettleOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden text-left">
-            <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-                <div className="flex items-center gap-3 mb-2 text-left">
-                    <ShieldCheck className="w-5 h-5 text-primary" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Strategic Settlement</span>
+            <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left text-left">
+                <div className="flex items-center gap-3 mb-2 text-left text-left">
+                    <ShieldCheck className="w-5 h-5 text-primary text-left" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary text-left">Strategic Settlement</span>
                 </div>
-                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Confirm Vault Charge</DialogTitle>
-                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authorize debt reconciliation for: <strong>{client.name}</strong></DialogDescription>
+                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Confirm Vault Charge</DialogTitle>
+                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Authorize debt reconciliation for: <strong>{client.name}</strong></DialogDescription>
             </DialogHeader>
-            <div className="p-8 space-y-8 text-left">
-                <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
-                    <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Arrears Balance</p>
-                    <p className="text-5xl font-black text-primary tracking-tighter font-mono">${safeOutstandingBalance.toFixed(2)}</p>
+            <div className="p-8 space-y-8 text-left text-left text-left">
+                <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5 text-left">
+                    <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest text-center text-left">Total Arrears Balance</p>
+                    <p className="text-5xl font-black text-primary tracking-tighter font-mono text-center text-left">${safeOutstandingBalance.toFixed(2)}</p>
                 </div>
-                <div className="space-y-4 text-left">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</p>
-                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left">
-                        <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
-                        <div className="text-left">
-                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">{String(client.cardOnFile?.brand || 'Card')} •••• {String(client.cardOnFile?.last4 || '****')}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase">Authorized Vault Access</p>
+                <div className="space-y-4 text-left text-left">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Distribution Method</p>
+                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left text-left">
+                        <div className="p-2 bg-white rounded-xl shadow-sm border text-left"><CreditCard className="w-5 h-5 text-primary text-left" /></div>
+                        <div className="text-left text-left">
+                            <p className="font-black text-sm uppercase tracking-tight text-slate-900 text-left">{String(client.cardOnFile?.brand || 'Card')} •••• {String(client.cardOnFile?.last4 || '****')}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase text-left text-left">Authorized Vault Access</p>
                         </div>
                     </div>
                 </div>
-                <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3 text-left">
-                    <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
-                    <p className="text-[10px] font-bold text-slate-600 leading-relaxed uppercase tracking-tight">This will instantly clear the client's unpaid fees and create a verified revenue record in the studio ledger.</p>
+                <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3 text-left text-left">
+                    <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40 text-left" />
+                    <p className="text-[10px] font-bold text-slate-600 leading-relaxed uppercase tracking-tight text-left text-left text-left">This will instantly clear the client's unpaid fees and create a verified revenue record in the studio ledger.</p>
                 </div>
             </div>
-            <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
-                <Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-3xl shadow-primary/30" onClick={handleQuickSettle} disabled={isSettleProcessing}>{isSettleProcessing ? <Loader className="animate-spin" /> : 'Authorize Charge'}</Button>
-                <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+            <DialogFooter className="p-8 pt-0 flex flex-col gap-3 text-left text-left">
+                <Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-3xl shadow-primary/30 text-left" onClick={handleQuickSettle} disabled={isSettleProcessing}>{isSettleProcessing ? <Loader className="animate-spin text-left" /> : 'Authorize Charge'}</Button>
+                <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest text-left">Cancel</Button>
             </DialogFooter>
         </DialogContent>
       </Dialog>
