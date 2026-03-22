@@ -41,7 +41,8 @@ import {
   FlaskConical,
   Target,
   RefreshCw,
-  History
+  History,
+  HeartHandshake
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -136,6 +137,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [isRunningOver, setIsRunningOver] = useState(false);
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
   const [isMarkupOpen, setIsMarkupOpen] = useState(false);
+  const [isEscalating, setIsEscalating] = useState(false);
 
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
@@ -148,6 +150,37 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       .map((id: string) => allServices.find(s => s.id === id))
       .filter((s): s is Service => !!s);
   }, [appointment?.addOnIds, allServices]);
+
+  const handleEscalate = async () => {
+      if (!firestore || !tenantId || !appointment) return;
+      setIsEscalating(true);
+      
+      const batch = writeBatch(firestore);
+      const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
+      const now = new Date().toISOString();
+
+      adminsAndOwners.forEach(admin => {
+          const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+          batch.set(notifRef, {
+              id: notifRef.id,
+              userId: admin.id,
+              type: 'escalation',
+              message: `URGENT ESCALATION: Service Issue for ${client?.name || 'Guest'} at ${appointment.id.slice(-6).toUpperCase()}`,
+              link: `/pos?checkout_id=${appointment.id}`,
+              createdAt: now,
+              read: false
+          });
+      });
+
+      try {
+          await batch.commit();
+          toast({ title: "Manager Notified", description: "Escalation sequence initiated. A manager will assist shortly." });
+      } catch (e) {
+          toast({ variant: 'destructive', title: "Escalation Failed" });
+      } finally {
+          setIsEscalating(false);
+      }
+  };
 
   const signedConsentsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId || !client?.id) return null;
@@ -290,7 +323,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="right" className={cn(isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-xl', 'flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden')}>
           <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-5" : "p-8 pb-6")}>
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2 text-left">
               <Sparkles className="w-5 h-5 text-primary" />
               <span className="text-[10px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Session Dossier</span>
             </div>
@@ -416,6 +449,30 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                             </AccordionContent>
                         </AccordionItem>
                     </Accordion>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-dashed text-left">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-primary text-left">Service Recovery & Panic</h3>
+                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-4 border-destructive/20 bg-destructive/[0.02] shadow-xl shadow-destructive/5 transition-all">
+                        <div className="space-y-1 text-left">
+                            <Label htmlFor="escalate-panic" className="text-base font-black uppercase tracking-tight text-destructive flex items-center gap-2 text-left">
+                                <ShieldAlert className="w-4 h-4" /> Manager Escalation
+                            </Label>
+                            <p className="text-[10px] font-bold text-destructive/60 uppercase tracking-widest text-left">Immediate technical or guest issue</p>
+                        </div>
+                        <Button 
+                            variant="destructive" 
+                            size="icon" 
+                            disabled={isEscalating}
+                            onClick={handleEscalate}
+                            className="h-14 w-14 rounded-2xl shadow-xl shadow-destructive/20 animate-pulse"
+                        >
+                            {isEscalating ? <Loader className="animate-spin" /> : <AlertCircle className="w-6 h-6" />}
+                        </Button>
+                    </div>
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase text-center px-4 leading-relaxed opacity-60">
+                        This protocol bypasses all standard queues and dispatches a high-priority alert to all studio leadership instantly.
+                    </p>
                 </div>
 
                 {appointment.inspirationPhotoUrl && (

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -48,7 +49,8 @@ import {
   Sparkles,
   Globe,
   Phone,
-  Smartphone
+  Smartphone,
+  Undo2
 } from 'lucide-react';
 import {
   Select,
@@ -74,7 +76,7 @@ import {
 } from '@/components/ui/table';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, startOfMonth, endOfMonth, subMonths, isSameMonth } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { type Staff, type Service, type Appointment, type Transaction as DBTransaction } from '@/lib/data';
 import { DateRange } from 'react-day-picker';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -174,7 +176,7 @@ export default function ReportsPage() {
   const effectiveTo = useMemo(() => dateRange?.to ? endOfDay(dateRange.to) : endOfMonth(new Date()), [dateRange]);
 
   const analyticsData = useMemo(() => {
-    if (!staff || !appointments || !services || !transactions || !activityLogs || !selectedTenant) return { performance: [], overall: {} as any, absorbedLedger: [], taxSummary: {} as any, reconciliation: [], channelStats: [] };
+    if (!staff || !appointments || !services || !transactions || !activityLogs || !selectedTenant) return { performance: [], overall: {} as any, absorbedLedger: [], recoveryLedger: [], taxSummary: {} as any, reconciliation: [], channelStats: [] };
     
     const filterByDate = (date: any) => {
         const d = safeDate(date);
@@ -285,7 +287,6 @@ export default function ReportsPage() {
         };
     });
 
-    // --- Acquisition Channel Tracking ---
     const periodAppointments = appointments.filter(a => filterByDate(a.startTime));
     const channelStats = [
         { id: 'online', label: 'Online Booking', icon: Globe, color: 'text-primary' },
@@ -351,6 +352,20 @@ export default function ReportsPage() {
         }))
         .sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
 
+    const recoveryLedger = transactions
+        .filter(t => t.type === 'expense' && t.category === 'Discounts' && t.description.toLowerCase().includes('recovery'))
+        .map(t => ({
+            id: t.id,
+            date: t.date,
+            clientName: t.clientOrVendor,
+            amount: t.amount,
+            reason: t.notes || 'Service Recovery Adjustment',
+            staffId: t.staffId
+        }))
+        .sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
+
+    const totalRecoveryLoss = recoveryLedger.reduce((sum, r) => sum + r.amount, 0);
+
     return { 
         performance, 
         overall: { 
@@ -358,10 +373,12 @@ export default function ReportsPage() {
             totalCOGS: totalMaterials, 
             totalLaborLoad,
             totalReconciledOpEx,
-            netIncome: totalGrossRevenue - totalMaterials - totalReconciledOpEx - totalLaborLoad,
+            totalRecoveryLoss,
+            netIncome: totalGrossRevenue - totalMaterials - totalReconciledOpEx - totalLaborLoad - totalRecoveryLoss,
             utilization: performance.length > 0 ? performance.reduce((acc,d) => acc + d.stats.utilizationRate, 0) / performance.length : 0
         },
         absorbedLedger,
+        recoveryLedger,
         reconciliation,
         channelStats
     };
@@ -392,7 +409,7 @@ export default function ReportsPage() {
                         <SelectTrigger className="h-14 rounded-2xl border-2 bg-white font-black uppercase text-[10px] tracking-widest shadow-sm">
                             <SelectValue placeholder="Select Period" />
                         </SelectTrigger>
-                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                        <SelectContent className="rounded-xl border-2 shadow-2xl">
                             <SelectItem value="today" className="font-bold">TODAY</SelectItem>
                             <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
                             <SelectItem value="30days" className="font-bold">LAST 30 DAYS</SelectItem>
@@ -491,6 +508,12 @@ export default function ReportsPage() {
                                 <span className="text-sm font-bold uppercase text-slate-600">Total Labor Burden (Payroll + Taxes)</span>
                                 <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalLaborLoad.toFixed(2)}</span>
                             </div>
+                            {analyticsData.overall.totalRecoveryLoss > 0 && (
+                                <div className="flex justify-between items-center group">
+                                    <span className="text-sm font-bold uppercase text-amber-600">Service Recovery Investment (Comped)</span>
+                                    <span className="font-black font-mono text-lg text-amber-600">-${analyticsData.overall.totalRecoveryLoss.toFixed(2)}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -514,51 +537,40 @@ export default function ReportsPage() {
 
         <section className="space-y-6">
             <div className="flex items-center gap-2 px-1 text-left">
-                <Zap className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Technician Contribution Matrix</h3>
+                <HeartHandshake className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Service Recovery Ledger</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {analyticsData.performance.map(data => (
-                    <Card key={data.id} className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:border-primary/20 transition-all group">
-                        <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <Avatar className="h-10 w-10 border-2 border-white shadow-md rounded-xl">
-                                    <AvatarImage src={data.avatarUrl} className="object-cover" />
-                                    <AvatarFallback className="font-black bg-primary/10 text-primary">{(data.name || 'S')[0]}</AvatarFallback>
-                                </Avatar>
-                                <div className="text-left">
-                                    <CardTitle className="text-sm font-black uppercase tracking-tight">{data.name}</CardTitle>
-                                    <CardDescription className="text-[8px] font-bold uppercase tracking-widest">{data.role}</CardDescription>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <p className={cn("text-[10px] font-black tracking-tighter", data.stats.netContribution >= 0 ? "text-primary" : "text-destructive")}>
-                                    ${data.stats.netContribution.toFixed(0)}
-                                </p>
-                                <p className="text-[7px] font-bold uppercase opacity-40">Net Studio Contr.</p>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-6 grid grid-cols-2 gap-4">
-                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Utilization</p>
-                                <p className="text-lg font-black font-mono tracking-tighter">{(data.stats.utilizationRate || 0).toFixed(1)}%</p>
-                            </div>
-                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Revenue</p>
-                                <p className="text-lg font-black font-mono tracking-tighter">${(data.stats.totalSales || 0).toFixed(0)}</p>
-                            </div>
-                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Labor Burden</p>
-                                <p className="text-lg font-black font-mono tracking-tighter text-destructive">-${(data.stats.laborBurden || 0).toFixed(0)}</p>
-                            </div>
-                            <div className="space-y-1 text-left p-3 rounded-xl bg-primary/5 border-2 border-primary/10 transition-all">
-                                <p className="text-[8px] font-black uppercase text-primary tracking-widest">Yield / Hr</p>
-                                <p className="text-lg font-black font-mono tracking-tighter text-primary">${(data.stats.yieldPerHour || 0).toFixed(0)}</p>
-                            </div>
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
+            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader className="bg-muted/10 border-b-2">
+                                <TableRow>
+                                    <TableHead className="p-6 font-black text-[9px] uppercase tracking-widest text-slate-900">Guest</TableHead>
+                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900">Recovery Reason</TableHead>
+                                    <TableHead className="text-right font-black text-[9px] uppercase tracking-widest text-amber-600 pr-10">Value Comped</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {analyticsData.recoveryLedger.length > 0 ? analyticsData.recoveryLedger.map(entry => (
+                                    <TableRow key={entry.id} className="hover:bg-amber-[0.01]">
+                                        <TableCell className="p-6 text-left">
+                                            <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
+                                            <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">{format(safeDate(entry.date), 'MMM d, p')}</p>
+                                        </TableCell>
+                                        <TableCell className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[200px] text-left">
+                                            {entry.reason}
+                                        </TableCell>
+                                        <TableCell className="text-right pr-10 font-black font-mono text-amber-600">-${entry.amount.toFixed(2)}</TableCell>
+                                    </TableRow>
+                                )) : (
+                                    <TableRow><TableCell colSpan={3} className="p-12 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">No service recoveries in this period</TableCell></TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
         </section>
 
         <section className="space-y-6">

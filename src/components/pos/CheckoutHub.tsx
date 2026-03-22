@@ -51,7 +51,11 @@ import {
     SunDim,
     Coffee,
     Landmark,
-    Scale
+    Scale,
+    ShieldAlert,
+    Undo2,
+    MessageSquare,
+    AlertCircle
 } from 'lucide-react';
 import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -199,6 +203,11 @@ export const CheckoutHub = ({
     const [isWaiveAuthOpen, setIsPointOfSaleWaiveAuthOpen] = useState(false);
     const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
     const [clientSearch, setClientSearch] = useState('');
+
+    // --- SERVICE RECOVERY STATE ---
+    const [recoveryAmount, setRecoveryAmount] = useState<number>(0);
+    const [recoveryReason, setRecoveryReason] = useState('');
+    const [isRecoveryActive, setIsRecoveryActive] = useState(false);
 
     const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -380,8 +389,8 @@ export const CheckoutHub = ({
     
     // Financial logic synchronization
     const finalSubtotal = subtotal;
-    const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
-    const finalTotal = total;
+    const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
+    const finalTotal = Math.max(0, subtotal - totalDiscount + (subtotal * 0.07) + tipAmount);
 
     return (
         <div className="flex flex-col space-y-6 md:space-y-10">
@@ -519,6 +528,59 @@ export const CheckoutHub = ({
                     <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" onClick={onScanClick}><QrCode className="w-6 h-6 opacity-40" /></Button>
                 </div>
             </div>
+
+            {/* --- SERVICE RECOVERY MODULE --- */}
+            {!isCartEmpty && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between px-1">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                            <ShieldAlert className="w-3.5 h-3.5" />
+                            Service Recovery Protocol
+                        </h3>
+                        <Switch checked={isRecoveryActive} onCheckedChange={setIsRecoveryActive} />
+                    </div>
+                    
+                    <AnimatePresence>
+                        {isRecoveryActive && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                                <Card className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-[2rem] shadow-xl shadow-destructive/5">
+                                    <CardContent className="p-6 space-y-6">
+                                        <div className="space-y-3">
+                                            <Label className="text-[9px] font-black uppercase text-destructive/60 ml-1">Recovery Adjustment ($)</Label>
+                                            <div className="relative">
+                                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-destructive opacity-40" />
+                                                <Input 
+                                                    type="number" 
+                                                    value={recoveryAmount || ''} 
+                                                    onChange={e => setRecoveryAmount(parseFloat(e.target.value) || 0)} 
+                                                    placeholder="0.00"
+                                                    className="h-14 pl-12 rounded-2xl border-2 border-destructive/20 bg-white font-black text-xl font-mono text-destructive"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-3">
+                                            <Label className="text-[9px] font-black uppercase text-destructive/60 ml-1">Context / Justification</Label>
+                                            <Textarea 
+                                                value={recoveryReason} 
+                                                onChange={e => setRecoveryReason(e.target.value)}
+                                                placeholder="Detail the technical or hospitality failure..."
+                                                className="rounded-2xl border-2 bg-white min-h-[100px] font-medium"
+                                            />
+                                        </div>
+                                        <div className="pt-2">
+                                            <Button variant="destructive" className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group">
+                                                <ShieldAlert className="w-4 h-4 mr-2" />
+                                                Escalate to Manager
+                                                <ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            )}
 
             {selectedClient && isBirthdayToday && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 text-left">
@@ -847,7 +909,7 @@ export const CheckoutHub = ({
                     <div className="pt-2 text-left">
                         <Button 
                             className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" 
-                            onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
+                            onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, isEscalated: false})} 
                             disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
                         >
                             {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (finalTotal <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`)}
