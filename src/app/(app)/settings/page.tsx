@@ -56,7 +56,9 @@ import {
   LayoutGrid,
   Sparkles,
   Flame,
-  Workflow
+  Workflow,
+  Printer,
+  QrCode
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -75,6 +77,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useForm, Controller } from 'react-hook-form';
+import { PrintStationCardsDialog } from '@/components/concierge/PrintStationCardsDialog';
 
 const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     <div className="flex items-center gap-3 mb-6 text-left">
@@ -82,7 +85,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
             <Icon className="w-4 h-4" />
         </div>
         <div className="space-y-0.5 text-left">
-            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Operational Module</p>
+            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Operational</p>
             <h3 className="text-sm md:text-base font-black uppercase tracking-tighter text-slate-900">{title}</h3>
         </div>
     </div>
@@ -150,7 +153,7 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                 </div>
             )}
             {!data.enabled && (
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 text-left">Closed for Bookings</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-40 text-left">Closed for Bookings</p>
             )}
         </div>
     );
@@ -300,6 +303,7 @@ function SettingsPageImpl() {
   
   const [serviceSearch, setServiceSearch] = useState('');
   const [servicePolicies, setServicePolicies] = useState<Record<string, any>>({});
+  const [isPrintStationsOpen, setIsPrintStationsOpen] = useState(false);
 
   const { control } = useForm();
 
@@ -570,6 +574,23 @@ function SettingsPageImpl() {
                                 <p className="text-[9px] font-bold text-muted-foreground uppercase leading-relaxed ml-1 opacity-60 text-left">
                                     Total items allowed per session before caps apply.
                                 </p>
+                            </div>
+                        </div>
+
+                        <Separator className="border-dashed" />
+
+                        <div className="space-y-8">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
+                                <div className="space-y-1 text-left">
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+                                        <QrCode className="w-5 h-5 text-primary" />
+                                        Station Identity Protocol
+                                    </h3>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Generate physical place-cards for autonomous ordering.</p>
+                                </div>
+                                <Button onClick={() => setIsPrintStationsOpen(true)} className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
+                                    Generate Cards
+                                </Button>
                             </div>
                         </div>
 
@@ -970,6 +991,16 @@ function SettingsPageImpl() {
           </Tabs>
         </div>
       </main>
+
+      {tenantId && (
+          <PrintStationCardsDialog 
+            open={isPrintStationsOpen} 
+            onOpenChange={setIsPrintStationsOpen} 
+            tenantId={tenantId}
+            tenantName={tenantData.name || 'Studio'}
+            logoUrl={tenantData.bookingPageSettings?.logoUrl}
+          />
+      )}
     </div>
   );
 }

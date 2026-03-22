@@ -1,8 +1,8 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -241,8 +241,11 @@ const FloatingMenuCard = ({
     );
 };
 
-export default function ConciergeKioskPage() {
+function ConciergeKioskContent() {
     const { tenantId } = useParams() as { tenantId: string };
+    const searchParams = useSearchParams();
+    const seatParam = searchParams.get('seat');
+
     const { firestore } = useFirebase();
     const { toast } = useToast();
 
@@ -255,7 +258,7 @@ export default function ConciergeKioskPage() {
     const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
     
     // Delivery Details
-    const [seatNumber, setSeatNumber] = useState('');
+    const [seatNumber, setSeatNumber] = useState(seatParam || '');
     const [guestDescription, setGuestDescription] = useState('');
     const [orderNotes, setOrderNotes] = useState('');
 
@@ -407,8 +410,8 @@ export default function ConciergeKioskPage() {
             await batch.commit();
             toast({ title: "Order Dispatched", description: "Our concierge will be with you shortly." });
             setStep('success');
-            // Reset delivery fields for next potential order
-            setSeatNumber('');
+            // Reset delivery fields for next potential order, but keep seatNumber if pre-filled
+            if (!seatParam) setSeatNumber('');
             setGuestDescription('');
             setOrderNotes('');
         } catch (e) {
@@ -681,7 +684,7 @@ export default function ConciergeKioskPage() {
 
                                             <div className="space-y-6 text-left">
                                                 <div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
-                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
+                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
                                             </div>
                                             
                                             <div className="flex items-center justify-center gap-3 opacity-40 pt-4">
@@ -736,5 +739,13 @@ export default function ConciergeKioskPage() {
                 </footer>
             )}
         </div>
+    );
+}
+
+export default function ConciergeKioskPage() {
+    return (
+        <Suspense fallback={<div className="h-screen flex items-center justify-center"><Loader className="animate-spin" /></div>}>
+            <ConciergeKioskContent />
+        </Suspense>
     );
 }
