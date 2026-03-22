@@ -383,7 +383,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         }
     });
     return { timeSlots: Array.from(options).sort(), hotSlotMap: hSlots };
-}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services, tenant, showAllSlots]);
+}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services, tenant]);
 
     const requiredForms = useMemo(() => {
         if (!service || !consentForms) return [];

@@ -482,7 +482,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const currentAssignedPro = useMemo(() => staff?.find(s => s.id === assignedStaffId), [staff, assignedStaffId]);
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet theme-color="primary" open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
@@ -656,7 +656,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                         <Switch checked={watchOverride} onCheckedChange={(val) => setValue('overrideBusinessHours', val)} />
                                                     </div>
                                                 </TooltipTrigger>
-                                                <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Lock</TooltipContent>
+                                                <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Override Business Hours</TooltipContent>
                                             </Tooltip>
                                         </TooltipProvider>
                                     </div>

@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -58,7 +58,7 @@ import {
   Flame
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Switch } from '../ui/switch';
+import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, deleteField } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff } from '@/lib/data';
@@ -68,7 +68,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn, hexToHSLComponents } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '../ui/textarea';
+import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -130,7 +130,8 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                         </div>
                     </div>
                     <div className="w-px h-8 bg-border hidden sm:block" />
-                    <div className="flex-1 sm:w-48">
+                    <div className="flex-1 sm:w-48 text-left">
+                        <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1 mb-1 block">Access Tier</Label>
                         <Select 
                             value={data.accessTier || 'all'} 
                             onValueChange={(v: any) => onChange(day, { accessTier: v })}
@@ -140,9 +141,9 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                <SelectItem value="all" className="font-bold">ALL GUESTS</SelectItem>
-                                <SelectItem value="returning" className="font-bold">RETURNING ONLY</SelectItem>
-                                <SelectItem value="members" className="font-bold">MEMBERS ONLY</SelectItem>
+                                <SelectItem value="all" className="font-bold uppercase text-[9px] tracking-widest">ALL GUESTS</SelectItem>
+                                <SelectItem value="returning" className="font-bold uppercase text-[9px] tracking-widest">RETURNING ONLY</SelectItem>
+                                <SelectItem value="members" className="font-bold uppercase text-[9px] tracking-widest">MEMBERS ONLY</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
@@ -488,9 +489,9 @@ function SettingsPageImpl() {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                    <SelectItem value="15" className="font-bold">15 MINUTE SLOTS</SelectItem>
-                                    <SelectItem value="30" className="font-bold">30 MINUTE SLOTS</SelectItem>
-                                    <SelectItem value="60" className="font-bold">60 MINUTE SLOTS</SelectItem>
+                                    <SelectItem value="15" className="font-bold uppercase text-[9px] tracking-widest">15 MINUTE SLOTS</SelectItem>
+                                    <SelectItem value="30" className="font-bold uppercase text-[9px] tracking-widest">30 MINUTE SLOTS</SelectItem>
+                                    <SelectItem value="60" className="font-bold uppercase text-[9px] tracking-widest">60 MINUTE SLOTS</SelectItem>
                                 </SelectContent>
                             </Select>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase leading-relaxed ml-1 opacity-60 text-left">
@@ -526,7 +527,7 @@ function SettingsPageImpl() {
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Coffee} title="Hospitality Concierge" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure the in-service refreshment and amenity module.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Configure the in-service refreshment and amenity module.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6">
