@@ -25,7 +25,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles, Users, FileImage } from 'lucide-react';
+import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles, Users, FileImage, Flame } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -47,8 +47,10 @@ import {
   parseISO,
   subWeeks,
   addWeeks,
+  eachDayOfInterval,
   differenceInMinutes,
-  subMinutes
+  subMinutes,
+  differenceInHours
 } from 'date-fns';
 import { nanoid } from 'nanoid';
 import { useForm, FormProvider, Controller } from 'react-hook-form';
@@ -181,6 +183,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
   const [bannedClient, setBannedClient] = useState<Client | null>(null);
+  const [matchedClient, setMatchedClient] = useState<Client | null>(null);
   const [isResolvingIdentity, setIsResolvingIdentity] = useState(false);
   
   const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
@@ -198,12 +201,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         const allDocs = snapshots.flatMap(s => s.docs);
 
         if (allDocs.length > 0) {
-            const matchedClient = allDocs[0].data() as Client;
-            if (matchedClient.status === 'banned') {
-                setBannedClient(matchedClient);
+            const clientData = allDocs[0].data() as Client;
+            setMatchedClient(clientData);
+            if (clientData.status === 'banned') {
+                setBannedClient(clientData);
                 setExistingClientWithBalance(null);
-            } else if (matchedClient.outstandingBalance && matchedClient.outstandingBalance > 0) {
-                setExistingClientWithBalance(matchedClient);
+            } else if (clientData.outstandingBalance && clientData.outstandingBalance > 0) {
+                setExistingClientWithBalance(clientData);
                 setBannedClient(null);
             } else {
                 setBannedClient(null);
@@ -212,6 +216,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         } else {
             setBannedClient(null);
             setExistingClientWithBalance(null);
+            setMatchedClient(null);
         }
     } catch (e) {
         console.error("Identity resolution failed", e);
@@ -249,8 +254,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
-  const timeSlots = useMemo(() => {
-    if (!service || !date || !publicScheduleProfile || !staff || !services) return [];
+  const activeDaySchedule = useMemo(() => {
+      const dayName = format(date, 'eeee').toLowerCase();
+      return publicScheduleProfile?.week?.[dayName] || null;
+  }, [date, publicScheduleProfile]);
+
+  const { timeSlots, hotSlotMap } = useMemo(() => {
+    if (!service || !date || !publicScheduleProfile || !staff || !services) return { timeSlots: [], hotSlotMap: new Map() };
     const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
     const dayName = format(date, 'eeee').toLowerCase();
     
@@ -260,8 +270,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     }
 
     const options: Set<string> = new Set();
+    const hSlots = new Map<string, boolean>();
     const isTightScheduling = !!tenant?.tightSchedulingEnabled;
     const isMorningAnchor = !!tenant?.morningAnchorEnabled;
+    const isFlashYield = !!tenant?.flashYieldEnabled;
 
     staffMembersToCheck.forEach(staffMember => {
         let workingHours;
@@ -273,9 +285,21 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         if (!workingHours || !workingHours.enabled) return;
         const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
         const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
+        
         const busyIntervals: { start: Date, end: Date, padBefore: number, padAfter: number }[] = [];
+        const dayCancelledSlots: { start: Date, end: Date }[] = [];
 
-        appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id && apt.status !== 'cancelled').forEach(apt => {
+        appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id).forEach(apt => {
+            if (apt.status === 'cancelled') {
+                if (isFlashYield) {
+                    const hoursSinceCancellation = differenceInHours(new Date(), safeDate(apt.startTime));
+                    // If cancelled within last 48h, mark as a hot slot
+                    if (Math.abs(hoursSinceCancellation) < 48) {
+                        dayCancelledSlots.push({ start: safeDate(apt.startTime), end: safeDate(apt.endTime) });
+                    }
+                }
+                return;
+            }
             const aptService = services.find(s => s.id === apt.serviceId);
             busyIntervals.push({ 
                 start: apt.startTime, 
@@ -317,41 +341,49 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             const isStaffActiveForSameDay = !isToday(date) || (staffMember.active && !staffMember.onBreak);
 
             if (!isOverlapping && isStaffActiveForSameDay) {
+                const timeStr = format(currentTime, 'HH:mm');
                 const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
                 const isDayEmpty = busyIntervals.length === 0;
+                
+                const isHotSlot = dayCancelledSlots.some(cs => 
+                    isSameDay(currentTime, cs.start) && format(currentTime, 'HH:mm') === format(cs.start, 'HH:mm')
+                );
 
                 let allowed = true;
 
-                // Rule 1: Morning Anchor
-                if (isMorningAnchor && isDayEmpty && !isStartOfDaySlot) {
-                    allowed = false;
-                }
-
-                // Rule 2: Adjacency (Tight Scheduling)
-                if (allowed && isTightScheduling && !isDayEmpty) {
-                    const startsAtAnotherEnd = busyIntervals.some(interval => {
-                        const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
-                        return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
-                    });
-                    const endsAtAnotherStart = busyIntervals.some(interval => {
-                        const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
-                        return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
-                    });
-                    
-                    if (!isStartOfDaySlot && !startsAtAnotherEnd && !endsAtAnotherStart) {
+                if (!isHotSlot) { // Hot slots bypass Zero-Gap/Anchor rules
+                    // Rule 1: Morning Anchor
+                    if (isMorningAnchor && isDayEmpty && !isStartOfDaySlot) {
                         allowed = false;
+                    }
+
+                    // Rule 2: Adjacency (Tight Scheduling)
+                    if (allowed && isTightScheduling && !isDayEmpty) {
+                        const startsAtAnotherEnd = busyIntervals.some(interval => {
+                            const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
+                            return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
+                        });
+                        const endsAtAnotherStart = busyIntervals.some(interval => {
+                            const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
+                            return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
+                        });
+                        
+                        if (!isStartOfDaySlot && !startsAtAnotherEnd && !endsAtAnotherStart) {
+                            allowed = false;
+                        }
                     }
                 }
 
                 if (allowed) {
-                    options.add(format(currentTime, 'HH:mm'));
+                    options.add(timeStr);
+                    if (isHotSlot) hSlots.set(timeStr, true);
                 }
             }
             currentTime = addMinutes(currentTime, bookingInterval);
         }
     });
-    return Array.from(options).sort();
-}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services, tenant]);
+    return { timeSlots: Array.from(options).sort(), hotSlotMap: hSlots };
+}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services, tenant, showAllSlots]);
 
     const requiredForms = useMemo(() => {
         if (!service || !consentForms) return [];
@@ -422,6 +454,22 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         await resolveIdentity(currentEmail, currentPhone);
         
         if (bannedClient || existingClientWithBalance) return;
+
+        // --- TIERED ACCESS CHECK ---
+        const dayAccess = activeDaySchedule?.accessTier || 'all';
+        if (dayAccess === 'members') {
+            const isClientMember = !!(matchedClient?.activeMembershipId || matchedClient?.subscription);
+            const isClientPackageHolder = (matchedClient?.activePackages?.length || 0) > 0;
+            if (!isClientMember && !isClientPackageHolder) {
+                toast({ variant: 'destructive', title: 'Access Restricted', description: 'This day is reserved for Club Members and Package holders.' });
+                return;
+            }
+        } else if (dayAccess === 'returning') {
+            if (!matchedClient) {
+                toast({ variant: 'destructive', title: 'Priority Access Only', description: 'This day is reserved for returning guests. Please select a standard booking day.' });
+                return;
+            }
+        }
     }
     if (currentStep === 'consents') {
         const allCompleted = requiredForms.every(form => {
@@ -655,6 +703,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     </h3>
                                     <p className="text-xs font-medium text-muted-foreground">Select a window that fits your schedule.</p>
                                 </div>
+
+                                {activeDaySchedule?.accessTier && activeDaySchedule.accessTier !== 'all' && (
+                                    <Alert className="bg-indigo-50 border-indigo-200 rounded-[2rem] p-6 border-2 shadow-sm text-left">
+                                        <Award className="h-6 w-6 text-indigo-600" />
+                                        <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-indigo-700">Priority Access Only</AlertTitle>
+                                        <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left text-indigo-600">
+                                            This day is reserved for {activeDaySchedule.accessTier === 'members' ? 'Members & Package Holders' : 'Returning Guests'}. Identity verification required at checkout.
+                                        </AlertDescription>
+                                    </Alert>
+                                )}
+
                                 <div className="p-8 rounded-[2.5rem] border-2 bg-muted/10 space-y-8 shadow-inner text-center">
                                     <div className="flex items-center justify-between">
                                         <Button variant="outline" size="icon" className="h-10 w-10 rounded-full bg-background shadow-md border-none" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-5 h-5" /></Button>
@@ -680,19 +739,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         ))}
                                     </div>
                                     <div className="grid grid-cols-3 gap-3 pt-8 border-t border-dashed">
-                                        {timeSlots.map(time => (
-                                            <Button 
-                                                key={time} 
-                                                variant={selectedTime === time ? 'default' : 'outline'} 
-                                                onClick={() => setSelectedTime(time)} 
-                                                className={cn(
-                                                    "h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", 
-                                                    selectedTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
-                                                )}
-                                            >
-                                                {format(timeStringToDate(time, new Date()), 'h:mm a')}
-                                            </Button>
-                                        ))}
+                                        {timeSlots.map(time => {
+                                            const isHotSlot = hotSlotMap.get(time);
+                                            return (
+                                                <Button 
+                                                    key={time} 
+                                                    variant={selectedTime === time ? 'default' : 'outline'} 
+                                                    onClick={() => setSelectedTime(time)} 
+                                                    className={cn(
+                                                        "h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all relative overflow-hidden", 
+                                                        selectedTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background",
+                                                        isHotSlot && "border-amber-500/50 bg-amber-500/5 text-amber-700"
+                                                    )}
+                                                >
+                                                    {isHotSlot && <div className="absolute top-0 right-0 p-1 bg-amber-500 rounded-bl-lg shadow-sm"><Flame className="w-2.5 h-2.5 text-white" /></div>}
+                                                    {format(timeStringToDate(time, new Date()), 'h:mm a')}
+                                                </Button>
+                                            )
+                                        })}
                                         {timeSlots.length === 0 && (
                                             <div className="col-span-full text-center py-12 px-6 border-2 border-dashed rounded-3xl">
                                                 <Clock className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
@@ -729,7 +793,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         </div>
                                     </div>
 
-                                    <div className="space-y-4 pt-4 border-t border-dashed">
+                                    <div className="space-y-4 pt-4 border-t border-dashed text-left">
                                         <div className="flex items-center gap-3">
                                             <FileImage className="w-5 h-5 text-primary" />
                                             <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Visual Inspiration</h3>
@@ -879,7 +943,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     <CardContent className="p-10 space-y-8">
                                         <div className="space-y-4">
                                             <div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
-                                            <div className="grid grid-cols-2 gap-6"><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 font-mono text-lg text-center" /></div><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 font-mono text-lg text-center" /></div></div>
+                                            <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
                                         </div>
                                         <div className="flex items-center gap-3 p-4 bg-muted/20 rounded-2xl text-xs text-muted-foreground font-medium italic">
                                             <Lock className="w-4 h-4 shrink-0" />

@@ -54,7 +54,8 @@ import {
   Landmark,
   PlusCircle,
   LayoutGrid,
-  Sparkles
+  Sparkles,
+  Flame
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -102,29 +103,48 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
             </div>
             
             {data.enabled && (
-                <div className="flex items-center gap-3 w-full sm:w-auto">
-                    <div className="relative flex-1 sm:w-32 text-left">
-                        <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
-                        <Input 
-                            type="text" 
-                            value={data.start} 
-                            onChange={e => onChange(day, { start: e.target.value })}
-                            disabled={disabled}
-                            placeholder="09:00 AM"
-                            className="h-10 pl-8 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs"
-                        />
+                <div className="flex items-center gap-6 w-full sm:w-auto">
+                    <div className="flex items-center gap-3">
+                        <div className="relative flex-1 sm:w-32 text-left">
+                            <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
+                            <Input 
+                                type="text" 
+                                value={data.start} 
+                                onChange={e => onChange(day, { start: e.target.value })}
+                                disabled={disabled}
+                                placeholder="09:00 AM"
+                                className="h-10 pl-8 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs"
+                            />
+                        </div>
+                        <span className="text-muted-foreground opacity-40 font-black text-[10px]">TO</span>
+                        <div className="relative flex-1 sm:w-32 text-left">
+                            <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
+                            <Input 
+                                type="text" 
+                                value={data.end} 
+                                onChange={e => onChange(day, { end: e.target.value })}
+                                disabled={disabled}
+                                placeholder="05:00 PM"
+                                className="h-10 pl-8 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs"
+                            />
+                        </div>
                     </div>
-                    <span className="text-muted-foreground opacity-40 font-black text-[10px]">TO</span>
-                    <div className="relative flex-1 sm:w-32 text-left">
-                        <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
-                        <Input 
-                            type="text" 
-                            value={data.end} 
-                            onChange={e => onChange(day, { end: e.target.value })}
+                    <div className="w-px h-8 bg-border hidden sm:block" />
+                    <div className="flex-1 sm:w-48">
+                        <Select 
+                            value={data.accessTier || 'all'} 
+                            onValueChange={(v: any) => onChange(day, { accessTier: v })}
                             disabled={disabled}
-                            placeholder="05:00 PM"
-                            className="h-10 pl-8 rounded-xl border-2 font-black text-center text-[10px] sm:text-xs"
-                        />
+                        >
+                            <SelectTrigger className="h-10 rounded-xl border-2 font-black uppercase text-[9px] bg-primary/[0.02] border-primary/10 text-primary">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                <SelectItem value="all" className="font-bold">ALL GUESTS</SelectItem>
+                                <SelectItem value="returning" className="font-bold">RETURNING ONLY</SelectItem>
+                                <SelectItem value="members" className="font-bold">MEMBERS ONLY</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                 </div>
             )}
@@ -452,7 +472,7 @@ function SettingsPageImpl() {
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Clock} title="Operating Window" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure your weekly studio availability.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure your weekly studio availability and access tiers.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10">
                         <div className="space-y-4 max-w-sm text-left">
@@ -611,6 +631,22 @@ function SettingsPageImpl() {
                                     onCheckedChange={(val) => setTenantData(prev => ({...prev, morningAnchorEnabled: val}))}
                                     disabled={!isEditing}
                                     className="scale-125 data-[state=checked]:bg-indigo-600"
+                                />
+                            </div>
+
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-amber-500/20 bg-amber-500/5 shadow-xl shadow-amber-500/5">
+                                <div className='space-y-1 text-left'>
+                                    <Label htmlFor="flash-yield-toggle" className="text-base font-black uppercase tracking-tight text-amber-700 flex items-center gap-2">
+                                        <Flame className="w-4 h-4" /> Flash Yield Protocol
+                                    </Label>
+                                    <p className='text-[10px] font-bold text-amber-600/60 uppercase tracking-widest opacity-60 text-left'>Flag 48h cancellations as "magnetic" slots that bypass Zero-Gap restrictions</p>
+                                </div>
+                                <Switch 
+                                    id="flash-yield-toggle" 
+                                    checked={!!tenantData.flashYieldEnabled} 
+                                    onCheckedChange={(val) => setTenantData(prev => ({...prev, flashYieldEnabled: val}))}
+                                    disabled={!isEditing}
+                                    className="scale-125 data-[state=checked]:bg-amber-600"
                                 />
                             </div>
                         </div>
@@ -882,7 +918,7 @@ function SettingsPageImpl() {
 
                             <AnimatePresence>
                                 {tenantData.kioskSettings?.useSpecificHours && (
-                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 pt-4 border-t border-dashed">
+                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 pt-4 border-t border-dashed text-left">
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Walk-in Window Schedule</Label>
                                         <div className="space-y-3">
                                             {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => (

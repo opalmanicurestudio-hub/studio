@@ -38,6 +38,7 @@ export type DayHours = {
     enabled: boolean;
     start: string;
     end: string;
+    accessTier?: 'all' | 'returning' | 'members';
 };
 
 export type Staff = {
@@ -435,6 +436,7 @@ export type Appointment = {
   isPotentialAlias?: boolean;
   matchedClientId?: string;
   isSecondary?: boolean;
+  isHotSlot?: boolean;
 };
 
 export type EventChecklistItem = {
@@ -721,6 +723,7 @@ export type Tenant = {
   allowGuestFeeDeferral?: boolean;
   tightSchedulingEnabled?: boolean;
   morningAnchorEnabled?: boolean;
+  flashYieldEnabled?: boolean;
 };
 
 export type Resource = {
