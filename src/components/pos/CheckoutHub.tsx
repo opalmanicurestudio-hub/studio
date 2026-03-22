@@ -198,6 +198,7 @@ export const CheckoutHub = ({
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
     const [isPayerDialogOpen, setIsPayerDialogOpen] = useState(false);
     const { services, inventory } = useInventory();
+    const { selectedTenant } = useTenant();
     const { toast } = useToast();
 
     const [isWaiveAuthOpen, setIsPointOfSaleWaiveAuthOpen] = useState(false);
@@ -392,6 +393,12 @@ export const CheckoutHub = ({
     const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
     const finalTotal = Math.max(0, subtotal - totalDiscount + (subtotal * 0.07) + tipAmount);
 
+    const autonomyLimit = safeNumber(selectedTenant?.maxAutonomousRecoveryAmount) || 0;
+    const autonomyPercent = safeNumber(selectedTenant?.maxAutonomousRecoveryPercent) || 0;
+    const currentRecoveryPercent = subtotal > 0 ? (recoveryAmount / subtotal) * 100 : 0;
+    
+    const isOverAutonomy = (autonomyLimit > 0 && recoveryAmount > autonomyLimit) || (autonomyPercent > 0 && currentRecoveryPercent > autonomyPercent);
+
     return (
         <div className="flex flex-col space-y-6 md:space-y-10">
             <div className="flex-shrink-0 text-left">
@@ -533,47 +540,71 @@ export const CheckoutHub = ({
             {!isCartEmpty && (
                 <div className="space-y-4">
                     <div className="flex items-center justify-between px-1">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                            <ShieldAlert className="w-3.5 h-3.5" />
-                            Service Recovery Protocol
-                        </h3>
+                        <div className="space-y-0.5 text-left">
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                <ShieldAlert className="w-3.5 h-3.5" />
+                                Service Recovery Protocol
+                            </h3>
+                            {(autonomyLimit > 0 || autonomyPercent > 0) && (
+                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">
+                                    Autonomy: ${autonomyLimit} / {autonomyPercent}%
+                                </p>
+                            )}
+                        </div>
                         <Switch checked={isRecoveryActive} onCheckedChange={setIsRecoveryActive} />
                     </div>
                     
                     <AnimatePresence>
                         {isRecoveryActive && (
                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                                <Card className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-[2rem] shadow-xl shadow-destructive/5">
+                                <Card className={cn(
+                                    "border-4 rounded-[2rem] shadow-xl transition-all",
+                                    isOverAutonomy ? "border-destructive/40 bg-destructive/[0.02] shadow-destructive/10" : "border-primary/20 bg-primary/[0.02] shadow-primary/5"
+                                )}>
                                     <CardContent className="p-6 space-y-6">
-                                        <div className="space-y-3">
-                                            <Label className="text-[9px] font-black uppercase text-destructive/60 ml-1">Recovery Adjustment ($)</Label>
+                                        {isOverAutonomy && (
+                                            <Alert variant="destructive" className="border-2 rounded-2xl p-4 bg-destructive/10">
+                                                <AlertTriangle className="h-4 w-4" />
+                                                <AlertTitle className="text-[10px] font-black uppercase">Threshold Exceeded</AlertTitle>
+                                                <AlertDescription className="text-[9px] font-bold leading-tight uppercase opacity-80 mt-1">
+                                                    This adjustment requires a manager override to finalize.
+                                                </AlertDescription>
+                                            </Alert>
+                                        )}
+                                        <div className="space-y-3 text-left">
+                                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Recovery Adjustment ($)</Label>
                                             <div className="relative">
-                                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-destructive opacity-40" />
+                                                <DollarSign className={cn("absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 opacity-40", isOverAutonomy ? "text-destructive" : "text-primary")} />
                                                 <Input 
                                                     type="number" 
                                                     value={recoveryAmount || ''} 
                                                     onChange={e => setRecoveryAmount(parseFloat(e.target.value) || 0)} 
                                                     placeholder="0.00"
-                                                    className="h-14 pl-12 rounded-2xl border-2 border-destructive/20 bg-white font-black text-xl font-mono text-destructive"
+                                                    className={cn(
+                                                        "h-14 pl-12 rounded-2xl border-2 bg-white font-black text-xl font-mono",
+                                                        isOverAutonomy ? "border-destructive/20 text-destructive" : "border-primary/20 text-primary"
+                                                    )}
                                                 />
                                             </div>
                                         </div>
-                                        <div className="space-y-3">
-                                            <Label className="text-[9px] font-black uppercase text-destructive/60 ml-1">Context / Justification</Label>
+                                        <div className="space-y-3 text-left">
+                                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Context / Justification</Label>
                                             <Textarea 
                                                 value={recoveryReason} 
                                                 onChange={e => setRecoveryReason(e.target.value)}
-                                                placeholder="Detail the technical or hospitality failure..."
+                                                placeholder="Detail the failure..."
                                                 className="rounded-2xl border-2 bg-white min-h-[100px] font-medium"
                                             />
                                         </div>
-                                        <div className="pt-2">
-                                            <Button variant="destructive" className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group">
-                                                <ShieldAlert className="w-4 h-4 mr-2" />
-                                                Escalate to Manager
-                                                <ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
-                                            </Button>
-                                        </div>
+                                        {isOverAutonomy && (
+                                            <div className="pt-2">
+                                                <Button variant="destructive" className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group">
+                                                    <Lock className="w-4 h-4 mr-2" />
+                                                    Request Override
+                                                    <ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
+                                                </Button>
+                                            </div>
+                                        )}
                                     </CardContent>
                                 </Card>
                             </motion.div>
@@ -671,8 +702,8 @@ export const CheckoutHub = ({
                                     <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4 text-left">
                                         <div className="flex justify-between items-start gap-4">
                                             <div className="flex-1 min-w-0 text-left w-full">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
+                                                <div className="flex items-center gap-2 mb-1 text-left">
+                                                    <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate text-left">{data.service.name}</p>
                                                     {isRedeemed && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Entitlement</Badge>}
                                                 </div>
                                                 <div className="flex items-center gap-2 text-left">

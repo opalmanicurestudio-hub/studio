@@ -456,6 +456,9 @@ export type Appointment = {
   isHotSlot?: boolean;
   notes?: string;
   isEscalated?: boolean;
+  resolutionNotes?: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
 };
 
 export type EventChecklistItem = {
@@ -744,6 +747,9 @@ export type Tenant = {
   morningAnchorEnabled?: boolean;
   flashYieldEnabled?: boolean;
   guardianProtocolEnabled?: boolean;
+  maxAutonomousRecoveryAmount?: number;
+  maxAutonomousRecoveryPercent?: number;
+  escalationPolicy?: string;
 };
 
 export type Resource = {

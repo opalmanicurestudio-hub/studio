@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
@@ -42,7 +43,8 @@ import {
   RefreshCw,
   History,
   HeartHandshake,
-  AlertCircle
+  AlertCircle,
+  BookMarked
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -81,7 +83,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase, useUser } from '@/firebase';
 import { collection, doc, increment, writeBatch, arrayUnion, deleteField } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
@@ -127,6 +129,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [mounted, setMounted] = useState(false);
   const { inventory, services: allServices, staff, appointments: allAppointments, consentForms } = useInventory();
   const { role, selectedTenant } = useTenant();
+  const { user: currentUser } = useUser();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
   const { firestore } = useFirebase();
@@ -498,9 +501,23 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-dashed text-left">
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-primary text-left">Service Recovery & Panic</h3>
+                    <div className="flex items-center justify-between px-1">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-primary text-left">Service Recovery & Escalation</h3>
+                        {selectedTenant?.escalationPolicy && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button className="text-[9px] font-black uppercase text-primary underline decoration-2 underline-offset-4">Standing Orders</button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-[280px] p-4 rounded-2xl border-2 shadow-2xl bg-white">
+                                        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed">{selectedTenant.escalationPolicy}</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                    </div>
                     <div className={cn(
-                        "flex flex-col gap-4 p-6 rounded-[2rem] border-4 transition-all shadow-xl",
+                        "flex flex-col gap-4 p-6 rounded-[2.5rem] border-4 transition-all shadow-xl",
                         appointment.isEscalated ? "bg-destructive text-white border-destructive shadow-destructive/20" : "border-destructive/20 bg-destructive/[0.02] shadow-destructive/5"
                     )}>
                         <div className="flex items-center justify-between gap-4">
@@ -547,7 +564,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     </div>
                     {!appointment.isEscalated && (
                         <p className="text-[8px] font-bold text-muted-foreground uppercase text-center px-4 leading-relaxed opacity-60">
-                            This protocol bypasses standard queues and dispatches high-priority pressure to studio leadership instantly.
+                            Check <strong>Standing Orders</strong> above before initiating a manager dispatch.
                         </p>
                     )}
                 </div>
@@ -562,7 +579,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                                 onClick={() => setIsMarkupOpen(true)}
                                 className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm"
                             >
-                                <Edit className="w-3 h-3 mr-1.5" /> Technical Markup
+                                <Edit className="w-3 h-3 mr-1.5" /> Markup Tool
                             </Button>
                         </div>
                         <div 

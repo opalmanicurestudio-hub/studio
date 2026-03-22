@@ -58,7 +58,9 @@ import {
   Flame,
   Workflow,
   Printer,
-  QrCode
+  QrCode,
+  Scale as ScaleIcon,
+  HeartHandshake
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -637,6 +639,58 @@ function SettingsPageImpl() {
                         <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Define studio-wide defaults for late shifts and cancellations.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
+                        
+                        <div className="space-y-8">
+                            <div className="flex items-center gap-3 px-1">
+                                <ScaleIcon className="w-5 h-5 text-primary" />
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Recovery Governance</h3>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-4 p-6 rounded-[2.5rem] border-2 bg-primary/5 border-primary/10 shadow-inner">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Autonomous Comp Limit</Label>
+                                    <div className="flex gap-3">
+                                        <div className="relative flex-1">
+                                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                            <Input 
+                                                type="number" 
+                                                value={tenantData.maxAutonomousRecoveryAmount || ''} 
+                                                onChange={e => setTenantData(prev => ({...prev, maxAutonomousRecoveryAmount: parseFloat(e.target.value) || 0}))}
+                                                disabled={!isEditing}
+                                                className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-white"
+                                            />
+                                        </div>
+                                        <div className="relative w-24">
+                                            <Percent className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                            <Input 
+                                                type="number" 
+                                                value={tenantData.maxAutonomousRecoveryPercent || ''} 
+                                                onChange={e => setTenantData(prev => ({...prev, maxAutonomousRecoveryPercent: parseFloat(e.target.value) || 0}))}
+                                                disabled={!isEditing}
+                                                className="h-14 pr-10 rounded-2xl border-2 font-black text-xl shadow-inner bg-white text-center"
+                                            />
+                                        </div>
+                                    </div>
+                                    <p className="text-[9px] font-bold text-slate-500 leading-relaxed uppercase tracking-tight">
+                                        Max credit or discount staff can apply without manager authorization.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Standing Escalation Orders</Label>
+                                    <Textarea 
+                                        value={tenantData.escalationPolicy || ''} 
+                                        onChange={e => setTenantData(prev => ({...prev, escalationPolicy: e.target.value}))}
+                                        placeholder="e.g., Use recovery protocol for minor technical errors. Escalate for medical, property, or hostility..."
+                                        disabled={!isEditing}
+                                        className="rounded-2xl border-2 bg-muted/5 min-h-[140px] focus-visible:ring-primary/20 font-medium"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <Separator className="border-dashed" />
+
                         <div className="space-y-6 text-left">
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 transition-all">
                                 <div className='space-y-1 text-left'>
@@ -718,7 +772,7 @@ function SettingsPageImpl() {
                                                 "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full text-center",
                                                 (tenantData.defaultCancellationMode || 'matrix') === 'matrix' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
                                             )}>
-                                                <Scale className={cn("mb-2 h-8 w-8", (tenantData.defaultCancellationMode || 'matrix') === 'matrix' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                <ScaleIcon className={cn("mb-2 h-8 w-8", (tenantData.defaultCancellationMode || 'matrix') === 'matrix' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest leading-tight">Recovery Matrix</span>
                                                 <p className="text-[8px] font-bold opacity-40 mt-1 uppercase">Time + Materials</p>
                                                 <RadioGroupItem value="matrix" id="mode-matrix" className="sr-only" disabled={!isEditing} />
@@ -926,6 +980,7 @@ function SettingsPageImpl() {
                                 ].map(toggle => (
                                     <div key={toggle.key} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5 shadow-inner">
                                         <span className="text-xs font-black uppercase tracking-tight">{toggle.label}</span>
+                                        <span className="sr-only">{toggle.label}</span>
                                         <Switch 
                                             checked={(tenantData.bookingPageSettings as any)?.[toggle.key] !== false}
                                             onCheckedChange={(val) => setTenantData(prev => ({...prev, bookingPageSettings: {...prev.bookingPageSettings, [toggle.key]: val}}))}
