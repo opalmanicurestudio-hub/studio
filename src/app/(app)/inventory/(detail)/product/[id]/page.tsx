@@ -50,7 +50,10 @@ import {
     Mail,
     Phone,
     Link as LinkIcon,
-    ImageIcon
+    ImageIcon,
+    Lock,
+    Unlock,
+    KeyRound
 } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -77,6 +80,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc } from 'firebase/firestore';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -98,7 +102,7 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
 
 export default function ProductDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const { inventory, stockCorrections, locations, services, transactions, appointments, clients, isLoading: isInventoryLoading } = useInventory();
+    const { inventory, stockCorrections, locations, services, transactions, appointments, clients, staff, isLoading: isInventoryLoading } = useInventory();
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const { toast } = useToast();
@@ -106,6 +110,11 @@ export default function ProductDetailPage() {
     const [isQrModalOpen, setIsQrModalOpen] = useState(false);
     const [qrModalContent, setQrModalContent] = useState({ url: '', alt: '', title: '' });
     const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
+    
+    // Vault State
+    const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
+    const [vaultPin, setVaultPin] = useState('');
+    const [isVerifyingVault, setIsVerifyingVault] = useState(false);
     
     const product = useMemo(() => inventory.find((p) => p.id === id), [inventory, id]);
 
@@ -121,6 +130,21 @@ export default function ProductDetailPage() {
         const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
         return [...new Set(allCategories)];
     }, [inventory]);
+
+    const handleUnlockVault = () => {
+        setIsVerifyingVault(true);
+        const authorized = staff.find(s => s.pin === vaultPin && (s.role === 'admin' || s.role === 'owner'));
+        
+        if (authorized) {
+            setIsVaultUnlocked(true);
+            setVaultPin('');
+            toast({ title: "Vault Unlocked", description: "Proprietary protocols now visible." });
+        } else {
+            toast({ variant: 'destructive', title: "Access Denied", description: "Invalid Manager PIN." });
+            setVaultPin('');
+        }
+        setIsVerifyingVault(false);
+    };
 
     const ledgerWithRunningStock = useMemo(() => {
         if (!product || !appointments || !clients) return [];
@@ -374,136 +398,190 @@ export default function ProductDetailPage() {
                             </TabsContent>
 
                             <TabsContent value="manufacturing" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
-                                <section className="space-y-6 text-left">
-                                    <div className="flex items-center gap-3 px-1 text-left">
-                                        <ShieldCheck className="w-5 h-5 text-primary" />
-                                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Institutional Knowledge Vault</h3>
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
-                                        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
-                                            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><Building className="w-4 h-4 opacity-40"/> Manufacturer Matrix</CardTitle></CardHeader>
-                                            <CardContent className="p-6 space-y-6 text-left">
-                                                <div className="space-y-4 text-left">
-                                                    <div className="space-y-1 text-left">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Company Identity</p>
-                                                        <p className="text-base font-black uppercase tracking-tight text-slate-900 text-left">{product.manufacturerName || 'Private Label Registry'}</p>
-                                                    </div>
-                                                    <div className="space-y-1 text-left">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Primary Account Contact</p>
-                                                        <p className="text-sm font-bold uppercase text-slate-700 text-left">{product.manufacturerContactName || 'No contact on file'}</p>
-                                                    </div>
-                                                    <div className="pt-4 border-t border-dashed space-y-3 text-left">
-                                                        {product.manufacturerEmail && (
-                                                            <a href={`mailto:${product.manufacturerEmail}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
-                                                                <Mail className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
-                                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 truncate">{product.manufacturerEmail}</span>
-                                                            </a>
-                                                        )}
-                                                        {product.manufacturerPhone && (
-                                                            <a href={`tel:${product.manufacturerPhone}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
-                                                                <Phone className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
-                                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">{product.manufacturerPhone}</span>
-                                                            </a>
-                                                        )}
-                                                    </div>
+                                <AnimatePresence mode="wait">
+                                    {!isVaultUnlocked ? (
+                                        <motion.div 
+                                            key="lock-screen"
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 1.05 }}
+                                            className="py-20 flex flex-col items-center justify-center text-center space-y-8"
+                                        >
+                                            <div className="w-24 h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center shadow-2xl border-2 border-primary/10 rotate-6">
+                                                <Lock className="w-12 h-12 text-primary -rotate-6" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Technical Vault Locked</h3>
+                                                <p className="text-sm font-bold text-slate-500 uppercase tracking-widest opacity-60 max-w-sm mx-auto">Proprietary SOPs and manufacturing logistics require manager authorization.</p>
+                                            </div>
+                                            
+                                            <div className="flex flex-col items-center gap-4 w-full max-w-xs">
+                                                <div className="space-y-2 w-full">
+                                                    <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Manager PIN</Label>
+                                                    <Input 
+                                                        type="password" 
+                                                        maxLength={4}
+                                                        placeholder="••••"
+                                                        value={vaultPin}
+                                                        onChange={e => setVaultPin(e.target.value.replace(/\D/g, ''))}
+                                                        onKeyDown={e => e.key === 'Enter' && handleUnlockVault()}
+                                                        className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 focus-visible:ring-primary/20 shadow-inner bg-white"
+                                                    />
                                                 </div>
-                                            </CardContent>
-                                        </Card>
-
-                                        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
-                                            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Landmark className="w-4 h-4 opacity-40"/> Procurement Protocols</CardTitle></CardHeader>
-                                            <CardContent className="p-6 space-y-6 text-left">
-                                                <div className="grid grid-cols-2 gap-4 text-left">
-                                                    <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1 text-left">Min. Order (MOQ)</p>
-                                                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900 text-left">{product.moq || 'None'}</p>
-                                                    </div>
-                                                    <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1 text-left">Lead Time</p>
-                                                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900 text-left">{product.leadTimeDays || '—'} <span className='text-[10px]'>Days</span></p>
-                                                    </div>
-                                                </div>
-                                                <div className="pt-4 border-t border-dashed space-y-4 text-left">
-                                                    <div className="space-y-2 text-left">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Order Portal</p>
-                                                        {product.supplierUrl ? (
-                                                            <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
-                                                                <a href={product.supplierUrl} target="_blank" rel="noopener noreferrer">
-                                                                    <ShoppingCart className="w-4 h-4 mr-2" />
-                                                                    Visit Shop & Reorder
-                                                                </a>
-                                                            </Button>
-                                                        ) : (
-                                                            <div className="p-4 rounded-xl border-2 border-dashed opacity-40 text-center text-left">
-                                                                <p className="text-[10px] font-bold uppercase tracking-widest">No shop URL archived</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="space-y-2 text-left">
-                                                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Brand Assets</p>
-                                                        {product.labelTemplateUrl ? (
-                                                            <a href={product.labelTemplateUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all group">
-                                                                <div className="flex items-center gap-3">
-                                                                    <FileText className="w-5 h-5 text-primary" />
-                                                                    <span className="text-[10px] font-black uppercase tracking-widest text-primary">Label Source (Canva/PDF)</span>
-                                                                </div>
-                                                                <LinkIcon className="w-4 h-4 text-primary opacity-40 group-hover:translate-x-1 transition-transform" />
-                                                            </a>
-                                                        ) : (
-                                                            <div className="p-4 rounded-2xl border-2 border-dashed border-border flex items-center gap-3 opacity-40 text-left">
-                                                                <FileText className="w-5 h-5 text-muted-foreground" />
-                                                                <span className="text-[10px] font-black uppercase tracking-widest">No labels archived</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    </div>
-
-                                    {product.labelImageUrl && (
-                                        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
-                                            <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-row items-center justify-between">
-                                                <div className="space-y-1 text-left">
-                                                    <CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left">
-                                                        <ImageIcon className="w-4 h-4 text-primary opacity-40" />
-                                                        Verified Brand Label
-                                                    </CardTitle>
-                                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Master asset for print production.</p>
-                                                </div>
-                                                <Button variant="outline" size="sm" asChild className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white">
-                                                    <Link href={`/inventory/labels?product=${product.id}`}>
-                                                        <Printer className="w-3.5 h-3.5 mr-2" />
-                                                        Print Custom Label
-                                                    </Link>
+                                                <Button 
+                                                    size="lg" 
+                                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/30"
+                                                    onClick={handleUnlockVault}
+                                                    disabled={vaultPin.length < 4 || isVerifyingVault}
+                                                >
+                                                    {isVerifyingVault ? <Loader className="animate-spin" /> : <>Authorize Access <ArrowRight className="ml-2 h-4 w-4"/></>}
                                                 </Button>
-                                            </CardHeader>
-                                            <CardContent className="p-6 md:p-10 flex justify-center bg-muted/10">
-                                                <div className="relative aspect-video w-full max-w-lg rounded-2xl overflow-hidden border-2 shadow-2xl bg-white">
-                                                    <Image src={product.labelImageUrl} alt="Product Label" fill className="object-contain p-4" />
+                                            </div>
+                                        </motion.div>
+                                    ) : (
+                                        <motion.div 
+                                            key="vault-content"
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            className="space-y-10"
+                                        >
+                                            <div className="flex items-center justify-between px-1">
+                                                <div className="flex items-center gap-3 text-left">
+                                                    <ShieldCheck className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 text-left">Institutional Knowledge Vault</h3>
                                                 </div>
-                                            </CardContent>
-                                        </Card>
-                                    )}
+                                                <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] uppercase tracking-widest h-6 px-3">
+                                                    <Unlock className="w-2.5 h-2.5 mr-1.5" /> Unlocked
+                                                </Badge>
+                                            </div>
 
-                                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
-                                        <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left"><Landmark className="w-4 h-4 text-primary opacity-40" /> Standard Operating Procedure (SOP)</CardTitle></CardHeader>
-                                        <CardContent className="p-6 md:p-10 text-left">
-                                            {product.manufacturingSop ? (
-                                                <div className="prose prose-sm max-w-none text-left">
-                                                    <p className="whitespace-pre-wrap font-medium text-slate-700 leading-relaxed italic border-l-4 border-primary/20 pl-6 text-left">
-                                                        "{product.manufacturingSop}"
-                                                    </p>
-                                                </div>
-                                            ) : (
-                                                <div className="py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
-                                                    <Book className="w-12 h-12" />
-                                                    <p className="text-[10px] font-black uppercase tracking-widest text-center px-10">No technical protocol established for this asset.</p>
-                                                </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
+                                                <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><Building className="w-4 h-4 opacity-40"/> Manufacturer Matrix</CardTitle></CardHeader>
+                                                    <CardContent className="p-6 space-y-6 text-left">
+                                                        <div className="space-y-4 text-left">
+                                                            <div className="space-y-1 text-left">
+                                                                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Company Identity</p>
+                                                                <p className="text-base font-black uppercase tracking-tight text-slate-900 text-left">{product.manufacturerName || 'Private Label Registry'}</p>
+                                                            </div>
+                                                            <div className="space-y-1 text-left">
+                                                                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Primary Account Contact</p>
+                                                                <p className="text-sm font-bold uppercase text-slate-700 text-left">{product.manufacturerContactName || 'No contact on file'}</p>
+                                                            </div>
+                                                            <div className="pt-4 border-t border-dashed space-y-3 text-left">
+                                                                {product.manufacturerEmail && (
+                                                                    <a href={`mailto:${product.manufacturerEmail}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
+                                                                        <Mail className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
+                                                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 truncate">{product.manufacturerEmail}</span>
+                                                                    </a>
+                                                                )}
+                                                                {product.manufacturerPhone && (
+                                                                    <a href={`tel:${product.manufacturerPhone}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
+                                                                        <Phone className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
+                                                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">{product.manufacturerPhone}</span>
+                                                                    </a>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+
+                                                <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Landmark className="w-4 h-4 opacity-40"/> Procurement Protocols</CardTitle></CardHeader>
+                                                    <CardContent className="p-6 space-y-6 text-left">
+                                                        <div className="grid grid-cols-2 gap-4 text-left">
+                                                            <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
+                                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1 text-left">Min. Order (MOQ)</p>
+                                                                <p className="text-xl font-black font-mono tracking-tighter text-slate-900 text-left">{product.moq || 'None'}</p>
+                                                            </div>
+                                                            <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
+                                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1 text-left">Lead Time</p>
+                                                                <p className="text-xl font-black font-mono tracking-tighter text-slate-900 text-left">{product.leadTimeDays || '—'} <span className='text-[10px]'>Days</span></p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="pt-4 border-t border-dashed space-y-4 text-left">
+                                                            <div className="space-y-2 text-left">
+                                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Order Portal</p>
+                                                                {product.supplierUrl ? (
+                                                                    <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
+                                                                        <a href={product.supplierUrl} target="_blank" rel="noopener noreferrer">
+                                                                            <ShoppingCart className="w-4 h-4 mr-2" />
+                                                                            Visit Shop & Reorder
+                                                                        </a>
+                                                                    </Button>
+                                                                ) : (
+                                                                    <div className="p-4 rounded-xl border-2 border-dashed opacity-40 text-center text-left">
+                                                                        <p className="text-[10px] font-bold uppercase tracking-widest">No shop URL archived</p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className="space-y-2 text-left">
+                                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Brand Assets</p>
+                                                                {product.labelTemplateUrl ? (
+                                                                    <a href={product.labelTemplateUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all group">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <FileText className="w-5 h-5 text-primary" />
+                                                                            <span className="text-[10px] font-black uppercase tracking-widest text-primary">Label Source (Canva/PDF)</span>
+                                                                        </div>
+                                                                        <LinkIcon className="w-4 h-4 text-primary opacity-40 group-hover:translate-x-1 transition-transform" />
+                                                                    </a>
+                                                                ) : (
+                                                                    <div className="p-4 rounded-2xl border-2 border-dashed border-border flex items-center gap-3 opacity-40 text-left">
+                                                                        <FileText className="w-5 h-5 text-muted-foreground" />
+                                                                        <span className="text-[10px] font-black uppercase tracking-widest">No labels archived</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            </div>
+
+                                            {product.labelImageUrl && (
+                                                <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-row items-center justify-between">
+                                                        <div className="space-y-1 text-left">
+                                                            <CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left">
+                                                                <ImageIcon className="w-4 h-4 text-primary opacity-40" />
+                                                                Verified Brand Label
+                                                            </CardTitle>
+                                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Master asset for print production.</p>
+                                                        </div>
+                                                        <Button variant="outline" size="sm" asChild className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white">
+                                                            <Link href={`/inventory/labels?product=${product.id}`}>
+                                                                <Printer className="w-3.5 h-3.5 mr-2" />
+                                                                Print Custom Label
+                                                            </Link>
+                                                        </Button>
+                                                    </CardHeader>
+                                                    <CardContent className="p-6 md:p-10 flex justify-center bg-muted/10">
+                                                        <div className="relative aspect-video w-full max-w-lg rounded-2xl overflow-hidden border-2 shadow-2xl bg-white">
+                                                            <Image src={product.labelImageUrl} alt="Product Label" fill className="object-contain p-4" />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
                                             )}
-                                        </CardContent>
-                                    </Card>
-                                </section>
+
+                                            <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left">
+                                                <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left"><Landmark className="w-4 h-4 text-primary opacity-40" /> Standard Operating Procedure (SOP)</CardTitle></CardHeader>
+                                                <CardContent className="p-6 md:p-10 text-left">
+                                                    {product.manufacturingSop ? (
+                                                        <div className="prose prose-sm max-w-none text-left">
+                                                            <p className="whitespace-pre-wrap font-medium text-slate-700 leading-relaxed italic border-l-4 border-primary/20 pl-6 text-left">
+                                                                "{product.manufacturingSop}"
+                                                            </p>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
+                                                            <Book className="w-12 h-12" />
+                                                            <p className="text-[10px] font-black uppercase tracking-widest text-center px-10">No technical protocol established for this asset.</p>
+                                                        </div>
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </TabsContent>
 
                             <TabsContent value="batches" className="m-0 animate-in fade-in duration-500 text-left">
