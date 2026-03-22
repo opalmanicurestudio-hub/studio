@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -47,6 +46,8 @@ import {
   parseISO,
   subWeeks,
   addWeeks,
+  differenceInMinutes,
+  subMinutes
 } from 'date-fns';
 import { nanoid } from 'nanoid';
 import { useForm, FormProvider, Controller } from 'react-hook-form';
@@ -79,12 +80,12 @@ const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { 
             <div className={cn(
                 'relative transition-all duration-300 rounded-2xl border-2 p-4 flex flex-col items-center gap-3', 
                 isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30', 
-                disabled && 'bg-muted/50 border-dashed'
+                disabled && 'bg-muted/5 border-dashed'
             )}>
                 <Avatar className={cn("w-16 h-16 border-4 shadow-sm transition-transform duration-500", isSelected ? "border-primary scale-110" : "border-background")}>
                     {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
                     <AvatarFallback className="text-muted-foreground bg-muted">
-                        {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
+                        {isAnyStaff ? <Users className="w-8 h-8 md:w-10 md:h-10"/> : staff.name.charAt(0)}
                     </AvatarFallback>
                 </Avatar>
                 <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name}</p>
@@ -259,7 +260,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     const options: Set<string> = new Set();
     const isTightScheduling = !!tenant?.tightSchedulingEnabled;
-    const minServiceDuration = Math.min(...services.filter(s => s.type === 'service' && !s.isPrivate).map(s => s.duration), 30);
 
     staffMembersToCheck.forEach(staffMember => {
         let workingHours;
@@ -287,10 +287,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             busyIntervals.push({ start: evt.startTime, end: evt.endTime, padBefore: 0, padAfter: 0 });
         });
 
-        // TIGHT SCHEDULING LOGIC
-        // If tight scheduling is enabled, a slot is only valid if it is "flush" against an existing block
-        // or if the day is empty, it's the start of the day.
-        
         let currentTime = dayStartWithBusinessHours;
         const now = new Date();
         if (isToday(date)) {
@@ -320,29 +316,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
             if (!isOverlapping && isStaffActiveForSameDay) {
                 if (isTightScheduling) {
-                    // 1. Is it the start of the day? (Morning Anchor)
                     const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
-                    
-                    // 2. Does it end exactly when another appointment starts?
                     const endsAtAnotherStart = busyIntervals.some(interval => {
                         const nextStartWithPad = subMinutes(interval.start, interval.padBefore);
                         return Math.abs(differenceInMinutes(potentialEnd, nextStartWithPad)) < 1;
                     });
-
-                    // 3. Does it start exactly when another appointment ends?
                     const startsAtAnotherEnd = busyIntervals.some(interval => {
                         const prevEndWithPad = addMinutes(interval.end, interval.padAfter);
                         return Math.abs(differenceInMinutes(currentTime, prevEndWithPad)) < 1;
                     });
-
-                    // 4. "Building Inward" - If the day is empty, only the start of day is available.
-                    // If not empty, only flush slots are available.
                     const isDayEmpty = busyIntervals.length === 0;
-                    
                     if ((isDayEmpty && isStartOfDaySlot) || (!isDayEmpty && (startsAtAnotherEnd || endsAtAnotherStart))) {
-                        // Final safety: check if picking this slot creates an unusable tiny gap elsewhere
-                        // (e.g. leaves a 15 min gap between this and next apt where min service is 30)
-                        // This is a refinement to ensure the "Tightness"
                         options.add(format(currentTime, 'HH:mm'));
                     }
                 } else {
@@ -495,6 +479,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         serviceId: service.id, 
         staffId: finalStaffId, 
         startTime: startDateTime.toISOString(), 
+        timeout: 120000,
         endTime: endDateTime.toISOString(), 
         status: 'confirmed', 
         isWalkIn: false,
