@@ -1,3 +1,4 @@
+
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -153,6 +154,10 @@ export type Client = {
   lifetimeValue: number;
   lastAppointment: string;
   status?: 'active' | 'archived' | 'banned';
+  banMessage?: string;
+  cancellationCount?: number;
+  noShowCount?: number;
+  rescheduleCount?: number;
   notes?: {
     goals?: string;
     routine?: string;
@@ -436,6 +441,7 @@ export type Appointment = {
   matchedClientId?: string;
   isSecondary?: boolean;
   isHotSlot?: boolean;
+  notes?: string;
 };
 
 export type EventChecklistItem = {

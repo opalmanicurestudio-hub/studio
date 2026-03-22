@@ -50,7 +50,8 @@ import {
     History,
     CheckCircle,
     Database,
-    Coffee
+    Coffee,
+    Scale
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -339,11 +340,14 @@ export default function ClientDetailPage() {
       toast({ title: "Protocol Purged", description: "Formula removed from technical archive." });
   }
 
-  const { safeLTV, safeWalletCredit, safeOutstandingBalance } = useMemo(() => {
+  const { safeLTV, safeWalletCredit, safeOutstandingBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => {
       return {
           safeLTV: safeNumber(client?.lifetimeValue),
           safeWalletCredit: safeNumber(client?.walletCredit),
-          safeOutstandingBalance: safeNumber(client?.outstandingBalance)
+          safeOutstandingBalance: safeNumber(client?.outstandingBalance),
+          noShowTotal: safeNumber(client?.noShowCount),
+          cancelTotal: safeNumber(client?.cancellationCount),
+          rescheduleTotal: safeNumber(client?.rescheduleCount)
       };
   }, [client]);
 
@@ -357,6 +361,9 @@ export default function ClientDetailPage() {
 
   const hasDebt = safeOutstandingBalance > 0;
   const hasCardOnFile = !!client.cardOnFile?.token;
+  
+  const riskScore = noShowTotal + cancelTotal;
+  const isHighRisk = riskScore > 2;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
@@ -720,6 +727,39 @@ export default function ClientDetailPage() {
                 </div>
 
                 <div className="lg:col-span-1 space-y-8 text-left">
+                    <Card className={cn(
+                        "border-4 rounded-[2.5rem] overflow-hidden shadow-2xl relative group",
+                        isHighRisk ? "border-destructive/20 bg-destructive/[0.02]" : "border-primary/10 bg-white"
+                    )}>
+                        <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
+                            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reliability Audit</CardTitle>
+                            {isHighRisk && <Badge variant="destructive" className="animate-bounce font-black text-[7px] h-4">High Risk Profile</Badge>}
+                        </CardHeader>
+                        <CardContent className="p-6 space-y-6">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-4 rounded-xl border-2 bg-background flex flex-col items-center">
+                                    <span className="text-[8px] font-black text-muted-foreground uppercase mb-1">No-Shows</span>
+                                    <span className={cn("text-xl font-black font-mono", noShowTotal > 0 ? "text-destructive" : "text-slate-900")}>{noShowTotal}</span>
+                                </div>
+                                <div className="p-4 rounded-xl border-2 bg-background flex flex-col items-center">
+                                    <span className="text-[8px] font-black text-muted-foreground uppercase mb-1">Cancellations</span>
+                                    <span className={cn("text-xl font-black font-mono", cancelTotal > 0 ? "text-amber-600" : "text-slate-900")}>{cancelTotal}</span>
+                                </div>
+                            </div>
+                            <AnimatePresence>
+                                {isHighRisk && (
+                                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5 text-destructive space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <Lock className="w-4 h-4" />
+                                            <span className="text-[10px] font-black uppercase">Guardian Lock Active</span>
+                                        </div>
+                                        <p className="text-[10px] font-bold leading-relaxed uppercase">High-risk behavior detected. Booking engine will now strictly enforce upfront deposits for all sessions.</p>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </CardContent>
+                    </Card>
+
                     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white text-left">
                         <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
                             <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Financial Vault</CardTitle>

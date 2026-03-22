@@ -250,7 +250,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     <Separator className="border-dashed" />
                     <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner">
                         <div className="space-y-1 text-left">
-                            <Label className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                            <Label className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                 <DollarSign className="w-4 h-4 text-primary" /> 
                                 Final Settlement Fee
                             </Label>

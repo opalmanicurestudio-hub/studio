@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -24,7 +25,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles, Users, FileImage, Flame } from 'lucide-react';
+import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles, Users, FileImage, Flame, MessageSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -66,6 +67,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ImageUpload } from '../shared/ImageUpload';
+import { Textarea } from '../ui/textarea';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -136,6 +138,7 @@ const bookingSchema = z.object({
   clientName: z.string().min(1, 'Name is required.'),
   clientEmail: z.string().email('Invalid email address.'),
   clientPhone: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 type BookingFormData = z.infer<typeof bookingSchema>;
@@ -154,7 +157,7 @@ interface BookingSheetProps {
   consentForms: ConsentForm[];
   tenant: Tenant | null;
   onConfirm: (
-    formData: { clientName: string; clientEmail: string; clientPhone?: string },
+    formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
     signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
     setBookingStep: (step: string) => void
@@ -424,7 +427,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       }, [service, selectedStaffId, selectedTierId, staff]);
 
     const depositAmount = useMemo(() => {
-        if (!service || service.depositType === 'none') return 0;
+        // --- DYNAMIC RISK ENFORCEMENT ---
+        // If guest has > 2 no-shows or cancellations, force a deposit even if service is 'none'
+        const poorHistory = matchedClient && (safeNumber(matchedClient.noShowCount) + safeNumber(matchedClient.cancellationCount)) > 2;
+        
+        if (!service || (service.depositType === 'none' && !poorHistory)) return 0;
+        
+        if (poorHistory && service.depositType === 'none') {
+            return Math.ceil(price * 0.5); // Force 50% for high-risk guests
+        }
+
         if (service.depositType === 'full') return price;
         if (service.depositType === 'breakeven') return service.cost;
         if (service.depositType === 'deposit') {
@@ -432,7 +444,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             return service.depositAmount || 0;
         }
         return 0;
-    }, [service, price]);
+    }, [service, price, matchedClient]);
     
     const steps = useMemo(() => {
         const flow = ['staff', 'dateTime', 'details'];
@@ -520,7 +532,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
     const endDateTime = addMinutes(startDateTime, service.duration);
 
-    const clientData = { clientName: data.clientName, clientEmail: data.clientEmail, clientPhone: data.clientPhone };
+    const clientData = { clientName: data.clientName, clientEmail: data.clientEmail, clientPhone: data.clientPhone, notes: data.notes };
 
     let finalStaffId = selectedStaffId;
     if (finalStaffId === 'any') {
@@ -556,7 +568,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         status: 'confirmed', 
         isWalkIn: false,
         source: 'online',
-        inspirationPhotoUrl: inspirationPhotoUrl || undefined
+        inspirationPhotoUrl: inspirationPhotoUrl || undefined,
+        notes: data.notes
     }, signedForms, (s) => setCurrentStepIndex(steps.indexOf(s)));
   };
 
@@ -802,6 +815,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile for Alerts</Label>
                                             <PhoneInput name="clientPhone" label="" className="h-14 kiosk-phone-input" />
                                         </div>
+                                        <div className="space-y-3 pt-4 border-t border-dashed">
+                                            <Label htmlFor="booking-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                                                <MessageSquare className="w-3.5 h-3.5 opacity-40" />
+                                                Session Context & Notes
+                                            </Label>
+                                            <Textarea id="booking-notes" {...methods.register('notes')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] p-4 font-medium leading-relaxed" placeholder="Share any specific requests or technical details for your pro..." />
+                                        </div>
                                     </div>
 
                                     <div className="space-y-4 pt-4 border-t border-dashed text-left">
@@ -827,7 +847,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                                     <Ban className="h-6 w-6" />
                                                     <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Check-in Restricted</AlertTitle>
                                                     <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
-                                                        Your account is currently restricted. Please see the front desk for further assistance.
+                                                        {bannedClient.banMessage || 'Your account is currently restricted. Please see the front desk for further assistance.'}
                                                     </AlertDescription>
                                                 </Alert>
                                             </motion.div>

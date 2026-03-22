@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -58,7 +59,8 @@ import {
   Edit,
   ArrowRight,
   CreditCard,
-  Lock
+  Lock,
+  Ban
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Client } from '@/lib/data';
@@ -76,6 +78,8 @@ const clientSchema = z.object({
   email: z.string().email('Invalid email address.').optional().or(z.literal('')),
   phone: z.string().optional(),
   avatarUrl: z.string().optional(),
+  status: z.enum(['active', 'archived', 'banned']).default('active'),
+  banMessage: z.string().optional(),
   intel: z.object({
     medical: z.object({
         flags: z.array(z.string()).optional(),
@@ -242,6 +246,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
     const { clients: allClients } = useInventory();
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
     const referralSource = watch('intel.referralSource');
+    const clientStatus = watch('status');
     
     const [birthDay, setBirthDay] = useState('');
     const [birthMonth, setBirthMonth] = useState('');
@@ -306,7 +311,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                         </div>
                         <div className="space-y-1.5 text-left">
                             <Label htmlFor="email-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Secure Email</Label>
-                            <Input id="email-edit" type="email" placeholder="ALEX@EXAMPLE.COM" {...register('email')} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                            <Input id="email-edit" type="email" {...register('email')} className="h-12 rounded-xl border-2 font-bold text-sm" />
                         </div>
                     </div>
                 </div>
@@ -349,6 +354,63 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                             </Select>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <div className="space-y-8">
+                <SectionHeader icon={Ban} title="Access Stewardship" step="Shield" />
+                <div className="p-8 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner space-y-8">
+                    <div className="space-y-3">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Registry Status</Label>
+                        <Controller
+                            name="status"
+                            control={control}
+                            render={({ field }) => (
+                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <label htmlFor="st-active" className="cursor-pointer h-full">
+                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'active' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                            <CheckCircle2 className={cn("w-5 h-5 mb-1.5", field.value === 'active' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase">Active</span>
+                                            <RadioGroupItem value="active" id="st-active" className="sr-only" />
+                                        </div>
+                                    </label>
+                                    <label htmlFor="st-archived" className="cursor-pointer h-full">
+                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'archived' ? "border-slate-900 bg-slate-900 text-white shadow-md" : "border-border bg-white")}>
+                                            <ArchiveIcon className={cn("w-5 h-5 mb-1.5", field.value === 'archived' ? "text-white" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase">Archived</span>
+                                            <RadioGroupItem value="archived" id="st-archived" className="sr-only" />
+                                        </div>
+                                    </label>
+                                    <label htmlFor="st-banned" className="cursor-pointer h-full">
+                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'banned' ? "border-destructive bg-destructive/5 text-destructive shadow-md" : "border-border bg-white")}>
+                                            <Ban className={cn("w-5 h-5 mb-1.5", field.value === 'banned' ? "text-destructive" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase">Banned</span>
+                                            <RadioGroupItem value="banned" id="st-banned" className="sr-only" />
+                                        </div>
+                                    </label>
+                                </RadioGroup>
+                            )}
+                        />
+                    </div>
+
+                    <AnimatePresence>
+                        {clientStatus === 'banned' && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-4 border-t border-dashed border-destructive/20 overflow-hidden">
+                                <div className="space-y-2 text-left">
+                                    <Label htmlFor="ban-msg" className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1">Custom Restriction Message (Public)</Label>
+                                    <Textarea 
+                                        id="ban-msg" 
+                                        placeholder="Enter the message this guest will see if they attempt to book..." 
+                                        {...register('banMessage')}
+                                        className="rounded-xl border-2 border-destructive/20 bg-white min-h-[100px] focus-visible:ring-destructive/20 font-medium"
+                                    />
+                                    <p className="text-[9px] font-bold text-destructive/60 uppercase leading-relaxed ml-1 italic">
+                                        Guests see this if they attempt online booking or kiosk check-in.
+                                    </p>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </div>
 
@@ -531,8 +593,6 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
 
   useEffect(() => {
     if(open && client) {
-        // CRITICAL FIX: Sanitize data to prevent Firestore Sentinel objects from leaking into form state
-        // and causing "Objects are not valid as a React child" crashes during reset().
         const sanitizedClient: any = {
             ...client,
             lifetimeValue: safeNumber(client.lifetimeValue),
@@ -542,6 +602,8 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
             email: String(client.email || ''),
             phone: client.phone ? String(client.phone).replace(/\s/g, '') : '',
             avatarUrl: String(client.avatarUrl || ''),
+            status: client.status || 'active',
+            banMessage: client.banMessage || '',
             birthday: client.birthday ? parseISO(client.birthday) : undefined,
             address: client.address || {},
             emergencyContact: client.emergencyContact || {},
@@ -572,7 +634,7 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
     <DialogContainer open={open} onOpenChange={onOpenChange}>
       <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[90dvh]")}>
          <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2 text-left">
                 <Edit className="w-5 h-5 text-primary" />
                 <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
             </div>
@@ -596,3 +658,24 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
     </DialogContainer>
   );
 };
+
+function ArchiveIcon(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect width="20" height="5" x="2" y="3" rx="1" />
+      <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+      <path d="M10 12h4" />
+    </svg>
+  )
+}
