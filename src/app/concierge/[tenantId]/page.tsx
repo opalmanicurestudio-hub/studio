@@ -623,12 +623,20 @@ function ConciergeKioskContent() {
 
                                     <div className="space-y-6 text-left">
                                         <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Table or Seat #</Label>
+                                            <Label htmlFor="seat-number" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
+                                                Table or Seat #
+                                                {seatParam && <Lock className="w-3 h-3" />}
+                                            </Label>
                                             <Input 
+                                                id="seat-number"
                                                 value={seatNumber}
                                                 onChange={e => setSeatNumber(e.target.value)}
                                                 placeholder="e.g., 4"
-                                                className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-white/80 text-center"
+                                                disabled={!!seatParam}
+                                                className={cn(
+                                                    "h-14 rounded-2xl border-2 font-black text-xl shadow-inner text-center",
+                                                    seatParam ? "bg-muted/50 border-primary/20" : "bg-white/80"
+                                                )}
                                             />
                                         </div>
                                         <div className="space-y-2">
@@ -684,7 +692,7 @@ function ConciergeKioskContent() {
 
                                             <div className="space-y-6 text-left">
                                                 <div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
-                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
+                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
                                             </div>
                                             
                                             <div className="flex items-center justify-center gap-3 opacity-40 pt-4">
@@ -695,7 +703,7 @@ function ConciergeKioskContent() {
                                             <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
                                                 {isVerifying ? <Loader className="animate-spin h-6 w-6" /> : 'Authorize Payment'}
                                             </Button>
-                                            <Button variant="ghost" onClick={() => setStep('menu')} className="w-full font-black uppercase text-[9px] md:text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
+                                            <Button variant="ghost" onClick={() => setStep('menu')} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Protocol</Button>
                                         </div>
                                     </div>
                                 </FloatingContainer>
