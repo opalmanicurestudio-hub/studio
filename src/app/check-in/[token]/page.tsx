@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -47,7 +48,8 @@ import {
     Repeat,
     User,
     LayoutDashboard,
-    Maximize2
+    Maximize2,
+    Sofa
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths, isToday } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
@@ -236,50 +238,6 @@ const CompletedView = ({ tenant, client, appointment, service, staff }: { tenant
     );
 };
 
-const ArrivedView = ({ client, staff, tenantId }: { client: Client | null, staff: Staff | null, tenantId?: string }) => (
-    <ViewContainer>
-        <ViewHeader title="Check-in Confirmed" subtitle="You are in the active queue" icon={CheckCircle2} />
-        <CardContent className="p-8 text-center space-y-10">
-            <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
-                <CheckCircle2 className="w-12 h-12 text-green-500 -rotate-6" />
-            </div>
-            <div className="space-y-3 text-center">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">We see you, {client?.name.split(' ')[0]}!</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    Take a seat and relax. Your professional will be with you shortly to begin your session.
-                </p>
-            </div>
-
-            {staff && (
-                <div className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
-                    <Avatar className="h-12 h-12 border-2 border-background shadow-xl rounded-[1.5rem]">
-                        <AvatarImage src={staff.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staff.name || 'S').charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div className="text-left">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1 text-left">Your Professional</p>
-                        <p className="font-black text-sm uppercase text-slate-800 leading-none text-left">{staff.name}</p>
-                    </div>
-                </div>
-            )}
-
-            <div className="p-4 rounded-xl border-2 border-dashed bg-primary/5 flex items-center justify-center gap-3 animate-pulse">
-                <Loader className="w-4 h-4 text-primary animate-spin" />
-                <span className="text-[10px] font-black uppercase text-primary tracking-widest text-center">Awaiting Technician Signal</span>
-            </div>
-            
-            <div className="pt-6 border-t border-dashed">
-                <Button asChild variant="outline" className="w-full h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
-                    <Link href={`/portal/${tenantId}/${client?.id}`}>
-                        <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
-                        Manage Full Account Portfolio
-                    </Link>
-                </Button>
-            </div>
-        </CardContent>
-    </ViewContainer>
-);
-
 const RefreshmentCard = ({ 
     item, 
     qty, 
@@ -401,7 +359,7 @@ const RefreshmentCard = ({
     );
 };
 
-const ServicingView = ({ 
+const ConciergeExperienceView = ({ 
     tenant, 
     client, 
     inventory, 
@@ -409,7 +367,8 @@ const ServicingView = ({
     appointment, 
     staff, 
     resources,
-    memberships
+    memberships,
+    isWaiting = false
 }: { 
     tenant: Tenant | null, 
     client: Client | null, 
@@ -418,7 +377,8 @@ const ServicingView = ({
     appointment: Appointment | null,
     staff: Staff | null,
     resources: Resource[],
-    memberships: Membership[]
+    memberships: Membership[],
+    isWaiting?: boolean
 }) => {
     const { firestore } = useFirebase();
     const { toast } = useToast();
@@ -490,10 +450,11 @@ const ServicingView = ({
     }, [refreshments]);
 
     const stationName = useMemo(() => {
+        if (isWaiting) return 'Lounge Area';
         if (!appointment?.requiredResourceIds?.length || !resources) return 'Station';
         const res = resources.find(r => r.id === appointment.requiredResourceIds![0]);
         return res?.name || 'Station';
-    }, [appointment, resources]);
+    }, [appointment, resources, isWaiting]);
 
     const handleRequest = async (item: InventoryItem) => {
         if (!firestore || !tenant || !client || !appointment || isRequesting) return;
@@ -556,16 +517,25 @@ const ServicingView = ({
 
     return (
         <ViewContainer>
-            <ViewHeader title="In Service" subtitle="Your session is active" icon={Clock} />
+            <ViewHeader 
+                title={isWaiting ? "Lounge Experience" : "In Service"} 
+                subtitle={isWaiting ? "Make yourself at home" : "Your session is active"} 
+                icon={isWaiting ? Sofa : Clock} 
+            />
             <CardContent className="p-0 space-y-12">
                 <div className="p-8 text-center space-y-6 bg-primary/5 border-b-2 border-primary/10 shadow-inner">
                     <div className="w-20 h-20 bg-white rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
-                        <Activity className="w-10 h-10 text-primary -rotate-6" />
+                        {isWaiting ? <Sofa className="w-10 h-10 text-primary -rotate-6" /> : <Activity className="w-10 h-10 text-primary -rotate-6" />}
                     </div>
                     <div className="space-y-2">
-                        <p className="font-black text-2xl uppercase tracking-tighter text-slate-900">Enjoy the Flow</p>
+                        <p className="font-black text-2xl uppercase tracking-tighter text-slate-900">
+                            {isWaiting ? "While You Wait" : "Enjoy the Flow"}
+                        </p>
                         <p className="text-[10px] font-bold text-slate-500 leading-relaxed uppercase tracking-widest opacity-60">
-                            Service in progress at <strong>{stationName}</strong>
+                            {isWaiting 
+                                ? "Select an amenity below and we'll bring it to you." 
+                                : `Service in progress at ${stationName}`
+                            }
                         </p>
                     </div>
                 </div>
@@ -587,14 +557,12 @@ const ServicingView = ({
                                                 </div>
                                             </div>
                                         </div>
-                                        <Button 
-                                            variant="ghost" 
-                                            size="sm" 
+                                        <button 
                                             onClick={() => handleCancelRequest(req.id)}
                                             className="h-8 px-3 rounded-lg font-black uppercase text-[9px] tracking-widest text-destructive hover:bg-destructive/10"
                                         >
                                             Recall
-                                        </Button>
+                                        </button>
                                     </div>
                                 ))}
                             </div>
@@ -762,7 +730,7 @@ export default function CheckInPage() {
                     <XCircle className="w-16 h-16 text-destructive mx-auto opacity-40" />
                     <div className="space-y-2">
                         <h2 className="text-2xl font-black uppercase tracking-tighter">Record Expired</h2>
-                        <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">
+                        <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-center">
                             This check-in link is no longer valid or could not be found in our manifest.
                         </p>
                     </div>
@@ -792,9 +760,10 @@ export default function CheckInPage() {
         );
     }
     
-    if (appointmentData?.status === 'servicing') {
+    // NEW: Lounge Experience for Arrived or Servicing guests
+    if (appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing') {
         return (
-            <ServicingView 
+            <ConciergeExperienceView 
                 tenant={tenant || null} 
                 client={client || null} 
                 inventory={inventory || []} 
@@ -803,13 +772,8 @@ export default function CheckInPage() {
                 staff={assignedStaff || null}
                 resources={resources || []}
                 memberships={memberships || []}
+                isWaiting={appointmentData?.status !== 'servicing'}
             />
-        );
-    }
-
-    if (appointmentData?.checkInStatus === 'arrived') {
-        return (
-            <ArrivedView client={client || null} staff={assignedStaff || null} tenantId={tenantId} />
         );
     }
     
@@ -861,8 +825,8 @@ export default function CheckInPage() {
                                 <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
                             </Avatar>
                             <div className="text-left flex-1 min-w-0">
-                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
-                                <p className="font-black text-sm uppercase text-slate-800 leading-none truncate">{assignedStaff.name}</p>
+                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1 text-left">Your Professional</p>
+                                <p className="font-black text-sm uppercase text-slate-800 leading-none truncate text-left">{assignedStaff.name}</p>
                             </div>
                         </div>
                     )}
