@@ -34,7 +34,8 @@ import {
     HandHeart,
     Utensils,
     Wine,
-    ArrowDown
+    ArrowDown,
+    PlusCircle
 } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc, getDocs } from 'firebase/firestore';
@@ -47,6 +48,7 @@ import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Separator } from '@/components/ui/separator';
+import { type Client, type InventoryItem, type Membership, type Tenant } from '@/lib/data';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
