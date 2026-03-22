@@ -9,6 +9,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +25,7 @@ import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
 import { ClarityFlowLogo } from '../shared/AppSidebar';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface PrintStationCardsDialogProps {
   open: boolean;
@@ -89,36 +98,49 @@ export const PrintStationCardsDialog: React.FC<PrintStationCardsDialogProps> = (
   tenantName,
   logoUrl,
 }) => {
+  const isMobile = useIsMobile();
   const [numStations, setNumStations] = useState(10);
 
   const handlePrint = () => {
     window.print();
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[90dvh]">
-        <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left shrink-0">
-          <div className="flex items-center gap-3 mb-2">
-            <QrCode className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Collateral Generator</span>
-          </div>
-          <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Concierge Station Cards</DialogTitle>
-          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Generate high-fidelity ordering tokens for your lounge.</DialogDescription>
-        </DialogHeader>
+  const title = "Concierge Station Cards";
+  const description = "Generate high-fidelity ordering tokens for your lounge.";
 
-        <div className="flex-1 overflow-hidden flex flex-col">
-            <div className="p-8 border-b bg-white/50 flex flex-col sm:flex-row items-center justify-between gap-6 shrink-0">
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
+
+  return (
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <ContentComponent 
+        side={isMobile ? "bottom" : "right"} 
+        className={cn(
+            "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", 
+            isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-4xl max-h-[90dvh]"
+        )}
+      >
+        <SheetHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
+          <div className="flex items-center gap-3 mb-1.5 md:mb-2">
+            <QrCode className="w-4 h-4 md:w-5 md:h-5 text-primary" />
+            <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Collateral Generator</span>
+          </div>
+          <SheetTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</SheetTitle>
+          <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</SheetDescription>
+        </SheetHeader>
+
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+            <div className={cn("border-b bg-white/50 flex flex-col sm:flex-row items-center justify-between gap-4 md:gap-6 shrink-0", isMobile ? "p-5" : "p-8")}>
                 <div className="space-y-2 w-full sm:w-64 text-left">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Number of Stations</Label>
+                    <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary ml-1">Number of Stations</Label>
                     <div className="flex gap-2">
                         <Input 
                             type="number" 
                             value={numStations} 
                             onChange={e => setNumStations(Math.max(1, parseInt(e.target.value) || 1))}
-                            className="h-12 rounded-xl border-2 font-black text-center text-lg shadow-inner bg-muted/5"
+                            className="h-11 md:h-12 rounded-xl border-2 font-black text-center text-base md:text-lg shadow-inner bg-muted/5"
                         />
-                        <Button variant="outline" className="h-12 px-6 rounded-xl border-2 font-black uppercase text-[10px]" onClick={() => setNumStations(numStations + 5)}>+ 5</Button>
+                        <Button variant="outline" className="h-11 md:h-12 px-4 md:px-6 rounded-xl border-2 font-black uppercase text-[10px]" onClick={() => setNumStations(numStations + 5)}>+ 5</Button>
                     </div>
                 </div>
                 <div className="p-4 rounded-2xl border-2 border-dashed bg-muted/10 flex items-start gap-3 max-w-sm">
@@ -130,7 +152,7 @@ export const PrintStationCardsDialog: React.FC<PrintStationCardsDialogProps> = (
             </div>
 
             <ScrollArea className="flex-1 bg-muted/20">
-                <div className="p-8 grid grid-cols-1 sm:grid-cols-2 gap-8 print:block" id="station-cards-print-area">
+                <div className="p-6 md:p-8 grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8 print:block" id="station-cards-print-area">
                     {Array.from({ length: numStations }).map((_, i) => (
                         <StationCard 
                             key={i}
@@ -144,16 +166,16 @@ export const PrintStationCardsDialog: React.FC<PrintStationCardsDialogProps> = (
             </ScrollArea>
         </div>
 
-        <DialogFooter className="p-8 pt-4 border-t bg-muted/5 shrink-0">
+        <SheetFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-5 pt-3" : "p-8 pt-4")}>
           <div className="flex flex-col sm:flex-row gap-3 w-full">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 flex-1 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel</Button>
-            <Button onClick={handlePrint} className="h-14 flex-[2] rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group">
-                <Printer className="mr-3 h-5 w-5" />
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 md:h-14 flex-1 font-black uppercase tracking-widest text-[9px] md:text-[10px] text-slate-400">Cancel</Button>
+            <Button onClick={handlePrint} className="h-12 md:h-14 flex-[2] rounded-xl md:rounded-2xl font-black uppercase tracking-widest text-[9px] md:text-[10px] shadow-xl shadow-primary/20 group">
+                <Printer className="mr-2 md:mr-3 h-4 w-4 md:h-5 md:w-5" />
                 Print Collateral Archive
             </Button>
           </div>
-        </DialogFooter>
-      </DialogContent>
+        </SheetFooter>
+      </ContentComponent>
       <style jsx global>{`
         @media print {
             body * { visibility: hidden !important; }
@@ -175,6 +197,6 @@ export const PrintStationCardsDialog: React.FC<PrintStationCardsDialogProps> = (
             }
         }
       `}</style>
-    </Dialog>
+    </DialogContainer>
   );
 };
