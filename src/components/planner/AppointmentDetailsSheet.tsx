@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
@@ -159,6 +160,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       const batch = writeBatch(firestore);
       const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
       const now = new Date().toISOString();
+
+      // Set escalation flag on appointment
+      const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
+      batch.update(appointmentRef, { isEscalated: true });
+
+      // If walk-in, flag the walk-in too
+      if (appointment.isWalkIn) {
+          const walkInId = appointment.id.replace('apt-walkin-', '');
+          const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+          batch.update(walkInRef, { isEscalated: true });
+      }
 
       adminsAndOwners.forEach(admin => {
           const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
@@ -454,30 +466,39 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
                 <div className="space-y-4 pt-4 border-t border-dashed text-left">
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-primary text-left">Service Recovery & Panic</h3>
-                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-4 border-destructive/20 bg-destructive/[0.02] shadow-xl shadow-destructive/5 transition-all">
+                    <div className={cn(
+                        "flex items-center justify-between p-6 rounded-[2rem] border-4 transition-all shadow-xl",
+                        appointment.isEscalated ? "bg-destructive text-white border-destructive shadow-destructive/20 animate-pulse" : "border-destructive/20 bg-destructive/[0.02] shadow-destructive/5"
+                    )}>
                         <div className="space-y-1 text-left">
-                            <Label htmlFor="escalate-panic" className="text-base font-black uppercase tracking-tight text-destructive flex items-center gap-2 text-left">
-                                <ShieldAlert className="w-4 h-4" /> Manager Escalation
+                            <Label htmlFor="escalate-panic" className={cn("text-base font-black uppercase tracking-tight flex items-center gap-2 text-left", appointment.isEscalated ? "text-white" : "text-destructive")}>
+                                <ShieldAlert className="w-4 h-4" /> 
+                                {appointment.isEscalated ? "Priority Escalated" : "Manager Escalation"}
                             </Label>
-                            <p className="text-[10px] font-bold text-destructive/60 uppercase tracking-widest text-left">Immediate technical or guest issue</p>
+                            <p className={cn("text-[10px] font-bold uppercase tracking-widest text-left", appointment.isEscalated ? "text-white/80" : "text-destructive/60")}>
+                                {appointment.isEscalated ? "Manager dispatch active" : "Immediate technical or guest issue"}
+                            </p>
                         </div>
                         <Button 
-                            variant="destructive" 
+                            variant={appointment.isEscalated ? "secondary" : "destructive"}
                             size="icon" 
-                            disabled={isEscalating}
+                            disabled={isEscalating || appointment.isEscalated}
                             onClick={handleEscalate}
-                            className="h-14 w-14 rounded-2xl shadow-xl shadow-destructive/20 animate-pulse"
+                            className={cn("h-14 w-14 rounded-2xl shadow-xl", !appointment.isEscalated && "shadow-destructive/20 animate-pulse")}
                         >
-                            {isEscalating ? <Loader className="animate-spin" /> : <AlertCircle className="w-6 h-6" />}
+                            {isEscalating ? <Loader className="animate-spin" /> : appointment.isEscalated ? <ShieldCheck className="w-6 h-6" /> : <AlertCircle className="w-6 h-6" />}
                         </Button>
                     </div>
                     <p className="text-[8px] font-bold text-muted-foreground uppercase text-center px-4 leading-relaxed opacity-60">
-                        This protocol bypasses all standard queues and dispatches a high-priority alert to all studio leadership instantly.
+                        {appointment.isEscalated 
+                            ? "This session is flagged across all studio dashboards. A manager has been dispatched to assist." 
+                            : "This protocol bypasses all standard queues and dispatches a high-priority alert to all studio leadership instantly."
+                        }
                     </p>
                 </div>
 
                 {appointment.inspirationPhotoUrl && (
-                    <div className="space-y-4 pt-4 border-t border-dashed text-left">
+                    <div className="mt-8 space-y-4">
                         <div className="flex justify-between items-center px-1 text-left">
                             <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Inspiration & Mapping</h3>
                             <Button 

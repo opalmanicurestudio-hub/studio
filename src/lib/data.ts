@@ -455,6 +455,7 @@ export type Appointment = {
   isSecondary?: boolean;
   isHotSlot?: boolean;
   notes?: string;
+  isEscalated?: boolean;
 };
 
 export type EventChecklistItem = {
@@ -569,6 +570,7 @@ export type WalkIn = {
   waitForPreferredStaff?: boolean;
   isPotentialAlias?: boolean;
   matchedClientId?: string;
+  isEscalated?: boolean;
 };
 
 export type StockCorrection = {

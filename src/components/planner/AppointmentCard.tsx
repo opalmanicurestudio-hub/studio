@@ -22,7 +22,8 @@ import {
   AlertTriangle,
   Undo2,
   Scale,
-  FileImage
+  FileImage,
+  ShieldAlert
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -169,13 +170,18 @@ export function AppointmentCard({
           className={cn(
             'p-1.5 sm:p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
             currentStatus?.className,
-            isRunningOver && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10'
+            (isRunningOver || appointment.isEscalated) && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10'
           )}
           onClick={() => onViewDetails(appointment)}
         >
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 text-left">
                 <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1 flex-wrap">
+                    {appointment.isEscalated && (
+                        <Badge variant="destructive" className="animate-pulse h-3.5 sm:h-4 px-1.5 text-[7px] sm:text-[8px] font-black uppercase border-none shadow-lg">
+                            <ShieldAlert className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" /> MANAGER REQ
+                        </Badge>
+                    )}
                     {isBirthdayToday && <Cake className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-pink-500 animate-bounce shrink-0" />}
                     {checkInIndicator}
                     {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
@@ -225,7 +231,7 @@ export function AppointmentCard({
                 </DropdownMenu>
                 
                 {involvedStaff.length > 1 && (
-                    <div className="flex -space-x-2">
+                    <div className="flex -space-x-3 overflow-hidden">
                         {involvedStaff.map(s => (
                             <TooltipProvider key={s.id}>
                                 <Tooltip>
@@ -253,7 +259,7 @@ export function AppointmentCard({
           <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 sm:gap-1.5">
                 <div className={cn("w-1.5 h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
-                <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">
+                <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 text-left">
                     {appointment.checkInStatus === 'running_late' && estimatedArrival 
                         ? `EST: ${estimatedArrival}` 
                         : format(safeDate(appointment.startTime), 'h:mm a')

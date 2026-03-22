@@ -15,7 +15,8 @@ import {
     Trash2,
     Coffee,
     Zap,
-    Workflow
+    Workflow,
+    ShieldAlert
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
@@ -90,12 +91,18 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
     return (
         <TooltipProvider>
             <div className="h-full" onClick={onViewDetails}>
-                <Card className={cn("transition-all border-2 rounded-2xl overflow-hidden shadow-sm h-full flex flex-col", isReady ? "border-green-500 bg-green-500/[0.03]" : "border-blue-500/20 bg-white", isRunningOver && "border-destructive ring-4 ring-destructive/10 shadow-destructive/10")}>
+                <Card className={cn("transition-all border-2 rounded-2xl overflow-hidden shadow-sm h-full flex flex-col", isReady ? "border-green-500 bg-green-500/[0.03]" : "border-blue-500/20 bg-white", (isRunningOver || appointment.isEscalated) && "border-destructive ring-4 ring-destructive/10 shadow-destructive/10")}>
+                    {appointment.isEscalated && (
+                        <div className="bg-destructive px-4 py-1.5 flex items-center justify-center gap-2 animate-pulse">
+                            <ShieldAlert className="w-3 h-3 text-white" />
+                            <span className="text-[10px] font-black uppercase text-white tracking-[0.2em]">Manager Intervention Req</span>
+                        </div>
+                    )}
                     <CardContent className="p-5 space-y-4 flex-1">
                         <div className="flex justify-between items-start gap-3 cursor-pointer">
-                            <div className="space-y-4 flex-1 min-w-0 text-left">
+                            <div className="space-y-4 flex-1 min-w-0 text-left text-left">
                                 <div className="flex items-center gap-2 flex-wrap text-left">
-                                    <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{appointment.clientName}</p>
+                                    <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate text-left">{appointment.clientName}</p>
                                     {isMember && (
                                         <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
                                             <Award className="w-2 h-2 mr-0.5" /> MEM
@@ -113,14 +120,14 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                                     <Coffee className="w-2 h-2 mr-1" /> {refreshments.length}
                                                 </Badge>
                                             </TooltipTrigger>
-                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">
                                                 Amenities served during session
                                             </TooltipContent>
                                         </Tooltip>
                                     )}
                                 </div>
                                 
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     {assignedTechnicians.map((tech: Staff, tIdx: number) => {
                                         const techServices = Object.entries(appointment.checkoutState?.serviceStaffOverrides || {}).filter(([_, staffId]) => staffId === tech.id).map(([svcId]) => svcId);
                                         if (appointment.staffId === tech.id && !techServices.includes(appointment.serviceId)) techServices.unshift(appointment.serviceId);
@@ -132,17 +139,17 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                         });
                                         return (
                                             <div key={`${tech.id}-${tIdx}`} className={cn("flex items-center gap-2 p-2 rounded-xl border-2 bg-background transition-all", isDone && "opacity-40 grayscale")}>
-                                                <Avatar className="h-7 w-7 border shadow-sm rounded-lg"><AvatarImage src={tech.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-[9px] uppercase">{(tech.name||'S')[0]}</AvatarFallback></Avatar>
+                                                <Avatar className="h-7 w-7 border shadow-sm rounded-lg shrink-0"><AvatarImage src={tech.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-[9px] uppercase">{(tech.name||'S')[0]}</AvatarFallback></Avatar>
                                                 <div className="min-w-0 flex-1 text-left">
-                                                    <p className="text-[10px] font-black uppercase tracking-tight truncate leading-none mb-0.5">{tech.name.split(' ')[0]}</p>
-                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <p className="text-[10px] font-black uppercase tracking-tight truncate leading-none mb-0.5 text-left">{tech.name.split(' ')[0]}</p>
+                                                    <div className="flex items-center gap-1.5 mt-0.5 text-left">
                                                         {techServices.map((sid, sIdx) => {
                                                             const isCon = concurrentIds.includes(sid);
                                                             const serviceName = services?.find((s: Service) => s.id === sid)?.name || 'Service';
                                                             return (
                                                                 <Tooltip key={`${tech.id}-${sid}-${sIdx}`}>
                                                                     <TooltipTrigger asChild><div className="cursor-help">{isCon ? <Zap className="w-2.5 h-2.5 text-primary" /> : <Workflow className="w-2.5 h-2.5 text-muted-foreground opacity-40" />}</div></TooltipTrigger>
-                                                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">{serviceName} ({isCon ? 'Concurrent' : 'Turn'})</TooltipContent>
+                                                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">{serviceName} ({isCon ? 'Concurrent' : 'Turn'})</TooltipContent>
                                                                 </Tooltip>
                                                             );
                                                         })}
@@ -156,7 +163,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                             </div>
                             <div className="text-right shrink-0">
                                 {allServices?.slice(0, 2).map((s, idx) => (
-                                    <div key={`svc-lbl-${s.id}-${idx}`} className="flex items-center justify-end gap-1 text-right">
+                                    <div key={`svc-lbl-${s.id}-${idx}`} className="flex items-center justify-end gap-1 text-right text-right">
                                         {completedIds.includes(s.id) && <Check className="w-2.5 h-2.5 text-green-500" />}
                                         <p className={cn("text-[9px] font-black uppercase tracking-widest", completedIds.includes(s.id) ? "text-muted-foreground line-through opacity-40" : "text-slate-900")}>{s.name}</p>
                                     </div>
@@ -165,9 +172,9 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                             </div>
                         </div>
                         {elapsedTime && (
-                            <div className="mt-4 space-y-1.5">
+                            <div className="mt-4 space-y-1.5 text-left">
                                 <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRunningOver && "[&>div]:bg-destructive")} />
-                                <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">
                                     <span>{isRunningOver ? "OVERTIME ALERT" : `~${minsRemaining}M REMAINING`}</span>
                                     <span>{serviceDuration}M GOAL</span>
                                 </div>
@@ -186,7 +193,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                     <Trash2 className="h-5 w-5" />
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent className="font-black uppercase text-[10px]">Terminate Session</TooltipContent>
+                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">Terminate Session</TooltipContent>
                         </Tooltip>
                     </div>
                 </Card>

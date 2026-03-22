@@ -103,13 +103,19 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
             checkInStatus === 'arrived' ? "border-green-500 bg-green-500/5 shadow-lg shadow-green-500/5 ring-2 ring-green-500/20" : 
             checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/5" : 
             checkInStatus === 'on_my_way' ? "border-blue-500/20 bg-blue-500/5" :
-            isAutoCancelled ? "border-destructive ring-4 ring-destructive/10 bg-destructive/5" :
+            (isAutoCancelled || item.isEscalated) ? "border-destructive ring-4 ring-destructive/10 bg-destructive/5" :
             isPotentialAlias ? "border-destructive/40 ring-4 ring-destructive/10" : "border-border/50 bg-white"
         )}>
-            <CardContent className="p-5 space-y-4" onClick={onResolve}>
+            {item.isEscalated && (
+                <div className="bg-destructive px-4 py-1 flex items-center justify-center gap-2 animate-pulse">
+                    <ShieldAlert className="w-2.5 h-2.5 text-white" />
+                    <span className="text-[8px] font-black uppercase text-white tracking-widest">Escalated</span>
+                </div>
+            )}
+            <CardContent className="p-5 space-y-4 text-left" onClick={onResolve}>
                 <div className="flex justify-between items-start gap-4">
                     <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap text-left">
+                        <div className="flex items-center gap-2 flex-wrap text-left text-left">
                             {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-bounce shrink-0" />}
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{customerName}</p>
                             {isMember && (
@@ -124,7 +130,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                             )}
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-left">
-                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-1.5 opacity-60">
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-1.5 opacity-60 text-left">
                                 <Clock className="w-2.5 h-2.5" />
                                 {isWalkIn ? `Waiting ${waitTime}` : `Scheduled ${waitTime}`}
                             </p>
@@ -137,7 +143,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                                     <MessageSquare className="w-3 h-3 text-primary" />
                                                 </div>
                                             </TooltipTrigger>
-                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Guest Intel Available</TooltipContent>
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">Guest Intel Available</TooltipContent>
                                         </Tooltip>
                                     </TooltipProvider>
                                 )}
@@ -149,7 +155,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                                     <Ear className="w-3 h-3 text-blue-600" />
                                                 </div>
                                             </TooltipTrigger>
-                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Special Accommodations</TooltipContent>
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">Special Accommodations</TooltipContent>
                                         </Tooltip>
                                     </TooltipProvider>
                                 )}
@@ -176,7 +182,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                                     <Icon className="h-3.5 w-3.5" />
                                                 </Button>
                                             </TooltipTrigger>
-                                            <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest">{status.label}</TooltipContent>
+                                            <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest text-left">{status.label}</TooltipContent>
                                         </Tooltip>
                                     </TooltipProvider>
                                 );
@@ -209,7 +215,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
 
                 {preferredStaff && !isAutoCancelled && (
                     <div className={cn("flex items-center gap-2 p-2 rounded-xl border-2 w-fit", isWalkIn ? "bg-primary/5 border-primary/10" : "bg-indigo-500/5 border-indigo-500/10")}>
-                        <Avatar className="h-6 w-6 border-2 border-background shadow-inner rounded-lg"><AvatarImage src={preferredStaff.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black">{(preferredStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar>
+                        <Avatar className="h-6 w-6 border-2 border-background shadow-inner rounded-lg shrink-0"><AvatarImage src={preferredStaff.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black">{(preferredStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar>
                         <span className={cn("text-[9px] font-black uppercase tracking-widest", isWalkIn ? 'Pref:' : 'With:')} >{isWalkIn ? 'Pref:' : 'With:'} {preferredStaff.name.split(' ')[0]}</span>
                     </div>
                 )}
@@ -230,7 +236,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                         <Printer className="w-4 h-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px]">Print Ticket</TooltipContent>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] text-left">Print Ticket</TooltipContent>
                             </Tooltip>
 
                             <Tooltip>
@@ -239,7 +245,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                         <Trash2 className="w-4 h-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent className="font-black uppercase text-[10px]">Cancel Visit</TooltipContent>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] text-left">Cancel Visit</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
                     </div>
