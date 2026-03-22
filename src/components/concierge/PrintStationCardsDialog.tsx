@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -13,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Sparkles, Printer, QrCode, ArrowRight, LayoutGrid, Tag, Coffee } from 'lucide-react';
+import { Sparkles, Printer, QrCode, ArrowRight, LayoutGrid, Tag, Coffee, Info } from 'lucide-react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
