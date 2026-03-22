@@ -212,6 +212,7 @@ export default function ClientDetailPage() {
   const { toast } = useToast();
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
+  const [editingFormula, setEditingFormula] = useState<CustomFormula | null>(null);
   const [isQuickSettleOpen, setIsQuickSettleOpen] = useState(false);
   const [isSettleProcessing, setIsSettleProcessing] = useState(false);
   const [isReconciling, setIsReconciling] = useState(false);
@@ -332,12 +333,24 @@ export default function ClientDetailPage() {
       if (!firestore || !tenantId || !client) return;
       const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
       
+      const currentFormulas = client.customFormulas || [];
+      const existingIndex = currentFormulas.findIndex(f => f.id === formula.id);
+      
+      let nextFormulas;
+      if (existingIndex !== -1) {
+          nextFormulas = [...currentFormulas];
+          nextFormulas[existingIndex] = formula;
+      } else {
+          nextFormulas = [...currentFormulas, formula];
+      }
+
       updateDocumentNonBlocking(clientRef, { 
-          customFormulas: arrayUnion(formula) 
+          customFormulas: nextFormulas 
       });
       
       toast({ title: "Protocol Archived", description: `"${formula.name}" registered in technical library.` });
       setIsAddFormulaOpen(false);
+      setEditingFormula(null);
   }
 
   const handleDeleteFormula = (formulaId: string) => {
@@ -346,6 +359,11 @@ export default function ClientDetailPage() {
       const nextFormulas = (client.customFormulas || []).filter(f => f.id !== formulaId);
       updateDocumentNonBlocking(clientRef, { customFormulas: nextFormulas });
       toast({ title: "Protocol Purged", description: "Formula removed from technical archive." });
+  }
+
+  const handleEditFormula = (formula: CustomFormula) => {
+      setEditingFormula(formula);
+      setIsAddFormulaOpen(true);
   }
 
   const { safeLTV, safeWalletCredit, safeBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => {
@@ -652,7 +670,7 @@ export default function ClientDetailPage() {
                             <div className="space-y-4 pt-6 border-t border-dashed text-left">
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Historical Records</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
-                                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2 text-left"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-left">Empty history</p></div>}
+                                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2 text-left"/><p className="text-[10px] font-black uppercase tracking-widest text-left">Empty history</p></div>}
                                 </div>
                             </div>
                         </TabsContent>
@@ -719,9 +737,14 @@ export default function ClientDetailPage() {
                                                         <CardTitle className="text-xs font-black uppercase tracking-tight text-left">{String(formula.name || 'Untitled Formula')}</CardTitle>
                                                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Established {format(safeDate(formula.date), 'MMM d, yyyy')}</p>
                                                     </div>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeleteFormula(formula.id)}>
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </Button>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => handleEditFormula(formula)}>
+                                                            <Edit className="w-3.5 h-3.5" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteFormula(formula.id)}>
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </Button>
+                                                    </div>
                                                 </CardHeader>
                                                 <CardContent className="p-5 space-y-4 text-left">
                                                     <div className="space-y-2 text-left text-left">
@@ -934,13 +957,13 @@ export default function ClientDetailPage() {
       </main>
       
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), data); toast({ title: "Profile Updated" }); }} />
-      <AddFormulaDialog open={isAddFormulaOpen} onOpenChange={setIsAddFormulaOpen} clientName={client.name} onSave={handleSaveFormula} />
+      <AddFormulaDialog open={isAddFormulaOpen} onOpenChange={(val) => { setIsAddFormulaOpen(val); if(!val) setEditingFormula(null); }} clientName={client.name} onSave={handleSaveFormula} formulaToEdit={editingFormula} />
 
       <Dialog open={isQuickSettleOpen} onOpenChange={setIsQuickSettleOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden text-left">
             <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left text-left">
                 <div className="flex items-center gap-3 mb-2 text-left text-left">
-                    <ShieldCheck className="w-5 h-5 text-primary text-left" />
+                    <ShieldCheck className="w-5 h-5 text-primary" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary text-left">Strategic Settlement</span>
                 </div>
                 <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Confirm Vault Charge</DialogTitle>

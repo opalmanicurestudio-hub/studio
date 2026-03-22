@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -24,7 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { PlusCircle, Trash2, FlaskConical, Sparkles, Tag, ArrowRight, Activity, Landmark, PackageOpen, MessageSquare } from 'lucide-react';
+import { PlusCircle, Trash2, FlaskConical, Sparkles, Tag, ArrowRight, Activity, Landmark, PackageOpen, MessageSquare, Edit } from 'lucide-react';
 import { type CustomFormula, type InventoryItem } from '@/lib/data';
 import { useInventory } from '@/context/InventoryContext';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -47,6 +46,7 @@ interface AddFormulaDialogProps {
   onOpenChange: (open: boolean) => void;
   onSave: (formula: CustomFormula) => void;
   clientName: string;
+  formulaToEdit?: CustomFormula | null;
 }
 
 const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
@@ -61,7 +61,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     </div>
 );
 
-export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpenChange, onSave, clientName }) => {
+export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpenChange, onSave, clientName, formulaToEdit }) => {
   const isMobile = useIsMobile();
   const { inventory } = useInventory();
   const { toast } = useToast();
@@ -73,20 +73,25 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
 
   useEffect(() => {
     if (open) {
-      setFormulaName('');
-      setItems([]);
-      setNotes('');
+      if (formulaToEdit) {
+        setFormulaName(formulaToEdit.name);
+        setItems(formulaToEdit.items || []);
+        setNotes(formulaToEdit.notes || '');
+      } else {
+        setFormulaName('');
+        setItems([]);
+        setNotes('');
+      }
     }
-  }, [open]);
+  }, [open, formulaToEdit]);
 
   const handleAddProducts = (products: InventoryItem[]) => {
     const newItems: EditableFormulaItem[] = products.map(p => {
-        let unit = p.unit || 'ml';
-        if (p.costingMethod === 'uses' && p.useUnit) unit = p.useUnit;
+        let unit = p.costingMethod === 'size' ? (p.unit || 'ml') : (p.useUnit || 'uses');
         
         let cpu = p.costPerUnit || 0;
-        if (p.costingMethod === 'size' && p.size) cpu = cpu / p.size;
-        else if (p.costingMethod === 'uses' && p.estimatedUses) cpu = cpu / p.estimatedUses;
+        if (p.costingMethod === 'size' && p.size) cpu = (p.costPerUnit || 0) / p.size;
+        else if (p.costingMethod === 'uses' && p.estimatedUses) cpu = (p.costPerUnit || 0) / p.estimatedUses;
 
         return {
             id: p.id,
@@ -130,17 +135,17 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
     }
 
     const newFormula: CustomFormula = {
-      id: `man-f-${Date.now()}`,
+      id: formulaToEdit?.id || `man-f-${Date.now()}`,
       name: formulaName.toUpperCase(),
-      date: new Date().toISOString(),
+      date: formulaToEdit?.date || new Date().toISOString(),
       items: items,
       notes: notes
     };
     onSave(newFormula);
   };
 
-  const title = "Establish Formula";
-  const description = `Registering a new technical recipe for ${clientName}.`;
+  const title = formulaToEdit ? "Refine Protocol" : "Establish Formula";
+  const description = formulaToEdit ? `Modifying technical recipe for ${clientName}.` : `Registering a new technical recipe for ${clientName}.`;
 
   const DialogContainer = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;
@@ -150,7 +155,7 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
       <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-10 pb-6")}>
             <div className="flex items-center gap-3 mb-2 text-left">
-                <Sparkles className="w-5 h-5 text-primary" />
+                {formulaToEdit ? <Edit className="w-5 h-5 text-primary" /> : <Sparkles className="w-5 h-5 text-primary" />}
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
             </div>
             <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">{title}</DialogTitle>
@@ -247,7 +252,9 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-10 pt-4")}>
             <div className="grid grid-cols-2 gap-3 w-full">
                 <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
-                <Button onClick={handleSaveClick} className="h-14 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Archive Formula <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+                <Button onClick={handleSaveClick} className="h-14 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
+                    {formulaToEdit ? 'Save Protocol' : 'Archive Formula'} <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/>
+                </Button>
             </div>
         </DialogFooter>
 
