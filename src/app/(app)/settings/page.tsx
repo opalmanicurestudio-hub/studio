@@ -61,7 +61,8 @@ import {
   QrCode,
   Scale as ScaleIcon,
   HeartHandshake,
-  Trash2
+  Trash2,
+  FileWarning
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -81,6 +82,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useForm, Controller } from 'react-hook-form';
 import { PrintStationCardsDialog } from '@/components/concierge/PrintStationCardsDialog';
+
+const defaultRecoveryPresets: RecoveryPreset[] = [
+    { id: 'wait-time', label: 'WAIT TIME RECOVERY', type: 'fixed', value: 15 },
+    { id: 'tech-adj', label: 'TECHNICAL REVISION', type: 'percentage', value: 20 },
+    { id: 'hospitality', label: 'HOSPITALITY LAPSE', type: 'fixed', value: 10 },
+    { id: 'protocol-fail', label: 'PROTOCOL FAILURE', type: 'percentage', value: 100 }
+];
+
+const defaultEscalationPolicy = "1. Autonomy: Staff are authorized to resolve minor hospitality or technical lapses up to their defined threshold. 2. Criteria: Use 'Recovery Presets' for delays > 15m or technical inconsistencies. 3. Immediate Escalation: Mandatory for medical reactions, property damage, or guest hostility. 4. Documentation: Always log specific reasoning in the Checkout Hub when applying adjustments.";
 
 const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
     <div className="flex items-center gap-3 mb-6 text-left">
@@ -205,14 +215,14 @@ const ServicePolicyCard = ({
             "transition-all border-2 rounded-[2rem] overflow-hidden shadow-sm",
             policy.mode !== 'inherit' ? "border-primary/20 bg-primary/[0.01]" : "bg-white"
         )}>
-            <CardHeader className="p-4 border-b bg-muted/5 flex flex-row items-center justify-between gap-4">
+            <CardHeader className="p-4 border-b bg-muted/5 flex flex-row items-center justify-between gap-4 text-left">
                 <div className="flex items-center gap-3 min-w-0 text-left">
                     <div className="p-2 rounded-lg bg-background border shadow-sm">
                         <Star className="w-3.5 h-3.5 text-primary opacity-40" />
                     </div>
                     <div className="min-w-0 text-left">
-                        <CardTitle className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{service.name}</CardTitle>
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">ID: {service.id.slice(-6).toUpperCase()}</p>
+                        <CardTitle className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{service.name}</CardTitle>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">ID: {service.id.slice(-6).toUpperCase()}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -227,7 +237,7 @@ const ServicePolicyCard = ({
             <AnimatePresence>
                 {policy.mode !== 'inherit' && (
                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                        <CardContent className="p-4 space-y-6">
+                        <CardContent className="p-4 space-y-6 text-left">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 <div className="space-y-2 text-left">
                                     <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Override Window (h)</Label>
@@ -260,7 +270,7 @@ const ServicePolicyCard = ({
                             </div>
 
                             {policy.mode !== 'matrix' && (
-                                <div className="space-y-2 animate-in slide-in-from-top-2 text-left">
+                                <div className="space-y-2 animate-in slide-in-from-top-2 text-left text-left">
                                     <Label className="text-[9px] font-black uppercase tracking-widest text-primary ml-1">Fixed Protocol Value</Label>
                                     <div className="relative">
                                         {policy.mode === 'flat' ? <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /> : <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />}
@@ -275,8 +285,8 @@ const ServicePolicyCard = ({
                                 </div>
                             )}
 
-                            <div className="p-4 rounded-xl border-2 border-dashed bg-muted/20 flex justify-between items-center shadow-inner">
-                                <div className="flex items-center gap-2 text-left">
+                            <div className="p-4 rounded-xl border-2 border-dashed bg-muted/20 flex justify-between items-center shadow-inner text-left">
+                                <div className="flex items-center gap-2 text-left text-left">
                                     <Landmark className="w-3.5 h-3.5 text-primary opacity-40" />
                                     <span className="text-[9px] font-black uppercase text-muted-foreground">House Floor Minimum</span>
                                     <span className="font-black font-mono text-sm text-slate-900">${floor.toFixed(2)}</span>
@@ -384,6 +394,17 @@ function SettingsPageImpl() {
     }
   };
 
+  const handleLoadStrategicTemplates = () => {
+      setTenantData(prev => ({
+          ...prev,
+          escalationPolicy: defaultEscalationPolicy,
+          recoveryPresets: defaultRecoveryPresets,
+          maxAutonomousRecoveryAmount: 50,
+          maxAutonomousRecoveryPercent: 25,
+      }));
+      toast({ title: "Strategic Templates Loaded", description: "Best-practice recovery protocols and thresholds have been applied." });
+  };
+
   const handleScheduleChange = (day: string, updates: Partial<DayHours>) => {
       setLocalSchedule((prev: any) => ({
           ...prev,
@@ -447,10 +468,10 @@ function SettingsPageImpl() {
         <div className="max-w-4xl mx-auto space-y-8 md:space-y-10 p-4 md:p-10 pb-32">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
             <div className="space-y-1 text-left">
-                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Settings</h1>
-                <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Studio Orchestration & Governance</p>
+                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Settings</h1>
+                <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Studio Orchestration & Governance</p>
             </div>
-            <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="flex items-center gap-3 w-full sm:w-auto text-left">
                 {isEditing ? (
                     <>
                         <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:w-auto h-12 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
@@ -504,13 +525,13 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="hours" className="mt-0 space-y-10 animate-in fade-in duration-500">
+            <TabsContent value="hours" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Clock} title="Operating Window" />
                         <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Configure your weekly studio availability and access tiers.</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-10">
+                    <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="space-y-4 max-w-sm text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
                                 <Sparkles className="w-3.5 h-3.5" /> Booking Precision (Interval)
@@ -520,7 +541,7 @@ function SettingsPageImpl() {
                                 onValueChange={(v) => setLocalInterval(parseInt(v))}
                                 disabled={!isEditing}
                             >
-                                <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5">
+                                <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5 text-left">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -537,7 +558,7 @@ function SettingsPageImpl() {
                         <Separator className="border-dashed" />
 
                         {localSchedule ? (
-                            <div className="space-y-3">
+                            <div className="space-y-3 text-left">
                                 {dayOrder.map((day) => {
                                     const hours = localSchedule[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' };
                                     return (
@@ -563,15 +584,15 @@ function SettingsPageImpl() {
 
             <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left text-left">
                         <SectionHeader icon={Coffee} title="Hospitality Concierge" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Configure the in-service refreshment and amenity module.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left text-left">Configure the in-service refreshment and amenity module.</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                        <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6">
-                            <div className="space-y-1 text-left">
-                                <Label htmlFor="refreshment-toggle" className="text-base font-black uppercase tracking-tight text-slate-900">Activate Refreshment Menu</Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Allows guests to request in-stock items from their portal</p>
+                    <CardContent className="p-6 md:p-8 space-y-10 text-left text-left">
+                        <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6 text-left">
+                            <div className="space-y-1 text-left text-left">
+                                <Label htmlFor="refreshment-toggle" className="text-base font-black uppercase tracking-tight text-slate-900 text-left">Activate Refreshment Menu</Label>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left text-left">Allows guests to request in-stock items from their portal</p>
                             </div>
                             <Switch 
                                 id="refreshment-toggle" 
@@ -582,9 +603,9 @@ function SettingsPageImpl() {
                             />
                         </div>
 
-                        <div className="space-y-4">
-                            <Label htmlFor="amenity-limit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Complimentary Amenity Limit</Label>
-                            <div className="space-y-3">
+                        <div className="space-y-4 text-left">
+                            <Label htmlFor="amenity-limit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Complimentary Amenity Limit</Label>
+                            <div className="space-y-3 text-left">
                                 <Input 
                                     id="amenity-limit"
                                     type="number"
@@ -593,7 +614,7 @@ function SettingsPageImpl() {
                                     disabled={!isEditing}
                                     className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 w-full sm:w-48 text-center"
                                 />
-                                <p className="text-[9px] font-bold text-muted-foreground uppercase leading-relaxed ml-1 opacity-60 text-left">
+                                <p className="text-[9px] font-bold text-muted-foreground uppercase leading-relaxed ml-1 opacity-60 text-left text-left">
                                     Total items allowed per session before caps apply.
                                 </p>
                             </div>
@@ -601,16 +622,16 @@ function SettingsPageImpl() {
 
                         <Separator className="border-dashed" />
 
-                        <div className="space-y-8">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
-                                <div className="space-y-1 text-left">
-                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+                        <div className="space-y-8 text-left">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1 text-left text-left">
+                                <div className="space-y-1 text-left text-left">
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2 text-left">
                                         <QrCode className="w-5 h-5 text-primary" />
                                         Station Identity Protocol
                                     </h3>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Generate physical place-cards for autonomous ordering.</p>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Generate physical place-cards for autonomous ordering.</p>
                                 </div>
-                                <Button onClick={() => setIsPrintStationsOpen(true)} className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
+                                <Button onClick={() => setIsPrintStationsOpen(true)} className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20 w-full md:w-auto">
                                     Generate Cards
                                 </Button>
                             </div>
@@ -618,13 +639,13 @@ function SettingsPageImpl() {
 
                         <Separator className="border-dashed" />
 
-                        <div className="space-y-6">
+                        <div className="space-y-6 text-left">
                             <div className="flex items-center gap-3 px-1 text-left">
                                 <Wifi className="w-5 h-5 text-primary" />
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Studio Connectivity</h3>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8">
-                                <div className="space-y-2 text-left">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8 text-left text-left">
+                                <div className="space-y-2 text-left text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">WiFi Network SSID</Label>
                                     <Input 
                                         value={tenantData.wifiNetwork || ''} 
@@ -634,7 +655,7 @@ function SettingsPageImpl() {
                                         className="h-12 rounded-xl border-2 font-bold bg-white"
                                     />
                                 </div>
-                                <div className="space-y-2 text-left">
+                                <div className="space-y-2 text-left text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Access Password</Label>
                                     <Input 
                                         value={tenantData.wifiPassword || ''} 
@@ -651,6 +672,20 @@ function SettingsPageImpl() {
             </TabsContent>
 
             <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
+                <div className="flex justify-end mb-4">
+                    {isEditing && (
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={handleLoadStrategicTemplates}
+                            className="h-9 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10 transition-all"
+                        >
+                            <Sparkles className="w-3.5 h-3.5 mr-2" />
+                            Load Studio Best Practices
+                        </Button>
+                    )}
+                </div>
+
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={ShieldCheck} title="Global Studio Governance" />
@@ -658,27 +693,27 @@ function SettingsPageImpl() {
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         
-                        <div className="space-y-8">
-                            <div className="flex items-center gap-3 px-1 text-left">
+                        <div className="space-y-8 text-left">
+                            <div className="flex items-center gap-3 px-1 text-left text-left">
                                 <ScaleIcon className="w-5 h-5 text-primary" />
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Recovery Governance</h3>
                             </div>
                             
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
-                                <div className="space-y-4 p-6 rounded-[2.5rem] border-2 bg-primary/5 border-primary/10 shadow-inner">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Autonomous Comp Limit</Label>
-                                    <div className="flex gap-3">
-                                        <div className="relative flex-1">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left text-left">
+                                <div className="space-y-4 p-6 rounded-[2.5rem] border-2 bg-primary/5 border-primary/10 shadow-inner text-left">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Autonomous Comp Limit</Label>
+                                    <div className="flex gap-3 text-left">
+                                        <div className="relative flex-1 text-left">
                                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                                             <Input 
                                                 type="number" 
                                                 value={tenantData.maxAutonomousRecoveryAmount || ''} 
                                                 onChange={e => setTenantData(prev => ({...prev, maxAutonomousRecoveryAmount: parseFloat(e.target.value) || 0}))}
                                                 disabled={!isEditing}
-                                                className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-white"
+                                                className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-white text-left"
                                             />
                                         </div>
-                                        <div className="relative w-24">
+                                        <div className="relative w-24 text-left">
                                             <Percent className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                                             <Input 
                                                 type="number" 
@@ -689,13 +724,13 @@ function SettingsPageImpl() {
                                             />
                                         </div>
                                     </div>
-                                    <p className="text-[9px] font-bold text-slate-500 leading-relaxed uppercase tracking-tight">
+                                    <p className="text-[9px] font-bold text-slate-500 leading-relaxed uppercase tracking-tight text-left">
                                         Max credit or discount staff can apply without manager authorization.
                                     </p>
                                 </div>
 
-                                <div className="space-y-4 text-left">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Standing Escalation Orders</Label>
+                                <div className="space-y-4 text-left text-left">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Standing Escalation Orders</Label>
                                     <Textarea 
                                         value={tenantData.escalationPolicy || ''} 
                                         onChange={e => setTenantData(prev => ({...prev, escalationPolicy: e.target.value}))}
@@ -706,11 +741,11 @@ function SettingsPageImpl() {
                                 </div>
                             </div>
 
-                            <div className="space-y-6 pt-4 border-t border-dashed text-left">
-                                <div className="flex items-center justify-between px-1">
-                                    <div className="space-y-1 text-left">
+                            <div className="space-y-6 pt-4 border-t border-dashed text-left text-left">
+                                <div className="flex items-center justify-between px-1 text-left text-left">
+                                    <div className="space-y-1 text-left text-left">
                                         <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Tactical Recovery Presets</h4>
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">One-tap recovery options for the POS terminal.</p>
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">One-tap recovery options for the POS terminal.</p>
                                     </div>
                                     {isEditing && (
                                         <Button variant="ghost" size="sm" onClick={handleAddPreset} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
@@ -719,23 +754,23 @@ function SettingsPageImpl() {
                                     )}
                                 </div>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left text-left">
                                     {tenantData.recoveryPresets?.map(preset => (
-                                        <div key={preset.id} className="p-4 rounded-2xl border-2 bg-white shadow-sm flex flex-col gap-4 group">
-                                            <div className="flex items-center justify-between gap-4">
-                                                <div className="flex-1">
+                                        <div key={preset.id} className="p-4 rounded-2xl border-2 bg-white shadow-sm flex flex-col gap-4 group text-left">
+                                            <div className="flex items-center justify-between gap-4 text-left">
+                                                <div className="flex-1 text-left">
                                                     <Input 
                                                         value={preset.label} 
                                                         onChange={e => handleUpdatePreset(preset.id, { label: e.target.value.toUpperCase() })} 
                                                         disabled={!isEditing}
-                                                        className="h-9 border-none bg-transparent font-black uppercase tracking-tight text-xs p-0 focus-visible:ring-0"
+                                                        className="h-9 border-none bg-transparent font-black uppercase tracking-tight text-xs p-0 focus-visible:ring-0 text-left"
                                                     />
                                                 </div>
                                                 {isEditing && (
                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePreset(preset.id)}><Trash2 className="w-4 h-4"/></Button>
                                                 )}
                                             </div>
-                                            <div className="flex gap-2">
+                                            <div className="flex gap-2 text-left">
                                                 <Select 
                                                     value={preset.type} 
                                                     onValueChange={(v: any) => handleUpdatePreset(preset.id, { type: v })}
@@ -749,7 +784,7 @@ function SettingsPageImpl() {
                                                         <SelectItem value="percentage" className="font-bold text-[9px] uppercase">PERC %</SelectItem>
                                                     </SelectContent>
                                                 </Select>
-                                                <div className="relative flex-1">
+                                                <div className="relative flex-1 text-left">
                                                     {preset.type === 'fixed' ? <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" /> : <Percent className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />}
                                                     <Input 
                                                         type="number" 
@@ -776,14 +811,14 @@ function SettingsPageImpl() {
 
                         <div className="space-y-6 text-left">
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 transition-all text-left">
-                                <div className='space-y-1 text-left'>
-                                    <Label htmlFor="guardian-protocol-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2">
+                                <div className='space-y-1 text-left text-left'>
+                                    <Label htmlFor="guardian-protocol-toggle-edit" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2 text-left">
                                         <ShieldCheck className="w-4 h-4" /> Guardian Revenue Shield
                                     </Label>
-                                    <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left'>Forced deposit enforcement for high-risk behavioral profiles</p>
+                                    <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left text-left'>Forced deposit enforcement for high-risk behavioral profiles</p>
                                 </div>
                                 <Switch 
-                                    id="guardian-protocol-toggle" 
+                                    id="guardian-protocol-toggle-edit" 
                                     checked={!!tenantData.guardianProtocolEnabled} 
                                     onCheckedChange={(val) => setTenantData(prev => ({...prev, guardianProtocolEnabled: val}))}
                                     disabled={!isEditing}
@@ -792,14 +827,14 @@ function SettingsPageImpl() {
                             </div>
 
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-xl shadow-indigo-500/5 transition-all text-left">
-                                <div className='space-y-1 text-left'>
-                                    <Label htmlFor="morning-anchor-toggle" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
+                                <div className='space-y-1 text-left text-left'>
+                                    <Label htmlFor="morning-anchor-toggle-edit" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2 text-left">
                                         <Clock className="w-4 h-4" /> Morning Anchor Protocol
                                     </Label>
-                                    <p className='text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest opacity-60 text-left'>The first appointment of an empty day must start at business opening time</p>
+                                    <p className='text-[10px] font-bold text-indigo-600/60 uppercase tracking-widest opacity-60 text-left text-left'>The first appointment of an empty day must start at business opening time</p>
                                 </div>
                                 <Switch 
-                                    id="morning-anchor-toggle" 
+                                    id="morning-anchor-toggle-edit" 
                                     checked={!!tenantData.morningAnchorEnabled} 
                                     onCheckedChange={(val) => setTenantData(prev => ({...prev, morningAnchorEnabled: val}))}
                                     disabled={!isEditing}
@@ -808,14 +843,14 @@ function SettingsPageImpl() {
                             </div>
 
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 transition-all text-left">
-                                <div className='space-y-1 text-left'>
-                                    <Label htmlFor="tight-scheduling-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2">
+                                <div className='space-y-1 text-left text-left'>
+                                    <Label htmlFor="tight-scheduling-toggle-edit" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2 text-left text-left">
                                         <Workflow className="w-4 h-4" /> Zero-Gap Adjacency Protocol
                                     </Label>
-                                    <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left'>Force client bookings to be flush against existing blocks</p>
+                                    <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left text-left'>Force client bookings to be flush against existing blocks</p>
                                 </div>
                                 <Switch 
-                                    id="tight-scheduling-toggle" 
+                                    id="tight-scheduling-toggle-edit" 
                                     checked={!!tenantData.tightSchedulingEnabled} 
                                     onCheckedChange={(val) => setTenantData(prev => ({...prev, tightSchedulingEnabled: val}))}
                                     disabled={!isEditing}
@@ -824,14 +859,14 @@ function SettingsPageImpl() {
                             </div>
 
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-amber-500/20 bg-amber-500/5 shadow-xl shadow-amber-500/5 transition-all text-left">
-                                <div className='space-y-1 text-left'>
-                                    <Label htmlFor="flash-yield-toggle" className="text-base font-black uppercase tracking-tight text-amber-700 flex items-center gap-2">
+                                <div className='space-y-1 text-left text-left'>
+                                    <Label htmlFor="flash-yield-toggle-edit" className="text-base font-black uppercase tracking-tight text-amber-700 flex items-center gap-2 text-left text-left">
                                         <Flame className="w-4 h-4" /> Flash Yield Protocol
                                     </Label>
-                                    <p className='text-[10px] font-bold text-amber-600/60 uppercase tracking-widest opacity-60 text-left'>Flag 48h cancellations as "magnetic" slots that bypass standard restrictions</p>
+                                    <p className='text-[10px] font-bold text-amber-600/60 uppercase tracking-widest opacity-60 text-left text-left'>Flag 48h cancellations as "magnetic" slots that bypass standard restrictions</p>
                                 </div>
                                 <Switch 
-                                    id="flash-yield-toggle" 
+                                    id="flash-yield-toggle-edit" 
                                     checked={!!tenantData.flashYieldEnabled} 
                                     onCheckedChange={(val) => setTenantData(prev => ({...prev, flashYieldEnabled: val}))}
                                     disabled={!isEditing}
@@ -842,15 +877,15 @@ function SettingsPageImpl() {
 
                         <Separator className="border-dashed" />
 
-                        <div className="space-y-6 text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary ml-1 text-left">Default Recovery Strategy</Label>
+                        <div className="space-y-6 text-left text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary ml-1 text-left text-left">Default Recovery Strategy</Label>
                             <Controller
                                 name="defaultCancellationMode"
                                 control={control}
                                 defaultValue={tenantData.defaultCancellationMode || 'matrix'}
                                 render={({ field }) => (
-                                    <RadioGroup onValueChange={(v: any) => setTenantData(p => ({...p, defaultCancellationMode: v}))} value={tenantData.defaultCancellationMode || 'matrix'} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <label htmlFor="mode-matrix" className="cursor-pointer h-full">
+                                    <RadioGroup onValueChange={(v: any) => setTenantData(p => ({...p, defaultCancellationMode: v}))} value={tenantData.defaultCancellationMode || 'matrix'} className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
+                                        <label htmlFor="mode-matrix-edit" className="cursor-pointer h-full">
                                             <div className={cn(
                                                 "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full text-center",
                                                 (tenantData.defaultCancellationMode || 'matrix') === 'matrix' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
@@ -858,10 +893,10 @@ function SettingsPageImpl() {
                                                 <ScaleIcon className={cn("mb-2 h-8 w-8", (tenantData.defaultCancellationMode || 'matrix') === 'matrix' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest leading-tight">Recovery Matrix</span>
                                                 <p className="text-[8px] font-bold opacity-40 mt-1 uppercase">Time + Materials</p>
-                                                <RadioGroupItem value="matrix" id="mode-matrix" className="sr-only" disabled={!isEditing} />
+                                                <RadioGroupItem value="matrix" id="mode-matrix-edit" className="sr-only" disabled={!isEditing} />
                                             </div>
                                         </label>
-                                        <label htmlFor="mode-percent" className="cursor-pointer h-full">
+                                        <label htmlFor="mode-percent-edit" className="cursor-pointer h-full">
                                             <div className={cn(
                                                 "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full text-center",
                                                 tenantData.defaultCancellationMode === 'percentage' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
@@ -869,10 +904,10 @@ function SettingsPageImpl() {
                                                 <Percent className={cn("mb-2 h-8 w-8", tenantData.defaultCancellationMode === 'percentage' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest leading-tight">Service Percentage</span>
                                                 <p className="text-[8px] font-bold opacity-40 mt-1 uppercase">Price Pro-Rata</p>
-                                                <RadioGroupItem value="percentage" id="mode-percent" className="sr-only" disabled={!isEditing} />
+                                                <RadioGroupItem value="percentage" id="mode-percent-edit" className="sr-only" disabled={!isEditing} />
                                             </div>
                                         </label>
-                                        <label htmlFor="mode-flat" className="cursor-pointer h-full">
+                                        <label htmlFor="mode-flat-edit" className="cursor-pointer h-full">
                                             <div className={cn(
                                                 "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full text-center",
                                                 tenantData.defaultCancellationMode === 'flat' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
@@ -880,7 +915,7 @@ function SettingsPageImpl() {
                                                 <DollarSign className={cn("mb-2 h-8 w-8", tenantData.defaultCancellationMode === 'flat' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest leading-tight">Fixed Rate</span>
                                                 <p className="text-[8px] font-bold opacity-40 mt-1 uppercase">Uniform Fee</p>
-                                                <RadioGroupItem value="flat" id="mode-flat" className="sr-only" disabled={!isEditing} />
+                                                <RadioGroupItem value="flat" id="mode-flat-edit" className="sr-only" disabled={!isEditing} />
                                             </div>
                                         </label>
                                     </RadioGroup>
@@ -888,11 +923,11 @@ function SettingsPageImpl() {
                             />
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-dashed">
-                            <div className="space-y-3">
-                                <Label htmlFor="cancel-window" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Window (Hours)</Label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-dashed text-left">
+                            <div className="space-y-3 text-left">
+                                <Label htmlFor="cancel-window-edit-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Window (Hours)</Label>
                                 <Input 
-                                    id="cancel-window"
+                                    id="cancel-window-edit-manual"
                                     type="number"
                                     value={tenantData.cancellationWindowHours || 0}
                                     onChange={e => setTenantData(prev => ({...prev, cancellationWindowHours: parseInt(e.target.value) || 0}))}
@@ -900,12 +935,12 @@ function SettingsPageImpl() {
                                     className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center"
                                 />
                             </div>
-                            <div className="space-y-3">
-                                <Label htmlFor="cancel-fee" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Flat Fee ($)</Label>
-                                <div className="relative">
+                            <div className="space-y-3 text-left">
+                                <Label htmlFor="cancel-fee-edit-manual" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Flat Fee ($)</Label>
+                                <div className="relative text-left">
                                     <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                                     <Input 
-                                        id="cancel-fee"
+                                        id="cancel-fee-edit-manual"
                                         type="number"
                                         value={tenantData.cancellationFee || 0}
                                         onChange={e => setTenantData(prev => ({...prev, cancellationFee: parseFloat(e.target.value) || 0}))}
@@ -917,14 +952,14 @@ function SettingsPageImpl() {
                         </div>
 
                         <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-dashed bg-muted/5 shadow-inner">
-                            <div className="space-y-1 text-left">
-                                <Label htmlFor="allow-deferral" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
+                            <div className="space-y-1 text-left text-left">
+                                <Label htmlFor="allow-deferral-edit" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                     <Zap className="w-4 h-4 text-primary" /> Guest Autonomy: Fee Deferral
                                 </Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Allow guests to add rescheduling fees to their session bill</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left text-left">Allow guests to add rescheduling fees to their session bill</p>
                             </div>
                             <Switch 
-                                id="allow-deferral" 
+                                id="allow-deferral-edit" 
                                 checked={!!tenantData.allowGuestFeeDeferral} 
                                 onCheckedChange={(val) => setTenantData(prev => ({...prev, allowGuestFeeDeferral: val}))}
                                 disabled={!isEditing}
@@ -934,11 +969,11 @@ function SettingsPageImpl() {
                     </CardContent>
                 </Card>
 
-                <div className="space-y-8">
+                <div className="space-y-8 text-left">
                     <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1 text-left">
-                        <div className="space-y-1 text-left">
-                            <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Service-Specific Protocols</h2>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Custom logic guards per treatment unit.</p>
+                        <div className="space-y-1 text-left text-left">
+                            <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none text-left">Service-Specific Protocols</h2>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Custom logic guards per treatment unit.</p>
                         </div>
                         <div className="relative w-full md:w-64 text-left">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
@@ -951,7 +986,7 @@ function SettingsPageImpl() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
                         {filteredServices.map(service => (
                             <ServicePolicyCard 
                                 key={service.id} 
@@ -973,20 +1008,20 @@ function SettingsPageImpl() {
                 </div>
 
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left text-left text-left">
                         <SectionHeader icon={Shield} title="Public Accountability Policies" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Define the narrative for your guest-facing agreements.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left text-left">Define the narrative for your guest-facing agreements.</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-6 text-left">
+                    <CardContent className="p-6 md:p-8 space-y-6 text-left text-left text-left">
                         {[
                             { id: 'cancellationPolicy', label: 'Cancellation Policy (Public)', placeholder: 'Describe your requirements for cancelling a session...' },
                             { id: 'lateArrivalPolicy', label: 'Late Arrival Policy (Public)', placeholder: 'Describe grace periods and potential penalties...' },
                             { id: 'noShowPolicy', label: 'No-Show Policy (Public)', placeholder: 'Describe the consequence of missing an appointment...' }
                         ].map(policy => (
-                            <div key={policy.id} className="space-y-2">
-                                <Label htmlFor={policy.id} className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{policy.label}</Label>
+                            <div key={policy.id} className="space-y-2 text-left">
+                                <Label htmlFor={`${policy.id}-input`} className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{policy.label}</Label>
                                 <Textarea 
-                                    id={policy.id}
+                                    id={`${policy.id}-input`}
                                     value={(tenantData as any)[policy.id] || ''}
                                     onChange={e => setTenantData(prev => ({...prev, [policy.id]: e.target.value}))}
                                     disabled={!isEditing}
@@ -1001,21 +1036,21 @@ function SettingsPageImpl() {
 
             <TabsContent value="builder" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left text-left">
                         <SectionHeader icon={Globe} title="Booking Architecture" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Configure your guest-facing digital presence.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left text-left">Configure your guest-facing digital presence.</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                        <div className="space-y-8">
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Brand Signature (Logo)</Label>
+                    <CardContent className="p-6 md:p-8 space-y-10 text-left text-left">
+                        <div className="space-y-8 text-left">
+                            <div className="space-y-2 text-left text-left">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Brand Signature (Logo)</Label>
                                 <ImageUpload 
                                     onImageUploaded={(url) => setTenantData(prev => ({...prev, bookingPageSettings: {...prev.bookingPageSettings, logoUrl: url}}))}
                                     initialImage={tenantData.bookingPageSettings?.logoUrl}
                                 />
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Title</Label>
                                     <Input 
                                         value={tenantData.bookingPageSettings?.heroTitle || ''} 
@@ -1024,7 +1059,7 @@ function SettingsPageImpl() {
                                         className="h-12 rounded-xl border-2 font-bold"
                                     />
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Primary Color (Hex)</Label>
                                     <div className="flex gap-2">
                                         <div className="w-12 h-12 rounded-xl border-2 shrink-0 shadow-inner" style={{ backgroundColor: tenantData.bookingPageSettings?.primaryColor || '#7955c4' }} />
@@ -1050,8 +1085,8 @@ function SettingsPageImpl() {
 
                         <Separator className="border-dashed" />
 
-                        <div className="space-y-4">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Visibility Protocol</Label>
+                        <div className="space-y-4 text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Visibility Protocol</Label>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
                                 {[
                                     { key: 'showTeam', label: 'Pro Team Section' },
@@ -1061,8 +1096,8 @@ function SettingsPageImpl() {
                                     { key: 'showMemberships', label: 'Club Access' },
                                     { key: 'showPackages', label: 'Prepaid Bundles' },
                                 ].map(toggle => (
-                                    <div key={toggle.key} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5 shadow-inner">
-                                        <span className="text-xs font-black uppercase tracking-tight">{toggle.label}</span>
+                                    <div key={toggle.key} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5 shadow-inner text-left">
+                                        <span className="text-xs font-black uppercase tracking-tight text-left">{toggle.label}</span>
                                         <span className="sr-only">{toggle.label}</span>
                                         <Switch 
                                             checked={(tenantData.bookingPageSettings as any)?.[toggle.key] !== false}
@@ -1077,28 +1112,28 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="kiosk" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left text-left">
+            <TabsContent value="kiosk" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white text-left">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left text-left">
                         <SectionHeader icon={Fingerprint} title="Kiosk Orchestration" />
                         <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left text-left">Manage the check-in terminal experience.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left text-left">
-                        <div className="space-y-8 text-left">
-                            <div className="space-y-2 text-left text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Kiosk Identity (Logo)</Label>
+                        <div className="space-y-8 text-left text-left">
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Kiosk Identity (Logo)</Label>
                                 <ImageUpload 
                                     onImageUploaded={(url) => setTenantData(prev => ({...prev, kioskSettings: {...prev.kioskSettings, logoUrl: url}}))}
                                     initialImage={tenantData.kioskSettings?.logoUrl}
                                 />
                             </div>
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 transition-all text-left">
-                                <div className="space-y-1 text-left text-left">
-                                    <Label htmlFor="kiosk-hours-toggle" className="text-base font-black uppercase tracking-tight text-primary">Specific Kiosk Hours</Label>
+                                <div className="space-y-1 text-left">
+                                    <Label htmlFor="kiosk-hours-toggle-edit" className="text-base font-black uppercase tracking-tight text-primary">Specific Kiosk Hours</Label>
                                     <p className="text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left">Close walk-ins earlier than business hours</p>
                                 </div>
                                 <Switch 
-                                    id="kiosk-hours-toggle" 
+                                    id="kiosk-hours-toggle-edit" 
                                     checked={!!tenantData.kioskSettings?.useSpecificHours} 
                                     onCheckedChange={(val) => setTenantData(prev => ({...prev, kioskSettings: { ...prev.kioskSettings, useSpecificHours: val }}))}
                                     disabled={!isEditing}
@@ -1108,12 +1143,12 @@ function SettingsPageImpl() {
 
                             <AnimatePresence>
                                 {tenantData.kioskSettings?.useSpecificHours && (
-                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 pt-4 border-t border-dashed text-left text-left">
+                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 pt-4 border-t border-dashed text-left">
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Walk-in Window Schedule</Label>
                                         <div className="space-y-3 text-left text-left">
                                             {dayOrder.map(day => (
                                                 <DayHoursRow 
-                                                    key={`kiosk-${day}`} 
+                                                    key={`kiosk-edit-${day}`} 
                                                     day={day} 
                                                     data={localKioskSchedule?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }} 
                                                     onChange={handleKioskScheduleChange} 

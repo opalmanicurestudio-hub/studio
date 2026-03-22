@@ -129,12 +129,13 @@ export default function SignupPage() {
         onboardingComplete: false,
         maxAutonomousRecoveryAmount: 50,
         maxAutonomousRecoveryPercent: 25,
+        defaultCancellationMode: 'matrix',
         escalationPolicy: "1. Autonomy: Staff are authorized to resolve minor hospitality or technical lapses up to their limit. 2. Criteria: Use 'Recovery Adjustment' for delays > 15m or minor inconsistencies. 3. Immediate Escalation: Mandatory for medical reactions, property damage, or guest hostility. 4. Documentation: Always log specific reasoning in the Checkout Hub.",
         recoveryPresets: [
-            { id: 'wait-time', label: 'Wait Time Recovery', type: 'fixed', value: 15 },
-            { id: 'tech-adj', label: 'Technical Revision', type: 'percentage', value: 20 },
-            { id: 'hospitality', label: 'Hospitality Lapse', type: 'fixed', value: 10 },
-            { id: 'protocol-fail', label: 'Protocol Failure', type: 'percentage', value: 100 }
+            { id: 'wait-time', label: 'WAIT TIME RECOVERY', type: 'fixed', value: 15 },
+            { id: 'tech-adj', label: 'TECHNICAL REVISION', type: 'percentage', value: 20 },
+            { id: 'hospitality', label: 'HOSPITALITY LAPSE', type: 'fixed', value: 10 },
+            { id: 'protocol-fail', label: 'PROTOCOL FAILURE', type: 'percentage', value: 100 }
         ],
         bookingPageSettings: {
             heroTitle: `Welcome to ${data.businessName}`,
