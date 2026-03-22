@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -34,10 +33,11 @@ import {
     Heart,
     HandHeart,
     Utensils,
-    Wine
+    Wine,
+    ArrowDown
 } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, getDocs, startOfDay } from 'firebase/firestore';
+import { collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { format, parseISO, isAfter, subMonths, subYears, startOfMonth } from 'date-fns';
 import { cn, safeNumber, hexToHSLComponents } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -102,7 +102,9 @@ const MenuCard = ({
             )}>
                 <div className="relative aspect-square bg-muted/20 overflow-hidden border-b flex items-center justify-center">
                     {item.imageUrl ? (
-                        <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
+                        <div className="relative w-full h-full">
+                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
+                        </div>
                     ) : (
                         <Icon className="w-16 h-16 text-primary opacity-20" />
                     )}
@@ -278,7 +280,7 @@ export default function ConciergeKioskPage() {
                                 >
                                     <div className="space-y-3 text-center">
                                         <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
-                                            <HandHandHeart className="w-10 h-10 text-primary" />
+                                            <HandHeart className="w-10 h-10 text-primary" />
                                         </div>
                                         <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900">Welcome to the Lounge</h2>
                                         <p className="text-sm md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60">Please identify yourself to begin your experience.</p>
@@ -408,25 +410,4 @@ export default function ConciergeKioskPage() {
             </footer>
         </div>
     );
-}
-
-function HandHandHeart(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M11 14h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 16" />
-      <path d="m7 20 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-5.4a2 2 0 0 0-3-2.8L15 12" />
-      <path d="M12 5H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1" />
-    </svg>
-  );
 }
