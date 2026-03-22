@@ -74,6 +74,7 @@ import type { Client, Appointment, Service, CustomFormula, Membership, Redemptio
 import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -625,7 +626,7 @@ export default function ClientDetailPage() {
                             <div className="space-y-6">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
                                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left">
-                                        <FlaskConical className="w-5 h-5" />
+                                        <FlaskConical className="w-5 h-5 text-primary" />
                                         Technical Archive
                                     </h3>
                                     <Button variant="ghost" size="sm" onClick={() => setIsAddFormulaOpen(true)} className="h-8 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10">

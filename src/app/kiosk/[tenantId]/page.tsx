@@ -80,6 +80,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Separator } from '@/components/ui/separator';
 import { useForm, FormProvider } from 'react-hook-form';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -133,6 +134,17 @@ const ViewContainer = ({ children }: { children: React.ReactNode }) => (
     >
         {children}
     </motion.div>
+);
+
+const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
+    <CardHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 text-left">
+        <div className="flex items-center gap-3 mb-2">
+            {Icon ? <Icon className="w-4 h-4 md:w-5 md:h-5 text-primary" /> : <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />}
+            <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
+        </div>
+        <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
+        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
+    </CardHeader>
 );
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
@@ -459,7 +471,9 @@ const StepDetails = ({
                             <Ban className="h-5 w-5 shrink-0" />
                             <div>
                                 <p className="text-xs font-bold uppercase tracking-tight mb-1">Check-in Restricted</p>
-                                <p className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">Account restricted. Please see the desk for assistance.</p>
+                                <p className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
+                                    {bannedClient.banMessage || 'Account restricted. Please see the desk for assistance.'}
+                                </p>
                             </div>
                         </div>
                     </motion.div>

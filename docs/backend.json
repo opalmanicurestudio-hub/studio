@@ -21,17 +21,15 @@
         "id": { "type": "string" },
         "name": { "type": "string" },
         "userId": { "type": "string" },
-        "subscriptionStatus": { "type": "string", "enum": ["active", "inactive"] },
+        "subscriptionStatus": { "type": "string", "enum": ["active", "inactive", "canceled"] },
         "subscriptionTier": { "type": "string", "enum": ["none", "solo", "studio", "enterprise"] },
-        "wifiNetwork": { "type": "string" },
-        "wifiPassword": { "type": "string" },
-        "refreshmentServiceEnabled": { "type": "boolean", "default": false },
-        "complimentaryAmenityLimit": { "type": "number", "default": 0 },
+        "tmhr": { "type": "number" },
         "cancellationFee": { "type": "number" },
         "cancellationWindowHours": { "type": "number" },
-        "defaultCancellationMode": { "type": "string", "enum": ["matrix", "flat"] },
-        "tightSchedulingEnabled": { "type": "boolean", "default": false },
-        "morningAnchorEnabled": { "type": "boolean", "default": false },
+        "defaultCancellationMode": { "type": "string", "enum": ["matrix", "flat", "percentage"] },
+        "tightSchedulingEnabled": { "type": "boolean" },
+        "morningAnchorEnabled": { "type": "boolean" },
+        "flashYieldEnabled": { "type": "boolean" },
         "bookingPageSettings": { "type": "object" },
         "kioskSettings": { "type": "object" }
       },
@@ -47,22 +45,27 @@
         "cost": { "type": "number" },
         "duration": { "type": "number" },
         "category": { "type": "string" },
-        "cancellationWindowHours": { "type": "number", "description": "Override for the cancellation notice window in hours." },
-        "customCancellationFee": { "type": "number", "description": "Specific override fee for late cancellations of this service." }
+        "cancellationFeeMode": { "type": "string", "enum": ["inherit", "matrix", "flat", "percentage"] },
+        "cancellationFeeValue": { "type": "number" }
       },
       "required": ["id", "name", "price"]
     },
-    "InventoryItem": {
-      "title": "Inventory Item",
+    "Client": {
+      "title": "Client",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
-        "type": { "type": "string", "enum": ["professional", "retail", "equipment", "overhead", "refreshment"] },
-        "totalStock": { "type": "number" },
-        "costPerUnit": { "type": "number" }
+        "email": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "archived", "banned"] },
+        "banMessage": { "type": "string" },
+        "cancellationCount": { "type": "number", "default": 0 },
+        "noShowCount": { "type": "number", "default": 0 },
+        "rescheduleCount": { "type": "number", "default": 0 },
+        "lifetimeValue": { "type": "number", "default": 0 },
+        "outstandingBalance": { "type": "number", "default": 0 }
       },
-      "required": ["id", "name", "type", "totalStock"]
+      "required": ["id", "name"]
     }
   },
   "auth": {
@@ -80,6 +83,10 @@
     "/tenants/{tenantId}/services/{serviceId}": {
       "schema": { "$ref": "#/backend/entities/Service" },
       "description": "Studio treatments."
+    },
+    "/tenants/{tenantId}/clients/{clientId}": {
+      "schema": { "$ref": "#/backend/entities/Client" },
+      "description": "Guest records."
     }
   }
 }
