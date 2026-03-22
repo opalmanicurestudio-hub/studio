@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -41,7 +42,8 @@ import {
     Lock,
     Info,
     Check,
-    User
+    User,
+    Delete
 } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc, getDocs, writeBatch } from 'firebase/firestore';
@@ -78,6 +80,76 @@ const FloatingContainer = ({ children, className }: { children: React.ReactNode,
         {children}
     </motion.div>
 );
+
+const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying }: any) => {
+    const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'delete'];
+    
+    const formattedDisplay = useMemo(() => {
+        const cleaned = value.replace(/\D/g, '');
+        if (!cleaned) return '';
+        if (cleaned.length <= 3) return `( ${cleaned} )`;
+        if (cleaned.length <= 6) return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3)}`;
+        return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3, 6)} - ${cleaned.slice(6)}`;
+    }, [value]);
+
+    return (
+        <FloatingContainer className="max-w-md text-center space-y-10 py-12">
+            <div className="space-y-3 text-center">
+                <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                    <ShieldCheck className="w-10 h-10 text-primary" />
+                </div>
+                <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center">Recognize Perks</h2>
+                <p className="text-sm md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Enter your mobile signature to unlock club benefits.</p>
+            </div>
+
+            <div className="p-8 rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white/50 shadow-inner text-center">
+                <p className="text-2xl md:text-4xl font-black font-mono tracking-widest text-primary leading-none min-h-[1.2em]">
+                    {formattedDisplay || '\u00A0'}
+                </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 max-w-[320px] mx-auto">
+                {digits.map((d, i) => {
+                    if (d === '') return <div key={i} />;
+                    if (d === 'delete') {
+                        return (
+                            <motion.button 
+                                key={i} 
+                                whileTap={{ scale: 0.9 }}
+                                onClick={onDelete}
+                                className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive transition-all"
+                            >
+                                <Delete className="w-6 h-6 md:w-8 md:h-8" strokeWidth={1.5} />
+                            </motion.button>
+                        );
+                    }
+                    return (
+                        <motion.button 
+                            key={i} 
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => onDigit(d)}
+                            className="h-16 w-16 md:h-20 md:w-20 rounded-2xl bg-white/40 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center"
+                        >
+                            {d}
+                        </motion.button>
+                    );
+                })}
+            </div>
+
+            <div className="space-y-4 pt-4 text-center">
+                <Button 
+                    size="lg" 
+                    onClick={onConfirm} 
+                    disabled={value.length < 10 || isVerifying}
+                    className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
+                >
+                    {isVerifying ? <Loader className="animate-spin" /> : <>Verify Identity <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></>}
+                </Button>
+                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400 font-bold uppercase tracking-widest text-[10px] md:text-xs">Continue as Guest</Button>
+            </div>
+        </FloatingContainer>
+    );
+};
 
 const MenuCard = ({ 
     item, 
@@ -158,9 +230,9 @@ export default function ConciergeKioskPage() {
     const { toast } = useToast();
 
     const [entered, setEntered] = useState(false);
-    const [step, setStep] = useState<'onboarding' | 'identity' | 'menu' | 'payment' | 'success'>('onboarding');
+    const [step, setStep] = useState<'onboarding' | 'identity' | 'phone_pad' | 'menu' | 'payment' | 'success'>('onboarding');
     const [guestName, setGuestName] = useState('');
-    const [guestPhone, setGuestPhone] = useState('');
+    const [phonePadValue, setPhonePadValue] = useState('');
     const [identifiedClient, setIdentifiedClient] = useState<Client | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
     const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
@@ -201,26 +273,42 @@ export default function ConciergeKioskPage() {
         setStep('identity');
     };
 
-    const handleIdentify = async (e: React.FormEvent) => {
+    const handleIdentitySubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!guestName.trim()) return;
-
-        if (guestPhone.length >= 10) {
-            setIsVerifying(true);
-            try {
-                const clientsRef = collection(firestore, `tenants/${tenantId}/clients`);
-                const q = query(clientsRef, where("phone", "==", guestPhone));
-                const snap = await getDocs(q);
-                if (!snap.empty) {
-                    const c = snap.docs[0].data() as Client;
-                    setIdentifiedClient({ ...c, id: snap.docs[0].id });
-                    setGuestName(c.name);
-                    toast({ title: `Welcome back, ${c.name.split(' ')[0]}` });
-                }
-            } catch (err) { console.error(err); }
-            finally { setIsVerifying(false); }
-        }
         setStep('menu');
+    };
+
+    const handlePhonePadDigit = (digit: string) => {
+        if (phonePadValue.length < 10) setPhonePadValue(prev => prev + digit);
+    };
+
+    const handlePhonePadDelete = () => {
+        setPhonePadValue(prev => prev.slice(0, -1));
+    };
+
+    const handlePhonePadConfirm = async () => {
+        if (phonePadValue.length < 10) return;
+        setIsVerifying(true);
+        try {
+            const clientsRef = collection(firestore, `tenants/${tenantId}/clients`);
+            const q = query(clientsRef, where("phone", "==", `+1${phonePadValue}`));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+                const c = snap.docs[0].data() as Client;
+                setIdentifiedClient({ ...c, id: snap.docs[0].id });
+                setGuestName(c.name);
+                toast({ title: `Identity Verified`, description: `Welcome, ${c.name.split(' ')[0]}. perks unlocked.` });
+                setStep('menu');
+            } else {
+                toast({ variant: 'destructive', title: 'Profile Not Found', description: "No record found with that mobile signature." });
+            }
+        } catch (err) { 
+            console.error(err); 
+            toast({ variant: 'destructive', title: 'Connection Error' });
+        } finally { 
+            setIsVerifying(false); 
+        }
     };
 
     const handleRequest = async (item: InventoryItem, qty: number) => {
@@ -259,7 +347,6 @@ export default function ConciergeKioskPage() {
                 isGuestKiosk: true
             });
 
-            // If it's a paid guest sale, record the transaction immediately
             if (safeNumber(item.price) > 0 && !activeMembership?.includedProducts?.some((p: any) => p.id === item.id)) {
                 const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                 batch.set(txnRef, {
@@ -298,7 +385,6 @@ export default function ConciergeKioskPage() {
             className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body relative"
             style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}
         >
-            {/* ATMOSPHERIC BACKGROUND */}
             <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
                 <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
                 <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full animate-pulse" />
@@ -379,38 +465,48 @@ export default function ConciergeKioskPage() {
                                         <p className="text-sm md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Please identify yourself to begin your experience.</p>
                                     </div>
 
-                                    <form onSubmit={handleIdentify} className="max-w-md mx-auto space-y-8 text-center">
-                                        <div className="space-y-4 text-left">
-                                            <div className="space-y-2 text-left">
-                                                <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Your Full Name</Label>
-                                                <Input 
-                                                    autoFocus
-                                                    value={guestName}
-                                                    onChange={e => setGuestName(e.target.value)}
-                                                    placeholder="ENTER NAME"
-                                                    className="h-16 rounded-2xl border-4 font-black uppercase text-xl md:text-2xl tracking-tight shadow-inner focus-visible:ring-primary/20 text-center bg-white/80"
-                                                />
-                                            </div>
-                                            <div className="space-y-2 text-left">
-                                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile Number (Optional Perk Check)</Label>
-                                                <Input 
-                                                    type="tel"
-                                                    value={guestPhone}
-                                                    onChange={e => setGuestPhone(e.target.value.replace(/\D/g, ''))}
-                                                    placeholder="555-000-0000"
-                                                    className="h-14 rounded-2xl border-2 font-black text-lg text-center bg-white/80"
-                                                />
-                                            </div>
+                                    <form onSubmit={handleIdentitySubmit} className="max-w-md mx-auto space-y-8 text-center">
+                                        <div className="space-y-2 text-left">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Your Full Name</Label>
+                                            <Input 
+                                                autoFocus
+                                                value={guestName}
+                                                onChange={e => setGuestName(e.target.value)}
+                                                placeholder="ENTER NAME"
+                                                className="h-16 rounded-2xl border-4 font-black uppercase text-xl md:text-2xl tracking-tight shadow-inner focus-visible:ring-primary/20 text-center bg-white/80"
+                                            />
                                         </div>
-                                        <Button 
-                                            type="submit" 
-                                            disabled={!guestName.trim() || isVerifying}
-                                            className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
-                                        >
-                                            {isVerifying ? <Loader className="animate-spin" /> : <>Explore Menu <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2"/></>}
-                                        </Button>
+                                        <div className="flex flex-col gap-4">
+                                            <Button 
+                                                type="submit" 
+                                                disabled={!guestName.trim() || isVerifying}
+                                                className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
+                                            >
+                                                Explore Menu <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2"/>
+                                            </Button>
+                                            <Button 
+                                                type="button"
+                                                variant="ghost"
+                                                onClick={() => setStep('phone_pad')}
+                                                className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline"
+                                            >
+                                                Recognize My Perks (Member)
+                                            </Button>
+                                        </div>
                                     </form>
                                 </FloatingContainer>
+                            )}
+
+                            {step === 'phone_pad' && (
+                                <PhonePadView 
+                                    key="phone_pad"
+                                    value={phonePadValue}
+                                    onDigit={handlePhonePadDigit}
+                                    onDelete={handlePhonePadDelete}
+                                    onConfirm={handlePhonePadConfirm}
+                                    onBack={() => setStep('identity')}
+                                    isVerifying={isVerifying}
+                                />
                             )}
 
                             {step === 'menu' && (
@@ -446,7 +542,7 @@ export default function ConciergeKioskPage() {
                                                         onSelect={(qty) => handleRequest(item, qty)}
                                                         isMember={!!identifiedClient?.activeMembershipId}
                                                         activeMembership={activeMembership}
-                                                        remainingPerks={10} 
+                                                        remainingPerks={identifiedClient ? 10 : 0} 
                                                     />
                                                 ))}
                                             </div>
