@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -49,7 +50,9 @@ import {
     Delete, 
     Workflow, 
     CalendarCheck,
-    CheckCircle2
+    CheckCircle2,
+    Award,
+    Lock
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -355,6 +358,41 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
     </div>
 );
 
+const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, onDone: () => void }) => (
+    <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }} 
+        animate={{ opacity: 1, scale: 1 }} 
+        exit={{ opacity: 0, scale: 1.1 }}
+        className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-white p-6 text-center"
+    >
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            {Array.from({ length: 20 }).map((_, i) => (
+                <motion.div
+                    key={i}
+                    initial={{ y: -20, opacity: 0 }}
+                    animate={{ y: 1000, opacity: [0, 1, 1, 0] }}
+                    transition={{ delay: i * 0.1, duration: 2, repeat: Infinity }}
+                    className="absolute"
+                    style={{ left: `${Math.random() * 100}%`, top: '-5%' }}
+                >
+                    <PartyPopper className={cn("w-6 h-6", i % 2 === 0 ? "text-primary" : "text-amber-400")} />
+                </motion.div>
+            ))}
+        </div>
+
+        <div className="relative z-10 space-y-10 max-w-lg">
+            <div className="w-32 h-32 md:w-48 md:h-48 bg-primary/10 rounded-full flex items-center justify-center mx-auto shadow-3xl shadow-primary/20 animate-bounce">
+                <Cake className="w-16 h-16 md:w-24 md:h-24 text-primary" strokeWidth={1.5} />
+            </div>
+            <div className="space-y-4">
+                <h2 className="text-4xl md:text-7xl font-black uppercase tracking-tighter text-slate-900 leading-none">Happy Birthday,<br/><span className="text-primary italic font-serif lowercase tracking-normal">{clientName.split(' ')[0]}!</span></h2>
+                <p className="text-slate-500 text-lg md:text-2xl font-bold uppercase tracking-[0.2em] opacity-70 leading-relaxed px-6">We're so glad you chose to spend your special day with us. Enjoy your session!</p>
+            </div>
+            <Button size="lg" onClick={onDone} className="h-16 md:h-20 px-12 md:px-20 text-lg md:text-2xl font-bold rounded-full uppercase tracking-widest shadow-3xl shadow-primary/30 active:scale-95">Continue to Queue</Button>
+        </div>
+    </motion.div>
+);
+
 const StepDetails = ({ 
     member, 
     onUpdate, 
@@ -370,7 +408,7 @@ const StepDetails = ({
         <div className="space-y-6 text-left">
             <div className="space-y-2">
                 <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
-                    <Phone className="w-3 h-3 text-primary opacity-60"/>
+                    <Phone className="w-3  h-3 text-primary opacity-60"/>
                     <span>Phone Number</span>
                 </Label>
                 <div className="kiosk-phone-input">
@@ -493,7 +531,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: an
         
         const nextAddOns = services.filter(s => s.type === 'addon' && (selectedMain?.compatibleAddOnIds || []).includes(s.id));
         if (nextAddOns.length > 0) setView('addon');
-        else onUpdate({ serviceIds: nextServiceIds }); // Transition handled by parent if needed
+        else onUpdate({ serviceIds: nextServiceIds }); 
     };
 
     const toggleAddOn = (id: string) => {
@@ -633,7 +671,8 @@ const MemberSetup = ({
     existingClientWithBalance,
     isResolvingIdentity,
     matchedAppointment,
-    onAppointmentCheckIn
+    onAppointmentCheckIn,
+    dayAccessTier
 }: any) => {
     const subStepTitles = {
         details: { title: 'Personal Info', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
@@ -673,14 +712,23 @@ const MemberSetup = ({
 
             <div className="p-8 md:p-12 pt-4 md:pt-6">
                 <AnimatePresence mode="wait">
-                    <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                    <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }}>
                         {memberSubStep === 'details' && (
                             <div className="space-y-8">
+                                {dayAccessTier === 'members' && (
+                                    <Alert className="bg-indigo-50 border-indigo-200 rounded-[2rem] p-6 border-2 shadow-sm text-left mb-6">
+                                        <Award className="h-6 w-6 text-indigo-600" />
+                                        <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-indigo-700">Member Priority Day</AlertTitle>
+                                        <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left text-indigo-600">
+                                            Today is reserved for our Club Members. Please identify yourself to proceed with your priority check-in.
+                                        </AlertDescription>
+                                    </Alert>
+                                )}
                                 {matchedAppointment && (
                                     <div className="p-6 rounded-[2.5rem] border-4 border-primary bg-primary/5 shadow-2xl space-y-6 text-left">
                                         <div className="flex items-center gap-4">
                                             <div className="p-3 bg-primary rounded-2xl shadow-xl"><CalendarCheck className="w-8 h-8 text-white" /></div>
-                                            <div className="space-y-1">
+                                            <div className="space-y-1 text-left">
                                                 <p className="text-[10px] font-black uppercase text-primary tracking-widest">Appointment Match</p>
                                                 <h3 className="text-xl font-black uppercase text-slate-900">{services.find((s:any) => s.id === matchedAppointment.serviceId)?.name}</h3>
                                             </div>
@@ -805,6 +853,11 @@ export default function WalkInPage() {
   const [clientType, setClientType] = useState<'new' | 'returning' | null>(null);
   const [phonePadValue, setPhonePadValue] = useState('');
 
+  const activeDaySchedule = useMemo(() => {
+      const dayName = format(new Date(), 'eeee').toLowerCase();
+      return scheduleProfiles?.[0]?.week?.[dayName] || null;
+  }, [scheduleProfiles]);
+
   const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
     if (!firestore || !tenantId || (!email && !phone)) return;
     
@@ -923,6 +976,22 @@ export default function WalkInPage() {
         await resolveIdentity(member.email, member.phone);
         if (bannedClient || existingClientWithBalance) {
             return; 
+        }
+
+        // --- TIERED ACCESS CHECK ---
+        const dayAccess = activeDaySchedule?.accessTier || 'all';
+        if (dayAccess === 'members') {
+            const isClientMember = !!(matchedClient?.activeMembershipId || matchedClient?.subscription);
+            const isClientPackageHolder = (matchedClient?.activePackages?.length || 0) > 0;
+            if (!isClientMember && !isClientPackageHolder) {
+                toast({ variant: 'destructive', title: 'Priority Access Only', description: 'Today is exclusively for Club Members. Ask at the desk about joining.' });
+                return;
+            }
+        } else if (dayAccess === 'returning') {
+            if (!matchedClient) {
+                toast({ variant: 'destructive', title: 'Return Guest Priority', description: 'Today is reserved for our regular guests. Please visit us on a standard booking day!' });
+                return;
+            }
         }
     }
 
@@ -1192,6 +1261,7 @@ export default function WalkInPage() {
                                         isResolvingIdentity={isResolvingIdentity}
                                         matchedAppointment={matchedAppointment}
                                         onAppointmentCheckIn={handleAppointmentCheckIn}
+                                        dayAccessTier={activeDaySchedule?.accessTier}
                                     />
                                 )}
                                 {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); setPhonePadValue(''); setClientType(null); setMatchedClient(null); }} />}

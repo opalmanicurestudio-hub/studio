@@ -58,7 +58,7 @@ import {
   Flame
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Switch } from '@/components/ui/switch';
+import { Switch } from '../ui/switch';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, deleteField } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff } from '@/lib/data';
@@ -68,7 +68,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn, hexToHSLComponents } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
+import { Textarea } from '../ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -446,11 +446,11 @@ function SettingsPageImpl() {
                 <ScrollBar orientation="horizontal" className="hidden" />
              </ScrollArea>
 
-            <TabsContent value="profile" className="mt-0 space-y-10 animate-in fade-in duration-500">
+            <TabsContent value="profile" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Building} title="Studio Identity" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Registry identification and internal labeling.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Registry identification and internal labeling.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-8 text-left">
                         <div className="space-y-3 text-left">
@@ -594,15 +594,15 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500">
+            <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={ShieldCheck} title="Global Studio Governance" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Define studio-wide defaults for late shifts and cancellations.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Define studio-wide defaults for late shifts and cancellations.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="space-y-6 text-left">
-                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5">
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 transition-all">
                                 <div className='space-y-1 text-left'>
                                     <Label htmlFor="tight-scheduling-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2">
                                         <LayoutGrid className="w-4 h-4" /> Zero-Gap Protocol
@@ -618,7 +618,7 @@ function SettingsPageImpl() {
                                 />
                             </div>
 
-                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-xl shadow-indigo-500/5">
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-indigo-500/20 bg-indigo-500/5 shadow-xl shadow-indigo-500/5 transition-all">
                                 <div className='space-y-1 text-left'>
                                     <Label htmlFor="morning-anchor-toggle" className="text-base font-black uppercase tracking-tight text-indigo-700 flex items-center gap-2">
                                         <Clock className="w-4 h-4" /> Morning Anchor Protocol
@@ -634,7 +634,7 @@ function SettingsPageImpl() {
                                 />
                             </div>
 
-                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-amber-500/20 bg-amber-500/5 shadow-xl shadow-amber-500/5">
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-amber-500/20 bg-amber-500/5 shadow-xl shadow-amber-500/5 transition-all">
                                 <div className='space-y-1 text-left'>
                                     <Label htmlFor="flash-yield-toggle" className="text-base font-black uppercase tracking-tight text-amber-700 flex items-center gap-2">
                                         <Flame className="w-4 h-4" /> Flash Yield Protocol
@@ -729,10 +729,10 @@ function SettingsPageImpl() {
 
                         <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-dashed bg-muted/5 shadow-inner">
                             <div className="space-y-1 text-left">
-                                <Label htmlFor="allow-deferral" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                                <Label htmlFor="allow-deferral" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
                                     <Zap className="w-4 h-4 text-primary" /> Guest Autonomy: Fee Deferral
                                 </Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Allow guests to add rescheduling fees to their session bill</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Allow guests to add rescheduling fees to their session bill</p>
                             </div>
                             <Switch 
                                 id="allow-deferral" 
@@ -786,7 +786,7 @@ function SettingsPageImpl() {
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Shield} title="Public Accountability Policies" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Define the narrative for your guest-facing agreements.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Define the narrative for your guest-facing agreements.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-6 text-left">
                         {[
@@ -814,7 +814,7 @@ function SettingsPageImpl() {
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Globe} title="Booking Page Architecture" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure your guest-facing digital presence.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Configure your guest-facing digital presence.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="space-y-8">
@@ -887,11 +887,11 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="kiosk" className="mt-0 space-y-10 animate-in fade-in duration-500">
+            <TabsContent value="kiosk" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Fingerprint} title="Kiosk Orchestration" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Manage the check-in terminal experience.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Manage the check-in terminal experience.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="space-y-8">
@@ -902,7 +902,7 @@ function SettingsPageImpl() {
                                     initialImage={tenantData.kioskSettings?.logoUrl}
                                 />
                             </div>
-                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10">
+                            <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 transition-all">
                                 <div className="space-y-1 text-left">
                                     <Label htmlFor="kiosk-hours-toggle" className="text-base font-black uppercase tracking-tight text-primary">Specific Kiosk Hours</Label>
                                     <p className="text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left">Close walk-ins earlier than business hours</p>

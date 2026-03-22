@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -18,13 +19,14 @@ import {
     Play, 
     ShoppingBag, 
     DollarSign,
-    ShoppingCart 
+    ShoppingCart,
+    Target
 } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { InServiceAppointmentCard } from './InServiceAppointmentCard';
 import { CheckoutQueueCard } from './CheckoutQueueCard';
-import { startOfDay, isSameDay } from 'date-fns';
+import { startOfDay, isSameDay, addMinutes, areIntervalsOverlapping } from 'date-fns';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
@@ -92,7 +94,30 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     const today = startOfDay(new Date());
 
     const unifiedWaitlist = useMemo(() => {
-        const wins = (walkIns || []).filter(w => w.status === 'waiting').map(w => ({ ...w, type: 'walk-in' as const }));
+        const wins = (walkIns || []).filter(w => w.status === 'waiting').map(w => {
+            // High-Performance Logic: Detect if this walk-in fits an "Orphaned Gap"
+            const duration = safeNumber(w.estimatedDuration) || 30;
+            const now = new Date();
+            const potentialEnd = addMinutes(now, duration);
+            
+            // Check if any idle staff can fit them before their next appointment
+            const idleStaffWithGap = (staff || []).filter(s => {
+                if (!s.active || s.onBreak || s.status === 'busy') return false;
+                const nextApt = (appointments || []).find(a => 
+                    a.staffId === s.id && 
+                    a.status === 'confirmed' && 
+                    isSameDay(new Date(a.startTime), now) && 
+                    new Date(a.startTime) > now
+                );
+                if (!nextApt) return true; // Infinite gap
+                return !areIntervalsOverlapping(
+                    { start: now, end: potentialEnd },
+                    { start: new Date(nextApt.startTime), end: new Date(nextApt.endTime) }
+                );
+            });
+
+            return { ...w, type: 'walk-in' as const, isPotentialAlias: idleStaffWithGap.length > 0 };
+        });
         const apts = (appointments || []).filter(a => 
             !a.isWalkIn && 
             isSameDay(new Date(a.startTime), today) && 
@@ -104,7 +129,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
             const timeB = b.type === 'walk-in' ? (b.queueOrder || new Date(b.checkInTime).getTime()) : new Date(b.startTime).getTime();
             return timeA - timeB;
         });
-    }, [walkIns, appointments, today]);
+    }, [walkIns, appointments, today, staff]);
 
     const notifiedQueue = useMemo(() => (walkIns || []).filter(w => w.status === 'notified'), [walkIns]);
     const inServiceQueue = useMemo(() => (appointments || []).filter(apt => apt.status === 'servicing'), [appointments]);
