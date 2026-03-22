@@ -27,7 +27,6 @@ import {
   Coffee,
   ShieldCheck,
   Zap,
-  Layout,
   Fingerprint,
   Save,
   Loader,
@@ -35,7 +34,7 @@ import {
   ArrowRight,
   Smartphone,
   Calendar,
-  Image as ImageIcon,
+  ImageIcon,
   CheckCircle2,
   AlertTriangle,
   Settings as SettingsIcon,
@@ -54,12 +53,13 @@ import {
   Star,
   Landmark,
   PlusCircle,
-  LayoutGrid
+  LayoutGrid,
+  Sparkles
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc, writeBatch, collection, deleteField } from 'firebase/firestore';
+import { doc, writeBatch, deleteField } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -92,7 +92,7 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
             "flex flex-col sm:flex-row items-center justify-between p-4 rounded-2xl border-2 transition-all gap-4",
             data.enabled ? "bg-white border-border" : "bg-muted/30 border-transparent opacity-60"
         )}>
-            <div className="flex items-center gap-4 w-full sm:w-auto">
+            <div className="flex items-center gap-4 w-full sm:w-auto text-left">
                 <Switch 
                     checked={data.enabled} 
                     onCheckedChange={(val) => onChange(day, { enabled: val })} 
@@ -103,7 +103,7 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
             
             {data.enabled && (
                 <div className="flex items-center gap-3 w-full sm:w-auto">
-                    <div className="relative flex-1 sm:w-32">
+                    <div className="relative flex-1 sm:w-32 text-left">
                         <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
                         <Input 
                             type="text" 
@@ -115,7 +115,7 @@ const DayHoursRow = ({ day, data, onChange, disabled }: { day: string, data: Day
                         />
                     </div>
                     <span className="text-muted-foreground opacity-40 font-black text-[10px]">TO</span>
-                    <div className="relative flex-1 sm:w-32">
+                    <div className="relative flex-1 sm:w-32 text-left">
                         <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
                         <Input 
                             type="text" 
@@ -455,7 +455,7 @@ function SettingsPageImpl() {
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10">
                         <div className="space-y-4 max-w-sm text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
                                 <Sparkles className="w-3.5 h-3.5" /> Booking Precision (Interval)
                             </Label>
                             <Select 
@@ -472,7 +472,7 @@ function SettingsPageImpl() {
                                     <SelectItem value="60" className="font-bold">60 MINUTE SLOTS</SelectItem>
                                 </SelectContent>
                             </Select>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase leading-relaxed ml-1 opacity-60">
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase leading-relaxed ml-1 opacity-60 text-left">
                                 This determines the time gaps between available sessions on your booking page.
                             </p>
                         </div>
@@ -501,17 +501,17 @@ function SettingsPageImpl() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500">
+            <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                         <SectionHeader icon={Coffee} title="Hospitality Concierge" />
-                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60">Configure the in-service refreshment and amenity module.</CardDescription>
+                        <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Configure the in-service refreshment and amenity module.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-10 text-left">
                         <div className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6">
                             <div className="space-y-1 text-center sm:text-left">
                                 <Label htmlFor="refreshment-toggle" className="text-base font-black uppercase tracking-tight text-slate-900">Activate Refreshment Menu</Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Allows guests to request in-stock items from their portal</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Allows guests to request in-stock items from their portal</p>
                             </div>
                             <Switch 
                                 id="refreshment-toggle" 
@@ -601,7 +601,7 @@ function SettingsPageImpl() {
                         <Separator className="border-dashed" />
 
                         <div className="space-y-6">
-                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary ml-1">Default Recovery Strategy</Label>
+                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary ml-1 text-left">Default Recovery Strategy</Label>
                             <Controller
                                 name="defaultCancellationMode"
                                 control={control}
