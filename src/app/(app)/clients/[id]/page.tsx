@@ -352,6 +352,10 @@ export default function ClientDetailPage() {
       };
   }, [client]);
 
+  const isHighRisk = useMemo(() => {
+      return (noShowTotal + cancelTotal) > 2;
+  }, [noShowTotal, cancelTotal]);
+
   if (isUserLoading || isTenantLoading || clientLoading) {
       return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
   }
@@ -362,9 +366,6 @@ export default function ClientDetailPage() {
 
   const hasDebt = safeOutstandingBalance > 0;
   const hasCardOnFile = !!client.cardOnFile?.token;
-  
-  const riskScore = noShowTotal + cancelTotal;
-  const isHighRisk = riskScore > 2;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
@@ -737,24 +738,28 @@ export default function ClientDetailPage() {
                             {isHighRisk && <Badge variant="destructive" className="animate-bounce font-black text-[7px] h-4">High Risk Profile</Badge>}
                         </CardHeader>
                         <CardContent className="p-6 space-y-6">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="p-4 rounded-xl border-2 bg-background flex flex-col items-center">
-                                    <span className="text-[8px] font-black text-muted-foreground uppercase mb-1">No-Shows</span>
+                            <div className="grid grid-cols-1 gap-3">
+                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
+                                    <span className="text-[8px] font-black text-muted-foreground uppercase">No-Shows</span>
                                     <span className={cn("text-xl font-black font-mono", noShowTotal > 0 ? "text-destructive" : "text-slate-900")}>{noShowTotal}</span>
                                 </div>
-                                <div className="p-4 rounded-xl border-2 bg-background flex flex-col items-center">
-                                    <span className="text-[8px] font-black text-muted-foreground uppercase mb-1">Cancellations</span>
+                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
+                                    <span className="text-[8px] font-black text-muted-foreground uppercase">Late Cancels</span>
                                     <span className={cn("text-xl font-black font-mono", cancelTotal > 0 ? "text-amber-600" : "text-slate-900")}>{cancelTotal}</span>
+                                </div>
+                                <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
+                                    <span className="text-[8px] font-black text-muted-foreground uppercase">Reschedules</span>
+                                    <span className={cn("text-xl font-black font-mono", rescheduleTotal > 0 ? "text-blue-600" : "text-slate-900")}>{rescheduleTotal}</span>
                                 </div>
                             </div>
                             <AnimatePresence>
-                                {isHighRisk && (
+                                {(isHighRisk && selectedTenant?.guardianProtocolEnabled !== false) && (
                                     <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5 text-destructive space-y-2">
-                                        <div className="flex items-center gap-2">
-                                            <Lock className="w-4 h-4" />
-                                            <span className="text-[10px] font-black uppercase">Guardian Lock Active</span>
+                                        <div className="flex items-center gap-2 text-left">
+                                            <Lock className="w-4 h-4 shrink-0" />
+                                            <span className="text-[10px] font-black uppercase text-left">Guardian Lock Active</span>
                                         </div>
-                                        <p className="text-[10px] font-bold leading-relaxed uppercase">High-risk behavior detected. Booking engine will now strictly enforce upfront deposits for all sessions.</p>
+                                        <p className="text-[10px] font-bold leading-relaxed uppercase text-left">High-risk behavior detected. Booking engine will now strictly enforce upfront deposits for all sessions.</p>
                                     </motion.div>
                                 )}
                             </AnimatePresence>

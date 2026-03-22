@@ -430,7 +430,7 @@ function SettingsPageImpl() {
                         <Button onClick={handleSave} className="flex-[2] sm:w-auto h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
                     </>
                 ) : (
-                    <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto h-12 px-8 rounded-2xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10 transition-all active:scale-95"><Edit className="mr-2 h-4 w-4" />Modify Logic</Button>
+                    <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto h-12 px-8 rounded-2xl border-2 border-primary/20 bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-primary/90 transition-all active:scale-95"><Edit className="mr-2 h-4 w-4" />Modify Logic</Button>
                 )}
             </div>
           </div>
@@ -616,15 +616,15 @@ function SettingsPageImpl() {
                         <div className="space-y-6 text-left">
                             <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 transition-all">
                                 <div className='space-y-1 text-left'>
-                                    <Label htmlFor="tight-scheduling-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2 text-left">
-                                        <LayoutGrid className="w-4 h-4" /> Zero-Gap Protocol
+                                    <Label htmlFor="guardian-protocol-toggle" className="text-base font-black uppercase tracking-tight text-primary flex items-center gap-2 text-left">
+                                        <ShieldCheck className="w-4 h-4" /> Guardian Revenue Shield
                                     </Label>
-                                    <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left'>Minimize wasted downtime by anchoring guest choice to existing blocks</p>
+                                    <p className='text-[10px] font-bold text-primary/60 uppercase tracking-widest opacity-60 text-left'>Forced deposit enforcement for high-risk behavioral profiles</p>
                                 </div>
                                 <Switch 
-                                    id="tight-scheduling-toggle" 
-                                    checked={!!tenantData.tightSchedulingEnabled} 
-                                    onCheckedChange={(val) => setTenantData(prev => ({...prev, tightSchedulingEnabled: val}))}
+                                    id="guardian-protocol-toggle" 
+                                    checked={!!tenantData.guardianProtocolEnabled} 
+                                    onCheckedChange={(val) => setTenantData(prev => ({...prev, guardianProtocolEnabled: val}))}
                                     disabled={!isEditing}
                                     className="scale-125 data-[state=checked]:bg-primary"
                                 />
@@ -922,7 +922,7 @@ function SettingsPageImpl() {
                                 <Switch 
                                     id="kiosk-hours-toggle" 
                                     checked={!!tenantData.kioskSettings?.useSpecificHours} 
-                                    onCheckedChange={(val) => setTenantData(prev => ({...prev, kioskSettings: {...prev.kioskSettings, useSpecificHours: val}}))}
+                                    onCheckedChange={(val) => setTenantData(prev => ({...prev, kioskSettings: { ...prev.kioskSettings, useSpecificHours: val }}))}
                                     disabled={!isEditing}
                                     className="scale-125 data-[state=checked]:bg-primary"
                                 />
