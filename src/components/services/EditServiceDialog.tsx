@@ -448,50 +448,6 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
     );
 };
 
-const PricingTierInput2 = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
-    const { watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
-    const serviceTiers = watch('serviceTiers') || [];
-    const tierData = serviceTiers.find(t => t.tierId === tier.id);
-    const isEnabled = !!tierData;
-
-    const handleToggle = (checked: boolean) => {
-        let next = [...serviceTiers];
-        if (checked) {
-            if (!next.find(t => t.tierId === tier.id)) {
-                next.push({ tierId: tier.id, price: 0, durationMinutes: watch('duration') || 60 });
-            }
-        } else {
-            next = next.filter(t => t.tierId !== tier.id);
-        }
-        setValue('serviceTiers', next, { shouldDirty: true });
-    };
-
-    const handleFieldChange = (field: 'price' | 'durationMinutes', value: number) => {
-        const next = serviceTiers.map(t => t.tierId === tier.id ? {...t, [field]: value} : t);
-        setValue('serviceTiers', next, { shouldDirty: true });
-    };
-
-    return (
-        <Card className={cn("transition-all border-2 rounded-[1.5rem] overflow-hidden", isEnabled ? "border-primary bg-primary/[0.02]" : "opacity-60 bg-muted/10")}>
-            <CardHeader className="p-4 border-b flex flex-row items-center justify-between bg-muted/5">
-                <CardTitle className="text-xs font-black uppercase tracking-widest text-left">{tier.name}</CardTitle>
-                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
-            </CardHeader>
-            {isEnabled && (
-                <CardContent className="p-4 grid grid-cols-2 gap-3 text-left">
-                    <div className="space-y-1">
-                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Tier Price</Label>
-                        <div className="relative"><DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary"/><Input type="number" step="0.01" value={tierData?.price || ''} onChange={e => handleFieldChange('price', parseFloat(e.target.value) || 0)} className="h-9 pl-6 rounded-lg border-2 font-black font-mono text-xs" /></div>
-                    </div>
-                    <div className="space-y-1">
-                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Duration</Label>
-                        <div className="relative"><Input type="number" value={tierData?.durationMinutes || ''} onChange={e => handleFieldChange('durationMinutes', parseInt(e.target.value) || 0)} className="h-9 pr-6 rounded-lg border-2 font-black font-mono text-xs text-center" /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-muted-foreground">M</span></div>
-                    </div>
-                </CardContent>
-            )}
-        </Card>
-    );
-};
 
 const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
