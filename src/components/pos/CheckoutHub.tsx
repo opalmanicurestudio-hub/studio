@@ -190,7 +190,8 @@ export const CheckoutHub = ({
     setTipAllocations,
     activeTill,
     staff,
-    role
+    role,
+    onRequestOverride
 }: any) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -526,7 +527,7 @@ export const CheckoutHub = ({
                                                 <Button 
                                                     type="button"
                                                     variant="destructive"
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsOverrideAuthOpen(true); }}
+                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRequestOverride?.(); }}
                                                     className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group"
                                                 >
                                                     <Lock className="w-4 h-4 mr-2" />
@@ -803,14 +804,6 @@ export const CheckoutHub = ({
                 onConfirm={handleConfirmWaive}
                 title="Admin Override"
                 description="Authorize fee waiver with manager PIN."
-            />
-            <WaiveFeeDialog 
-                open={isOverrideAuthOpen} 
-                onOpenChange={setIsOverrideAuthOpen} 
-                staff={staff} 
-                onConfirm={handleConfirmOverride}
-                title="Recovery Override"
-                description="Manager PIN required to authorize this adjustment threshold."
             />
         </div>
     );
