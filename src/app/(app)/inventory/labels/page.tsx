@@ -114,7 +114,7 @@ const CustomizationSidebar = ({
         </div>
 
         <div className="space-y-6">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Label Architecture</SectionHeader>
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Label Architecture</Label>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-primary/5 border-primary/10 shadow-inner">
                 <div className="flex items-center gap-3">
