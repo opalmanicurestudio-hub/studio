@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -141,7 +140,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
     </div>
 );
 
-const PricingTierInput2 = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
+const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
     const { watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const serviceTiers = watch('serviceTiers') || [];
     const tierData = serviceTiers.find(t => t.tierId === tier.id);
@@ -447,7 +446,6 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
         </div>
     );
 };
-
 
 const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
