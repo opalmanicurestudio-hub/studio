@@ -492,7 +492,7 @@ export const CheckoutHub = ({
                     </div>
                     <AnimatePresence>
                         {isRecoveryActive && (
-                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                                 <Card className={cn("border-4 rounded-[2rem] shadow-xl transition-all", isOverAutonomy ? "border-destructive/40 bg-destructive/[0.02] shadow-destructive/10" : "border-primary/20 bg-primary/[0.02] shadow-primary/5")}>
                                     <CardContent className="p-6 space-y-6">
                                         {isOverAutonomy && (
@@ -506,7 +506,7 @@ export const CheckoutHub = ({
                                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tactical Presets</p>
                                             <div className="flex flex-wrap gap-2">
                                                 {(selectedTenant?.recoveryPresets || []).map((preset: RecoveryPreset) => (
-                                                    <Button key={preset.id} variant="outline" size="sm" onClick={() => handleApplyRecoveryPreset(preset)} className="h-8 rounded-xl border-2 font-black uppercase text-[9px] tracking-tight bg-white shadow-sm hover:border-primary/40">{preset.label}</Button>
+                                                    <Button type="button" key={preset.id} variant="outline" size="sm" onClick={() => handleApplyRecoveryPreset(preset)} className="h-8 rounded-xl border-2 font-black uppercase text-[9px] tracking-tight bg-white shadow-sm hover:border-primary/40">{preset.label}</Button>
                                                 ))}
                                             </div>
                                         </div>
@@ -524,8 +524,9 @@ export const CheckoutHub = ({
                                         {isOverAutonomy && (
                                             <div className="pt-2">
                                                 <Button 
+                                                    type="button"
                                                     variant="destructive"
-                                                    onClick={() => setIsOverrideAuthOpen(true)}
+                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsOverrideAuthOpen(true); }}
                                                     className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group"
                                                 >
                                                     <Lock className="w-4 h-4 mr-2" />
