@@ -209,6 +209,10 @@ export const CheckoutHub = ({
     const [recoveryAmount, setRecoveryAmount] = useState<number>(0);
     const [recoveryReason, setRecoveryReason] = useState('');
     const [isRecoveryActive, setIsRecoveryActive] = useState(false);
+    const [showPinEntry, setShowPinEntry] = useState(false);
+    const [overridePin, setOverridePin] = useState('');
+    const [overrideReason, setOverrideReason] = useState('');
+    const [isOverrideUnlocked, setIsOverrideUnlocked] = useState(false);
 
     const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -489,7 +493,7 @@ export const CheckoutHub = ({
                             </h3>
                             {(autonomyLimit > 0 || autonomyPercent > 0) && <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">Autonomy: ${autonomyLimit} / {autonomyPercent}%</p>}
                         </div>
-                        <Switch checked={isRecoveryActive} onCheckedChange={setIsRecoveryActive} />
+                        <Switch checked={isRecoveryActive} onCheckedChange={(v) => { setIsRecoveryActive(v); if (!v) { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); setRecoveryAmount(0); } }} />
                     </div>
                     <AnimatePresence>
                         {isRecoveryActive && (
@@ -522,18 +526,78 @@ export const CheckoutHub = ({
                                             <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Context / Justification</Label>
                                             <Textarea value={recoveryReason} onChange={e => setRecoveryReason(e.target.value)} placeholder="Detail the failure..." className="rounded-2xl border-2 bg-white min-h-[100px] font-medium" />
                                         </div>
-                                        {isOverAutonomy && (
+                                        {isOverAutonomy && !isOverrideUnlocked && (
                                             <div className="pt-2">
                                                 <Button 
                                                     type="button"
                                                     variant="destructive"
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRequestOverride?.(); }}
+                                                    onClick={() => setShowPinEntry(true)}
                                                     className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group"
                                                 >
                                                     <Lock className="w-4 h-4 mr-2" />
                                                     Request Override
                                                     <ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
                                                 </Button>
+                                            </div>
+                                        )}
+                                        {isOverAutonomy && showPinEntry && !isOverrideUnlocked && (
+                                            <div className="pt-2 space-y-3 border-t border-dashed">
+                                                <p className="text-[9px] font-black uppercase text-destructive tracking-widest pt-2">Manager Authorization Required</p>
+                                                <div className="space-y-2">
+                                                    <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manager PIN</Label>
+                                                    <Input
+                                                        type="number"
+                                                        inputMode="numeric"
+                                                        pattern="[0-9]*"
+                                                        placeholder="Enter PIN"
+                                                        maxLength={4}
+                                                        value={overridePin}
+                                                        onChange={e => setOverridePin(e.target.value.slice(0, 4))}
+                                                        className="h-14 text-center text-2xl font-black border-2 rounded-2xl tracking-widest bg-white"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Override Reason</Label>
+                                                    <Textarea
+                                                        value={overrideReason}
+                                                        onChange={e => setOverrideReason(e.target.value)}
+                                                        placeholder="Justification for this override..."
+                                                        className="rounded-2xl border-2 bg-white min-h-[80px] font-medium"
+                                                    />
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        onClick={() => { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); }}
+                                                        className="flex-1 h-11 rounded-xl font-black uppercase text-[9px] border-2"
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="destructive"
+                                                        disabled={overridePin.length < 4 || !overrideReason.trim()}
+                                                        onClick={() => {
+                                                            const auth = (staff || []).find((s: any) => s.pin === overridePin && (s.role === 'admin' || s.role === 'owner'));
+                                                            if (!auth) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'PIN not recognized.' }); return; }
+                                                            setIsOverrideUnlocked(true);
+                                                            setShowPinEntry(false);
+                                                            setRecoveryReason(overrideReason);
+                                                            toast({ title: 'Override Authorized', description: `Approved by ${auth.name}.` });
+                                                        }}
+                                                        className="flex-[2] h-11 rounded-xl font-black uppercase text-[9px] tracking-widest"
+                                                    >
+                                                        <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />
+                                                        Authorize
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {isOverrideUnlocked && (
+                                            <div className="flex items-center gap-2 p-3 bg-green-50 border-2 border-green-200 rounded-2xl">
+                                                <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                                                <p className="text-[10px] font-black uppercase text-green-700">Override Authorized — Proceed</p>
                                             </div>
                                         )}
                                     </CardContent>
