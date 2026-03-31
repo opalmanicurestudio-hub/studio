@@ -457,12 +457,14 @@ function POSPage() {
         batch.commit().then(() => toast({ title: "Status Updated" }));
     };
 
-    const handleCheckout = async (paymentData: {paymentMethod: string, amountTendered: number}) => {
+    const handleCheckout = async (paymentData: {paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string}) => {
         if (!selectedClientId || !firestore || !tenantId) return;
         setIsSubmitting(true);
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
         const clientObj = (clients || []).find(c => c.id === selectedClientId);
+        const recoveryAmount = safeNumber(paymentData.recoveryAmount);
+        const recoveryReason = paymentData.recoveryReason || 'Service Recovery Adjustment';
         let totalLtvIncrease = 0; let totalCashIncrease = 0; let cashTipsTotal = 0; const cashTipsByStaffUpdate: Record<string, number> = {};
 
         for (const aptData of readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id))) {
@@ -499,6 +501,9 @@ function POSPage() {
         Object.entries(tipAllocations).forEach(([staffId, amount]) => { const finalAmount = safeNumber(amount); if (finalAmount > 0) { batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Gratuity', clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true, tenantId })); if (paymentData.paymentMethod === 'cash') { cashTipsTotal += finalAmount; cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(finalAmount); } } });
 
         if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
+        
+        // Write service recovery transaction — matched exactly to what the recovery ledger queries
+        if (recoveryAmount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Service Recovery: ${recoveryReason}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
         if (paymentTab === 'cash' && activeTill) { const finalCashInput = totalCashIncrease + cashTipsTotal; batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate })); }
         try { await batch.commit(); toast({ title: "Checkout Successful" }); setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); }
         catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Checkout Failed' }); }
@@ -544,7 +549,7 @@ function POSPage() {
         waivedAppointmentFees, onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); },
         tipAllocations, setTipAllocations, activeTill, staff, role,
         // Pass the setter up so CheckoutHub can open the top-level dialog
-        onRequestOverride: () => setIsRecoveryOverrideOpen(true),
+        onRequestOverride: () => { setIsCartSheetOpen(false); setTimeout(() => setIsRecoveryOverrideOpen(true), 300); },
     };
 
     if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
