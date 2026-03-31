@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -23,6 +22,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Separator } from '@/components/ui/separator';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
     HeartHandshake, 
     Sparkles, 
@@ -39,7 +40,8 @@ import {
     Activity,
     Users,
     KeyRound,
-    Loader
+    Loader,
+    Lock
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Client, type Service, type InventoryItem, type Staff, type OneTimePerk } from '@/lib/data';
@@ -83,8 +85,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
   const handleAction = async () => {
     if (!firestore || !tenantId || !user) return;
     
-    // 1. PIN VERIFICATION
-    const authorizer = staff.find(s => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
+    const authorizer = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
     if (!authorizer) {
         toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Manager authorization required for post-op recovery.' });
         return;
@@ -110,12 +111,16 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
         batch.update(clientRef, { walletCredit: increment(amount) });
     } else {
         const item = mode === 'service' 
-            ? services.find(s => s.id === selectedItemId)
-            : inventory.find(i => i.id === selectedItemId);
+            ? services.find((s: any) => s.id === selectedItemId)
+            : inventory.find((i: any) => i.id === selectedItemId);
         
-        if (!item) return;
+        if (!item) {
+            toast({ variant: 'destructive', title: 'Please select an item' });
+            setIsSubmitting(false);
+            return;
+        }
 
-        const newPerk: OneTimePerk = {
+        const newPerk: any = {
             id: nanoid(),
             name: item.name,
             type: mode === 'service' ? 'service' : 'product',
@@ -126,12 +131,11 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
         };
 
         txnDescription = `Voucher Issued: ${item.name} (${reason})`;
-        txnAmount = mode === 'service' ? (item as Service).cost : (item as InventoryItem).costPerUnit || 0;
+        txnAmount = mode === 'service' ? ((item as any).cost || 0) : ((item as any).costPerUnit || 0);
         
         batch.update(clientRef, { oneTimePerks: arrayUnion(newPerk) });
     }
 
-    // CREATE AUDIT TRANSACTION
     batch.set(txnRef, {
         id: txnRef.id,
         date: now,
@@ -186,7 +190,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
 
   return (
     <DialogComp open={open} onOpenChange={onOpenChange}>
-      <ContentComp side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[92dvh]")}>
+      <ContentComp side={isMobile ? "bottom" : undefined} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[92dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left")}>
           <div className="flex items-center gap-3 mb-2">
             <HeartHandshake className="w-5 h-5 text-primary" />
@@ -251,7 +255,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                                         <SelectValue placeholder="CHOOSE TREATMENT..." />
                                     </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        {services.map(s => <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
+                                        {services.map((s: any) => <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </motion.div>
@@ -265,7 +269,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                                         <SelectValue placeholder="CHOOSE AMENITY..." />
                                     </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        {inventory.filter(i => i.type === 'refreshment').map(i => <SelectItem key={i.id} value={i.id} className="font-bold uppercase text-[10px] tracking-widest">{i.name}</SelectItem>)}
+                                        {inventory.filter((i: any) => i.type === 'refreshment').map((i: any) => <SelectItem key={i.id} value={i.id} className="font-bold uppercase text-[10px] tracking-widest">{i.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </motion.div>
