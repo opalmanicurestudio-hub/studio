@@ -83,6 +83,16 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
     const [pin, setPin] = useState('');
     const [reason, setReason] = useState('');
     const { toast } = useToast();
+    const pinInputRef = React.useRef<HTMLInputElement>(null);
+
+    React.useEffect(() => {
+        if (open) {
+            setTimeout(() => pinInputRef.current?.focus(), 150);
+        } else {
+            setPin('');
+            setReason('');
+        }
+    }, [open]);
 
     const handleConfirm = () => {
         const authorizedStaff = (staff || []).find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
@@ -108,13 +118,18 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
 
     return (
         <div 
-            style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
-            onClick={(e) => { if (e.target === e.currentTarget) handleOpenChange(false); }}
+            style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', pointerEvents: 'all' }}
         >
-            {/* Backdrop */}
-            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 0 }} />
-            {/* Modal */}
-            <div style={{ position: 'relative', zIndex: 1, backgroundColor: 'white', borderRadius: '2rem', border: '4px solid #e2e8f0', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', overflow: 'hidden' }}>
+            {/* Backdrop — closes modal on tap but doesn't block modal content */}
+            <div 
+                style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 0 }}
+                onClick={() => handleOpenChange(false)}
+            />
+            {/* Modal — sits above backdrop */}
+            <div 
+                style={{ position: 'relative', zIndex: 1, backgroundColor: 'white', borderRadius: '2rem', border: '4px solid #e2e8f0', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', overflow: 'hidden' }}
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Header */}
                 <div style={{ padding: '1.5rem 1.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
@@ -128,12 +143,14 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '12rem' }}>
                         <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em', color: '#94a3b8' }}>Manager PIN</label>
                         <input
-                            type="password"
-                            placeholder="••••"
+                            ref={pinInputRef}
+                            type="number"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            placeholder="0000"
                             maxLength={4}
-                            autoFocus
                             value={pin}
-                            onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+                            onChange={e => setPin(e.target.value.slice(0, 4).replace(/\D/g, ''))}
                             style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, height: '5rem', letterSpacing: '0.4em', backgroundColor: '#f8fafc', border: '4px solid #e2e8f0', borderRadius: '1.5rem', outline: 'none', padding: '0 1rem' }}
                         />
                     </div>
