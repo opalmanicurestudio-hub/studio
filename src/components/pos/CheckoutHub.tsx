@@ -725,12 +725,12 @@ export const CheckoutHub = ({
                 <div className="space-y-4 text-left pt-4 border-t border-dashed text-left">
                     <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left text-left">
                         <p>Gross Manifest Value</p>
-                        <p className="font-mono text-[11px] md:text-xs text-left">${safeNumber(finalSubtotal).toFixed(2)}</p>
+                        <p className="font-mono text-[11px] md:text-xs text-left">${safeNumber( subtotal).toFixed(2)}</p>
                     </div>
                     {finalTotal > 0 && (
                         <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60 text-left text-left">
                             <p>Studio Tax (7%)</p>
-                            <p className="font-mono text-[11px] md:text-xs text-left">${(finalSubtotal * 0.07).toFixed(2)}</p>
+                            <p className="font-mono text-[11px] md:text-xs text-left">${( subtotal * 0.07).toFixed(2)}</p>
                         </div>
                     )}
                     
