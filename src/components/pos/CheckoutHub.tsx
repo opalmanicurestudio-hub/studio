@@ -230,12 +230,6 @@ export const CheckoutHub = ({
         }
     };
 
-    const handleConfirmOverride = (authorizer: Staff, reason: string) => {
-        setRecoveryReason(reason);
-        setIsOverrideAuthOpen(false);
-        toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. You may now finalize the adjustment.` });
-    };
-
     const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
     
     const isBirthdayToday = useMemo(() => {
@@ -247,7 +241,6 @@ export const CheckoutHub = ({
 
     const isMember = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
     const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
-    const hasCardOnFile = !!selectedClient?.cardOnFile?.token;
 
     const filteredPayerOptions = useMemo(() => {
         const listToFilter = payerOptions || [];
@@ -393,28 +386,25 @@ export const CheckoutHub = ({
         <div className="flex flex-col space-y-6 md:space-y-10 text-left">
             <div className="flex-shrink-0 text-left">
                 {isGroupCheckout && !selectedClientId && !isCartEmpty && (
-                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 text-left">
-                        <Alert variant="destructive" className="border-2 border-primary/20 bg-primary/5 rounded-2xl p-4 shadow-xl shadow-primary/5 text-left">
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
+                        <Alert variant="destructive" className="border-2 border-primary/20 bg-primary/5 rounded-2xl p-4 shadow-xl shadow-primary/5">
                             <Users className="h-5 w-5 text-primary" />
-                            <AlertTitle className="text-[10px] font-black uppercase text-primary tracking-widest text-left">Group Protocol Required</AlertTitle>
-                            <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1 text-left">Multiple guests detected. Please identify the primary account for settlement.</AlertDescription>
+                            <AlertTitle className="text-[10px] font-black uppercase text-primary tracking-widest">Group Protocol Required</AlertTitle>
+                            <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">Multiple guests detected. Please identify the primary account for settlement.</AlertDescription>
                         </Alert>
                     </motion.div>
                 )}
 
-                <div className="flex gap-2 mt-2 text-left">
+                <div className="flex gap-2 mt-2">
                     <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
                         <DialogTrigger asChild>
                             <Button 
                                 variant="outline" 
-                                className={cn(
-                                    "h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4 text-left",
-                                    isGroupCheckout && !selectedClientId && !isCartEmpty && "border-primary animate-pulse bg-primary/5 ring-4 ring-primary/10"
-                                )}
+                                className={cn("h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4", isGroupCheckout && !selectedClientId && !isCartEmpty && "border-primary animate-pulse bg-primary/5 ring-4 ring-primary/10")}
                                 onClick={() => setIsPayerDialogOpen(true)}
                             >
                                 {selectedClient ? (
-                                    <div className="flex items-center gap-3 text-left">
+                                    <div className="flex items-center gap-3">
                                         <div className="relative shrink-0">
                                             <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
                                                 <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
@@ -422,40 +412,40 @@ export const CheckoutHub = ({
                                             </Avatar>
                                             {isMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2 h-2" /></div>}
                                         </div>
-                                        <div className="flex items-center gap-2 min-w-0 text-left">
-                                            <span className="truncate text-xs md:sm text-left">{selectedClient.name}</span>
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="truncate text-xs">{selectedClient.name}</span>
                                             {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
                                             {isMember && <Badge className="bg-indigo-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
                                             {hasPackage && <Badge className="bg-teal-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-2 text-left">
+                                    <div className="flex items-center gap-2">
                                         {isGroupCheckout ? <Users className="w-4 h-4 text-primary" /> : <User className="w-4 h-4" />}
-                                        <span className={cn("text-xs md:text-sm text-left", isGroupCheckout ? "text-primary" : "opacity-40")}>{isGroupCheckout ? "Select Primary Payee..." : "Search Payer..."}</span>
+                                        <span className={cn("text-xs md:text-sm", isGroupCheckout ? "text-primary" : "opacity-40")}>{isGroupCheckout ? "Select Primary Payee..." : "Search Payer..."}</span>
                                     </div>
                                 )}
                                 <ChevronDown className="h-4 w-4 opacity-40 ml-2 shrink-0" />
                             </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 overflow-hidden shadow-3xl bg-background text-left">
-                            <DialogHeader className="p-6 pb-4 border-b bg-muted/5 text-left">
-                                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-left">{isGroupCheckout ? 'Identify Group Payer' : 'Guest Search'}</DialogTitle>
-                                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">{isGroupCheckout ? 'The only available options are the guests being serviced in this group.' : 'Attribute this sale to a guest dossier.'}</DialogDescription>
+                        <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 overflow-hidden shadow-3xl bg-background">
+                            <DialogHeader className="p-6 pb-4 border-b bg-muted/5">
+                                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">{isGroupCheckout ? 'Identify Group Payer' : 'Guest Search'}</DialogTitle>
+                                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{isGroupCheckout ? 'The only available options are the guests being serviced in this group.' : 'Attribute this sale to a guest dossier.'}</DialogDescription>
                             </DialogHeader>
-                            <div className="p-6 space-y-6 text-left">
+                            <div className="p-6 space-y-6">
                                 {!isGroupCheckout && (
-                                    <div className="relative text-left">
+                                    <div className="relative">
                                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                                        <Input placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-sm tracking-tight focus-visible:ring-primary/20 text-left" autoFocus />
+                                        <Input placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-sm tracking-tight" autoFocus />
                                     </div>
                                 )}
                                 <ScrollArea className={cn("-mx-2 px-2", isGroupCheckout ? "h-auto" : "h-[300px] md:h-[350px]")}>
-                                    <div className="space-y-2 pb-4 text-left">
+                                    <div className="space-y-2 pb-4">
                                         {!isGroupCheckout && (
                                             <button className="w-full text-left p-4 hover:bg-muted/50 transition-all flex items-center gap-4 border-2 rounded-2xl border-transparent hover:border-border" onClick={() => { setSelectedClientId(null); setIsPayerDialogOpen(false); }}>
                                                 <div className="p-3 bg-muted rounded-xl shadow-inner"><User className="w-5 h-5 text-muted-foreground" /></div>
-                                                <span className="font-black uppercase tracking-widest text-[11px] text-slate-600 text-left">WALK-IN GUEST (ANONYMOUS)</span>
+                                                <span className="font-black uppercase tracking-widest text-[11px] text-slate-600">WALK-IN GUEST (ANONYMOUS)</span>
                                             </button>
                                         )}
                                         {filteredPayerOptions.map((c: Client) => {
@@ -464,7 +454,7 @@ export const CheckoutHub = ({
                                             return (
                                                 <button key={c.id} className={cn("w-full text-left p-4 transition-all flex items-center gap-4 border-2 rounded-2xl", selectedClientId === c.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-primary/5 hover:border-primary/10")} onClick={() => { setSelectedClientId(c.id); setIsPayerDialogOpen(false); }}>
                                                     <div className="relative shrink-0"><Avatar className="h-10 w-10 border-2 border-background shadow-sm rounded-xl"><AvatarImage src={c.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs">{(c.name || 'C')[0]}</AvatarFallback></Avatar>{cMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}</div>
-                                                    <div className="min-w-0 flex-1 text-left"><div className="flex items-center gap-2"><p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>{cPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}</div><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p></div>
+                                                    <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>{cPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}</div><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p></div>
                                                     {selectedClientId === c.id && <CheckCircle className="ml-auto w-5 h-5 text-primary" />}
                                                 </button>
                                             );
@@ -473,7 +463,7 @@ export const CheckoutHub = ({
                                 </ScrollArea>
                             </div>
                             {!isGroupCheckout && (
-                                <DialogFooter className="p-6 pt-0 bg-muted/5 border-t text-left">
+                                <DialogFooter className="p-6 pt-0 bg-muted/5 border-t">
                                     <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}><UserPlus className="w-4 h-4 mr-2" />Register New Client Profile</Button>
                                 </DialogFooter>
                             )}
@@ -484,23 +474,20 @@ export const CheckoutHub = ({
             </div>
 
             {!isCartEmpty && (
-                <div className="space-y-4 text-left">
+                <div className="space-y-4">
                     <div className="flex items-center justify-between px-1">
                         <div className="space-y-0.5">
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                <ShieldAlert className="w-3.5 h-3.5" />
-                                Service Recovery Protocol
-                            </h3>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" />Service Recovery Protocol</h3>
                             {(autonomyLimit > 0 || autonomyPercent > 0) && <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">Autonomy: ${autonomyLimit} / {autonomyPercent}%</p>}
                         </div>
-                        <Switch checked={isRecoveryActive} onCheckedChange={(v) => { setIsRecoveryActive(v); if (!v) { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); setRecoveryAmount(0); } }} />
+                        <Switch checked={isRecoveryActive} onCheckedChange={(v) => { setIsRecoveryActive(v); if (!v) { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); setRecoveryAmount(0); setRecoveryReason(''); } }} />
                     </div>
                     <AnimatePresence>
                         {isRecoveryActive && (
                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                                <Card className={cn("border-4 rounded-[2rem] shadow-xl transition-all", isOverAutonomy ? "border-destructive/40 bg-destructive/[0.02] shadow-destructive/10" : "border-primary/20 bg-primary/[0.02] shadow-primary/5")}>
+                                <Card className={cn("border-4 rounded-[2rem] shadow-xl transition-all", isOverAutonomy && !isOverrideUnlocked ? "border-destructive/40 bg-destructive/[0.02] shadow-destructive/10" : isOverrideUnlocked ? "border-green-400/40 bg-green-50/20" : "border-primary/20 bg-primary/[0.02] shadow-primary/5")}>
                                     <CardContent className="p-6 space-y-6">
-                                        {isOverAutonomy && (
+                                        {isOverAutonomy && !isOverrideUnlocked && (
                                             <Alert variant="destructive" className="border-2 rounded-2xl p-4 bg-destructive/10">
                                                 <AlertTriangle className="h-4 w-4" />
                                                 <AlertTitle className="text-[10px] font-black uppercase">Threshold Exceeded</AlertTitle>
@@ -516,64 +503,40 @@ export const CheckoutHub = ({
                                             </div>
                                         </div>
                                         <div className="space-y-3">
-                                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manual Recovery Adjustment ($)</Label>
+                                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manual Recovery Amount ($)</Label>
                                             <div className="relative">
-                                                <DollarSign className={cn("absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 opacity-40", isOverAutonomy ? "text-destructive" : "text-primary")} />
-                                                <Input type="number" value={recoveryAmount || ''} onChange={e => setRecoveryAmount(parseFloat(e.target.value) || 0)} placeholder="0.00" className={cn("h-14 pl-12 rounded-2xl border-2 bg-white font-black text-xl font-mono", isOverAutonomy ? "border-destructive/20 text-destructive" : "border-primary/20 text-primary")} />
+                                                <DollarSign className={cn("absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 opacity-40", isOverAutonomy && !isOverrideUnlocked ? "text-destructive" : "text-primary")} />
+                                                <Input type="number" value={recoveryAmount || ''} onChange={e => setRecoveryAmount(parseFloat(e.target.value) || 0)} placeholder="0.00" className={cn("h-14 pl-12 rounded-2xl border-2 bg-white font-black text-xl font-mono", isOverAutonomy && !isOverrideUnlocked ? "border-destructive/20 text-destructive" : "border-primary/20 text-primary")} />
                                             </div>
                                         </div>
                                         <div className="space-y-3">
                                             <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Context / Justification</Label>
-                                            <Textarea value={recoveryReason} onChange={e => setRecoveryReason(e.target.value)} placeholder="Detail the failure..." className="rounded-2xl border-2 bg-white min-h-[100px] font-medium" />
+                                            <Textarea value={recoveryReason} onChange={e => setRecoveryReason(e.target.value)} placeholder="Detail the service failure or reason for recovery..." className="rounded-2xl border-2 bg-white min-h-[100px] font-medium" />
                                         </div>
-                                        {isOverAutonomy && !isOverrideUnlocked && (
+
+                                        {/* REQUEST OVERRIDE — shown when over autonomy, not yet unlocked, PIN not showing */}
+                                        {isOverAutonomy && !isOverrideUnlocked && !showPinEntry && (
                                             <div className="pt-2">
-                                                <Button 
-                                                    type="button"
-                                                    variant="destructive"
-                                                    onClick={() => setShowPinEntry(true)}
-                                                    className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group"
-                                                >
-                                                    <Lock className="w-4 h-4 mr-2" />
-                                                    Request Override
-                                                    <ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
+                                                <Button type="button" variant="destructive" onClick={() => setShowPinEntry(true)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group">
+                                                    <Lock className="w-4 h-4 mr-2" />Request Override<ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
                                                 </Button>
                                             </div>
                                         )}
+
+                                        {/* INLINE PIN ENTRY */}
                                         {isOverAutonomy && showPinEntry && !isOverrideUnlocked && (
                                             <div className="pt-2 space-y-3 border-t border-dashed">
                                                 <p className="text-[9px] font-black uppercase text-destructive tracking-widest pt-2">Manager Authorization Required</p>
                                                 <div className="space-y-2">
                                                     <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manager PIN</Label>
-                                                    <Input
-                                                        type="number"
-                                                        inputMode="numeric"
-                                                        pattern="[0-9]*"
-                                                        placeholder="Enter PIN"
-                                                        maxLength={4}
-                                                        value={overridePin}
-                                                        onChange={e => setOverridePin(e.target.value.slice(0, 4))}
-                                                        className="h-14 text-center text-2xl font-black border-2 rounded-2xl tracking-widest bg-white"
-                                                    />
+                                                    <Input type="number" inputMode="numeric" pattern="[0-9]*" placeholder="Enter PIN" maxLength={4} value={overridePin} onChange={e => setOverridePin(e.target.value.slice(0, 4))} className="h-14 text-center text-2xl font-black border-2 rounded-2xl tracking-widest bg-white" />
                                                 </div>
                                                 <div className="space-y-2">
                                                     <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Override Reason</Label>
-                                                    <Textarea
-                                                        value={overrideReason}
-                                                        onChange={e => setOverrideReason(e.target.value)}
-                                                        placeholder="Justification for this override..."
-                                                        className="rounded-2xl border-2 bg-white min-h-[80px] font-medium"
-                                                    />
+                                                    <Textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} placeholder="Justification for this override..." className="rounded-2xl border-2 bg-white min-h-[80px] font-medium" />
                                                 </div>
                                                 <div className="flex gap-2">
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        onClick={() => { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); }}
-                                                        className="flex-1 h-11 rounded-xl font-black uppercase text-[9px] border-2"
-                                                    >
-                                                        Cancel
-                                                    </Button>
+                                                    <Button type="button" variant="ghost" onClick={() => { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); }} className="flex-1 h-11 rounded-xl font-black uppercase text-[9px] border-2">Cancel</Button>
                                                     <Button
                                                         type="button"
                                                         variant="destructive"
@@ -581,23 +544,44 @@ export const CheckoutHub = ({
                                                         onClick={() => {
                                                             const auth = (staff || []).find((s: any) => s.pin === overridePin && (s.role === 'admin' || s.role === 'owner'));
                                                             if (!auth) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'PIN not recognized.' }); return; }
+                                                            
+                                                            // Build the final reason — use override reason, fall back to existing recovery reason
+                                                            const finalReason = overrideReason.trim() || recoveryReason.trim() || 'Service Recovery Override';
+                                                            
+                                                            // Auto-comp full subtotal if staff didn't manually enter an amount
+                                                            const finalAmount = recoveryAmount > 0 ? recoveryAmount : Number(subtotal.toFixed(2));
+                                                            
                                                             setIsOverrideUnlocked(true);
                                                             setShowPinEntry(false);
-                                                            setRecoveryReason(overrideReason);
-                                                            toast({ title: 'Override Authorized', description: `Approved by ${auth.name}.` });
+                                                            setRecoveryReason(finalReason);
+                                                            setRecoveryAmount(finalAmount);
+                                                            
+                                                            toast({ 
+                                                                title: 'Override Authorized', 
+                                                                description: `Approved by ${auth.name}. $${finalAmount.toFixed(2)} comped — "${finalReason}"`
+                                                            });
                                                         }}
                                                         className="flex-[2] h-11 rounded-xl font-black uppercase text-[9px] tracking-widest"
                                                     >
-                                                        <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />
-                                                        Authorize
+                                                        <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />Authorize
                                                     </Button>
                                                 </div>
                                             </div>
                                         )}
+
+                                        {/* OVERRIDE CONFIRMED BANNER */}
                                         {isOverrideUnlocked && (
-                                            <div className="flex items-center gap-2 p-3 bg-green-50 border-2 border-green-200 rounded-2xl">
-                                                <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-                                                <p className="text-[10px] font-black uppercase text-green-700">Override Authorized — Proceed</p>
+                                            <div className="flex items-center justify-between p-3 bg-green-50 border-2 border-green-200 rounded-2xl">
+                                                <div className="flex items-center gap-2">
+                                                    <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                                                    <div>
+                                                        <p className="text-[10px] font-black uppercase text-green-700">Override Authorized</p>
+                                                        <p className="text-[8px] font-bold text-green-600 opacity-70 uppercase">
+                                                            -${safeNumber(recoveryAmount).toFixed(2)} — {recoveryReason || 'Service Recovery'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <Button type="button" variant="ghost" size="sm" onClick={() => { setIsOverrideUnlocked(false); setRecoveryAmount(0); setRecoveryReason(''); setOverridePin(''); setOverrideReason(''); }} className="h-7 px-2 text-[8px] font-black uppercase text-destructive hover:bg-destructive/5">Undo</Button>
                                             </div>
                                         )}
                                     </CardContent>
@@ -620,10 +604,7 @@ export const CheckoutHub = ({
 
             {selectedClient && availableEntitlements.length > 0 && (
                 <div className="space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1">
-                        <Award className="w-3 h-3" />
-                        Available Benefits
-                    </p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1"><Award className="w-3 h-3" />Available Benefits</p>
                     <div className="grid gap-2">
                         {availableEntitlements.map((ent: any, idx: number) => (
                             <Button key={idx} variant="outline" disabled={ent.exhausted || redeemedOffer?.itemId === ent.itemId} onClick={() => handleRedeem(ent)} className={cn("h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all", redeemedOffer?.itemId === ent.itemId ? "bg-green-500/5 border-green-500/20 text-green-700" : ent.exhausted ? "opacity-50 bg-muted/30 grayscale border-dashed cursor-not-allowed" : "bg-white border-indigo-500/10 hover:border-primary/30 shadow-sm")}>
@@ -632,7 +613,7 @@ export const CheckoutHub = ({
                                     <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{ent.subLabel}</p>
                                 </div>
                                 <div className="text-right ml-4 shrink-0">
-                                    {redeemedOffer?.itemId === ent.itemId ? <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge> : ent.exhausted ? <div className="flex flex-col items-end gap-1"><Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge><span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span></div> : <Badge variant="outline" className={cn("h-5 px-2 font-black text-[8px] uppercase border-2", "text-indigo-600 border-indigo-500/20")}>{ent.usage}</Badge>}
+                                    {redeemedOffer?.itemId === ent.itemId ? <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge> : ent.exhausted ? <div className="flex flex-col items-end gap-1"><Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge><span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span></div> : <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-2 text-indigo-600 border-indigo-500/20">{ent.usage}</Badge>}
                                 </div>
                             </Button>
                         ))}
@@ -645,7 +626,6 @@ export const CheckoutHub = ({
                     <ShoppingCart className="w-4 h-4 text-primary" />
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized Manifest</h3>
                 </div>
-                
                 {isCartEmpty ? (
                     <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                         <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
@@ -666,7 +646,6 @@ export const CheckoutHub = ({
                             const adjustments = data.appointment.checkoutState?.adjustments;
                             const additionalCharge = safeNumber(data.appointment.checkoutState?.additionalCharge);
                             const isWaived = waivedAppointmentFees.has(data.appointment.id);
-
                             return (
                                 <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all", isRedeemed ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-muted/5")}>
                                     <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4">
@@ -683,7 +662,6 @@ export const CheckoutHub = ({
                                                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                             </div>
                                         </div>
-                                        
                                         {addOns.length > 0 && (
                                             <div className="space-y-2 pl-4 border-l-2 border-primary/10">
                                                 {addOns.map((addon: any) => {
@@ -693,10 +671,7 @@ export const CheckoutHub = ({
                                                     return (
                                                         <div key={addon.id} className="space-y-0.5">
                                                             <div className="flex justify-between items-center">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className={cn("text-[10px] font-bold uppercase tracking-tight", isAddonRedeemed ? "text-primary" : "text-muted-foreground")}>+ {addon.name}</span>
-                                                                    {isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 font-black uppercase">REDEEMED</Badge>}
-                                                                </div>
+                                                                <div className="flex items-center gap-2"><span className={cn("text-[10px] font-bold uppercase tracking-tight", isAddonRedeemed ? "text-primary" : "text-muted-foreground")}>+ {addon.name}</span>{isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 font-black uppercase">REDEEMED</Badge>}</div>
                                                                 <span className={cn("text-[10px] font-black font-mono", isAddonRedeemed ? "line-through text-muted-foreground opacity-40" : "text-muted-foreground")}>${safeNumber(getServicePrice(addon, data.staff)).toFixed(2)}</span>
                                                             </div>
                                                             <span className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60">{addonStaff?.name?.split(' ')[0] || 'Tech'}</span>
@@ -705,26 +680,12 @@ export const CheckoutHub = ({
                                                 })}
                                             </div>
                                         )}
-
                                         {refreshmentsInSession.length > 0 && (
                                             <div className="space-y-2 pt-2 border-t border-dashed">
                                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Concierge Amenities</p>
-                                                {refreshmentsInSession.map((item: any, idx: number) => {
-                                                    const qty = safeNumber(item.quantity || 1);
-                                                    return (
-                                                        <div key={idx} className="flex justify-between items-center">
-                                                            <div className="flex items-center gap-2">
-                                                                <Coffee className="w-3 h-3 text-primary opacity-40" />
-                                                                <span className="text-[10px] font-bold text-slate-600 uppercase">{item.name}</span>
-                                                                {qty > 1 && <Badge variant="secondary" className="h-3.5 px-1 text-[7px] border-none font-black bg-muted/50">x{qty}</Badge>}
-                                                            </div>
-                                                            <span className="font-mono text-[10px] text-slate-900">${safeNumber(item.price) > 0 ? (safeNumber(item.price) * qty).toFixed(2) : '0.00'}</span>
-                                                        </div>
-                                                    );
-                                                })}
+                                                {refreshmentsInSession.map((item: any, idx: number) => { const qty = safeNumber(item.quantity || 1); return (<div key={idx} className="flex justify-between items-center"><div className="flex items-center gap-2"><Coffee className="w-3 h-3 text-primary opacity-40" /><span className="text-[10px] font-bold text-slate-600 uppercase">{item.name}</span>{qty > 1 && <Badge variant="secondary" className="h-3.5 px-1 text-[7px] border-none font-black bg-muted/50">x{qty}</Badge>}</div><span className="font-mono text-[10px] text-slate-900">${safeNumber(item.price) > 0 ? (safeNumber(item.price) * qty).toFixed(2) : '0.00'}</span></div>); })}
                                             </div>
                                         )}
-
                                         {!isWaived && (adjustments || additionalCharge > 0) && (
                                             <div className="pt-3 border-t border-dashed space-y-2">
                                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Strategic Adjustments</p>
@@ -738,7 +699,6 @@ export const CheckoutHub = ({
                                                 {isOwnerOrAdmin && <Button variant="ghost" size="sm" className="h-6 px-2 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50 w-full mt-1" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb Adjustments</Button>}
                                             </div>
                                         )}
-
                                         {isWaived && (
                                             <div className="pt-3 border-t border-dashed flex justify-between items-center bg-green-50/50 p-2 rounded-xl border border-green-100">
                                                 <div className="flex items-center gap-2"><ShieldCheck className="w-3 h-3 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Fees Absorbed</span></div>
@@ -749,13 +709,9 @@ export const CheckoutHub = ({
                                 </Card>
                             );
                         })}
-
                         {cart.map((item: any) => (
                             <div key={item.id} className="p-3 md:p-4 rounded-2xl md:rounded-3xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-3 md:gap-4 group shadow-sm">
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
-                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p>
-                                </div>
+                                <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p><p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p></div>
                                 <div className="flex items-center gap-2 md:gap-3">
                                     <div className="flex items-center bg-background rounded-xl border-2 h-8 md:h-9 px-1 shadow-sm">
                                         <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3"/></Button>
@@ -767,16 +723,12 @@ export const CheckoutHub = ({
                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4"/></Button>
                             </div>
                         ))}
-
                         {Array.from(appliedAdjustments).map((id: any) => {
                             const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
                             return (
                                 <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/5 flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 shadow-sm">
                                     <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p>
-                                        <p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Protocol Debt</p>
-                                    </div>
+                                    <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p><p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Protocol Debt</p></div>
                                     <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${safeNumber(fee?.feeAmount).toFixed(2)}</p>
                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => onApplyAdjustmentToggle(id, false)}><XCircle className="h-4 w-4"/></Button>
                                 </div>
@@ -802,17 +754,9 @@ export const CheckoutHub = ({
                                         <CardContent className="p-4 space-y-4">
                                             <div className="space-y-2">
                                                 <Label className="text-[9px] font-black uppercase text-primary/60">Amount Tendered</Label>
-                                                <div className="relative">
-                                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
-                                                    <Input type="number" value={amountTendered || ''} onChange={e => setAmountTendered(parseFloat(e.target.value) || 0)} className="h-12 pl-8 text-xl font-black font-mono border-2 rounded-xl bg-white shadow-sm" placeholder="0.00" />
-                                                </div>
+                                                <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input type="number" value={amountTendered || ''} onChange={e => setAmountTendered(parseFloat(e.target.value) || 0)} className="h-12 pl-8 text-xl font-black font-mono border-2 rounded-xl bg-white shadow-sm" placeholder="0.00" /></div>
                                             </div>
-                                            {amountTendered > finalTotal && (
-                                                <div className="flex justify-between items-center px-1">
-                                                    <span className="text-[10px] font-black uppercase text-primary">Change Due</span>
-                                                    <span className="text-xl font-black font-mono text-primary">${(amountTendered - finalTotal).toFixed(2)}</span>
-                                                </div>
-                                            )}
+                                            {amountTendered > finalTotal && (<div className="flex justify-between items-center px-1"><span className="text-[10px] font-black uppercase text-primary">Change Due</span><span className="text-xl font-black font-mono text-primary">${(amountTendered - finalTotal).toFixed(2)}</span></div>)}
                                         </CardContent>
                                     </Card>
                                 </motion.div>
@@ -838,6 +782,13 @@ export const CheckoutHub = ({
                             <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
                         </div>
                     )}
+                    {/* Show recovery line item separately so it's clear */}
+                    {recoveryAmount > 0 && (
+                        <div className="flex justify-between items-center text-[10px] text-amber-600 font-black uppercase tracking-tighter">
+                            <span className="flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" /> Service Recovery {recoveryReason ? `— ${recoveryReason.slice(0, 30)}${recoveryReason.length > 30 ? '...' : ''}` : ''}</span>
+                            <span className="font-mono text-[11px] md:text-xs shrink-0 ml-2">-${safeNumber(recoveryAmount).toFixed(2)}</span>
+                        </div>
+                    )}
                     <div className="flex justify-between items-center py-1 md:py-2">
                         <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
                         <div className="relative w-32 md:w-36">
@@ -853,7 +804,11 @@ export const CheckoutHub = ({
                         <p className="font-mono text-2xl md:text-4xl">${safeNumber(finalTotal).toFixed(2)}</p>
                     </div>
                     <div className="pt-2">
-                        <Button className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, isEscalated: false})} disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId)}>
+                        <Button 
+                            className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" 
+                            onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked })} 
+                            disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId)}
+                        >
                             {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (finalTotal <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`)}
                         </Button>
                     </div>
@@ -861,14 +816,7 @@ export const CheckoutHub = ({
             </div>
 
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-            <WaiveFeeDialog 
-                open={isWaiveAuthOpen} 
-                onOpenChange={setIsPointOfSaleWaiveAuthOpen} 
-                staff={staff} 
-                onConfirm={handleConfirmWaive}
-                title="Admin Override"
-                description="Authorize fee waiver with manager PIN."
-            />
+            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
         </div>
     );
 };
