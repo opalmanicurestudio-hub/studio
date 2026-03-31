@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -7,22 +6,8 @@ import { Button } from '@/components/ui/button';
 import { type WalkIn, type Staff, type Appointment, Service } from '@/lib/data';
 import { formatDistanceToNow, parseISO, format } from 'date-fns';
 import { 
-    Clock, 
-    Users, 
-    Trash2, 
-    TrendingUp, 
-    Printer, 
-    Car, 
-    MapPin, 
-    AlertTriangle, 
-    Fingerprint, 
-    Cake, 
-    UserPlus,
-    Award,
-    Repeat,
-    ShieldAlert,
-    MessageSquare,
-    Ear
+    Clock, Users, Trash2, TrendingUp, Printer, Car, MapPin, AlertTriangle, 
+    Fingerprint, Cake, UserPlus, Award, Repeat, ShieldAlert, MessageSquare, Ear
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -30,14 +15,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/
 import { cn, safeNumber } from '@/lib/utils';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useInventory } from '@/context/InventoryContext';
 
 const statusOptions = [
@@ -67,7 +45,6 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
     
     const primaryServices = services?.filter((s: Service) => serviceIds.includes(s.id));
     const waitTime = isWalkIn ? formatDistanceToNow(safeDate(checkInTime), { addSuffix: true }) : format(safeDate(checkInTime), 'h:mm a');
-    
     const preferredStaffId = isWalkIn ? (item as WalkIn).preferredStaffId : (item as Appointment).staffId;
     const preferredStaff = staffList?.find((s: Staff) => s.id === preferredStaffId);
     
@@ -94,8 +71,13 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
 
     const isMember = !!(client?.activeMembershipId || client?.subscription);
     const hasPackage = (client?.activePackages?.length || 0) > 0;
-
     const isAutoCancelled = checkInStatus === 'auto_cancelled';
+
+    // FIX: Always pass item to onResolve so the details sheet receives the data
+    const handleResolve = (e?: React.MouseEvent) => {
+        e?.stopPropagation();
+        onResolve(item);
+    };
 
     return (
         <Card className={cn(
@@ -112,52 +94,26 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                     <span className="text-[8px] font-black uppercase text-white tracking-widest">Escalated</span>
                 </div>
             )}
-            <CardContent className="p-5 space-y-4 text-left" onClick={onResolve}>
+            <CardContent className="p-5 space-y-4 text-left cursor-pointer" onClick={handleResolve}>
                 <div className="flex justify-between items-start gap-4">
                     <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap text-left text-left">
+                        <div className="flex items-center gap-2 flex-wrap">
                             {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-bounce shrink-0" />}
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{customerName}</p>
-                            {isMember && (
-                                <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
-                                    <Award className="w-2 h-2 mr-0.5" /> MEM
-                                </Badge>
-                            )}
-                            {hasPackage && (
-                                <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
-                                    <Repeat className="w-2 h-2 mr-0.5" /> PKG
-                                </Badge>
-                            )}
+                            {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm"><Award className="w-2 h-2 mr-0.5" /> MEM</Badge>}
+                            {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm"><Repeat className="w-2 h-2 mr-0.5" /> PKG</Badge>}
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-left">
-                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-1.5 opacity-60 text-left">
+                        <div className="flex items-center gap-3 mt-1">
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-1.5 opacity-60">
                                 <Clock className="w-2.5 h-2.5" />
                                 {isWalkIn ? `Waiting ${waitTime}` : `Scheduled ${waitTime}`}
                             </p>
                             <div className="flex gap-1.5">
                                 {item.notes && (
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div className="p-1 bg-primary/10 rounded-lg shrink-0">
-                                                    <MessageSquare className="w-3 h-3 text-primary" />
-                                                </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">Guest Intel Available</TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
+                                    <TooltipProvider><Tooltip><TooltipTrigger asChild><div className="p-1 bg-primary/10 rounded-lg shrink-0"><MessageSquare className="w-3 h-3 text-primary" /></div></TooltipTrigger><TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Guest Intel Available</TooltipContent></Tooltip></TooltipProvider>
                                 )}
                                 {client?.sensoryNeeds && (
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div className="p-1 bg-blue-500/10 rounded-lg shrink-0">
-                                                    <Ear className="w-3 h-3 text-blue-600" />
-                                                </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-left">Special Accommodations</TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
+                                    <TooltipProvider><Tooltip><TooltipTrigger asChild><div className="p-1 bg-blue-500/10 rounded-lg shrink-0"><Ear className="w-3 h-3 text-blue-600" /></div></TooltipTrigger><TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Special Accommodations</TooltipContent></Tooltip></TooltipProvider>
                                 )}
                             </div>
                         </div>
@@ -169,7 +125,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                 </div>
 
                 {!isAutoCancelled && (
-                    <div className="flex items-center justify-between gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
+                    <div className="flex items-center justify-between gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent" onClick={e => e.stopPropagation()}>
                         <div className="flex gap-1.5">
                             {statusOptions.map((status) => {
                                 const Icon = status.icon;
@@ -182,7 +138,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                                     <Icon className="h-3.5 w-3.5" />
                                                 </Button>
                                             </TooltipTrigger>
-                                            <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest text-left">{status.label}</TooltipContent>
+                                            <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest">{status.label}</TooltipContent>
                                         </Tooltip>
                                     </TooltipProvider>
                                 );
@@ -201,14 +157,14 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                             <span className="text-[10px] font-black uppercase tracking-widest">Protocol Intervention Required</span>
                         </div>
                         <p className="text-[10px] font-bold uppercase text-slate-600 leading-tight">Session auto-cancelled due to critical delay (+{lateTimeMinutes}m).</p>
-                        <Button variant="destructive" size="sm" className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl" onClick={(e) => { e.stopPropagation(); onResolve(); }}>
+                        <Button variant="destructive" size="sm" className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl" onClick={handleResolve}>
                             Resolve Resolution
                         </Button>
                     </div>
                 )}
 
                 {isPotentialAlias && !isAutoCancelled && (
-                    <Button size="sm" variant="destructive" className="w-full h-10 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-xl shadow-destructive/20 animate-in slide-in-from-top-2" onClick={(e) => { e.stopPropagation(); onResolve(); }}>
+                    <Button size="sm" variant="destructive" className="w-full h-10 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-xl shadow-destructive/20 animate-in slide-in-from-top-2" onClick={handleResolve}>
                         <Fingerprint className="w-4 h-4 mr-2" /> Resolve Identity Match
                     </Button>
                 )}
@@ -216,36 +172,33 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                 {preferredStaff && !isAutoCancelled && (
                     <div className={cn("flex items-center gap-2 p-2 rounded-xl border-2 w-fit", isWalkIn ? "bg-primary/5 border-primary/10" : "bg-indigo-500/5 border-indigo-500/10")}>
                         <Avatar className="h-6 w-6 border-2 border-background shadow-inner rounded-lg shrink-0"><AvatarImage src={preferredStaff.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black">{(preferredStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar>
-                        <span className={cn("text-[9px] font-black uppercase tracking-widest", isWalkIn ? 'Pref:' : 'With:')} >{isWalkIn ? 'Pref:' : 'With:'} {preferredStaff.name.split(' ')[0]}</span>
+                        <span className={cn("text-[9px] font-black uppercase tracking-widest", isWalkIn ? 'text-primary' : 'text-indigo-600')}>{isWalkIn ? 'Pref:' : 'With:'} {preferredStaff.name.split(' ')[0]}</span>
                     </div>
                 )}
             </CardContent>
             
             {!isAutoCancelled && (
                 <div className="p-2 pt-0 grid grid-cols-1 gap-2">
-                    <Button variant="secondary" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-sm" onClick={() => onAssign()}>
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        Assign Session
+                    <Button variant="secondary" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-sm" onClick={(e) => { e.stopPropagation(); onAssign(); }}>
+                        <UserPlus className="w-4 h-4 mr-2" />Assign Session
                     </Button>
-                    
                     <div className="grid grid-cols-2 gap-2">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Button variant="outline" size="icon" className="h-10 w-full rounded-xl border-2" onClick={() => onPrintTicket(item.id)}>
+                                    <Button variant="outline" size="icon" className="h-10 w-full rounded-xl border-2" onClick={(e) => { e.stopPropagation(); onPrintTicket(item.id); }}>
                                         <Printer className="w-4 h-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] text-left">Print Ticket</TooltipContent>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px]">Print Ticket</TooltipContent>
                             </Tooltip>
-
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Button variant="outline" size="icon" className="h-10 w-full rounded-xl border-2 text-destructive hover:bg-destructive/5" onClick={() => onCancel(item.id, isWalkIn)}>
+                                    <Button variant="outline" size="icon" className="h-10 w-full rounded-xl border-2 text-destructive hover:bg-destructive/5" onClick={(e) => { e.stopPropagation(); onCancel(item.id, isWalkIn); }}>
                                         <Trash2 className="w-4 h-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] text-left">Cancel Visit</TooltipContent>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px]">Cancel Visit</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
                     </div>
