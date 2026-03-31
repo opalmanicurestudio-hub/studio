@@ -104,49 +104,68 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
         onOpenChange(val);
     };
 
+    if (!open) return null;
+
     return (
-        <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background z-[200]">
-                <DialogHeader className="p-6 pb-0 text-left">
-                    <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-slate-900">
-                        <ShieldCheck className="w-6 h-6 text-primary" />
-                        Recovery Override
-                    </DialogTitle>
-                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
-                        Manager PIN required to authorize this adjustment.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-8 py-8 flex flex-col items-center">
-                    <div className="space-y-2 w-48 text-center">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Manager PIN</Label>
-                        <Input
+        <div 
+            style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+            onClick={(e) => { if (e.target === e.currentTarget) handleOpenChange(false); }}
+        >
+            {/* Backdrop */}
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 9999 }} />
+            {/* Modal */}
+            <div style={{ position: 'relative', zIndex: 10000, backgroundColor: 'white', borderRadius: '2rem', border: '4px solid #e2e8f0', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', overflow: 'hidden' }}>
+                {/* Header */}
+                <div style={{ padding: '1.5rem 1.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                        <ShieldCheck style={{ width: '1.5rem', height: '1.5rem', color: 'var(--primary, #6366f1)' }} />
+                        <h2 style={{ fontSize: '1.25rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-0.05em', color: '#0f172a', margin: 0 }}>Recovery Override</h2>
+                    </div>
+                    <p style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8', marginBottom: '1rem' }}>Manager PIN required to authorize this adjustment.</p>
+                </div>
+                {/* Body */}
+                <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '12rem' }}>
+                        <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em', color: '#94a3b8' }}>Manager PIN</label>
+                        <input
                             type="password"
                             placeholder="••••"
                             maxLength={4}
-                            className="text-center text-4xl font-black h-20 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl"
+                            autoFocus
                             value={pin}
                             onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                            autoFocus
+                            style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, height: '5rem', letterSpacing: '0.4em', backgroundColor: '#f8fafc', border: '4px solid #e2e8f0', borderRadius: '1.5rem', outline: 'none', padding: '0 1rem' }}
                         />
                     </div>
-                    <div className="space-y-2 w-full px-6 text-left">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Override Reason</Label>
-                        <Textarea
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Override Reason</label>
+                        <textarea
                             value={reason}
                             onChange={e => setReason(e.target.value)}
-                            placeholder="Detail the justification for this adjustment..."
-                            className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium"
+                            placeholder="Detail the justification..."
+                            rows={3}
+                            style={{ width: '100%', borderRadius: '1rem', border: '2px solid #e2e8f0', padding: '0.75rem', fontSize: '0.875rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }}
                         />
                     </div>
                 </div>
-                <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20">
+                {/* Footer */}
+                <div style={{ padding: '0 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <button
+                        onClick={handleConfirm}
+                        disabled={pin.length < 4 || !reason.trim()}
+                        style={{ width: '100%', height: '4rem', borderRadius: '1rem', border: 'none', backgroundColor: pin.length < 4 || !reason.trim() ? '#cbd5e1' : '#6366f1', color: 'white', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: pin.length < 4 || !reason.trim() ? 'not-allowed' : 'pointer' }}
+                    >
                         Authorize Override
-                    </Button>
-                    <Button variant="ghost" onClick={() => handleOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                    </button>
+                    <button
+                        onClick={() => handleOpenChange(false)}
+                        style={{ width: '100%', height: '2.5rem', borderRadius: '1rem', border: 'none', backgroundColor: 'transparent', color: '#94a3b8', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer' }}
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 };
 
