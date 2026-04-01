@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -9,24 +8,15 @@ import { type WalkIn, type Staff, type Service, type Appointment, type Client } 
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { Button } from '../ui/button';
 import { 
-    Sparkles, 
-    TrendingUp, 
-    Users, 
-    Clock, 
-    CheckCircle, 
-    Activity, 
-    QrCode, 
-    Play, 
-    ShoppingBag, 
-    DollarSign,
-    ShoppingCart,
-    Target
+    Sparkles, TrendingUp, Users, Clock, CheckCircle, Activity, QrCode, Play, 
+    ShoppingBag, DollarSign, ShoppingCart, Target
 } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { cn, safeNumber } from '@/lib/utils';
 import { InServiceAppointmentCard } from './InServiceAppointmentCard';
 import { CheckoutQueueCard } from './CheckoutQueueCard';
-import { startOfDay, isSameDay, addMinutes, areIntervalsOverlapping } from 'date-fns';
+import { startOfDay, isSameDay } from 'date-fns';
+import { useInventory } from '@/context/InventoryContext';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
@@ -64,72 +54,64 @@ interface WalkInQueueProps {
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
-    walkIns, 
-    staff, 
-    services, 
-    appointments,
-    readyForCheckoutAppointments,
-    selectedAppointmentIds,
-    onSelectAppointment,
-    onAssignStaff,
-    onAssignNext,
-    onCancel,
-    onStartService,
-    orderedWaitingQueue,
-    onReorder,
-    assignmentMode,
-    onPrintTicket,
-    onSkip,
-    onReturnToQueue,
-    groupSizes,
-    onToggleWaitForStaff,
-    onScanClick,
-    onFinishService,
-    onUpdateStatus,
-    onRevertToReady,
-    onRevertToService,
-    onResolve,
+    walkIns, staff, services, appointments,
+    readyForCheckoutAppointments, selectedAppointmentIds, onSelectAppointment,
+    onAssignStaff, onAssignNext, onCancel, onStartService,
+    orderedWaitingQueue, onReorder, assignmentMode,
+    onPrintTicket, onSkip, onReturnToQueue, groupSizes, onToggleWaitForStaff,
+    onScanClick, onFinishService, onUpdateStatus, onRevertToReady, onRevertToService, onResolve,
 }) => {
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
     const today = startOfDay(new Date());
+    
+    // Get clients to detect phone/email duplicates
+    const { clients } = useInventory();
 
     const unifiedWaitlist = useMemo(() => {
         const wins = (walkIns || []).filter(w => w.status === 'waiting').map(w => {
-            // High-Performance Logic: Detect if this walk-in fits an "Orphaned Gap"
-            const duration = safeNumber(w.estimatedDuration) || 30;
-            const now = new Date();
-            const potentialEnd = addMinutes(now, duration);
-            
-            // Check if any idle staff can fit them before their next appointment
-            const idleStaffWithGap = (staff || []).filter(s => {
-                if (!s.active || s.onBreak || s.status === 'busy') return false;
-                const nextApt = (appointments || []).find(a => 
-                    a.staffId === s.id && 
-                    a.status === 'confirmed' && 
-                    isSameDay(new Date(a.startTime), now) && 
-                    new Date(a.startTime) > now
-                );
-                if (!nextApt) return true; // Infinite gap
-                return !areIntervalsOverlapping(
-                    { start: now, end: potentialEnd },
-                    { start: new Date(nextApt.startTime), end: new Date(nextApt.endTime) }
-                );
-            });
+            // REAL IDENTITY MATCH DETECTION: check if this walk-in's phone or email
+            // matches an existing client in the database
+            let isPotentialAlias = false;
+            let matchedClient: Client | null = null;
 
-            return { ...w, type: 'walk-in' as const, isPotentialAlias: idleStaffWithGap.length > 0 };
+            if (clients && clients.length > 0) {
+                const walkInPhone = w.phone?.replace(/\D/g, ''); // strip non-digits
+                const walkInEmail = w.email?.toLowerCase().trim();
+
+                const match = clients.find(c => {
+                    const clientPhone = c.phone?.replace(/\D/g, '');
+                    const clientEmail = c.email?.toLowerCase().trim();
+                    
+                    const phoneMatch = walkInPhone && clientPhone && walkInPhone === clientPhone;
+                    const emailMatch = walkInEmail && clientEmail && walkInEmail === clientEmail;
+                    
+                    // Only flag if they don't already have a clientId linking them
+                    const alreadyLinked = w.clientId === c.id;
+                    
+                    return (phoneMatch || emailMatch) && !alreadyLinked;
+                });
+
+                if (match) {
+                    isPotentialAlias = true;
+                    matchedClient = match;
+                }
+            }
+
+            return { ...w, type: 'walk-in' as const, isPotentialAlias, matchedClient };
         });
+
         const apts = (appointments || []).filter(a => 
             !a.isWalkIn && 
             isSameDay(new Date(a.startTime), today) && 
             (a.status === 'confirmed' || a.status === 'deposit_pending' || a.checkInStatus === 'auto_cancelled')
-        ).map(a => ({ ...a, type: 'appointment' as const }));
+        ).map(a => ({ ...a, type: 'appointment' as const, isPotentialAlias: false, matchedClient: null }));
 
         return [...wins, ...apts].sort((a, b) => {
             const timeA = a.type === 'walk-in' ? (a.queueOrder || new Date(a.checkInTime).getTime()) : new Date(a.startTime).getTime();
             const timeB = b.type === 'walk-in' ? (b.queueOrder || new Date(b.checkInTime).getTime()) : new Date(b.startTime).getTime();
             return timeA - timeB;
         });
-    }, [walkIns, appointments, today, staff]);
+    }, [walkIns, appointments, today, clients]);
 
     const notifiedQueue = useMemo(() => (walkIns || []).filter(w => w.status === 'notified'), [walkIns]);
     const inServiceQueue = useMemo(() => (appointments || []).filter(apt => apt.status === 'servicing'), [appointments]);
@@ -143,7 +125,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         const walkIn = walkIns?.find(w => w.id === walkInId);
         if (walkIn && staffId) onAssignStaff(walkIn, staffId);
         setWalkInToAssign(null);
-    }
+    };
 
     const LaneHeader = ({ icon: Icon, title, count, colorClass, action }: { icon: any, title: string, count: number, colorClass?: string, action?: React.ReactNode }) => (
         <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 border-b bg-muted/10">
@@ -166,7 +148,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                     <ScrollArea className="flex-1">
                         <div className="p-4 md:p-6 space-y-4">
                             {unifiedWaitlist.length > 0 ? unifiedWaitlist.map(item => (
-                                <WaitingCustomerCard key={item.id} item={item} services={services} staffList={staff} onAssign={() => handleOpenAssignDialog(item)} onCancel={onCancel} onPrintTicket={onPrintTicket} groupSize={item.type === 'walk-in' ? (groupSizes.get(item.groupId) || 1) : 1} onUpdateStatus={onUpdateStatus} onResolve={() => onResolve(item)} />
+                                <WaitingCustomerCard key={item.id} item={item} services={services} staffList={staff} onAssign={() => handleOpenAssignDialog(item)} onCancel={onCancel} onPrintTicket={onPrintTicket} groupSize={item.type === 'walk-in' ? (groupSizes.get((item as any).groupId) || 1) : 1} onUpdateStatus={onUpdateStatus} onResolve={() => onResolve(item)} />
                             )) : (
                                 <div className="text-center py-16 md:py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
                                     <Sparkles className="w-8 h-8 md:w-10 md:h-10" />
@@ -182,17 +164,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                     <ScrollArea className="flex-1">
                         <div className="p-4 md:p-6 space-y-4">
                             {notifiedQueue.length > 0 ? notifiedQueue.map(walkIn => (
-                                <NotifiedCustomerCard 
-                                    key={walkIn.id} 
-                                    walkIn={walkIn} 
-                                    services={services} 
-                                    staff={staff} 
-                                    onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)} 
-                                    onSkip={onSkip} 
-                                    onCancel={(id) => onCancel(id, true)} 
-                                    onReturnToQueue={onReturnToQueue} 
-                                    onUpdateStatus={onUpdateStatus}
-                                />
+                                <NotifiedCustomerCard key={walkIn.id} walkIn={walkIn} services={services} staff={staff} onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)} onSkip={onSkip} onCancel={(id) => onCancel(id, true)} onReturnToQueue={onReturnToQueue} onUpdateStatus={onUpdateStatus} />
                             )) : (
                                 <div className="text-center py-16 md:py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
                                     <Clock className="w-8 h-8 md:w-10 md:h-10" />
