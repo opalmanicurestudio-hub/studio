@@ -75,8 +75,11 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
             let matchedClient: Client | null = null;
 
             if (clients && clients.length > 0) {
-                const walkInPhone = w.phone?.replace(/\D/g, ''); // strip non-digits
-                const walkInEmail = w.email?.toLowerCase().trim();
+                // Kiosk saves as customerPhone/customerEmail, manual walk-ins may use phone/email
+                const rawPhone = (w as any).customerPhone || (w as any).phone || '';
+                const rawEmail = (w as any).customerEmail || (w as any).email || '';
+                const walkInPhone = rawPhone.replace(/\D/g, '');
+                const walkInEmail = rawEmail.toLowerCase().trim();
 
                 const match = clients.find(c => {
                     const clientPhone = c.phone?.replace(/\D/g, '');
