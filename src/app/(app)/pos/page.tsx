@@ -187,11 +187,18 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
 };
 
 
-// Identity Match Dialog — shown when walk-in phone/email matches existing client
-const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink }: any) => {
+// Identity Match Dialog — 3 options: link session only, full merge, or keep separate
+const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLinkSession, onMerge, onKeepSeparate }: any) => {
+    const walkInPhone = walkIn?.customerPhone || walkIn?.phone || '';
+    const walkInEmail = walkIn?.customerEmail || walkIn?.email || '';
+
+    // Detect if walk-in has newer/different contact info worth merging
+    const hasNewContact = (walkInPhone && walkInPhone !== matchedClient?.phone) || 
+                          (walkInEmail && walkInEmail !== matchedClient?.email);
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
+            <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background">
                 <DialogHeader className="p-6 pb-0 text-left">
                     <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-slate-900">
                         <Fingerprint className="w-6 h-6 text-primary" />
@@ -201,30 +208,76 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                         This walk-in shares contact info with an existing client record.
                     </DialogDescription>
                 </DialogHeader>
-                <div className="p-6 space-y-6">
-                    <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-3">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Existing Client Record</p>
-                        <p className="text-xl font-black uppercase tracking-tighter text-slate-900">{matchedClient?.name}</p>
-                        <div className="space-y-1">
-                            {matchedClient?.phone && <p className="text-[10px] font-bold text-slate-600 uppercase">{matchedClient.phone}</p>}
-                            {matchedClient?.email && <p className="text-[10px] font-bold text-slate-600 uppercase">{matchedClient.email}</p>}
+
+                <div className="p-6 space-y-4">
+                    {/* Side by side comparison */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-2">
+                            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Existing Record</p>
+                            <p className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{matchedClient?.name}</p>
+                            {matchedClient?.phone && <p className="text-[9px] font-bold text-slate-500 uppercase truncate">{matchedClient.phone}</p>}
+                            {matchedClient?.email && <p className="text-[9px] font-bold text-slate-500 uppercase truncate">{matchedClient.email}</p>}
+                            {matchedClient?.lifetimeValue > 0 && (
+                                <p className="text-[8px] font-black text-primary uppercase">LTV: ${matchedClient.lifetimeValue.toFixed(0)}</p>
+                            )}
+                        </div>
+                        <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-200 space-y-2">
+                            <p className="text-[8px] font-black uppercase tracking-widest text-amber-600">Walk-in Guest</p>
+                            <p className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{walkIn?.customerName}</p>
+                            {walkInPhone && <p className={`text-[9px] font-bold uppercase truncate ${walkInPhone !== matchedClient?.phone ? 'text-amber-600' : 'text-slate-500'}`}>{walkInPhone}</p>}
+                            {walkInEmail && <p className={`text-[9px] font-bold uppercase truncate ${walkInEmail !== matchedClient?.email ? 'text-amber-600' : 'text-slate-500'}`}>{walkInEmail}</p>}
+                            {hasNewContact && <p className="text-[8px] font-black text-amber-600 uppercase">New contact info detected</p>}
                         </div>
                     </div>
-                    <div className="p-4 rounded-xl bg-amber-50 border-2 border-amber-200">
-                        <p className="text-[10px] font-black uppercase text-amber-700">Walk-in Guest</p>
-                        <p className="text-sm font-black uppercase text-slate-900 mt-1">{walkIn?.customerName}</p>
-                        {(walkIn?.customerPhone || walkIn?.phone) && <p className="text-[10px] font-bold text-slate-600 uppercase mt-1">{walkIn.customerPhone || walkIn.phone}</p>}
-                        {(walkIn?.customerEmail || walkIn?.email) && <p className="text-[10px] font-bold text-slate-600 uppercase">{walkIn.customerEmail || walkIn.email}</p>}
-                    </div>
                 </div>
-                <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                    <Button onClick={() => onLink(matchedClient)} className="w-full h-14 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20">
-                        <Fingerprint className="w-4 h-4 mr-2" /> Link to Existing Record
-                    </Button>
-                    <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-2xl font-black uppercase border-2">
-                        Keep as New Guest
-                    </Button>
-                </DialogFooter>
+
+                <div className="px-6 pb-6 space-y-3">
+                    {/* Option 1 — Link session only */}
+                    <button
+                        onClick={() => onLinkSession(matchedClient)}
+                        className="w-full p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 hover:border-primary/40 transition-all text-left group"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <p className="text-[11px] font-black uppercase tracking-widest text-primary">Link This Session Only</p>
+                                <p className="text-[9px] font-bold text-slate-500 uppercase">Connect today's visit to existing profile. No other changes.</p>
+                            </div>
+                            <ArrowRight className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100 transition-opacity shrink-0 ml-3" />
+                        </div>
+                    </button>
+
+                    {/* Option 2 — Full merge */}
+                    <button
+                        onClick={() => onMerge(matchedClient)}
+                        className="w-full p-4 rounded-2xl border-2 border-green-500/20 bg-green-50/50 hover:bg-green-50 hover:border-green-500/40 transition-all text-left group"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <p className="text-[11px] font-black uppercase tracking-widest text-green-700">Merge & Update Profile</p>
+                                <p className="text-[9px] font-bold text-slate-500 uppercase">
+                                    {hasNewContact 
+                                        ? 'Link session and update profile with new contact info.' 
+                                        : 'Link session and confirm this is the same person.'}
+                                </p>
+                            </div>
+                            <ShieldCheck className="w-4 h-4 text-green-600 opacity-40 group-hover:opacity-100 transition-opacity shrink-0 ml-3" />
+                        </div>
+                    </button>
+
+                    {/* Option 3 — Keep separate */}
+                    <button
+                        onClick={() => onKeepSeparate()}
+                        className="w-full p-3 rounded-2xl border-2 border-transparent hover:border-muted hover:bg-muted/20 transition-all text-left group"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Keep as New Guest</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase">Different person with similar contact info. No changes.</p>
+                            </div>
+                            <XCircle className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-60 transition-opacity shrink-0 ml-3" />
+                        </div>
+                    </button>
+                </div>
             </DialogContent>
         </Dialog>
     );
@@ -647,10 +700,45 @@ function POSPage() {
                 onOpenChange={() => setPendingIdentityMatch(null)}
                 walkIn={pendingIdentityMatch}
                 matchedClient={pendingIdentityMatch?.matchedClient}
-                onLink={async (matchedClient: any) => {
+                onLinkSession={async (matchedClient: any) => {
+                    // Link this session only — write clientId to walk-in, no profile changes
                     if (!firestore || !tenantId || !pendingIdentityMatch) return;
-                    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name });
-                    toast({ title: "Identity Linked", description: `Walk-in linked to ${matchedClient.name}.` });
+                    updateDocumentNonBlocking(
+                        doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id),
+                        { clientId: matchedClient.id, customerName: matchedClient.name }
+                    );
+                    toast({ title: "Session Linked", description: `Today's visit linked to ${matchedClient.name}.` });
+                    setPendingIdentityMatch(null);
+                }}
+                onMerge={async (matchedClient: any) => {
+                    // Full merge — link session AND update client profile with any new contact info
+                    if (!firestore || !tenantId || !pendingIdentityMatch) return;
+                    const walkInPhone = pendingIdentityMatch.customerPhone || pendingIdentityMatch.phone || '';
+                    const walkInEmail = pendingIdentityMatch.customerEmail || pendingIdentityMatch.email || '';
+                    const profileUpdates: any = { customerName: matchedClient.name };
+                    if (walkInPhone && walkInPhone !== matchedClient.phone) profileUpdates.phone = walkInPhone;
+                    if (walkInEmail && walkInEmail !== matchedClient.email) profileUpdates.email = walkInEmail;
+                    // Link walk-in to client
+                    updateDocumentNonBlocking(
+                        doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id),
+                        { clientId: matchedClient.id, customerName: matchedClient.name }
+                    );
+                    // Update client profile if new contact info detected
+                    const clientUpdates: any = {};
+                    if (walkInPhone && walkInPhone !== matchedClient.phone) clientUpdates.phone = walkInPhone;
+                    if (walkInEmail && walkInEmail !== matchedClient.email) clientUpdates.email = walkInEmail;
+                    if (Object.keys(clientUpdates).length > 0) {
+                        updateDocumentNonBlocking(
+                            doc(firestore, `tenants/${tenantId}/clients`, matchedClient.id),
+                            clientUpdates
+                        );
+                    }
+                    toast({ title: "Profile Merged", description: `${matchedClient.name}'s profile updated and session linked.` });
+                    setPendingIdentityMatch(null);
+                }}
+                onKeepSeparate={() => {
+                    // Dismiss — treat as genuinely new/different guest
+                    toast({ title: "Kept Separate", description: "Walk-in will be treated as a new guest." });
                     setPendingIdentityMatch(null);
                 }}
             />
