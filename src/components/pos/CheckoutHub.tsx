@@ -374,12 +374,14 @@ export const CheckoutHub = ({
     };
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
-    const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
+    // recoveryAmount is handled separately in finalTotal -- do not include here to avoid double counting
+    const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount);
     // If recovery covers full subtotal, total is $0 -- no tax on a fully comped service
+    const totalWithRecovery = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
     const isFullyComped = recoveryAmount >= subtotal && subtotal > 0;
     const finalTotal = isFullyComped
         ? Math.max(0, tipAmount)
-        : Math.max(0, subtotal - totalDiscount + (subtotal * 0.07) + tipAmount);
+        : Math.max(0, subtotal - totalWithRecovery + (subtotal * 0.07) + tipAmount);
 
     const autonomyLimit = safeNumber(selectedTenant?.maxAutonomousRecoveryAmount) || 0;
     const autonomyPercent = safeNumber(selectedTenant?.maxAutonomousRecoveryPercent) || 0;
@@ -780,7 +782,7 @@ export const CheckoutHub = ({
                             <p className="font-mono text-[11px] md:text-xs">${(subtotal * 0.07).toFixed(2)}</p>
                         </div>
                     )}
-                    {totalDiscount > 0 && (
+                    {totalDiscount > 0 && !isRecoveryActive && (
                         <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
                             <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
                             <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
