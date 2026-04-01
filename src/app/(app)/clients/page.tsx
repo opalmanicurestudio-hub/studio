@@ -1,838 +1,444 @@
 ‘use client’;
 
 import React, { useState, useMemo, useEffect, useCallback } from ‘react’;
-import { Card, CardContent } from ‘@/components/ui/card’;
-import { Button } from ‘@/components/ui/button’;
-import { Input } from ‘@/components/ui/input’;
-import { Separator } from ‘@/components/ui/separator’;
+import { useRouter } from ‘next/navigation’;
+import { AppHeader } from ‘@/components/shared/AppHeader’;
 import {
-Banknote,
-CreditCard,
-Trash2,
-DollarSign,
-Award,
-Loader,
-Tag,
-Wand2,
-X,
-ShoppingCart,
-CheckCircle,
-Percent,
-AlertTriangle,
-QrCode,
-ShieldCheck,
-Users,
-Repeat,
-Wallet,
-UserPlus,
-Cake,
-ChevronDown,
-Zap,
-Search,
-User,
-Plus,
-Minus,
-TicketIcon,
-XCircle,
-Fingerprint,
-Scan as ScanIcon,
-ArrowRight,
-Star,
-Check,
-Lock,
-Sparkles,
-Info,
-PartyPopper,
-Box,
-CheckCircle2,
-VolumeX,
-Ear,
-SunDim,
-Coffee,
-Landmark,
-Scale,
-ShieldAlert,
-Undo2,
-MessageSquare,
-AlertCircle
+Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter,
+} from ‘@/components/ui/card’;
+import { Button, buttonVariants } from ‘@/components/ui/button’;
+import {
+MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus,
+AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText, Package, Loader, Wallet,
+TrendingUp, Sparkles, ChevronLeft, ChevronRight, Filter, SlidersHorizontal, Check,
+RefreshCw, Database, Phone
 } from ‘lucide-react’;
-import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice, type RecoveryPreset } from ‘@/lib/data’;
-import { ScrollArea } from ‘../ui/scroll-area’;
-import { Avatar, AvatarFallback, AvatarImage } from ‘../ui/avatar’;
-import { Label } from ‘../ui/label’;
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from ‘../ui/tooltip’;
-import { Badge } from ‘@/components/ui/badge’;
-import { Tabs, TabsContent, TabsList, TabsTrigger } from ‘@/components/ui/tabs’;
-import { BrowseDiscountsDialog } from ‘../discounts/BrowseDiscountsDialog’;
-import { useInventory } from ‘@/context/InventoryContext’;
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from ‘@/components/ui/accordion’;
-import { cn, safeNumber } from ‘@/lib/utils’;
-import { motion, AnimatePresence } from ‘framer-motion’;
-import { useToast } from ‘@/hooks/use-toast’;
-import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, subYears } from ‘date-fns’;
 import {
-Dialog,
-DialogContent,
-DialogDescription,
-DialogFooter,
-DialogHeader,
-DialogTitle,
-DialogTrigger
-} from ‘@/components/ui/dialog’;
-import { Textarea } from ‘../ui/textarea’;
-import { Switch } from ‘../ui/switch’;
+Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from ‘@/components/ui/select’;
+import { type Client, type Appointment } from ‘@/lib/data’;
+import Link from ‘next/link’;
+import { Badge } from ‘@/components/ui/badge’;
+import { formatDistanceToNow, subDays, format } from ‘date-fns’;
+import { Input } from ‘@/components/ui/input’;
+import { AddClientDialog, type ClientFormData } from ‘@/components/clients/AddClientDialog’;
+import { MergeClientsDialog } from ‘@/components/clients/MergeClientsDialog’;
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from ‘@/components/ui/tooltip’;
+import { Label } from ‘@/components/ui/label’;
+import { Switch } from ‘@/components/ui/switch’;
+import { Separator } from ‘@/components/ui/separator’;
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from “@/components/ui/alert-dialog”;
+import { useToast } from ‘@/hooks/use-toast’;
+import { cn, safeNumber } from ‘@/lib/utils’;
+import { nanoid } from ‘nanoid’;
+import { ClientOnly } from ‘@/components/shared/ClientOnly’;
+import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from ‘@/firebase’;
+import { collection, doc, writeBatch, increment, query, where, getDocs } from ‘firebase/firestore’;
 import { useTenant } from ‘@/context/TenantContext’;
-import { Alert, AlertTitle, AlertDescription } from ‘@/components/ui/alert’;
+import { useInventory } from ‘@/context/InventoryContext’;
+import { ClientCard } from ‘@/components/clients/ClientCard’;
 
-const safeDate = (val: any): Date => {
-if (!val) return new Date();
-if (val instanceof Date) return val;
-if (typeof val === ‘string’) return parseISO(val);
-if (typeof val === ‘object’ && ‘seconds’ in val) return new Date(val.seconds * 1000);
-return new Date(val);
-};
-
-const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = “Admin Override”, description = “Authorize fee waiver with manager PIN.” }: any) => {
-const [pin, setPin] = useState(’’);
-const [reason, setReason] = useState(’’);
-const { toast } = useToast();
-
-```
-const handleConfirm = () => {
-    const authorizedStaff = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
-    if (!authorizedStaff) {
-        toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager authorization required.' });
-        return;
-    }
-    if (!reason.trim()) {
-        toast({ variant: 'destructive', title: 'Reason Required' });
-        return;
-    }
-    onConfirm(authorizedStaff, reason);
-    setPin('');
-    setReason('');
-};
-
-return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
-            <DialogHeader className="p-6 pb-0 text-left">
-                <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-slate-900 text-left">
-                    <ShieldCheck className="w-6 h-6 text-primary" />
-                    {title}
-                </DialogTitle>
-                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 text-left">{description}</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-8 py-8 flex flex-col items-center text-left">
-                <div className="space-y-2 w-48 text-center">
-                    <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground text-center block">Manager PIN</Label>
-                    <Input 
-                        type="password" 
-                        placeholder="••••"
-                        maxLength={4} 
-                        className="text-center text-4xl font-black h-20 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl" 
-                        value={pin} 
-                        onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                        autoFocus
-                    />
-                </div>
-                <div className="space-y-2 w-full px-6 text-left">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reason</Label>
-                    <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g., Client verified emergency..." className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
-                </div>
-            </div>
-            <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20">Confirm</Button>
-                <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
+const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
+<div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
+<div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
+<Users className='w-12 h-12 text-muted-foreground' />
+</div>
+<div className="space-y-2">
+<h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Rolodex is Empty</h3>
+<p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
+Start building your client base to unlock automated loyalty tracking and custom formulas.
+</p>
+</div>
+<Button size="lg" onClick={onAddClient} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+<UserPlus className="mr-2 h-5 w-5" />Add First Guest
+</Button>
+</div>
 );
-```
 
-};
+export default function ClientsPage() {
+const { firestore } = useFirebase();
+const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
+const router = useRouter();
+const tenantId = selectedTenant?.id;
+const { clients, appointments, transactions } = useInventory();
 
-export const CheckoutHub = ({
-cart,
-onCartChange,
-appointmentsData,
-onSelectAppointment,
-clients,
-isGroupCheckout,
-payerOptions,
-selectedClientId,
-setSelectedClientId,
-onAddClientClick,
-onScanClick,
-subtotal,
-tax,
-total,
-tipAmount,
-setTipAmount,
-onCheckout,
-appliedDiscountCodes,
-setAppliedDiscountCodes,
-discount,
-membershipDiscount,
-isSubmitting,
-paymentTab,
-setPaymentTab,
-discounts,
-amountTendered,
-setAmountTendered,
-appliedAdjustments,
-onApplyAdjustmentToggle,
-redeemedOffer,
-setRedeemedOffer,
-memberships,
-packages,
-allowStacking,
-waivedAppointmentFees,
-onWaiveFeeToggle,
-tipAllocations,
-setTipAllocations,
-activeTill,
-staff,
-role,
-onRequestOverride
-}: any) => {
-
-```
-const [promoCodeInput, setPromoCodeInput] = useState('');
-const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-const [isPayerDialogOpen, setIsPayerDialogOpen] = useState(false);
-const { services, inventory } = useInventory();
-const { selectedTenant } = useTenant();
+const [isAddClientOpen, setIsAddClientOpen] = useState(false);
+const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
+const [searchTerm, setSearchTerm] = useState(’’);
+const [lastSeenFilter, setLastSeenFilter] = useState(‘all’);
+const [owesBalanceOnly, setOwesBalanceOnly] = useState(false);
 const { toast } = useToast();
-
-const [isWaiveAuthOpen, setIsPointOfSaleWaiveAuthOpen] = useState(false);
-const [isOverrideAuthOpen, setIsOverrideAuthOpen] = useState(false);
-const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
-const [clientSearch, setClientSearch] = useState('');
-
-const [recoveryAmount, setRecoveryAmount] = useState<number>(0);
-const [recoveryReason, setRecoveryReason] = useState('');
-const [isRecoveryActive, setIsRecoveryActive] = useState(false);
-const [showPinEntry, setShowPinEntry] = useState(false);
-const [overridePin, setOverridePin] = useState('');
-const [overrideReason, setOverrideReason] = useState('');
-const [isOverrideUnlocked, setIsOverrideUnlocked] = useState(false);
-
-const isOwnerOrAdmin = role === 'owner' || role === 'admin';
-
-const handleWaiveClick = (aptId: string) => {
-    setPendingWaiveAptId(aptId);
-    setIsPointOfSaleWaiveAuthOpen(true);
-};
-
-const handleConfirmWaive = (authorizer: Staff, reason: string) => {
-    if (pendingWaiveAptId) {
-        onWaiveFeeToggle(pendingWaiveAptId, true, authorizer.id, reason);
-        setIsPointOfSaleWaiveAuthOpen(false);
-        setPendingWaiveAptId(null);
-        toast({ title: "Fees Absorbed" });
-    }
-};
-
-const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
-
-const isBirthdayToday = useMemo(() => {
-    if (!selectedClient?.birthday) return false;
-    const birth = safeDate(selectedClient.birthday);
-    const today = new Date();
-    return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
-}, [selectedClient]);
-
-const isMember = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
-const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
-
-const filteredPayerOptions = useMemo(() => {
-    const listToFilter = payerOptions || [];
-    if (!clientSearch.trim()) return listToFilter;
-    const search = clientSearch.toLowerCase();
-    return listToFilter.filter((c: Client) => 
-        c.name.toLowerCase().includes(search) || 
-        (c.email && c.email.toLowerCase().includes(search)) || 
-        (c.phone && c.phone.includes(search))
-    );
-}, [payerOptions, clientSearch]);
-
-const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
-    if (newQuantity <= 0) onCartChange(cart.filter((item: any) => item.id !== itemId));
-    else onCartChange(cart.map((item: any) => item.id === itemId ? { ...item, quantity: newQuantity } : item));
-};
-
-const cartServiceIds = useMemo(() => {
-    const appointmentServiceIds = (appointmentsData || []).map((a: any) => a.appointment.serviceId);
-    const cartServices = (cart || []).filter((item: any) => item.type === 'service').map((item: any) => item.id);
-    const appointmentAddOnIds = (appointmentsData || []).flatMap((a: any) => a.appointment.addOnIds || []);
-    return [...new Set([...appointmentServiceIds, ...cartServices, ...appointmentAddOnIds])];
-}, [cart, appointmentsData]);
-
-const allInvolvedStaff = useMemo(() => {
-    const staffIds = new Set<string>();
-    (appointmentsData || []).forEach((data: any) => {
-        if (data.appointment.staffId) staffIds.add(data.appointment.staffId);
-        if (data.appointment.checkoutState?.serviceStaffOverrides) {
-            Object.values(data.appointment.checkoutState.serviceStaffOverrides).forEach((id: any) => {
-                if (id && typeof id === 'string') staffIds.add(id);
-            });
-        }
-    });
-    return staff.filter((s: Staff) => staffIds.has(s.id));
-}, [appointmentsData, staff]);
-
-const handleTotalTipChange = useCallback((value: number) => {
-    const roundedValue = Number(safeNumber(value).toFixed(2));
-    setTipAmount(roundedValue);
-    if (allInvolvedStaff.length > 0) {
-        const splitAmount = Number((roundedValue / allInvolvedStaff.length).toFixed(2));
-        const newAllocations: Record<string, number> = {};
-        let currentTotal = 0;
-        allInvolvedStaff.forEach((member: Staff, index: number) => {
-            if (index === allInvolvedStaff.length - 1) {
-                newAllocations[member.id] = Number((roundedValue - currentTotal).toFixed(2));
-            } else {
-                newAllocations[member.id] = splitAmount;
-                currentTotal += splitAmount;
-            }
-        });
-        setTipAllocations(newAllocations);
-    }
-}, [allInvolvedStaff, setTipAmount, setTipAllocations]);
+const [showArchived, setShowArchived] = useState(false);
+const [showBanned, setShowBanned] = useState(false);
+const [selectedItems, setSelectedItems] = useState(new Set<string>());
+const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+const [isReconciling, setIsReconciling] = useState(false);
+const [currentPage, setCurrentPage] = useState(1);
+const ITEMS_PER_PAGE = 8;
 
 useEffect(() => {
-    if (tipAmount > 0) handleTotalTipChange(tipAmount);
-}, [allInvolvedStaff.length, handleTotalTipChange, tipAmount]);
+if (!isTenantLoading && role === ‘staff’) router.replace(’/dashboard’);
+}, [role, isTenantLoading, router]);
 
-const handleApplyDiscount = (code: string) => {
-    const codeUpper = code.trim().toUpperCase();
-    if (!codeUpper) return;
-    const d = discounts.find((d: any) => d.code.toUpperCase() === codeUpper);
-    if (d && d.isActive) {
-        const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || (d.applicableServiceIds.some((id: string) => cartServiceIds.includes(id)));
-        if (!isCompatible) return toast({ variant: 'destructive', title: 'Incompatible Code' });
-        if (appliedDiscountCodes.includes(d.code)) return;
-        if (!allowStacking) setAppliedDiscountCodes([d.code]);
-        else setAppliedDiscountCodes([...appliedDiscountCodes, d.code]);
-        setPromoCodeInput('');
-    } else toast({ variant: 'destructive', title: 'Invalid Code' });
+const handleAddClient = (data: ClientFormData) => {
+if (!firestore || !tenantId) return;
+const { referringClientId, …clientData } = data;
+const firstName = (data.name || ‘GUEST’).split(’ ’)[0].toUpperCase();
+const referralCode = `${firstName}${nanoid(4)}`;
+const newClient: Omit<Client, ‘id’> = {
+name: data.name, email: data.email || ‘’, phone: data.phone || ‘’,
+avatarUrl: data.avatarUrl || ‘’, lifetimeValue: 0,
+lastAppointment: new Date().toISOString(), status: ‘active’,
+notes: data.notes, referralCode,
+birthday: data.birthday ? data.birthday.toISOString() : undefined,
+address: data.address, emergencyContact: data.emergencyContact,
+intel: { referralSource: data.intel?.referralSource }
+};
+const clientsCollection = collection(firestore, `tenants/${tenantId}/clients`);
+addDocumentNonBlocking(clientsCollection, JSON.parse(JSON.stringify(newClient)));
+if (referringClientId && clients) {
+const referrer = clients.find(c => c.id === referringClientId);
+if (referrer) {
+updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients/${referringClientId}`), { successfulReferrals: […(referrer.successfulReferrals || []), newClient.name] });
+}
+}
+toast({ title: “Client Added”, description: `${data.name} has been added to your client list.` });
 };
 
-const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
-    if (!client.subscription || client.subscription.status !== 'active') return true;
-    const usageCount = safeNumber(client.subscription?.perkUsage?.[perkId]);
-    const perkDef = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
-    const limit = safeNumber(perkDef?.quantity || 1);
-    if (usageCount >= limit) return true;
-    if (!client.subscription?.nextBillingDate) return false;
-    const lastUsedStr = client.subscription.perkLastUsed;
-    if (!lastUsedStr) return false;
-    const lastUsed = safeDate(lastUsedStr);
-    const nextBilling = safeDate(client.subscription.nextBillingDate);
-    const cycleStart = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
-    if (!isAfter(lastUsed, cycleStart)) return false;
-    return usageCount >= limit;
+const handleBulkReconcile = async () => {
+if (!firestore || !tenantId || !clients || isReconciling) return;
+setIsReconciling(true);
+const batch = writeBatch(firestore);
+try {
+const txnsSnap = await getDocs(collection(firestore, `tenants/${tenantId}/transactions`));
+const incomeByClient: Record<string, number> = {};
+txnsSnap.docs.forEach(d => {
+const data = d.data();
+if (data.clientId) {
+const amount = safeNumber(data.amount);
+if (data.type === ‘income’) incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) + amount;
+else if (data.type === ‘reversal’) incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) - amount;
+else if (data.type === ‘expense’ && data.category === ‘Discounts’) incomeByClient[data.clientId] = (incomeByClient[data.clientId] || 0) - amount;
+}
+});
+clients.forEach(client => {
+const realLtv = Math.max(0, incomeByClient[client.id] || 0);
+if (Math.abs(realLtv - safeNumber(client.lifetimeValue)) > 0.01) {
+batch.update(doc(firestore, `tenants/${tenantId}/clients`, client.id), { lifetimeValue: realLtv });
+}
+});
+await batch.commit();
+toast({ title: “Ledgers Synchronized”, description: “All client lifetime values have been verified against the transaction ledger.” });
+} catch (e) {
+toast({ variant: ‘destructive’, title: “Sync Failed” });
+} finally {
+setIsReconciling(false);
+}
 };
 
-const availableEntitlements = useMemo(() => {
-    if (!selectedClient) return [];
-    const items: any[] = [];
-    if (selectedClient.activeMembershipId && memberships) {
-        const membership = memberships.find((m: any) => m.id === selectedClient.activeMembershipId);
-        if (membership) {
-            membership.includedServices?.forEach((perk: any) => {
-                if (cartServiceIds.includes(perk.id)) {
-                    const exhausted = isPerkExhausted(selectedClient, perk.id, membership);
-                    items.push({ type: 'membership', id: membership.id, itemId: perk.id, label: perk.name, subLabel: 'Membership Perk', exhausted, usage: `${safeNumber(selectedClient.subscription?.perkUsage?.[perk.id])}/${perk.quantity}` });
-                }
-            });
-            membership.includedAddOns?.forEach((perk: any) => {
-                if (cartServiceIds.includes(perk.id)) {
-                    const exhausted = isPerkExhausted(selectedClient, perk.id, membership);
-                    items.push({ type: 'membership', id: membership.id, itemId: perk.id, label: perk.name, subLabel: 'Membership Perk (Add-on)', exhausted, usage: `${safeNumber(selectedClient.subscription?.perkUsage?.[perk.id])}/${perk.quantity}` });
-                }
-            });
+const handleItemSelect = useCallback((itemId: string) => {
+setSelectedItems(prev => {
+const newSelection = new Set(prev);
+newSelection.has(itemId) ? newSelection.delete(itemId) : newSelection.add(itemId);
+return newSelection;
+});
+}, []);
+
+const handleBulkDeleteConfirm = useCallback(() => {
+if (!firestore || !tenantId) return;
+const itemCount = selectedItems.size;
+const batch = writeBatch(firestore);
+selectedItems.forEach(id => batch.delete(doc(firestore, `tenants/${tenantId}/clients`, id)));
+batch.commit();
+setSelectedItems(new Set());
+setIsBulkDeleteConfirmOpen(false);
+toast({ title: “Clients Deleted”, description: `${itemCount} client(s) have been removed.` });
+}, [selectedItems, toast, firestore, tenantId]);
+
+const handleBulkArchive = useCallback(() => {
+if (!firestore || !tenantId) return;
+selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: ‘archived’ }));
+toast({ title: `${selectedItems.size} client(s) have been archived.` });
+setSelectedItems(new Set());
+}, [selectedItems, toast, firestore, tenantId]);
+
+const handleBulkUnarchive = useCallback(() => {
+if (!firestore || !tenantId) return;
+selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: ‘active’ }));
+toast({ title: `${selectedItems.size} client(s) have been restored.` });
+setSelectedItems(new Set());
+}, [selectedItems, toast, firestore, tenantId]);
+
+const handleMergeClients = async (primaryId: string, secondaryClients: Client[]) => {
+if (!firestore || !tenantId) return;
+const batch = writeBatch(firestore);
+const primaryRef = doc(firestore, `tenants/${tenantId}/clients`, primaryId);
+let totalLtvGain = 0, totalBalanceGain = 0;
+for (const secondary of secondaryClients) {
+totalLtvGain += safeNumber(secondary.lifetimeValue);
+totalBalanceGain += safeNumber(secondary.outstandingBalance);
+const aptsSnap = await getDocs(query(collection(firestore, `tenants/${tenantId}/appointments`), where(“clientId”, “==”, secondary.id)));
+aptsSnap.forEach(aptDoc => batch.update(aptDoc.ref, { clientId: primaryId }));
+const txnsSnap = await getDocs(query(collection(firestore, `tenants/${tenantId}/transactions`), where(“clientId”, “==”, secondary.id)));
+txnsSnap.forEach(txnDoc => batch.update(txnDoc.ref, { clientId: primaryId }));
+batch.delete(doc(firestore, `tenants/${tenantId}/clients`, secondary.id));
+}
+batch.update(primaryRef, { lifetimeValue: increment(totalLtvGain), outstandingBalance: increment(totalBalanceGain) });
+try {
+await batch.commit();
+toast({ title: “Merge Complete”, description: “Dossiers consolidated and history re-attributed.” });
+} catch (e) {
+toast({ variant: ‘destructive’, title: “Merge Failed” });
+}
+};
+
+const filteredClients = useMemo(() => {
+if (!clients) return [];
+let clientsToFilter = clients.filter(client => {
+if (showBanned) return client.status === ‘banned’;
+return showArchived ? client.status === ‘archived’ : client.status === ‘active’;
+});
+if (owesBalanceOnly) clientsToFilter = clientsToFilter.filter(c => safeNumber(c.outstandingBalance) > 0);
+if (lastSeenFilter !== ‘all’) {
+const cutoffDate = subDays(new Date(), parseInt(lastSeenFilter));
+clientsToFilter = clientsToFilter.filter(client => new Date(client.lastAppointment) < cutoffDate);
+}
+if (searchTerm) {
+const lower = searchTerm.toLowerCase();
+// Strip all non-digits from the search term for phone matching
+const numericSearch = searchTerm.replace(/\D/g, ‘’);
+
+```
+    clientsToFilter = clientsToFilter.filter(client => {
+        const nameMatch = client.name.toLowerCase().includes(lower);
+        const emailMatch = client.email && client.email.toLowerCase().includes(lower);
+
+        // Phone match: compare numeric digits only, match any substring
+        let phoneMatch = false;
+        if (numericSearch.length >= 3 && client.phone) {
+            const numericPhone = client.phone.replace(/\D/g, '');
+            phoneMatch = numericPhone.includes(numericSearch);
         }
-    }
-    selectedClient.activePackages?.forEach((p: any) => {
-        const pkgDef = packages?.find((pkg: any) => pkg.id === p.packageId);
-        if (pkgDef && cartServiceIds.includes(pkgDef.serviceId)) {
-            items.push({ type: 'package', id: pkgDef.id, itemId: pkgDef.serviceId, label: pkgDef.name, subLabel: 'Prepaid Bundle', exhausted: p.sessionsRemaining <= 0, usage: `${p.sessionsRemaining} left` });
-        }
+
+        return nameMatch || emailMatch || phoneMatch;
     });
-    return items;
-}, [selectedClient, memberships, packages, cartServiceIds]);
+}
+return clientsToFilter.sort((a, b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
+```
 
-const handleRedeem = (entitlement: any) => {
-    if (entitlement.exhausted) return toast({ variant: 'destructive', title: 'Perk Exhausted', description: 'Usage limit reached for this cycle.' });
-    setRedeemedOffer({ type: entitlement.type, id: entitlement.id, itemId: entitlement.itemId });
-    toast({ title: 'Entitlement Applied', description: `${entitlement.label} redeemed.` });
-};
+}, [clients, searchTerm, lastSeenFilter, showArchived, showBanned, owesBalanceOnly]);
 
-const handleApplyRecoveryPreset = (preset: any) => {
-    let amount = preset.type === 'percentage' ? subtotal * (preset.value / 100) : preset.value;
-    setRecoveryAmount(Number(amount.toFixed(2)));
-    setRecoveryReason(preset.label);
-    toast({ title: 'Protocol Active', description: `${preset.label} applied.` });
-};
+const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
+const paginatedClients = useMemo(() => {
+const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+return filteredClients.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+}, [filteredClients, currentPage]);
 
-const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
-const totalDiscount = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
-// If recovery covers full subtotal, total is $0 — no tax on a fully comped service
-const isFullyComped = recoveryAmount >= subtotal && subtotal > 0;
-const finalTotal = isFullyComped
-    ? Math.max(0, tipAmount)
-    : Math.max(0, subtotal - totalDiscount + (subtotal * 0.07) + tipAmount);
+const ClientStatsSidebar = () => {
+const stats = useMemo(() => {
+const totalClients = filteredClients.length;
+if (totalClients === 0 || !appointments || !transactions) return { totalActiveClients: 0, retentionRate: 0, avgSpend: 0, serviceRevenue: 0, retailRevenue: 0, tipRevenue: 0, totalPendingDebt: 0 };
+const filteredClientIds = new Set(filteredClients.map(c => c.id));
+const relevantTransactions = transactions.filter(t => t.clientId && filteredClientIds.has(t.clientId));
+const clientsWithMultipleAppointments = filteredClients.filter(c => (appointments || []).filter(apt => apt.clientId === c.id && apt.status === ‘completed’).length > 1).length;
+const totalRevenue = filteredClients.reduce((acc, c) => acc + safeNumber(c.lifetimeValue), 0);
+const totalPendingDebt = filteredClients.reduce((acc, c) => acc + safeNumber(c.outstandingBalance), 0);
+const serviceRevenue = relevantTransactions.filter(t => t.category === ‘Service Revenue’).reduce((acc, t) => acc + safeNumber(t.amount), 0);
+const retailRevenue = relevantTransactions.filter(t => t.category === ‘Retail’).reduce((acc, t) => acc + safeNumber(t.amount), 0);
+const tipRevenue = relevantTransactions.reduce((acc, t) => acc + safeNumber(t.tipAmount || 0), 0);
+const completedApts = (appointments || []).filter(a => a.status === ‘completed’ && filteredClientIds.has(a.clientId));
+return { totalActiveClients: totalClients, retentionRate: totalClients > 0 ? (clientsWithMultipleAppointments / totalClients) * 100 : 0, avgSpend: completedApts.length > 0 ? totalRevenue / completedApts.length : 0, serviceRevenue, retailRevenue, tipRevenue, totalPendingDebt };
+}, [filteredClients, appointments, transactions]);
 
-const autonomyLimit = safeNumber(selectedTenant?.maxAutonomousRecoveryAmount) || 0;
-const autonomyPercent = safeNumber(selectedTenant?.maxAutonomousRecoveryPercent) || 0;
-const currentRecoveryPercent = subtotal > 0 ? (recoveryAmount / subtotal) * 100 : 0;
-const isOverAutonomy = (autonomyLimit > 0 && recoveryAmount > autonomyLimit) || (autonomyPercent > 0 && currentRecoveryPercent > autonomyPercent);
-
+```
 return (
-    <div className="flex flex-col space-y-6 md:space-y-10 text-left">
-        <div className="flex-shrink-0 text-left">
-            {isGroupCheckout && !selectedClientId && !isCartEmpty && (
-                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
-                    <Alert variant="destructive" className="border-2 border-primary/20 bg-primary/5 rounded-2xl p-4 shadow-xl shadow-primary/5">
-                        <Users className="h-5 w-5 text-primary" />
-                        <AlertTitle className="text-[10px] font-black uppercase text-primary tracking-widest">Group Protocol Required</AlertTitle>
-                        <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">Multiple guests detected. Please identify the primary account for settlement.</AlertDescription>
-                    </Alert>
-                </motion.div>
-            )}
-
-            <div className="flex gap-2 mt-2">
-                <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
-                    <DialogTrigger asChild>
-                        <Button 
-                            variant="outline" 
-                            className={cn("h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4", isGroupCheckout && !selectedClientId && !isCartEmpty && "border-primary animate-pulse bg-primary/5 ring-4 ring-primary/10")}
-                            onClick={() => setIsPayerDialogOpen(true)}
-                        >
-                            {selectedClient ? (
-                                <div className="flex items-center gap-3">
-                                    <div className="relative shrink-0">
-                                        <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
-                                            <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
-                                            <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
-                                        </Avatar>
-                                        {isMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2 h-2" /></div>}
-                                    </div>
-                                    <div className="flex items-center gap-2 min-w-0">
-                                        <span className="truncate text-xs">{selectedClient.name}</span>
-                                        {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
-                                        {isMember && <Badge className="bg-indigo-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
-                                        {hasPackage && <Badge className="bg-teal-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-2">
-                                    {isGroupCheckout ? <Users className="w-4 h-4 text-primary" /> : <User className="w-4 h-4" />}
-                                    <span className={cn("text-xs md:text-sm", isGroupCheckout ? "text-primary" : "opacity-40")}>{isGroupCheckout ? "Select Primary Payee..." : "Search Payer..."}</span>
-                                </div>
-                            )}
-                            <ChevronDown className="h-4 w-4 opacity-40 ml-2 shrink-0" />
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 overflow-hidden shadow-3xl bg-background">
-                        <DialogHeader className="p-6 pb-4 border-b bg-muted/5">
-                            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">{isGroupCheckout ? 'Identify Group Payer' : 'Guest Search'}</DialogTitle>
-                            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{isGroupCheckout ? 'The only available options are the guests being serviced in this group.' : 'Attribute this sale to a guest dossier.'}</DialogDescription>
-                        </DialogHeader>
-                        <div className="p-6 space-y-6">
-                            {!isGroupCheckout && (
-                                <div className="relative">
-                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                                    <Input placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-sm tracking-tight" autoFocus />
-                                </div>
-                            )}
-                            <ScrollArea className={cn("-mx-2 px-2", isGroupCheckout ? "h-auto" : "h-[300px] md:h-[350px]")}>
-                                <div className="space-y-2 pb-4">
-                                    {!isGroupCheckout && (
-                                        <button className="w-full text-left p-4 hover:bg-muted/50 transition-all flex items-center gap-4 border-2 rounded-2xl border-transparent hover:border-border" onClick={() => { setSelectedClientId(null); setIsPayerDialogOpen(false); }}>
-                                            <div className="p-3 bg-muted rounded-xl shadow-inner"><User className="w-5 h-5 text-muted-foreground" /></div>
-                                            <span className="font-black uppercase tracking-widest text-[11px] text-slate-600">WALK-IN GUEST (ANONYMOUS)</span>
-                                        </button>
-                                    )}
-                                    {filteredPayerOptions.map((c: Client) => {
-                                        const cMember = !!(c.activeMembershipId || c.subscription);
-                                        const cPkg = (c.activePackages?.length || 0) > 0;
-                                        return (
-                                            <button key={c.id} className={cn("w-full text-left p-4 transition-all flex items-center gap-4 border-2 rounded-2xl", selectedClientId === c.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-primary/5 hover:border-primary/10")} onClick={() => { setSelectedClientId(c.id); setIsPayerDialogOpen(false); }}>
-                                                <div className="relative shrink-0"><Avatar className="h-10 w-10 border-2 border-background shadow-sm rounded-xl"><AvatarImage src={c.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs">{(c.name || 'C')[0]}</AvatarFallback></Avatar>{cMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}</div>
-                                                <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>{cPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}</div><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p></div>
-                                                {selectedClientId === c.id && <CheckCircle className="ml-auto w-5 h-5 text-primary" />}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </ScrollArea>
+    <div className="space-y-6 lg:sticky top-24">
+        <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
+            <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Sparkles className="w-24 h-24 text-primary" /></div>
+            <CardHeader className="p-8 pb-4"><CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2"><BadgeInfo className="w-3 h-3" />Intelligence Hub</CardTitle></CardHeader>
+            <CardContent className="p-8 pt-0 text-left">
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Active Portfolio</p>
+                <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">{stats.totalActiveClients}</p>
+                <div className="mt-6 space-y-4">
+                    <div className="p-4 rounded-2xl bg-white/50 border border-primary/10 shadow-sm">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Retention</span>
+                            <span className="text-sm font-black text-primary">{stats.retentionRate.toFixed(0)}%</span>
                         </div>
-                        {!isGroupCheckout && (
-                            <DialogFooter className="p-6 pt-0 bg-muted/5 border-t">
-                                <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}><UserPlus className="w-4 h-4 mr-2" />Register New Client Profile</Button>
-                            </DialogFooter>
-                        )}
-                    </DialogContent>
-                </Dialog>
-                <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" onClick={onScanClick}><QrCode className="w-6 h-6 opacity-40" /></Button>
-            </div>
-        </div>
-
-        {!isCartEmpty && (
-            <div className="space-y-4">
-                <div className="flex items-center justify-between px-1">
-                    <div className="space-y-0.5">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" />Service Recovery Protocol</h3>
-                        {(autonomyLimit > 0 || autonomyPercent > 0) && <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">Autonomy: ${autonomyLimit} / {autonomyPercent}%</p>}
-                    </div>
-                    <Switch checked={isRecoveryActive} onCheckedChange={(v) => { setIsRecoveryActive(v); if (!v) { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); setRecoveryAmount(0); setRecoveryReason(''); } }} />
-                </div>
-                <AnimatePresence>
-                    {isRecoveryActive && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                            <Card className={cn("border-4 rounded-[2rem] shadow-xl transition-all", isOverAutonomy && !isOverrideUnlocked ? "border-destructive/40 bg-destructive/[0.02] shadow-destructive/10" : isOverrideUnlocked ? "border-green-400/40 bg-green-50/20" : "border-primary/20 bg-primary/[0.02] shadow-primary/5")}>
-                                <CardContent className="p-6 space-y-6">
-                                    {isOverAutonomy && !isOverrideUnlocked && (
-                                        <Alert variant="destructive" className="border-2 rounded-2xl p-4 bg-destructive/10">
-                                            <AlertTriangle className="h-4 w-4" />
-                                            <AlertTitle className="text-[10px] font-black uppercase">Threshold Exceeded</AlertTitle>
-                                            <AlertDescription className="text-[9px] font-bold leading-tight uppercase opacity-80 mt-1">This adjustment requires a manager override to finalize.</AlertDescription>
-                                        </Alert>
-                                    )}
-                                    <div className="space-y-3">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tactical Presets</p>
-                                        <div className="flex flex-wrap gap-2">
-                                            {(selectedTenant?.recoveryPresets || []).map((preset: RecoveryPreset) => (
-                                                <Button type="button" key={preset.id} variant="outline" size="sm" onClick={() => handleApplyRecoveryPreset(preset)} className="h-8 rounded-xl border-2 font-black uppercase text-[9px] tracking-tight bg-white shadow-sm hover:border-primary/40">{preset.label}</Button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manual Recovery Amount ($)</Label>
-                                        <div className="relative">
-                                            <DollarSign className={cn("absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 opacity-40", isOverAutonomy && !isOverrideUnlocked ? "text-destructive" : "text-primary")} />
-                                            <Input type="number" value={recoveryAmount || ''} onChange={e => setRecoveryAmount(parseFloat(e.target.value) || 0)} placeholder="0.00" className={cn("h-14 pl-12 rounded-2xl border-2 bg-white font-black text-xl font-mono", isOverAutonomy && !isOverrideUnlocked ? "border-destructive/20 text-destructive" : "border-primary/20 text-primary")} />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Context / Justification</Label>
-                                        <Textarea value={recoveryReason} onChange={e => setRecoveryReason(e.target.value)} placeholder="Detail the service failure or reason for recovery..." className="rounded-2xl border-2 bg-white min-h-[100px] font-medium" />
-                                    </div>
-
-                                    {/* REQUEST OVERRIDE — shown when over autonomy, not yet unlocked, PIN not showing */}
-                                    {isOverAutonomy && !isOverrideUnlocked && !showPinEntry && (
-                                        <div className="pt-2">
-                                            <Button type="button" variant="destructive" onClick={() => setShowPinEntry(true)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group">
-                                                <Lock className="w-4 h-4 mr-2" />Request Override<ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
-                                            </Button>
-                                        </div>
-                                    )}
-
-                                    {/* INLINE PIN ENTRY */}
-                                    {isOverAutonomy && showPinEntry && !isOverrideUnlocked && (
-                                        <div className="pt-2 space-y-3 border-t border-dashed">
-                                            <p className="text-[9px] font-black uppercase text-destructive tracking-widest pt-2">Manager Authorization Required</p>
-                                            <div className="space-y-2">
-                                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manager PIN</Label>
-                                                <Input type="number" inputMode="numeric" pattern="[0-9]*" placeholder="Enter PIN" maxLength={4} value={overridePin} onChange={e => setOverridePin(e.target.value.slice(0, 4))} className="h-14 text-center text-2xl font-black border-2 rounded-2xl tracking-widest bg-white" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Override Reason</Label>
-                                                <Textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} placeholder="Justification for this override..." className="rounded-2xl border-2 bg-white min-h-[80px] font-medium" />
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <Button type="button" variant="ghost" onClick={() => { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); }} className="flex-1 h-11 rounded-xl font-black uppercase text-[9px] border-2">Cancel</Button>
-                                                <Button
-                                                    type="button"
-                                                    variant="destructive"
-                                                    disabled={overridePin.length < 4 || !overrideReason.trim()}
-                                                    onClick={() => {
-                                                        const auth = (staff || []).find((s: any) => s.pin === overridePin && (s.role === 'admin' || s.role === 'owner'));
-                                                        if (!auth) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'PIN not recognized.' }); return; }
-                                                        
-                                                        // Build the final reason — use override reason, fall back to existing recovery reason
-                                                        const finalReason = overrideReason.trim() || recoveryReason.trim() || 'Service Recovery Override';
-                                                        
-                                                        // Auto-comp full subtotal if staff didn't manually enter an amount
-                                                        const finalAmount = recoveryAmount > 0 ? recoveryAmount : Number(subtotal.toFixed(2));
-                                                        
-                                                        setIsOverrideUnlocked(true);
-                                                        setShowPinEntry(false);
-                                                        setRecoveryReason(finalReason);
-                                                        setRecoveryAmount(finalAmount);
-                                                        
-                                                        toast({ 
-                                                            title: 'Override Authorized', 
-                                                            description: `Approved by ${auth.name}. $${finalAmount.toFixed(2)} comped — "${finalReason}"`
-                                                        });
-                                                    }}
-                                                    className="flex-[2] h-11 rounded-xl font-black uppercase text-[9px] tracking-widest"
-                                                >
-                                                    <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />Authorize
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* OVERRIDE CONFIRMED BANNER */}
-                                    {isOverrideUnlocked && (
-                                        <div className="flex items-center justify-between p-3 bg-green-50 border-2 border-green-200 rounded-2xl">
-                                            <div className="flex items-center gap-2">
-                                                <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-                                                <div>
-                                                    <p className="text-[10px] font-black uppercase text-green-700">Override Authorized</p>
-                                                    <p className="text-[8px] font-bold text-green-600 opacity-70 uppercase">
-                                                        -${safeNumber(recoveryAmount).toFixed(2)} — {recoveryReason || 'Service Recovery'}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <Button type="button" variant="ghost" size="sm" onClick={() => { setIsOverrideUnlocked(false); setRecoveryAmount(0); setRecoveryReason(''); setOverridePin(''); setOverrideReason(''); }} className="h-7 px-2 text-[8px] font-black uppercase text-destructive hover:bg-destructive/5">Undo</Button>
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
-        )}
-
-        {selectedClient && isBirthdayToday && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
-                <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
-                    <Cake className="h-5 w-5 text-pink-500" />
-                    <AlertTitle className="text-[10px] font-black uppercase text-pink-600 tracking-widest">Birthday Protocol Active</AlertTitle>
-                    <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">It's {selectedClient.name.split(' ')[0]}'s special day. Consider a complimentary enhancement or birthday gift.</AlertDescription>
-                </Alert>
-            </motion.div>
-        )}
-
-        {selectedClient && availableEntitlements.length > 0 && (
-            <div className="space-y-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1"><Award className="w-3 h-3" />Available Benefits</p>
-                <div className="grid gap-2">
-                    {availableEntitlements.map((ent: any, idx: number) => (
-                        <Button key={idx} variant="outline" disabled={ent.exhausted || redeemedOffer?.itemId === ent.itemId} onClick={() => handleRedeem(ent)} className={cn("h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all", redeemedOffer?.itemId === ent.itemId ? "bg-green-500/5 border-green-500/20 text-green-700" : ent.exhausted ? "opacity-50 bg-muted/30 grayscale border-dashed cursor-not-allowed" : "bg-white border-indigo-500/10 hover:border-primary/30 shadow-sm")}>
-                            <div className="text-left min-w-0 flex-1">
-                                <p className="text-[11px] font-black uppercase tracking-tight truncate">{ent.label}</p>
-                                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{ent.subLabel}</p>
-                            </div>
-                            <div className="text-right ml-4 shrink-0">
-                                {redeemedOffer?.itemId === ent.itemId ? <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge> : ent.exhausted ? <div className="flex flex-col items-end gap-1"><Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge><span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span></div> : <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-2 text-indigo-600 border-indigo-500/20">{ent.usage}</Badge>}
-                            </div>
-                        </Button>
-                    ))}
-                </div>
-            </div>
-        )}
-
-        <div className="space-y-4">
-            <div className="flex items-center gap-2 px-1">
-                <ShoppingCart className="w-4 h-4 text-primary" />
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized Manifest</h3>
-            </div>
-            {isCartEmpty ? (
-                <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                    <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
-                    <div className="space-y-1 text-center">
-                        <p className="text-sm font-black uppercase tracking-widest">Cart Idle</p>
-                        <p className="text-[10px] font-bold uppercase tracking-tight px-4 text-center leading-relaxed">Scan a ticket or select retail items from the catalog.</p>
+                        <div className="h-1 w-full bg-muted rounded-full overflow-hidden"><div className="h-full bg-primary" style={{ width: `${stats.retentionRate}%` }} /></div>
                     </div>
                 </div>
-            ) : (
+            </CardContent>
+        </Card>
+        <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden">
+            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><TrendingUp className="w-3 h-3" /> Financial Performance</CardTitle></CardHeader>
+            <CardContent className="p-6 space-y-6 text-left">
+                <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 text-destructive space-y-1">
+                    <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Arrears Recovery</p>
+                    <p className="text-2xl font-black font-mono tracking-tighter">${stats.totalPendingDebt.toFixed(2)}</p>
+                </div>
                 <div className="space-y-3">
-                    {appointmentsData.map((data: any) => {
-                        const isRedeemed = redeemedOffer?.itemId === data.service.id;
-                        const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
-                        const refreshmentsInSession = data.appointment.checkoutState?.refreshments || [];
-                        const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
-                        const mainStaffId = overrides[data.service.id] || data.appointment.staffId;
-                        const mainStaffMember = staff.find((s: any) => s.id === mainStaffId);
-                        const adjustments = data.appointment.checkoutState?.adjustments;
-                        const additionalCharge = safeNumber(data.appointment.checkoutState?.additionalCharge);
-                        const isWaived = waivedAppointmentFees.has(data.appointment.id);
-                        return (
-                            <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all", isRedeemed ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-muted/5")}>
-                                <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4">
-                                    <div className="flex justify-between items-start gap-4">
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
-                                                {isRedeemed && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase tracking-widest">Entitlement</Badge>}
-                                            </div>
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{mainStaffMember?.name?.split(' ')[0] || 'Tech'} &middot; {data.service.duration}m</p>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                            <p className={cn("font-black font-mono text-base md:text-lg tracking-tighter", isRedeemed ? "line-through text-muted-foreground opacity-40" : "text-slate-900")}>${safeNumber(getServicePrice(data.service, data.staff)).toFixed(2)}</p>
-                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                                        </div>
-                                    </div>
-                                    {addOns.length > 0 && (
-                                        <div className="space-y-2 pl-4 border-l-2 border-primary/10">
-                                            {addOns.map((addon: any) => {
-                                                const addonStaffId = overrides[addon.id] || data.appointment.staffId;
-                                                const addonStaff = staff.find((s: any) => s.id === addonStaffId);
-                                                const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
-                                                return (
-                                                    <div key={addon.id} className="space-y-0.5">
-                                                        <div className="flex justify-between items-center">
-                                                            <div className="flex items-center gap-2"><span className={cn("text-[10px] font-bold uppercase tracking-tight", isAddonRedeemed ? "text-primary" : "text-muted-foreground")}>+ {addon.name}</span>{isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 font-black uppercase">REDEEMED</Badge>}</div>
-                                                            <span className={cn("text-[10px] font-black font-mono", isAddonRedeemed ? "line-through text-muted-foreground opacity-40" : "text-muted-foreground")}>${safeNumber(getServicePrice(addon, data.staff)).toFixed(2)}</span>
-                                                        </div>
-                                                        <span className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60">{addonStaff?.name?.split(' ')[0] || 'Tech'}</span>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                    {refreshmentsInSession.length > 0 && (
-                                        <div className="space-y-2 pt-2 border-t border-dashed">
-                                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Concierge Amenities</p>
-                                            {refreshmentsInSession.map((item: any, idx: number) => { const qty = safeNumber(item.quantity || 1); return (<div key={idx} className="flex justify-between items-center"><div className="flex items-center gap-2"><Coffee className="w-3 h-3 text-primary opacity-40" /><span className="text-[10px] font-bold text-slate-600 uppercase">{item.name}</span>{qty > 1 && <Badge variant="secondary" className="h-3.5 px-1 text-[7px] border-none font-black bg-muted/50">x{qty}</Badge>}</div><span className="font-mono text-[10px] text-slate-900">${safeNumber(item.price) > 0 ? (safeNumber(item.price) * qty).toFixed(2) : '0.00'}</span></div>); })}
-                                        </div>
-                                    )}
-                                    {!isWaived && (adjustments || additionalCharge > 0) && (
-                                        <div className="pt-3 border-t border-dashed space-y-2">
-                                            <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Strategic Adjustments</p>
-                                            {adjustments && (safeNumber(adjustments.rescheduleFee) > 0 || safeNumber(adjustments.timeOverage) > 0 || safeNumber(adjustments.materialOverage) > 0) ? (
-                                                <div className="space-y-1.5">
-                                                    {safeNumber(adjustments.rescheduleFee) > 0 && <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-amber-600">Protocol Recovery (Reschedule)</span><span className="font-black font-mono text-[10px] text-amber-600">+${safeNumber(adjustments.rescheduleFee).toFixed(2)}</span></div>}
-                                                    {safeNumber(adjustments.timeOverage) > 0 && <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-primary">Time Foundation Overage</span><span className="font-black font-mono text-[10px] text-primary">+${safeNumber(adjustments.timeOverage).toFixed(2)}</span></div>}
-                                                    {safeNumber(adjustments.materialOverage) > 0 && <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-primary">Material Protocol Overage</span><span className="font-black font-mono text-[10px] text-primary">+${safeNumber(adjustments.materialOverage).toFixed(2)}</span></div>}
-                                                </div>
-                                            ) : (additionalCharge > 0 && <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-primary">Manual Session Adjustment</span><span className="font-black font-mono text-[10px] text-primary">+${additionalCharge.toFixed(2)}</span></div>)}
-                                            {isOwnerOrAdmin && <Button variant="ghost" size="sm" className="h-6 px-2 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50 w-full mt-1" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb Adjustments</Button>}
-                                        </div>
-                                    )}
-                                    {isWaived && (
-                                        <div className="pt-3 border-t border-dashed flex justify-between items-center bg-green-50/50 p-2 rounded-xl border border-green-100">
-                                            <div className="flex items-center gap-2"><ShieldCheck className="w-3 h-3 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Fees Absorbed</span></div>
-                                            <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button>
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        );
-                    })}
-                    {cart.map((item: any) => (
-                        <div key={item.id} className="p-3 md:p-4 rounded-2xl md:rounded-3xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-3 md:gap-4 group shadow-sm">
-                            <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p><p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p></div>
-                            <div className="flex items-center gap-2 md:gap-3">
-                                <div className="flex items-center bg-background rounded-xl border-2 h-8 md:h-9 px-1 shadow-sm">
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3"/></Button>
-                                    <span className="w-6 md:w-8 text-center text-xs font-black">{item.quantity}</span>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3"/></Button>
-                                </div>
-                                <p className="font-black font-mono text-sm tracking-tighter w-14 md:w-16 text-right text-slate-900">${(safeNumber(item.price) * item.quantity).toFixed(2)}</p>
-                            </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4"/></Button>
-                        </div>
-                    ))}
-                    {Array.from(appliedAdjustments).map((id: any) => {
-                        const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
-                        return (
-                            <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/5 flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 shadow-sm">
-                                <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
-                                <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p><p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Protocol Debt</p></div>
-                                <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${safeNumber(fee?.feeAmount).toFixed(2)}</p>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => onApplyAdjustmentToggle(id, false)}><XCircle className="h-4 w-4"/></Button>
-                            </div>
-                        );
-                    })}
+                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Services</span><span className="font-mono">${stats.serviceRevenue.toFixed(2)}</span></div>
+                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Retail</span><span className="font-mono">${stats.retailRevenue.toFixed(2)}</span></div>
+                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Tips</span><span className="font-mono">${stats.tipRevenue.toFixed(2)}</span></div>
+                    <Separator className="bg-muted/50" />
+                    <div className="flex justify-between items-center font-black"><span className="text-[10px] uppercase tracking-widest text-slate-900">Avg. Ticket</span><span className="text-lg tracking-tighter font-mono text-primary">${stats.avgSpend.toFixed(2)}</span></div>
                 </div>
-            )}
-        </div>
-
-        <div className="space-y-6">
-            <div className="space-y-4">
-                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Payment Protocol</Label>
-                <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
-                    <TabsList className="grid w-full grid-cols-3 h-12 rounded-2xl bg-muted/30 p-1 border-2 border-muted shadow-inner">
-                        <TabsTrigger value="card" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><CreditCard className="w-3 h-3 mr-1.5" /> CARD</TabsTrigger>
-                        <TabsTrigger value="cash" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><Banknote className="w-3 h-3 mr-1.5" /> CASH</TabsTrigger>
-                        <TabsTrigger value="other" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><Landmark className="w-3 h-3 mr-1.5" /> OTHER</TabsTrigger>
-                    </TabsList>
-                    <AnimatePresence mode="wait">
-                        {paymentTab === 'cash' && (
-                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4">
-                                <Card className="border-2 border-primary/20 bg-primary/5 rounded-2xl shadow-inner">
-                                    <CardContent className="p-4 space-y-4">
-                                        <div className="space-y-2">
-                                            <Label className="text-[9px] font-black uppercase text-primary/60">Amount Tendered</Label>
-                                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input type="number" value={amountTendered || ''} onChange={e => setAmountTendered(parseFloat(e.target.value) || 0)} className="h-12 pl-8 text-xl font-black font-mono border-2 rounded-xl bg-white shadow-sm" placeholder="0.00" /></div>
-                                        </div>
-                                        {amountTendered > finalTotal && (<div className="flex justify-between items-center px-1"><span className="text-[10px] font-black uppercase text-primary">Change Due</span><span className="text-xl font-black font-mono text-primary">${(amountTendered - finalTotal).toFixed(2)}</span></div>)}
-                                    </CardContent>
-                                </Card>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </Tabs>
-            </div>
-
-            <div className="space-y-4 pt-4 border-t border-dashed">
-                <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-                    <p>Gross Manifest Value</p>
-                    <p className="font-mono text-[11px] md:text-xs">${safeNumber(subtotal).toFixed(2)}</p>
-                </div>
-                {finalTotal > 0 && (
-                    <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-                        <p>Studio Tax (7%)</p>
-                        <p className="font-mono text-[11px] md:text-xs">${(subtotal * 0.07).toFixed(2)}</p>
-                    </div>
-                )}
-                {totalDiscount > 0 && (
-                    <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
-                        <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
-                        <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
-                    </div>
-                )}
-                {/* Show recovery line item separately so it's clear */}
-                {recoveryAmount > 0 && (
-                    <div className="flex justify-between items-center text-[10px] text-amber-600 font-black uppercase tracking-tighter">
-                        <span className="flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" /> Service Recovery {recoveryReason ? `— ${recoveryReason.slice(0, 30)}${recoveryReason.length > 30 ? '...' : ''}` : ''}</span>
-                        <span className="font-mono text-[11px] md:text-xs shrink-0 ml-2">-${safeNumber(recoveryAmount).toFixed(2)}</span>
-                    </div>
-                )}
-                <div className="flex justify-between items-center py-1 md:py-2">
-                    <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
-                    <div className="relative w-32 md:w-36">
-                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
-                        <Input type="number" value={tipAmount || ''} onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-base md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" placeholder="0.00" />
-                    </div>
-                </div>
-                <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4 border-t border-border/50">
-                    <div className="space-y-0.5">
-                        <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
-                        <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
-                    </div>
-                    <p className="font-mono text-2xl md:text-4xl">${safeNumber(finalTotal).toFixed(2)}</p>
-                </div>
-                <div className="pt-2">
-                {isOverAutonomy && !isOverrideUnlocked && (
-                    <div className="flex items-center gap-2 p-3 rounded-2xl bg-destructive/10 border-2 border-destructive/20">
-                        <Lock className="w-4 h-4 text-destructive shrink-0" />
-                        <p className="text-[10px] font-black uppercase text-destructive tracking-widest">Manager override required before checkout</p>
-                    </div>
-                )}
-                    <Button 
-                        className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight" 
-                        onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked })} 
-                        disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < finalTotal) || isCartEmpty || (isGroupCheckout && !selectedClientId) || (isOverAutonomy && !isOverrideUnlocked)}
-                    >
-                        {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (finalTotal <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`)}
-                    </Button>
-                </div>
-            </div>
-        </div>
-
-        <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-        <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
+            </CardContent>
+        </Card>
     </div>
 );
 ```
 
 };
+
+if (isTenantLoading || role === ‘staff’) {
+return <div className="flex min-h-screen w-full flex-col"><AppHeader title="Client Log" /><main className="flex-1 p-4 md:p-8 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
+}
+
+return (
+<div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+<AppHeader title="Client Log" />
+<ClientOnly>
+<main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
+<div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
+<div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
+<div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-2 text-left">
+<div className="space-y-1">
+<h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Rolodex</h1>
+<p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Complete guest record database</p>
+</div>
+<div className="flex items-center gap-3 w-full md:w-auto">
+<Button variant=“outline” onClick={() => { const headers = [‘Name’,‘Email’,‘Phone’,‘Lifetime Value’,‘Last Seen’,‘Outstanding Balance’]; const data = filteredClients.map(c => [c.name,c.email,c.phone,safeNumber(c.lifetimeValue).toString(),format(new Date(c.lastAppointment),‘yyyy-MM-dd’),safeNumber(c.outstandingBalance).toFixed(2)]); const csv = [headers.join(’,’),…data.map(r => r.join(’,’))].join(’\n’); const blob = new Blob([csv],{type:‘text/csv;charset=utf-8;’}); const url = URL.createObjectURL(blob); const link = document.createElement(‘a’); link.href=url; link.setAttribute(‘download’,`clients_${new Date().toISOString().split('T')[0]}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); }} className=“flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm”><FileDown className="mr-2 h-4 w-4" /> Export</Button>
+<Button onClick={() => setIsAddClientOpen(true)} className=“flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20”><UserPlus className="mr-2 h-4 w-4" /> New Guest</Button>
+</div>
+</div>
+
+```
+              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                  <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
+                      <div className="flex flex-col md:flex-row items-center gap-4">
+                          <div className="relative flex-1 w-full">
+                              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                              <Input 
+                                  placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
+                                  className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                                  value={searchTerm}
+                                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                              />
+                              {/* Phone search hint */}
+                              {searchTerm.replace(/\D/g, '').length >= 3 && searchTerm.replace(/\D/g, '').length < 10 && (
+                                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                                      <Phone className="w-3 h-3 text-primary opacity-40" />
+                                      <span className="text-[8px] font-black uppercase text-primary opacity-40 tracking-widest">Phone Search</span>
+                                  </div>
+                              )}
+                          </div>
+                          <div className="w-full md:w-auto">
+                              <Select value={lastSeenFilter} onValueChange={setLastSeenFilter}>
+                                  <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner"><SelectValue placeholder="ACTIVITY WINDOW" /></SelectTrigger>
+                                  <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                      <SelectItem value="all" className="font-bold">ALL TIME ACTIVITY</SelectItem>
+                                      <SelectItem value="30" className="font-bold">OVER 30 DAYS AGO</SelectItem>
+                                      <SelectItem value="90" className="font-bold">OVER 90 DAYS AGO</SelectItem>
+                                      <SelectItem value="180" className="font-bold">OVER 180 DAYS AGO</SelectItem>
+                                  </SelectContent>
+                              </Select>
+                          </div>
+                      </div>
+
+                      <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-6 md:gap-x-10 gap-y-4 md:gap-y-6">
+                          <div className="flex items-center gap-3 w-full md:w-auto text-left">
+                              <div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div>
+                              <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Library Matrix</h4>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-4 md:gap-8">
+                              <div className="flex items-center space-x-2">
+                                  <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
+                                  <Label htmlFor="show-archived" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                  <Switch id="show-banned" checked={showBanned} onCheckedChange={(val) => { setShowBanned(val); if(val) setShowArchived(false); }} />
+                                  <Label htmlFor="show-banned" className="text-[10px] font-black uppercase tracking-widest text-destructive cursor-pointer">Banned</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                  <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
+                                  <Label htmlFor="owes-balance" className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer"><Wallet className="w-3 h-3 text-destructive" /> Arrears Only</Label>
+                              </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2 w-full md:w-auto md:ml-auto">
+                            <Button variant="ghost" size="sm" className='h-9 font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={handleBulkReconcile} disabled={isReconciling}>
+                                {isReconciling ? <Loader className="animate-spin h-3.5 w-3.5 mr-2"/> : <Database className="mr-2 h-3.5 w-3.5"/>}Sync All Ledgers
+                            </Button>
+                            <Button variant="ghost" size="sm" className='h-9 font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={() => setIsMergeClientsOpen(true)}>
+                                <Merge className="mr-2 h-3.5 w-3.5"/>Merge Duplicate Profiles
+                            </Button>
+                          </div>
+                      </div>
+                  </CardHeader>
+                  <CardContent className="p-6 md:p-8">
+                      {selectedItems.size > 0 && (
+                          <div className="mb-8 p-5 rounded-[2rem] bg-slate-900 text-white flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
+                              <div className="flex items-center gap-4"><div className="p-2 bg-white/10 rounded-xl"><Check className="w-5 h-5" /></div><p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p></div>
+                              <div className="flex gap-2">
+                                  {showArchived || showBanned ? (
+                                      <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore Access</Button>
+                                  ) : (
+                                      <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>
+                                  )}
+                                  <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={() => setIsBulkDeleteConfirmOpen(true)}>Purge</Button>
+                              </div>
+                          </div>
+                      )}
+                      {!clients || clients.length === 0 ? (
+                          <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
+                      ) : filteredClients.length === 0 ? (
+                          <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
+                              <Filter className="w-16 h-16" />
+                              <p className="font-black uppercase tracking-widest text-sm">No Matches Found</p>
+                          </div>
+                      ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              {paginatedClients.map((client) => (
+                                  <ClientCard key={client.id} client={client} isSelected={selectedItems.has(client.id)} onSelect={() => handleItemSelect(client.id)} />
+                              ))}
+                          </div>
+                      )}
+                  </CardContent>
+                  {totalPages > 1 && (
+                      <CardFooter className="p-8 pt-0 border-t bg-muted/5">
+                          <div className="flex items-center justify-between w-full">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Segment {currentPage} of {totalPages}</span>
+                              <div className="flex items-center gap-2">
+                                  <Button variant="ghost" size="sm" onClick={() => setCurrentPage(p => Math.max(p-1,1))} disabled={currentPage===1} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest"><ChevronLeft className="mr-2 h-4 w-4" /> Previous</Button>
+                                  <Button variant="ghost" size="sm" onClick={() => setCurrentPage(p => Math.min(p+1,totalPages))} disabled={currentPage===totalPages} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Next <ChevronRight className="ml-2 h-4 w-4" /></Button>
+                              </div>
+                          </div>
+                      </CardFooter>
+                  )}
+              </Card>
+          </div>
+          <div className="hidden lg:block lg:col-span-1"><ClientStatsSidebar /></div>
+      </div>
+    </main>
+
+    <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
+    <MergeClientsDialog open={isMergeClientsOpen} onOpenChange={setIsMergeClientsOpen} allClients={clients || []} allAppointments={appointments || []} onMerge={handleMergeClients} />
+    <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
+          <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+              <AlertDialogHeader className="p-6 pb-0 text-left">
+                  <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Confirm Purge</AlertDialogTitle>
+                  <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">You are about to permanently delete {selectedItems.size} guest records. <strong>This action is non-reversible.</strong></AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                  <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Records</Button>
+                  <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
+              </AlertDialogFooter>
+          </AlertDialogContent>
+      </AlertDialog>
+  </ClientOnly>
+</div>
+```
+
+);
+}
