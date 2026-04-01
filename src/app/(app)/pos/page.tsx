@@ -213,8 +213,8 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                     <div className="p-4 rounded-xl bg-amber-50 border-2 border-amber-200">
                         <p className="text-[10px] font-black uppercase text-amber-700">Walk-in Guest</p>
                         <p className="text-sm font-black uppercase text-slate-900 mt-1">{walkIn?.customerName}</p>
-                        {walkIn?.phone && <p className="text-[10px] font-bold text-slate-600 uppercase mt-1">{walkIn.phone}</p>}
-                        {walkIn?.email && <p className="text-[10px] font-bold text-slate-600 uppercase">{walkIn.email}</p>}
+                        {(walkIn?.customerPhone || walkIn?.phone) && <p className="text-[10px] font-bold text-slate-600 uppercase mt-1">{walkIn.customerPhone || walkIn.phone}</p>}
+                        {(walkIn?.customerEmail || walkIn?.email) && <p className="text-[10px] font-bold text-slate-600 uppercase">{walkIn.customerEmail || walkIn.email}</p>}
                     </div>
                 </div>
                 <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
