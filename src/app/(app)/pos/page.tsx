@@ -186,6 +186,50 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
     );
 };
 
+
+// Identity Match Dialog — shown when walk-in phone/email matches existing client
+const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink }: any) => {
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
+                <DialogHeader className="p-6 pb-0 text-left">
+                    <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-slate-900">
+                        <Fingerprint className="w-6 h-6 text-primary" />
+                        Identity Match Found
+                    </DialogTitle>
+                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
+                        This walk-in shares contact info with an existing client record.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="p-6 space-y-6">
+                    <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Existing Client Record</p>
+                        <p className="text-xl font-black uppercase tracking-tighter text-slate-900">{matchedClient?.name}</p>
+                        <div className="space-y-1">
+                            {matchedClient?.phone && <p className="text-[10px] font-bold text-slate-600 uppercase">{matchedClient.phone}</p>}
+                            {matchedClient?.email && <p className="text-[10px] font-bold text-slate-600 uppercase">{matchedClient.email}</p>}
+                        </div>
+                    </div>
+                    <div className="p-4 rounded-xl bg-amber-50 border-2 border-amber-200">
+                        <p className="text-[10px] font-black uppercase text-amber-700">Walk-in Guest</p>
+                        <p className="text-sm font-black uppercase text-slate-900 mt-1">{walkIn?.customerName}</p>
+                        {walkIn?.phone && <p className="text-[10px] font-bold text-slate-600 uppercase mt-1">{walkIn.phone}</p>}
+                        {walkIn?.email && <p className="text-[10px] font-bold text-slate-600 uppercase">{walkIn.email}</p>}
+                    </div>
+                </div>
+                <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
+                    <Button onClick={() => onLink(matchedClient)} className="w-full h-14 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20">
+                        <Fingerprint className="w-4 h-4 mr-2" /> Link to Existing Record
+                    </Button>
+                    <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-2xl font-black uppercase border-2">
+                        Keep as New Guest
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 function POSPage() {
     const isMobile = useIsMobile();
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
@@ -224,6 +268,7 @@ function POSPage() {
 
     // Top-level override dialog state — lives here so it renders ABOVE the mobile Sheet
     const [isRecoveryOverrideOpen, setIsRecoveryOverrideOpen] = useState(false);
+    const [pendingIdentityMatch, setPendingIdentityMatch] = useState<any | null>(null);
 
     const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
     const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
@@ -569,7 +614,7 @@ function POSPage() {
                     </div>
                     <div className="grid gap-10 grid-cols-1">
                         <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s, idx) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId) => { if (!firestore || !tenantId) return; const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId); setDocumentNonBlocking(staffRef, { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
-                        <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item }); setIsPrintDialogOpen(true); } } }} onSkip={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onFinishService={setAppointmentToReview} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item) => { if (item.type === 'walk-in' || item.isPotentialAlias) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } }} />
+                        <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item }); setIsPrintDialogOpen(true); } } }} onSkip={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onFinishService={setAppointmentToReview} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } }} />
                         <div className="space-y-4 text-left"><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Retail & Additions</h3><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => {}} /></div>
                     </div>
                 </main>
@@ -597,6 +642,18 @@ function POSPage() {
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id, state) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, id), { status: 'ready_for_checkout', checkoutState: sanitizeForFirestore(state), actualEndTime: new Date().toISOString() }); setIsTechnicianReviewOpen(false); }} />}
             <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
             <CheckInConfirmationDialog open={!!pendingCheckInItem} onOpenChange={() => setPendingCheckInItem(null)} item={pendingCheckInItem} services={services || []} tenant={selectedTenant} onConfirm={handleResolveCheckInConfirmation} />
+            <IdentityMatchDialog
+                open={!!pendingIdentityMatch}
+                onOpenChange={() => setPendingIdentityMatch(null)}
+                walkIn={pendingIdentityMatch}
+                matchedClient={pendingIdentityMatch?.matchedClient}
+                onLink={async (matchedClient: any) => {
+                    if (!firestore || !tenantId || !pendingIdentityMatch) return;
+                    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name });
+                    toast({ title: "Identity Linked", description: `Walk-in linked to ${matchedClient.name}.` });
+                    setPendingIdentityMatch(null);
+                }}
+            />
             <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}><DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></DialogContent></Dialog>
         </div>
     );
