@@ -1,4 +1,3 @@
-
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -44,6 +43,8 @@ import {
   Zap,
   Repeat,
   Coffee,
+  Clock,
+  ClipboardList,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -85,6 +86,7 @@ const strategicHub = [
 const identityGrowth = [
   { href: '/clients', icon: User, label: 'Guest Dossier' },
   { href: '/staff', icon: Users, label: 'Pro Team' },
+  { href: '/timesheets', icon: ClipboardList, label: 'Timesheets' },
   { href: '/campaigns', icon: Megaphone, label: 'Outreach' },
   { href: '/reviews', icon: Star, label: 'Reputation' },
   { href: '/quotes', icon: FileText, label: 'Quotes' },
@@ -241,6 +243,18 @@ export function AppSidebar() {
                     <Link href={tenantId ? `/concierge/${tenantId}` : '#'} target="_blank">
                       <Coffee className="w-5 h-5 text-primary" />
                       <span>Lounge Concierge</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    disabled={!tenantId}
+                    className="rounded-xl h-11 font-black uppercase text-[10px] tracking-widest hover:bg-primary/10 transition-all"
+                  >
+                    <Link href={tenantId ? `/timeclock/${tenantId}` : '#'} target="_blank">
+                      <Clock className="w-5 h-5 text-primary" />
+                      <span>Time Clock</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
