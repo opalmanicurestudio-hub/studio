@@ -257,19 +257,22 @@ function SettingsPageImpl() {
   const [localKioskSchedule, setLocalKioskSchedule] = useState<any>(null);
   const tenantId = selectedTenant?.id;
 
+  const [geoInitialized, setGeoInitialized] = useState(false);
+
   useEffect(() => {
     if (selectedTenant) {
       setTenantData(selectedTenant);
       if (selectedTenant.kioskSettings?.kioskSchedule) setLocalKioskSchedule(selectedTenant.kioskSettings.kioskSchedule);
-      if (selectedTenant.studioAddress) {
-        setGeoAddressInput(selectedTenant.studioAddress);
-        // Try to pre-fill fields if address was saved in structured format
+      // Only initialize geo fields once -- don't overwrite user edits on re-render
+      if (!geoInitialized) {
+        if (selectedTenant.studioAddress) setGeoAddressInput(selectedTenant.studioAddress);
         if (selectedTenant.studioAddressParts) {
           setGeoStreet(selectedTenant.studioAddressParts.street || '');
           setGeoCity(selectedTenant.studioAddressParts.city || '');
           setGeoState(selectedTenant.studioAddressParts.state || '');
           setGeoZip(selectedTenant.studioAddressParts.zip || '');
         }
+        setGeoInitialized(true);
       }
     }
     if (activeProfile) { setLocalSchedule(activeProfile.week); setLocalInterval(activeProfile.bookingSlotInterval || 15); }
@@ -431,7 +434,7 @@ function SettingsPageImpl() {
             <div className="flex items-center gap-3 w-full sm:w-auto">
               {isEditing ? (
                 <>
-                  <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:w-auto h-12 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                  <Button variant="ghost" onClick={() => { setIsEditing(false); setGeoInitialized(false); }} className="flex-1 sm:w-auto h-12 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
                   <Button onClick={handleSave} className="flex-[2] sm:w-auto h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
                 </>
               ) : (
