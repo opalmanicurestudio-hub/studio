@@ -877,8 +877,26 @@ export default function WalkInPage() {
             }
 
             if (!clientId) {
+                // Genuinely new client -- create full record
                 clientId = nanoid();
-                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { id: clientId, name: member.name, email: member.email || '', phone: member.phone || '', avatarUrl: `https://picsum.photos/seed/${clientId}/100`, lifetimeValue: 0, lastAppointment: now, status: 'active' });
+                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), {
+                    id: clientId,
+                    name: member.name,
+                    email: member.email || '',
+                    phone: member.phone || '',
+                    avatarUrl: `https://picsum.photos/seed/${clientId}/100`,
+                    lifetimeValue: 0,
+                    lastAppointment: now,
+                    status: 'active'
+                });
+            } else {
+                // Existing client -- only update name/contact, never overwrite lifetimeValue
+                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), {
+                    name: member.name,
+                    email: member.email || '',
+                    phone: member.phone || '',
+                    lastAppointment: now,
+                }, { merge: true });
             }
 
             const walkInId = nanoid();
