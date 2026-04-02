@@ -58,7 +58,7 @@ import {
     Gift
 } from 'lucide-react';
 import Link from 'next/link';
-import { notFound, useParams } from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth } from 'date-fns';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -222,6 +222,7 @@ export default function ClientDetailPage() {
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
+  const router = useRouter();
   const clientDocRef = useMemoFirebase(() => !firestore || !clientId || !tenantId ? null : doc(firestore, `tenants/${tenantId}/clients`, clientId), [firestore, tenantId, clientId]);
   const { data: client, isLoading: clientLoading, error: clientError } = useDoc<Client>(clientDocRef);
   
@@ -239,6 +240,18 @@ export default function ClientDetailPage() {
   const [isSettleProcessing, setIsSettleProcessing] = useState(false);
   const [isReconciling, setIsReconciling] = useState(false);
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
+
+  const handleRebook = (apt: any) => {
+    // Navigate to planner with client pre-selected for quick rebook
+    // The planner will use clientId to pre-fill the booking form
+    const params = new URLSearchParams({
+      clientId: clientId,
+      ...(apt.serviceId && { serviceId: apt.serviceId }),
+      ...(apt.staffId && { staffId: apt.staffId }),
+      rebook: '1',
+    });
+    router.push(`/planner?${params.toString()}`);
+  };
 
   // Build appointment list with REAL transaction data attached
   const appointmentsForThisClient = useMemo(() => {
@@ -294,7 +307,7 @@ export default function ClientDetailPage() {
     const amount = safeNumber(client.outstandingBalance);
     const now = new Date().toISOString();
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-    batch.set(txnRef, { id: txnRef.id, date: now, description: "Dossier Settlement (Quick Settle)", clientOrVendor: client.name, clientId: client.id, type: 'income', context: 'Business', category: 'Fee Recovery', amount, paymentMethod: 'Card on File', paymentMethodIdentifier: `${client.cardOnFile?.brand} •••• ${client.cardOnFile?.last4}`, hasReceipt: false });
+    batch.set(txnRef, { id: txnRef.id, date: now, description: "Dossier Settlement (Quick Settle)", clientOrVendor: client.name, clientId: client.id, type: 'income', context: 'Business', category: 'Fee Recovery', amount, paymentMethod: 'Card on File', paymentMethodIdentifier: `${client.cardOnFile?.brand} **** ${client.cardOnFile?.last4}`, hasReceipt: false });
     const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
     batch.update(clientRef, { outstandingBalance: 0, unpaidFees: [], lifetimeValue: increment(amount) });
     try {
@@ -590,13 +603,13 @@ export default function ClientDetailPage() {
                 <div className="space-y-4 text-left">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Scheduled Events</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
-                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
+                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={handleRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
                   </div>
                 </div>
                 <div className="space-y-4 pt-6 border-t border-dashed text-left">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Historical Records</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
-                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={() => {}} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] font-black uppercase tracking-widest">Empty history</p></div>}
+                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={handleRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] font-black uppercase tracking-widest">Empty history</p></div>}
                   </div>
                 </div>
               </TabsContent>
@@ -803,7 +816,7 @@ export default function ClientDetailPage() {
                       <div className="flex items-center gap-3 text-left">
                         <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><CreditCard className="w-5 h-5 text-primary" /></div>
                         <div className="text-left">
-                          <p className="text-xs font-black uppercase tracking-tighter text-slate-900 text-left">{String(client.cardOnFile.brand || 'Card')} •••• {String(client.cardOnFile.last4 || '****')}</p>
+                          <p className="text-xs font-black uppercase tracking-tighter text-slate-900 text-left">{String(client.cardOnFile.brand || 'Card')} **** {String(client.cardOnFile.last4 || '****')}</p>
                           <p className="text-[8px] font-bold text-muted-foreground uppercase text-left">Exp: {safeNumber(client.cardOnFile.expiryMonth)}/{safeNumber(client.cardOnFile.expiryYear)}</p>
                         </div>
                       </div>
@@ -853,7 +866,7 @@ export default function ClientDetailPage() {
               <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left">
                 <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
                 <div className="text-left">
-                  <p className="font-black text-sm uppercase tracking-tight text-slate-900 text-left">{String(client.cardOnFile?.brand || 'Card')} •••• {String(client.cardOnFile?.last4 || '****')}</p>
+                  <p className="font-black text-sm uppercase tracking-tight text-slate-900 text-left">{String(client.cardOnFile?.brand || 'Card')} **** {String(client.cardOnFile?.last4 || '****')}</p>
                   <p className="text-[9px] font-bold text-muted-foreground uppercase text-left">Authorized Vault Access</p>
                 </div>
               </div>
