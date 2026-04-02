@@ -242,13 +242,9 @@ export default function ClientDetailPage() {
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
 
   const handleRebook = (apt: any) => {
-    // Navigate to planner with client pre-selected for quick rebook
-    // The planner will use clientId to pre-fill the booking form
+    // Navigate to planner with appointmentId so it can open the booking dialog pre-filled
     const params = new URLSearchParams({
-      clientId: clientId,
-      ...(apt.serviceId && { serviceId: apt.serviceId }),
-      ...(apt.staffId && { staffId: apt.staffId }),
-      rebook: '1',
+      rebook_apt_id: apt.id,
     });
     router.push(`/planner?${params.toString()}`);
   };
