@@ -244,6 +244,10 @@ function SettingsPageImpl() {
   const [servicePolicies, setServicePolicies] = useState<Record<string, any>>({});
   const [isPrintStationsOpen, setIsPrintStationsOpen] = useState(false);
   const [geoAddressInput, setGeoAddressInput] = useState('');
+  const [geoStreet, setGeoStreet] = useState('');
+  const [geoCity, setGeoCity] = useState('');
+  const [geoState, setGeoState] = useState('');
+  const [geoZip, setGeoZip] = useState('');
   const [isGeoLookingUp, setIsGeoLookingUp] = useState(false);
 
   const { control } = useForm();
@@ -257,7 +261,16 @@ function SettingsPageImpl() {
     if (selectedTenant) {
       setTenantData(selectedTenant);
       if (selectedTenant.kioskSettings?.kioskSchedule) setLocalKioskSchedule(selectedTenant.kioskSettings.kioskSchedule);
-      if (selectedTenant.studioAddress) setGeoAddressInput(selectedTenant.studioAddress);
+      if (selectedTenant.studioAddress) {
+        setGeoAddressInput(selectedTenant.studioAddress);
+        // Try to pre-fill fields if address was saved in structured format
+        if (selectedTenant.studioAddressParts) {
+          setGeoStreet(selectedTenant.studioAddressParts.street || '');
+          setGeoCity(selectedTenant.studioAddressParts.city || '');
+          setGeoState(selectedTenant.studioAddressParts.state || '');
+          setGeoZip(selectedTenant.studioAddressParts.zip || '');
+        }
+      }
     }
     if (activeProfile) { setLocalSchedule(activeProfile.week); setLocalInterval(activeProfile.bookingSlotInterval || 15); }
     if (services) {
@@ -267,26 +280,87 @@ function SettingsPageImpl() {
     }
   }, [selectedTenant, activeProfile, services]);
 
-  // Geocode address to lat/lng using browser geolocation API
+  // Build full address string from structured fields and geocode it
   const handleGeoLookup = async () => {
-    if (!geoAddressInput.trim()) return;
+    const parts = [geoStreet, geoCity, geoState, geoZip].filter(Boolean);
+    if (parts.length < 2) {
+      toast({ variant: 'destructive', title: 'Address Incomplete', description: 'Enter at least a street and city.' });
+      return;
+    }
+    const fullAddress = parts.join(', ');
     setIsGeoLookingUp(true);
     try {
-      const encoded = encodeURIComponent(geoAddressInput);
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`);
+      const encoded = encodeURIComponent(fullAddress);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&addressdetails=1`);
       const data = await res.json();
       if (data && data.length > 0) {
-        const { lat, lon } = data[0];
-        setTenantData(prev => ({ ...prev, studioAddress: geoAddressInput, studioLocation: { lat: parseFloat(lat), lng: parseFloat(lon) } }));
-        toast({ title: 'Location Found', description: `Coordinates set to ${parseFloat(lat).toFixed(5)}, ${parseFloat(lon).toFixed(5)}` });
+        const { lat, lon, display_name } = data[0];
+        setTenantData(prev => ({
+          ...prev,
+          studioAddress: display_name,
+          studioAddressParts: { street: geoStreet, city: geoCity, state: geoState, zip: geoZip },
+          studioLocation: { lat: parseFloat(lat), lng: parseFloat(lon) }
+        }));
+        toast({ title: 'Location Confirmed', description: display_name });
       } else {
-        toast({ variant: 'destructive', title: 'Address Not Found', description: 'Try a more specific address.' });
+        toast({ variant: 'destructive', title: 'Address Not Found', description: 'Try adding more detail or use GPS instead.' });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Lookup Failed', description: 'Check your internet connection.' });
     } finally {
       setIsGeoLookingUp(false);
     }
+  };
+
+  // Use device GPS to get current coordinates, then reverse-geocode to confirm address
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      toast({ variant: 'destructive', title: 'GPS Not Supported', description: 'Your browser does not support geolocation.' });
+      return;
+    }
+    setIsGeoLookingUp(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          // Reverse geocode to get readable address
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
+          const data = await res.json();
+          const addr = data.address || {};
+          const street = [addr.house_number, addr.road].filter(Boolean).join(' ');
+          const city = addr.city || addr.town || addr.village || addr.suburb || '';
+          const state = addr.state || '';
+          const zip = addr.postcode || '';
+          setGeoStreet(street);
+          setGeoCity(city);
+          setGeoState(state);
+          setGeoZip(zip);
+          setTenantData(prev => ({
+            ...prev,
+            studioAddress: data.display_name || `${latitude}, ${longitude}`,
+            studioAddressParts: { street, city, state, zip },
+            studioLocation: { lat: latitude, lng: longitude }
+          }));
+          toast({ title: 'GPS Location Set', description: data.display_name || 'Coordinates captured.' });
+        } catch {
+          // Even if reverse geocode fails, save the raw coordinates
+          setTenantData(prev => ({
+            ...prev,
+            studioAddress: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+            studioLocation: { lat: latitude, lng: longitude }
+          }));
+          toast({ title: 'GPS Coordinates Set', description: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}` });
+        } finally {
+          setIsGeoLookingUp(false);
+        }
+      },
+      (err) => {
+        setIsGeoLookingUp(false);
+        const msg = err.code === 1 ? 'Location access denied. Enable in browser settings.' : 'Could not get your location. Try again.';
+        toast({ variant: 'destructive', title: 'GPS Failed', description: msg });
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
   };
 
   const handleSave = async () => {
@@ -715,31 +789,100 @@ function SettingsPageImpl() {
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-5 pt-2">
 
                         {/* Address lookup */}
-                        <div className="p-5 rounded-[2rem] border-2 bg-green-50 border-green-200 space-y-4">
+                        <div className="p-5 rounded-[2rem] border-2 bg-green-50 border-green-200 space-y-5">
                           <div className="flex items-start gap-4">
                             <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><Building className="w-4 h-4 text-green-700" /></div>
                             <div className="space-y-1">
                               <p className="text-sm font-black uppercase tracking-tight text-green-800">Studio Address</p>
-                              <p className="text-[9px] font-bold text-green-700/60 uppercase tracking-widest">Enter your address and click Locate to set coordinates</p>
+                              <p className="text-[9px] font-bold text-green-700/60 uppercase tracking-widest">Enter your full address or use your device GPS to set coordinates</p>
                             </div>
                           </div>
-                          <div className="flex gap-3">
-                            <Input
-                              value={geoAddressInput}
-                              onChange={e => setGeoAddressInput(e.target.value)}
-                              disabled={!isEditing}
-                              placeholder="123 Main St, City, State"
-                              className="h-12 rounded-2xl border-2 font-bold flex-1 bg-white"
-                              onKeyDown={e => e.key === 'Enter' && isEditing && handleGeoLookup()}
-                            />
-                            <Button onClick={handleGeoLookup} disabled={!isEditing || isGeoLookingUp} className="h-12 px-6 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-green-500/20 bg-green-600 hover:bg-green-700 shrink-0">
-                              {isGeoLookingUp ? <Loader className="animate-spin w-4 h-4" /> : <><MapPin className="w-4 h-4 mr-2" />Locate</>}
+
+                          {/* Full address fields */}
+                          <div className="space-y-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">Street Address</Label>
+                              <Input
+                                value={geoStreet}
+                                onChange={e => setGeoStreet(e.target.value)}
+                                disabled={!isEditing}
+                                placeholder="123 Main Street, Suite 100"
+                                className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">City</Label>
+                                <Input
+                                  value={geoCity}
+                                  onChange={e => setGeoCity(e.target.value)}
+                                  disabled={!isEditing}
+                                  placeholder="Los Angeles"
+                                  className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">State</Label>
+                                <Input
+                                  value={geoState}
+                                  onChange={e => setGeoState(e.target.value)}
+                                  disabled={!isEditing}
+                                  placeholder="CA"
+                                  className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400"
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">ZIP Code</Label>
+                              <Input
+                                value={geoZip}
+                                onChange={e => setGeoZip(e.target.value)}
+                                disabled={!isEditing}
+                                placeholder="90001"
+                                className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Action buttons */}
+                          <div className="flex flex-col sm:flex-row gap-3">
+                            <Button
+                              onClick={handleGeoLookup}
+                              disabled={!isEditing || isGeoLookingUp || (!geoStreet && !geoCity)}
+                              className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-green-500/20 bg-green-600 hover:bg-green-700"
+                            >
+                              {isGeoLookingUp ? <Loader className="animate-spin w-4 h-4" /> : <><MapPin className="w-4 h-4 mr-2" />Locate Address</>}
+                            </Button>
+                            <Button
+                              onClick={handleUseMyLocation}
+                              disabled={!isEditing || isGeoLookingUp}
+                              variant="outline"
+                              className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 border-green-300 text-green-700 hover:bg-green-100 bg-white"
+                            >
+                              {isGeoLookingUp ? <Loader className="animate-spin w-4 h-4" /> : <><Target className="w-4 h-4 mr-2" />Use My Location</>}
                             </Button>
                           </div>
+
+                          {/* Confirmation */}
                           {tenantData.studioLocation && (
-                            <div className="flex items-center gap-2 text-[9px] font-black uppercase text-green-700">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Coordinates set: {tenantData.studioLocation.lat.toFixed(5)}, {tenantData.studioLocation.lng.toFixed(5)}
+                            <div className="p-4 rounded-2xl bg-white border-2 border-green-200 space-y-2">
+                              <div className="flex items-center gap-2 text-[10px] font-black uppercase text-green-700">
+                                <CheckCircle2 className="w-4 h-4" /> Location Confirmed
+                              </div>
+                              {tenantData.studioAddress && (
+                                <p className="text-[10px] font-bold text-slate-600 ml-6">{tenantData.studioAddress}</p>
+                              )}
+                              <p className="text-[9px] font-mono text-slate-400 ml-6">
+                                {tenantData.studioLocation.lat.toFixed(6)}, {tenantData.studioLocation.lng.toFixed(6)}
+                              </p>
+                              <a
+                                href={`https://www.google.com/maps?q=${tenantData.studioLocation.lat},${tenantData.studioLocation.lng}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-6 text-[9px] font-black uppercase text-green-600 underline underline-offset-2 hover:text-green-800"
+                              >
+                                Verify on Google Maps ->
+                              </a>
                             </div>
                           )}
                         </div>
