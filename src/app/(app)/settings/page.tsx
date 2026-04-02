@@ -884,7 +884,7 @@ function SettingsPageImpl() {
                                 rel="noopener noreferrer"
                                 className="ml-6 text-[9px] font-black uppercase text-green-600 underline underline-offset-2 hover:text-green-800"
                               >
-                                Verify on Google Maps ->
+                                Verify on Google Maps &rarr;
                               </a>
                             </div>
                           )}
