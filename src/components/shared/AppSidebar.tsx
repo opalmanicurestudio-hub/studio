@@ -41,8 +41,6 @@ import {
   Clock,
   ClipboardList,
   CalendarDays,
-  CalendarCheck,
-  Timer,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -80,7 +78,7 @@ const coreHub = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/planner', icon: Calendar, label: 'Planner' },
   { href: '/pos', icon: ListChecks, label: 'Terminal (POS)' },
-  { href: '/my-schedule', icon: CalendarCheck, label: 'My Schedule' },
+  { href: '/my-schedule', icon: Calendar, label: 'My Schedule' },
 ];
 
 // Owner + Admin only
