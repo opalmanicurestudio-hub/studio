@@ -56,10 +56,14 @@ export default function ScheduleRequestsPage() {
 
   const requestsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
-    return query(collection(firestore, `tenants/${tenantId}/shiftRequests`), orderBy('createdAt', 'desc'));
+    return query(collection(firestore, `tenants/${tenantId}/shiftRequests`));
   }, [firestore, tenantId]);
 
-  const { data: allRequests } = useCollection<any>(requestsQuery);
+  const { data: allRequestsRaw } = useCollection<any>(requestsQuery);
+  const allRequests = useMemo(() =>
+    [...(allRequestsRaw || [])].sort((a, b) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    ), [allRequestsRaw]);
 
   const filteredRequests = useMemo(() => {
     if (!allRequests) return [];
