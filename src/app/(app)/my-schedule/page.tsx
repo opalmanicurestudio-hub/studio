@@ -24,7 +24,7 @@ import {
   isBefore, startOfDay
 } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, useUser } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -54,8 +54,7 @@ const calcHours = (start: string, end: string, breakMins: number) => {
 };
 
 export default function MySchedulePage() {
-  const { firestore } = useFirebase();
-  const { user } = useUser();
+  const { firestore, user } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
