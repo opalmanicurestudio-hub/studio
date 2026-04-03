@@ -353,6 +353,285 @@ export default function SchedulePage() {
     }
   };
 
+  // Smart rule-based schedule suggestion
+  // Reads business hours from tenant schedule profile, respects walk-in coverage minimums
+  const handleAISuggest = () => {
+    if (!staff) return;
+    setIsAILoading(true);
+
+    try {
+      const suggestions: Shift[] = [];
+      const hoursAssigned: Record<string, number> = {};
+      const lastShiftEnd: Record<string, Date> = {};
+      (staff || []).forEach(s => { hoursAssigned[s.id] = 0; });
+
+      // Read business hours from tenant active schedule profile
+      // Falls back to 9am-5pm if not configured
+      const getBusinessHours = (day: Date): { open: string; close: string; isOpen: boolean } => {
+        const dayName = format(day, 'EEEE').toLowerCase();
+        // Try to get from tenant settings passed via selectedTenant
+        const profile = (selectedTenant as any)?.scheduleProfile?.week?.[dayName]
+          || (selectedTenant as any)?.businessHours?.[dayName];
+        if (profile && profile.enabled === false) return { open: '09:00', close: '17:00', isOpen: false };
+        if (profile?.start && profile?.end) {
+          // Convert "9:00 AM" format to "09:00"
+          const parseTime = (t: string) => {
+            if (t.includes(':') && !t.includes(' ')) return t;
+            const [time, period] = t.split(' ');
+            let [h, m] = time.split(':').map(Number);
+            if (period === 'PM' && h < 12) h += 12;
+            if (period === 'AM' && h === 12) h = 0;
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+          };
+          return { open: parseTime(profile.start), close: parseTime(profile.end), isOpen: true };
+        }
+        // Default business hours
+        const defaults: Record<string, { open: string; close: string; isOpen: boolean }> = {
+          monday:    { open: '09:00', close: '17:00', isOpen: true },
+          tuesday:   { open: '09:00', close: '17:00', isOpen: true },
+          wednesday: { open: '09:00', close: '17:00', isOpen: true },
+          thursday:  { open: '09:00', close: '17:00', isOpen: true },
+          friday:    { open: '09:00', close: '18:00', isOpen: true },
+          saturday:  { open: '10:00', close: '17:00', isOpen: true },
+          sunday:    { open: '00:00', close: '00:00', isOpen: false },
+        };
+        return defaults[dayName] || { open: '09:00', close: '17:00', isOpen: true };
+      };
+
+      // Walk-in coverage minimums by day of week
+      // Busier days get more minimum staff regardless of appointments
+      const getMinCoverage = (day: Date): number => {
+        const dayName = format(day, 'EEEE').toLowerCase();
+        const busyDays: Record<string, number> = {
+          monday: 1, tuesday: 1, wednesday: 1,
+          thursday: 2, friday: 3, saturday: 3, sunday: 2,
+        };
+        return busyDays[dayName] ?? 1;
+      };
+
+      // Sort staff by cost: hourly cheapest first
+      const sortedStaff = [...(staff || [])].sort((a, b) => {
+        const aCost = a.payStructure === 'hourly' ? (a.hourlyRate || 99) : 50;
+        const bCost = b.payStructure === 'hourly' ? (b.hourlyRate || 99) : 50;
+        return aCost - bCost;
+      });
+
+      weekDays.forEach(day => {
+        const dayStr = format(day, 'yyyy-MM-dd');
+        if (isBefore(day, startOfDay(new Date()))) return;
+
+        const biz = getBusinessHours(day);
+        if (!biz.isOpen) return; // Closed day -- skip entirely
+
+        const dayApts = (appointments || []).filter(
+          a => isSameDay(safeDate(a.startTime), day) && a.status !== 'cancelled'
+        );
+
+        // Staff needed = max(walk-in minimum, appointment-based need)
+        const aptBased = dayApts.length === 0 ? 0
+          : dayApts.length <= 2 ? 1
+          : dayApts.length <= 5 ? 2 : 3;
+        const staffNeeded = Math.max(getMinCoverage(day), aptBased);
+
+        // Shift window anchored to BUSINESS HOURS, not appointment times
+        // If there are appointments, optionally extend slightly around them
+        // but never outside business hours
+        let shiftStart = biz.open;
+        let shiftEnd = biz.close;
+
+        // If appointments exist, shift can start up to 30min before first apt
+        // but not before business open
+        if (dayApts.length > 0) {
+          const times = dayApts.map(a => safeDate(a.startTime));
+          const earliest = times.reduce((min, t) => t < min ? t : min, times[0]);
+          const latest = times.reduce((max, t) => t > max ? t : max, times[0]);
+          const bizOpenMins = timeToMinutes(biz.open);
+          const bizCloseMins = timeToMinutes(biz.close);
+          const aptEarliestMins = earliest.getHours() * 60 + earliest.getMinutes();
+          const aptLatestMins = latest.getHours() * 60 + latest.getMinutes() + 60;
+          // Clamp to business hours
+          const startMins = Math.max(bizOpenMins, aptEarliestMins - 30);
+          const endMins = Math.min(bizCloseMins, aptLatestMins);
+          shiftStart = minutesToTime(Math.floor(startMins / 30) * 30);
+          shiftEnd = minutesToTime(Math.ceil(endMins / 30) * 30);
+        }
+
+        // Minimum 4hr shift
+        if (timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) < 240) {
+          shiftEnd = minutesToTime(Math.min(timeToMinutes(biz.close), timeToMinutes(shiftStart) + 480));
+        }
+
+        const shiftDurationHours = (timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - 30) / 60;
+        let staffAssignedToday = 0;
+
+        for (const member of sortedStaff) {
+          if (staffAssignedToday >= staffNeeded) break;
+          if (!isStaffAvailable(member.id, day)) continue;
+
+          // OT check
+          if (maxHoursPerWeek > 0 && (hoursAssigned[member.id] || 0) + shiftDurationHours > maxHoursPerWeek + 2) continue;
+
+          // Rest period check
+          if (lastShiftEnd[member.id]) {
+            const shiftStartDate = new Date(`${dayStr}T${shiftStart}:00`);
+            if (differenceInHours(shiftStartDate, lastShiftEnd[member.id]) < minRestHours) continue;
+          }
+
+          // Already scheduled today
+          if (suggestions.some(s => s.staffId === member.id && s.date === dayStr)) continue;
+
+          const worked = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - 30;
+          const estimatedPay = member.payStructure === 'hourly' && member.hourlyRate
+            ? (worked / 60) * member.hourlyRate : 0;
+
+          const note = dayApts.length === 0
+            ? `Walk-in coverage (${format(day, 'EEE')})`
+            : `${dayApts.length} apt${dayApts.length !== 1 ? 's' : ''} + walk-in coverage`;
+
+          suggestions.push({
+            id: nanoid(),
+            staffId: member.id,
+            date: dayStr,
+            startTime: shiftStart,
+            endTime: shiftEnd,
+            breakMinutes: shiftDurationHours > 5 ? 30 : 0,
+            status: 'draft',
+            notes: note,
+            estimatedPay,
+          });
+
+          hoursAssigned[member.id] = (hoursAssigned[member.id] || 0) + shiftDurationHours;
+          lastShiftEnd[member.id] = new Date(`${dayStr}T${shiftEnd}:00`);
+          staffAssignedToday++;
+        }
+      });
+
+      if (suggestions.length === 0) {
+        toast({ title: 'Nothing to Suggest', description: 'All staff unavailable or studio is closed this week.' });
+        return;
+      }
+
+      setAiSuggestions(suggestions);
+      setIsAISuggestOpen(true);
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Suggestion Failed' });
+    } finally {
+      setIsAILoading(false);
+    }
+  };
+
+    // Check staff availability for a day
+  const isStaffAvailable = useCallback((staffId: string, date: Date) => {
+    const avail = (availabilityData || []).find(a => a.staffId === staffId);
+    if (!avail) return true; // No availability set = assume available
+    const dayName = format(date, 'EEEE').toLowerCase();
+    const dayAvail = avail.weekly?.[dayName];
+    if (!dayAvail) return true;
+    return dayAvail.available !== false;
+  }, [availabilityData]);
+
+  const openAddShift = (day?: Date, staffId?: string) => {
+    setEditingShift(null);
+    setShiftStaffId(staffId || '');
+    setShiftDate(day ? format(day, 'yyyy-MM-dd') : format(weekStart, 'yyyy-MM-dd'));
+    setShiftStart('09:00');
+    setShiftEnd('17:00');
+    setShiftBreak(30);
+    setShiftNotes('');
+    setIsAddShiftOpen(true);
+  };
+
+  const openEditShift = (shift: Shift) => {
+    setEditingShift(shift);
+    setShiftStaffId(shift.staffId);
+    setShiftDate(shift.date);
+    setShiftStart(shift.startTime);
+    setShiftEnd(shift.endTime);
+    setShiftBreak(shift.breakMinutes || 0);
+    setShiftNotes(shift.notes || '');
+    setIsAddShiftOpen(true);
+  };
+
+  const handleSaveShift = async () => {
+    if (!firestore || !tenantId || !shiftStaffId || !shiftDate) return;
+    setIsProcessing(true);
+
+    const worked = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak;
+    const member = (staff || []).find(s => s.id === shiftStaffId);
+    let estimatedPay = 0;
+    if (member?.payStructure === 'hourly' && member.hourlyRate) {
+      estimatedPay = (worked / 60) * member.hourlyRate;
+    }
+
+    const payload: Shift = {
+      id: editingShift?.id || nanoid(),
+      staffId: shiftStaffId,
+      date: shiftDate,
+      startTime: shiftStart,
+      endTime: shiftEnd,
+      breakMinutes: shiftBreak,
+      status: editingShift?.status || 'draft',
+      notes: shiftNotes || undefined,
+      estimatedPay,
+      createdBy: user?.uid,
+    };
+
+    try {
+      await setDocumentNonBlocking(
+        doc(firestore, `tenants/${tenantId}/shifts`, payload.id),
+        payload, {}
+      );
+      toast({ title: editingShift ? 'Shift Updated' : 'Shift Added' });
+      setIsAddShiftOpen(false);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteShift = async (shiftId: string) => {
+    if (!firestore || !tenantId) return;
+    await updateDocumentNonBlocking(
+      doc(firestore, `tenants/${tenantId}/shifts`, shiftId),
+      { status: 'cancelled' }
+    );
+    toast({ title: 'Shift Removed' });
+  };
+
+  const handlePublishAll = async () => {
+    if (!firestore || !tenantId) return;
+    setIsProcessing(true);
+    const batch = writeBatch(firestore);
+    const now = new Date().toISOString();
+    const draftShifts = (shifts || []).filter(s => s.status === 'draft');
+
+    draftShifts.forEach(shift => {
+      batch.update(doc(firestore, `tenants/${tenantId}/shifts`, shift.id), {
+        status: 'published',
+        publishedAt: now,
+      });
+    });
+
+    // Notify all affected staff
+    const notifiedStaff = new Set<string>();
+    draftShifts.forEach(shift => notifiedStaff.add(shift.staffId));
+    notifiedStaff.forEach(staffId => {
+      const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+      batch.set(notifRef, {
+        id: notifRef.id, userId: staffId, type: 'schedule_published',
+        message: `Your schedule for the week of ${format(weekStart, 'MMM d')} has been published.`,
+        link: '/schedule', createdAt: now, read: false,
+      });
+    });
+
+    try {
+      await batch.commit();
+      toast({ title: 'Schedule Published', description: `${draftShifts.length} shifts published. Staff notified.` });
+      setIsPublishConfirmOpen(false);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // Smart rule-based schedule suggestion -- no API key required
   // Uses the same logic an AI would: appointment demand, staff availability,
   // overtime limits, rest periods, skill matching, and labor cost optimization
