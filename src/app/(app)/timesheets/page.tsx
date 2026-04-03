@@ -23,7 +23,7 @@ import {
   parseISO, differenceInMinutes, isSameDay, eachDayOfInterval, startOfDay, endOfDay
 } from 'date-fns';
 import { cn, safeNumber } from '@/lib/utils';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -155,7 +155,7 @@ export default function TimesheetsPage() {
   const sendStaffNotification = useCallback(async (staffId: string, type: string, message: string, link: string) => {
     if (!firestore || !tenantId) return;
     const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-    await updateDocumentNonBlocking(notifRef, {
+    await setDocumentNonBlocking(notifRef, {
       id: notifRef.id,
       userId: staffId,
       type,
@@ -163,7 +163,7 @@ export default function TimesheetsPage() {
       link: link || '/timesheets',
       createdAt: new Date().toISOString(),
       read: false,
-    });
+    }, {});
   }, [firestore, tenantId]);
 
   const handleApprove = async (session: any) => {
