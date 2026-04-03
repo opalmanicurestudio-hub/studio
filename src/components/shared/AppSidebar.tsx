@@ -19,15 +19,12 @@ import {
   Users,
   User,
   Settings,
-  Sparkles,
-  List,
   Box,
   FileText,
   BookOpen,
   Landmark,
   DollarSign,
   FileSignature,
-  Briefcase,
   ListChecks,
   BarChart,
   HardHat,
@@ -40,11 +37,12 @@ import {
   CreditCard,
   Globe,
   Fingerprint,
-  Zap,
-  Repeat,
   Coffee,
   Clock,
   ClipboardList,
+  CalendarDays,
+  CalendarCheck,
+  Timer,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -61,7 +59,7 @@ export const ClarityFlowLogo = ({ className }: { className?: string }) => (
     viewBox="0 0 32 32"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
-    className={cn("text-primary", className)}
+    className={cn('text-primary', className)}
   >
     <path
       d="M16 3.5C9.09644 3.5 3.5 9.09644 3.5 16C3.5 22.9036 9.09644 28.5 16 28.5C22.9036 28.5 28.5 22.9036 28.5 16C28.5 9.09644 22.9036 3.5 16 3.5Z"
@@ -77,16 +75,20 @@ export const ClarityFlowLogo = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const strategicHub = [
+// Visible to all roles
+const coreHub = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/planner', icon: Calendar, label: 'Planner' },
   { href: '/pos', icon: ListChecks, label: 'Terminal (POS)' },
+  { href: '/my-schedule', icon: CalendarCheck, label: 'My Schedule' },
 ];
 
+// Owner + Admin only
 const identityGrowth = [
   { href: '/clients', icon: User, label: 'Guest Dossier' },
   { href: '/staff', icon: Users, label: 'Pro Team' },
   { href: '/timesheets', icon: ClipboardList, label: 'Timesheets' },
+  { href: '/schedule', icon: CalendarDays, label: 'Shift Schedule' },
   { href: '/campaigns', icon: Megaphone, label: 'Outreach' },
   { href: '/reviews', icon: Star, label: 'Reputation' },
   { href: '/quotes', icon: FileText, label: 'Quotes' },
@@ -109,12 +111,23 @@ const financialSuite = [
   { href: '/reports', icon: BarChart, label: 'Analytics' },
 ];
 
+// Admin only (subset)
+const adminTeam = [
+  { href: '/staff', icon: Users, label: 'Pro Team' },
+  { href: '/timesheets', icon: ClipboardList, label: 'Timesheets' },
+  { href: '/schedule', icon: CalendarDays, label: 'Shift Schedule' },
+];
+
 export function AppSidebar() {
   const pathname = usePathname();
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
   const auth = useAuth();
   const router = useRouter();
+
+  const isOwner = role === 'owner';
+  const isAdmin = role === 'admin';
+  const isOwnerOrAdmin = isOwner || isAdmin;
 
   const isNavItemActive = (href: string) => {
     if (href === '/dashboard') return pathname === href;
@@ -128,8 +141,8 @@ export function AppSidebar() {
     }
   };
 
-  const renderMenuItems = (items: any[]) => (
-    items.map((item) => (
+  const renderMenuItems = (items: { href: string; icon: any; label: string }[]) =>
+    items.map(item => (
       <SidebarMenuItem key={item.href}>
         <SidebarMenuButton
           asChild
@@ -143,8 +156,7 @@ export function AppSidebar() {
           </Link>
         </SidebarMenuButton>
       </SidebarMenuItem>
-    ))
-  );
+    ));
 
   return (
     <Sidebar className="border-r-4 border-border/40 bg-white">
@@ -163,7 +175,9 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-4">
-        {role === 'owner' && (
+
+        {/* Tenant switcher -- owner only */}
+        {isOwner && (
           <div className="mb-8 px-2">
             <ClientOnly>
               <TenantSwitcher />
@@ -171,14 +185,29 @@ export function AppSidebar() {
           </div>
         )}
 
+        {/* Core -- all roles */}
         <SidebarGroup>
           <SidebarGroupLabel className="px-2 mb-3 font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground opacity-40">
             Strategic Hub
           </SidebarGroupLabel>
-          <SidebarMenu>{renderMenuItems(strategicHub)}</SidebarMenu>
+          <SidebarMenu>{renderMenuItems(coreHub)}</SidebarMenu>
         </SidebarGroup>
 
-        {role === 'owner' && (
+        {/* Admin gets team management only */}
+        {isAdmin && (
+          <>
+            <SidebarSeparator className="my-6 opacity-50" />
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-2 mb-3 font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground opacity-40">
+                Team
+              </SidebarGroupLabel>
+              <SidebarMenu>{renderMenuItems(adminTeam)}</SidebarMenu>
+            </SidebarGroup>
+          </>
+        )}
+
+        {/* Owner gets everything */}
+        {isOwner && (
           <>
             <SidebarSeparator className="my-6 opacity-50" />
             <SidebarGroup>
@@ -266,7 +295,7 @@ export function AppSidebar() {
 
       <SidebarFooter className="p-6 bg-muted/20 border-t-2 border-border/50">
         <SidebarMenu className="gap-2">
-          {role === 'owner' && (
+          {isOwner && (
             <SidebarMenuItem>
               <SidebarMenuButton
                 asChild
