@@ -79,7 +79,7 @@ const addStaffSchema = z.object({
   }).optional(),
   pin: z.string().length(4, 'PIN must be exactly 4 digits.'),
   showOnPublicPage: z.boolean().default(true),
-}.superRefine((data, ctx) => {
+}).superRefine((data, ctx) => {
   if (data.payStructure === 'commission' || data.payStructure === 'hourly_plus_commission') {
     if (data.commissionRate === undefined || data.commissionRate === null) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Commission rate is required.', path: ['commissionRate'] });
