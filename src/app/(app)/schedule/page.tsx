@@ -30,7 +30,7 @@ import {
   isToday, isBefore, startOfDay, addMinutes
 } from 'date-fns';
 import { cn, safeNumber } from '@/lib/utils';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useUser } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -109,8 +109,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function SchedulePage() {
-  const { firestore } = useFirebase();
-  const { user } = useUser();
+  const { firestore, user } = useFirebase();
   const { selectedTenant, role } = useTenant();
   const { staff, appointments, services } = useInventory();
   const tenantId = selectedTenant?.id;
