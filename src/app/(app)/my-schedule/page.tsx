@@ -1,5 +1,6 @@
 'use client';
 
+import { addDocumentNonBlocking, useCollection, useFirebase, useMemoFirebase, useUser } from '@/firebase';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,10 +24,8 @@ import {
   parseISO, isSameDay, isToday, isBefore, startOfDay
 } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, orderBy } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
-import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 
