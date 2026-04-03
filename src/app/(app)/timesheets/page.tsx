@@ -581,21 +581,21 @@ export default function TimesheetsPage() {
 
             {/* Edit time fields */}
             {isEditing ? (
-              <div className="space-y-4 p-4 rounded-2xl bg-amber-50 border-2 border-amber-200">
-                <p className="text-[10px] font-black uppercase text-amber-700 flex items-center gap-2">
-                  <Edit className="w-3.5 h-3.5" /> Correcting Times
+              <div className="space-y-3 p-3 rounded-2xl bg-amber-50 border-2 border-amber-200">
+                <p className="text-[9px] font-black uppercase text-amber-700 flex items-center gap-1.5">
+                  <Edit className="w-3 h-3" /> Correcting Times
                 </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Clock In</Label>
-                    <Input type="time" value={editClockIn} onChange={e => setEditClockIn(e.target.value)} className="h-12 rounded-xl border-2 font-black text-center bg-white" />
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">In</Label>
+                    <input type="time" value={editClockIn} onChange={e => setEditClockIn(e.target.value)} className="w-full h-9 rounded-xl border-2 px-2 font-bold text-sm outline-none bg-white focus:border-amber-400 text-center" />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Clock Out</Label>
-                    <Input type="time" value={editClockOut} onChange={e => setEditClockOut(e.target.value)} className="h-12 rounded-xl border-2 font-black text-center bg-white" />
+                  <div className="space-y-1">
+                    <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Out</Label>
+                    <input type="time" value={editClockOut} onChange={e => setEditClockOut(e.target.value)} className="w-full h-9 rounded-xl border-2 px-2 font-bold text-sm outline-none bg-white focus:border-amber-400 text-center" />
                   </div>
                 </div>
-                <p className="text-[8px] font-bold text-amber-700/60 uppercase">Times will be saved as the same date. Session will return to Pending for re-approval.</p>
+                <p className="text-[7px] font-bold text-amber-700/60 uppercase leading-relaxed">Times saved as same date. Returns to Pending.</p>
               </div>
             ) : (
               <div className="p-4 rounded-2xl bg-slate-50 border-2 border-slate-200">
