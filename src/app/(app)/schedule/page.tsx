@@ -520,15 +520,7 @@ export default function SchedulePage() {
     }
   };
 
-    // Check staff availability for a day
-  const isStaffAvailable = useCallback((staffId: string, date: Date) => {
-    const avail = (availabilityData || []).find(a => a.staffId === staffId);
-    if (!avail) return true; // No availability set = assume available
-    const dayName = format(date, 'EEEE').toLowerCase();
-    const dayAvail = avail.weekly?.[dayName];
-    if (!dayAvail) return true;
-    return dayAvail.available !== false;
-  }, [availabilityData]);
+  
 
   const openAddShift = (day?: Date, staffId?: string) => {
     setEditingShift(null);
@@ -552,41 +544,7 @@ export default function SchedulePage() {
     setIsAddShiftOpen(true);
   };
 
-  const handleSaveShift = async () => {
-    if (!firestore || !tenantId || !shiftStaffId || !shiftDate) return;
-    setIsProcessing(true);
 
-    const worked = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak;
-    const member = (staff || []).find(s => s.id === shiftStaffId);
-    let estimatedPay = 0;
-    if (member?.payStructure === 'hourly' && member.hourlyRate) {
-      estimatedPay = (worked / 60) * member.hourlyRate;
-    }
-
-    const payload: Shift = {
-      id: editingShift?.id || nanoid(),
-      staffId: shiftStaffId,
-      date: shiftDate,
-      startTime: shiftStart,
-      endTime: shiftEnd,
-      breakMinutes: shiftBreak,
-      status: editingShift?.status || 'draft',
-      notes: shiftNotes || undefined,
-      estimatedPay,
-      createdBy: user?.uid,
-    };
-
-    try {
-      await setDocumentNonBlocking(
-        doc(firestore, `tenants/${tenantId}/shifts`, payload.id),
-        payload, {}
-      );
-      toast({ title: editingShift ? 'Shift Updated' : 'Shift Added' });
-      setIsAddShiftOpen(false);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
   const handleDeleteShift = async (shiftId: string) => {
     if (!firestore || !tenantId) return;
@@ -635,137 +593,7 @@ export default function SchedulePage() {
   // Smart rule-based schedule suggestion -- no API key required
   // Uses the same logic an AI would: appointment demand, staff availability,
   // overtime limits, rest periods, skill matching, and labor cost optimization
-  const handleAISuggest = () => {
-    if (!staff || !appointments) return;
-    setIsAILoading(true);
 
-    try {
-      const suggestions: Shift[] = [];
-      // Track hours assigned per staff this week to respect OT limits
-      const hoursAssigned: Record<string, number> = {};
-      // Track last shift end per staff to enforce min rest
-      const lastShiftEnd: Record<string, Date> = {};
-
-      (staff || []).forEach(s => { hoursAssigned[s.id] = 0; });
-
-      // Sort staff by cost: hourly staff cheapest first, then commission
-      const sortedStaff = [...(staff || [])].sort((a, b) => {
-        const aCost = a.payStructure === 'hourly' ? (a.hourlyRate || 99) : 50;
-        const bCost = b.payStructure === 'hourly' ? (b.hourlyRate || 99) : 50;
-        return aCost - bCost;
-      });
-
-      weekDays.forEach(day => {
-        const dayStr = format(day, 'yyyy-MM-dd');
-        // Skip past days
-        if (isBefore(day, startOfDay(new Date()))) return;
-
-        const dayApts = (appointments || []).filter(
-          a => isSameDay(safeDate(a.startTime), day) && a.status !== 'cancelled'
-        );
-
-        // Determine how many staff we need based on appointment volume
-        const staffNeeded = dayApts.length === 0 ? 0
-          : dayApts.length <= 2 ? 1
-          : dayApts.length <= 5 ? 2
-          : 3;
-
-        if (staffNeeded === 0) return;
-
-        // Find the earliest and latest appointment times to anchor shift windows
-        let shiftStart = '09:00';
-        let shiftEnd = '17:00';
-        if (dayApts.length > 0) {
-          const times = dayApts.map(a => safeDate(a.startTime));
-          const earliest = times.reduce((min, t) => t < min ? t : min, times[0]);
-          const latest = times.reduce((max, t) => t > max ? t : max, times[0]);
-          // Start 30 min before first appointment, end 1hr after last
-          const startMins = Math.max(0, earliest.getHours() * 60 + earliest.getMinutes() - 30);
-          const endMins = Math.min(23 * 60 + 30, latest.getHours() * 60 + latest.getMinutes() + 60);
-          // Round to nearest 30
-          shiftStart = minutesToTime(Math.floor(startMins / 30) * 30);
-          shiftEnd = minutesToTime(Math.ceil(endMins / 30) * 30);
-          // Minimum 4h shift
-          if (timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) < 240) {
-            shiftEnd = minutesToTime(timeToMinutes(shiftStart) + 480);
-          }
-        }
-
-        const shiftDurationHours = (timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - 30) / 60;
-        let staffAssignedToday = 0;
-
-        for (const member of sortedStaff) {
-          if (staffAssignedToday >= staffNeeded) break;
-
-          // Check availability setting
-          if (!isStaffAvailable(member.id, day)) continue;
-
-          // Check weekly OT limit
-          if (maxHoursPerWeek > 0 && (hoursAssigned[member.id] || 0) + shiftDurationHours > maxHoursPerWeek + 2) continue;
-
-          // Check min rest from last shift
-          if (lastShiftEnd[member.id]) {
-            const shiftStartDate = new Date(`${dayStr}T${shiftStart}:00`);
-            const restHours = differenceInHours(shiftStartDate, lastShiftEnd[member.id]);
-            if (restHours < minRestHours) continue;
-          }
-
-          // Check if already scheduled this day
-          const alreadyScheduled = suggestions.some(s => s.staffId === member.id && s.date === dayStr);
-          if (alreadyScheduled) continue;
-
-          // Skill match -- if appointments require specific services, check staff skills
-          const requiredSkills = dayApts.flatMap(a => {
-            const svc = (services || []).find(s => s.id === a.serviceId);
-            return svc?.requiredSkills || [];
-          });
-          const uniqueSkills = [...new Set(requiredSkills)];
-          if (uniqueSkills.length > 0 && member.skillSet && member.skillSet.length > 0) {
-            const hasRequiredSkill = uniqueSkills.some(skill => member.skillSet!.includes(skill));
-            if (!hasRequiredSkill && staffAssignedToday > 0) continue; // Skip if not skilled and coverage already met
-          }
-
-          // Assign the shift
-          const worked = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - 30;
-          const estimatedPay = member.payStructure === 'hourly' && member.hourlyRate
-            ? (worked / 60) * member.hourlyRate : 0;
-
-          const aptCount = dayApts.length;
-          const note = aptCount === 0 ? 'Coverage shift'
-            : aptCount === 1 ? '1 appointment scheduled'
-            : `${aptCount} appointments scheduled`;
-
-          suggestions.push({
-            id: nanoid(),
-            staffId: member.id,
-            date: dayStr,
-            startTime: shiftStart,
-            endTime: shiftEnd,
-            breakMinutes: shiftDurationHours > 5 ? 30 : 0,
-            status: 'draft',
-            notes: note,
-            estimatedPay,
-          });
-
-          hoursAssigned[member.id] = (hoursAssigned[member.id] || 0) + shiftDurationHours;
-          lastShiftEnd[member.id] = new Date(`${dayStr}T${shiftEnd}:00`);
-          staffAssignedToday++;
-        }
-      });
-
-      if (suggestions.length === 0) {
-        toast({ title: 'Nothing to Suggest', description: 'No upcoming appointments found or all staff are unavailable this week.' });
-        return;
-      }
-
-      setAiSuggestions(suggestions);
-      setIsAISuggestOpen(true);
-    } catch (e) {
-      toast({ variant: 'destructive', title: 'Suggestion Failed', description: 'Something went wrong generating the schedule.' });
-    } finally {
-      setIsAILoading(false);
-    }
-  };
 
   const handleApplyAISuggestions = async () => {
     if (!firestore || !tenantId || !aiSuggestions.length) return;
