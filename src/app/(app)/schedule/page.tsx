@@ -30,12 +30,11 @@ import {
   isToday, isBefore, startOfDay, addMinutes
 } from 'date-fns';
 import { cn, safeNumber } from '@/lib/utils';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useUser } from '@/firebase';
 import { collection, doc, writeBatch, query, where, orderBy } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
-import { useUser } from '@/firebase';
 import { nanoid } from 'nanoid';
 import { motion, AnimatePresence } from 'framer-motion';
 
