@@ -76,13 +76,16 @@ export default function MySchedulePage() {
     if (!firestore || !tenantId || !user) return null;
     return query(
       collection(firestore, `tenants/${tenantId}/shiftRequests`),
-      where('staffId', '==', user.uid),
-      orderBy('createdAt', 'desc')
+      where('staffId', '==', user.uid)
     );
   }, [firestore, tenantId, user?.uid]);
 
   const { data: myShifts } = useCollection<any>(shiftsQuery);
-  const { data: myRequests } = useCollection<any>(myRequestsQuery);
+  const { data: myRequestsRaw } = useCollection<any>(myRequestsQuery);
+  const myRequests = useMemo(() => 
+    [...(myRequestsRaw || [])].sort((a, b) => 
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    ), [myRequestsRaw]);
 
   const weeklyHours = useMemo(() => {
     if (!myShifts) return 0;
