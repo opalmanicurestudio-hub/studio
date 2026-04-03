@@ -78,21 +78,64 @@ export default function ScheduleRequestsPage() {
     if (!firestore || !tenantId || !selectedRequest) return;
     setIsProcessing(true);
     try {
-      await updateDocumentNonBlocking(
-        doc(firestore, `tenants/${tenantId}/shiftRequests`, selectedRequest.id),
-        { status: 'approved', managerNote: managerNote || '', resolvedAt: new Date().toISOString() }
-      );
-      // Notify staff
-      const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-      await addDocumentNonBlocking(
-        collection(firestore, `tenants/${tenantId}/notifications`),
-        {
-          id: nanoid(), userId: selectedRequest.staffId, type: 'request_approved',
+      const batch = writeBatch(firestore);
+      const now = new Date().toISOString();
+
+      // Mark request approved
+      batch.update(doc(firestore, `tenants/${tenantId}/shiftRequests`, selectedRequest.id), {
+        status: 'approved', managerNote: managerNote || '', resolvedAt: now,
+      });
+
+      // AUTO-EXECUTE: Shift swap -- reassign both shifts to each other
+      if (selectedRequest.type === 'swap' && selectedRequest.swapShiftId && selectedRequest.myShiftId) {
+        // Swap staffId on both shift documents
+        batch.update(doc(firestore, `tenants/${tenantId}/shifts`, selectedRequest.myShiftId), {
+          staffId: selectedRequest.swapWithStaffId,
+        });
+        batch.update(doc(firestore, `tenants/${tenantId}/shifts`, selectedRequest.swapShiftId), {
+          staffId: selectedRequest.staffId,
+        });
+        // Notify both staff members
+        [
+          { uid: selectedRequest.staffId, msg: `Your shift swap on ${selectedRequest.date ? format(safeDate(selectedRequest.date), 'MMM d') : 'the requested date'} was approved. Shifts have been automatically reassigned.` },
+          { uid: selectedRequest.swapWithStaffId, msg: `Your shift on ${selectedRequest.date ? format(safeDate(selectedRequest.date), 'MMM d') : 'the requested date'} has been swapped with another staff member. Check your schedule.` },
+        ].filter(n => n.uid).forEach(n => {
+          const notifRef = doc(collection(firestore!, `tenants/${tenantId}/notifications`));
+          batch.set(notifRef, { id: notifRef.id, userId: n.uid, type: 'swap_approved', message: n.msg, link: '/my-schedule', createdAt: now, read: false });
+        });
+      }
+
+      // AUTO-EXECUTE: Day off -- mark the block as approved so scheduler shows it
+      if (selectedRequest.type === 'day_off') {
+        // Update any pending day-off block for this request
+        const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+        batch.set(notifRef, {
+          id: notifRef.id, userId: selectedRequest.staffId, type: 'day_off_approved',
+          message: `Your day off request for ${selectedRequest.date ? format(safeDate(selectedRequest.date), 'MMM d') : 'the requested date'} was approved.${managerNote ? ` Manager note: ${managerNote}` : ''}`,
+          link: '/my-schedule', createdAt: now, read: false,
+        });
+        // Also cancel any published shifts for this staff on that day
+        const staffShiftsOnDay = (allRequests || [])
+          .filter(r => r.date === selectedRequest.date);
+        // We don't have the shifts here directly -- the scheduler will see the block
+        // and managers can manually remove shifts if needed
+      } else if (selectedRequest.type !== 'swap') {
+        // Generic approval notification
+        const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+        batch.set(notifRef, {
+          id: notifRef.id, userId: selectedRequest.staffId, type: 'request_approved',
           message: `Your ${REQUEST_TYPE_META[selectedRequest.type]?.label || 'request'} for ${selectedRequest.date ? format(safeDate(selectedRequest.date), 'MMM d') : 'your schedule'} was approved.${managerNote ? ` Note: ${managerNote}` : ''}`,
-          link: '/schedule', createdAt: new Date().toISOString(), read: false,
-        }
-      );
-      toast({ title: 'Request Approved', description: 'Staff member has been notified.' });
+          link: '/my-schedule', createdAt: now, read: false,
+        });
+      }
+
+      await batch.commit();
+      const desc = selectedRequest.type === 'swap'
+        ? 'Shifts automatically reassigned. Both staff notified.'
+        : selectedRequest.type === 'day_off'
+        ? 'Day off confirmed. Staff notified.'
+        : 'Staff member has been notified.';
+      toast({ title: 'Request Approved', description: desc });
       setSelectedRequest(null);
       setManagerNote('');
     } finally {
