@@ -44,8 +44,6 @@ import { Badge } from '@/components/ui/badge';
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
   email: z.string().email('A valid email is required.'),
-  password: z.string().min(6, 'Password must be at least 6 characters.'),
-  confirmPassword: z.string(),
   phone: z.string().optional(),
   avatarUrl: z.string().optional(),
   bio: z.string().optional(),
@@ -81,11 +79,7 @@ const addStaffSchema = z.object({
   }).optional(),
   pin: z.string().length(4, 'PIN must be exactly 4 digits.'),
   showOnPublicPage: z.boolean().default(true),
-}).superRefine(({ confirmPassword, password }, ctx) => {
-  if (confirmPassword !== password) {
-    ctx.addIssue({ code: 'custom', message: 'The passwords do not match', path: ['confirmPassword'] });
-  }
-}).superRefine((data, ctx) => {
+}.superRefine((data, ctx) => {
   if (data.payStructure === 'commission' || data.payStructure === 'hourly_plus_commission') {
     if (data.commissionRate === undefined || data.commissionRate === null) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Commission rate is required.', path: ['commissionRate'] });
@@ -139,18 +133,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
           <Input id="email" type="email" placeholder="brenda@example.com" {...register('email')} className="h-14 rounded-2xl border-2 font-bold" />
           {errors.email && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.email.message}</p>}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-          <div className="space-y-2">
-            <Label htmlFor="password" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Login Password</Label>
-            <Input id="password" type="password" {...register('password')} className="h-14 rounded-2xl border-2 font-bold" />
-            {errors.password && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.password.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirmPassword" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Confirm Password</Label>
-            <Input id="confirmPassword" type="password" {...register('confirmPassword')} className="h-14 rounded-2xl border-2 font-bold" />
-            {errors.confirmPassword && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.confirmPassword.message}</p>}
-          </div>
-        </div>
+
 
         <div className="p-6 bg-primary/5 rounded-[2.5rem] border-4 border-primary/10 space-y-4 shadow-inner">
           <div className="flex items-center justify-between">
@@ -449,7 +432,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   const methods = useForm<AddStaffFormData>({
     resolver: zodResolver(addStaffSchema),
     defaultValues: {
-      role: 'staff', pricingTierId: '', payStructure: 'commission',
+      role: 'staff', email: '', name: '', pricingTierId: '', payStructure: 'commission',
       payoutFrequency: 'weekly', commissionRate: 40, retailCommissionRate: 10,
       services: [], assignedFormIds: [], showOnPublicPage: true,
     },
@@ -469,7 +452,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     if (open) {
       const newPin = generateUniquePin(existingStaff || []);
       methods.reset({
-        name: '', email: '', password: '', confirmPassword: '',
+        name: '', email: '',
         role: 'staff', pricingTierId: pricingTiers?.[0]?.id || '',
         payStructure: 'commission', payoutFrequency: 'weekly',
         commissionRate: 40, retailCommissionRate: 10,
@@ -481,7 +464,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
 
   const handleNext = async (e: any) => {
     e.preventDefault();
-    const valid = await methods.trigger(step === 1 ? ['name', 'email', 'password', 'confirmPassword', 'role', 'pin'] : []);
+    const valid = await methods.trigger(step === 1 ? ['name', 'email', 'role', 'pin'] : []);
     if (valid) setStep(step + 1);
   };
   const handleBack = (e: any) => { e.preventDefault(); setStep(step - 1); };
