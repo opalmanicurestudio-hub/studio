@@ -605,8 +605,8 @@ export default function SchedulePage() {
           )}
         </div>
 
-        {/* Schedule grid */}
-        <Card className="border-2 rounded-[2.5rem] shadow-sm overflow-hidden bg-white">
+        {/* Schedule grid -- desktop */}
+        <Card className="border-2 rounded-[2.5rem] shadow-sm overflow-hidden bg-white hidden md:block">
           <ScrollArea className="w-full">
             <div className="min-w-[800px]">
               {/* Day headers */}
@@ -732,6 +732,65 @@ export default function SchedulePage() {
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </Card>
+
+        {/* Mobile schedule -- day-by-day list */}
+        <div className="md:hidden space-y-4">
+          {weekDays.map(day => {
+            const dayStr = format(day, 'yyyy-MM-dd');
+            const dayShifts = (shifts || []).filter(s => s.date === dayStr && s.status !== 'cancelled');
+            return (
+              <Card key={day.toISOString()} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm", isToday(day) && "border-primary/30 shadow-primary/10")}>
+                <div className={cn("px-4 py-3 flex items-center justify-between border-b", isToday(day) ? "bg-primary/5" : "bg-muted/5")}>
+                  <div className="flex items-center gap-3">
+                    <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0", isToday(day) ? "bg-primary text-white" : "bg-white border-2 text-slate-700")}>
+                      {format(day, 'd')}
+                    </div>
+                    <div>
+                      <p className={cn("font-black uppercase text-sm leading-none", isToday(day) ? "text-primary" : "text-slate-900")}>{format(day, 'EEEE')}</p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{format(day, 'MMM d')}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {coverageAlerts.some(d => isSameDay(d, day)) && (
+                      <Badge className="bg-amber-100 text-amber-700 border-none font-black text-[8px] uppercase h-5 px-2">
+                        <AlertTriangle className="w-2.5 h-2.5 mr-1" />No Cover
+                      </Badge>
+                    )}
+                    {canManage && (
+                      <Button size="sm" variant="outline" onClick={() => openAddShift(day)} className="h-8 w-8 rounded-xl border-2 p-0">
+                        <Plus className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="p-3 space-y-2">
+                  {dayShifts.length > 0 ? dayShifts.map(shift => {
+                    const member = (staff || []).find(s => s.id === shift.staffId);
+                    const hours = ((timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime) - (shift.breakMinutes || 0)) / 60);
+                    return (
+                      <div key={shift.id} className={cn("flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer", shift.status === 'draft' ? "bg-slate-50 border-slate-200" : shift.status === 'published' ? "bg-primary/5 border-primary/20" : "bg-green-50 border-green-200")} onClick={() => canManage && openEditShift(shift)}>
+                        <Avatar className="w-8 h-8 rounded-xl border shrink-0">
+                          <AvatarImage src={member?.avatarUrl} className="object-cover" />
+                          <AvatarFallback className="text-[9px] font-black bg-primary/10 text-primary">{member?.name?.[0]}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-black uppercase text-[10px] truncate">{member?.name || 'Unknown'}</p>
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{formatTime(shift.startTime)} -- {formatTime(shift.endTime)}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-black font-mono text-sm text-primary">{hours.toFixed(1)}h</p>
+                          <Badge className={cn("h-4 px-1 text-[7px] font-black uppercase border-none", STATUS_STYLES[shift.status])}>{shift.status}</Badge>
+                        </div>
+                      </div>
+                    );
+                  }) : (
+                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40 text-center py-3">No shifts scheduled</p>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
 
         {/* Labor breakdown */}
         {laborPreview.byStaff.length > 0 && (
