@@ -522,73 +522,13 @@ export default function SchedulePage() {
 
   
 
-  const openAddShift = (day?: Date, staffId?: string) => {
-    setEditingShift(null);
-    setShiftStaffId(staffId || '');
-    setShiftDate(day ? format(day, 'yyyy-MM-dd') : format(weekStart, 'yyyy-MM-dd'));
-    setShiftStart('09:00');
-    setShiftEnd('17:00');
-    setShiftBreak(30);
-    setShiftNotes('');
-    setIsAddShiftOpen(true);
-  };
-
-  const openEditShift = (shift: Shift) => {
-    setEditingShift(shift);
-    setShiftStaffId(shift.staffId);
-    setShiftDate(shift.date);
-    setShiftStart(shift.startTime);
-    setShiftEnd(shift.endTime);
-    setShiftBreak(shift.breakMinutes || 0);
-    setShiftNotes(shift.notes || '');
-    setIsAddShiftOpen(true);
-  };
 
 
 
-  const handleDeleteShift = async (shiftId: string) => {
-    if (!firestore || !tenantId) return;
-    await updateDocumentNonBlocking(
-      doc(firestore, `tenants/${tenantId}/shifts`, shiftId),
-      { status: 'cancelled' }
-    );
-    toast({ title: 'Shift Removed' });
-  };
 
-  const handlePublishAll = async () => {
-    if (!firestore || !tenantId) return;
-    setIsProcessing(true);
-    const batch = writeBatch(firestore);
-    const now = new Date().toISOString();
-    const draftShifts = (shifts || []).filter(s => s.status === 'draft');
 
-    draftShifts.forEach(shift => {
-      batch.update(doc(firestore, `tenants/${tenantId}/shifts`, shift.id), {
-        status: 'published',
-        publishedAt: now,
-      });
-    });
 
-    // Notify all affected staff
-    const notifiedStaff = new Set<string>();
-    draftShifts.forEach(shift => notifiedStaff.add(shift.staffId));
-    notifiedStaff.forEach(staffId => {
-      const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-      batch.set(notifRef, {
-        id: notifRef.id, userId: staffId, type: 'schedule_published',
-        message: `Your schedule for the week of ${format(weekStart, 'MMM d')} has been published.`,
-        link: '/schedule', createdAt: now, read: false,
-      });
-    });
 
-    try {
-      await batch.commit();
-      toast({ title: 'Schedule Published', description: `${draftShifts.length} shifts published. Staff notified.` });
-      setIsPublishConfirmOpen(false);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
   // Smart rule-based schedule suggestion -- no API key required
   // Uses the same logic an AI would: appointment demand, staff availability,
