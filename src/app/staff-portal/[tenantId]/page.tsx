@@ -10,7 +10,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   Calendar, Clock, Repeat, Zap, Bell, CheckCircle2,
   XCircle, ChevronRight, LogOut, Delete, Shield,
-  CalendarDays, ClipboardList, AlertTriangle, Coffee
+  CalendarDays, ClipboardList, AlertTriangle, Coffee,
+  ArrowRight, Users
 } from 'lucide-react';
 import {
   format, parseISO, startOfWeek, endOfWeek,
@@ -18,7 +19,7 @@ import {
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where, doc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 
 const safeDate = (val: any): Date => {
@@ -187,6 +188,32 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: {
   }, [firestore, tenantId, staffMember?.id]);
 
   const { data: allShifts } = useCollection<any>(shiftsQuery);
+
+  // Incoming swap requests WHERE this staff is the swap target
+  const incomingSwapQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !staffMember?.id) return null;
+    return query(
+      collection(firestore, `tenants/${tenantId}/shiftRequests`),
+      where('swapWithStaffId', '==', staffMember.id),
+      where('status', '==', 'pending_swap_consent')
+    );
+  }, [firestore, tenantId, staffMember?.id]);
+
+  // All staff for name lookups in swap cards
+  const allStaffQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/staff`);
+  }, [firestore, tenantId]);
+
+  // All shifts for swap display
+  const allShiftsForPortalQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/shifts`);
+  }, [firestore, tenantId]);
+
+  const { data: incomingSwapRequests } = useCollection<any>(incomingSwapQuery);
+  const { data: allStaff } = useCollection<any>(allStaffQuery);
+  const { data: allShiftsForPortal } = useCollection<any>(allShiftsForPortalQuery);
   const { data: allRequests } = useCollection<any>(requestsQuery);
   const { data: allNotifs } = useCollection<any>(notifsQuery);
 
@@ -345,7 +372,26 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: {
         {/* REQUESTS TAB */}
         {activeTab === 'requests' && (
           <div className="space-y-3">
-            {recentRequests.length === 0 && (
+            {/* Swap consent requests directed AT this staff member */}
+            {incomingSwapRequests.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-purple-700 px-1 flex items-center gap-2">
+                  <Repeat className="w-3.5 h-3.5" /> Swap Requests For You
+                </p>
+                {incomingSwapRequests.map(req => (
+                  <SwapConsentCard
+                    key={req.id}
+                    req={req}
+                    staffMember={staffMember}
+                    tenantId={tenantId}
+                    firestore={firestore}
+                    allStaff={allStaff}
+                    allShifts={allShiftsForPortal}
+                  />
+                ))}
+              </div>
+            )}
+            {recentRequests.length === 0 && incomingSwapRequests.length === 0 && (
               <div className="py-16 text-center opacity-30">
                 <ClipboardList className="w-10 h-10 mx-auto mb-3" />
                 <p className="text-[10px] font-black uppercase tracking-widest">No requests yet</p>
