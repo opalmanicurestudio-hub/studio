@@ -105,20 +105,34 @@ export default function ScheduleRequestsPage() {
         });
       }
 
-      // AUTO-EXECUTE: Day off -- mark the block as approved so scheduler shows it
+      // AUTO-EXECUTE: Day off -- write a blocked event to the planner
       if (selectedRequest.type === 'day_off') {
-        // Update any pending day-off block for this request
+        // Create a blocked event on the planner for this staff member
+        if (selectedRequest.date) {
+          const eventRef = doc(collection(firestore, `tenants/${tenantId}/events`));
+          const dayStart = new Date(selectedRequest.date + 'T00:00:00');
+          const dayEnd = new Date(selectedRequest.date + 'T23:59:59');
+          batch.set(eventRef, {
+            id: eventRef.id,
+            title: `Day Off -- ${(staff || []).find(s => s.id === selectedRequest.staffId)?.name || 'Staff'}`,
+            type: 'blocked',
+            staffIds: [selectedRequest.staffId],
+            startTime: dayStart.toISOString(),
+            endTime: dayEnd.toISOString(),
+            allDay: true,
+            source: 'day_off_request',
+            requestId: selectedRequest.id,
+            tenantId,
+            createdAt: now,
+          });
+        }
+        // Notify staff
         const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
         batch.set(notifRef, {
           id: notifRef.id, userId: selectedRequest.staffId, type: 'day_off_approved',
-          message: `Your day off request for ${selectedRequest.date ? format(safeDate(selectedRequest.date), 'MMM d') : 'the requested date'} was approved.${managerNote ? ` Manager note: ${managerNote}` : ''}`,
+          message: `Your day off on ${selectedRequest.date ? format(safeDate(selectedRequest.date), 'EEE, MMM d') : 'the requested date'} has been approved and blocked on the schedule.${managerNote ? ` Note: ${managerNote}` : ''}`,
           link: '/my-schedule', createdAt: now, read: false,
         });
-        // Also cancel any published shifts for this staff on that day
-        const staffShiftsOnDay = (allRequests || [])
-          .filter(r => r.date === selectedRequest.date);
-        // We don't have the shifts here directly -- the scheduler will see the block
-        // and managers can manually remove shifts if needed
       } else if (selectedRequest.type !== 'swap') {
         // Generic approval notification
         const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
