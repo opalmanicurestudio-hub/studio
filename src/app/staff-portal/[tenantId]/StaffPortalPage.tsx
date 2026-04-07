@@ -241,8 +241,15 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
   }, [assignedTechId, availabilityMap, selectedAddOn]);
 
   const handleSelfAdd = () => {
-    if (!selectedAddOn) return;
-    // Check if self has a conflict
+    if (!selectedAddOn || !currentStaffId) {
+      toast({ variant: 'destructive', title: 'Cannot identify current staff member.' });
+      return;
+    }
+    // If availability hasn't loaded yet, just commit — no conflict data available
+    if (loadingAvailability) {
+      commitAddOn(currentStaffId, true);
+      return;
+    }
     if (selfAvailability?.conflictMinutes && selfAvailability.conflictMinutes > 0) {
       setSelfConflict({ nextApt: selfAvailability.nextApt, overlapMins: selfAvailability.conflictMinutes });
       setTechConflict(null);
@@ -266,8 +273,11 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
     }
   };
 
-  const commitAddOn = async (techId: string, isSelf: boolean) => {
-    if (!selectedAddOn || !firestore || !tenantId) return;
+  const commitAddOn = async (techId: string | undefined, isSelf: boolean) => {
+    if (!selectedAddOn || !firestore || !tenantId || !techId) {
+      toast({ variant: 'destructive', title: 'Missing required data to save add-on.' });
+      return;
+    }
     setSaving(true);
     setShowConflictWarning(false);
     try {
@@ -349,10 +359,10 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
         </div>
         <button
           onClick={() => {
-            if (isSelfConflict) commitAddOn(currentStaffId, true);
+            if (isSelfConflict && currentStaffId) commitAddOn(currentStaffId, true);
             else if (assignedTechId) commitAddOn(assignedTechId, false);
           }}
-          disabled={saving}
+          disabled={saving || (isSelfConflict ? !currentStaffId : !assignedTechId)}
           className="w-full h-12 rounded-2xl bg-amber-500 text-white font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.97] transition-all"
         >
           {saving ? <Loader className="w-4 h-4 animate-spin" /> : 'Proceed Anyway'}
@@ -408,15 +418,20 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
             >
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shrink-0">
-                  <User className="w-4 h-4 text-white" />
+                  {saving && mode === 'self'
+                    ? <Loader className="w-4 h-4 text-white animate-spin" />
+                    : <User className="w-4 h-4 text-white" />
+                  }
                 </div>
                 <div className="text-left">
                   <p className="font-black uppercase text-[11px] text-primary">Add to My Session</p>
                   <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
                     Extends your appointment by {selectedAddOn.duration}m
-                    {selfAvailability?.conflictMinutes && selfAvailability.conflictMinutes > 0
-                      ? ` · ⚠ Runs ${selfAvailability.conflictMinutes}m over next apt`
-                      : ' · No conflicts'}
+                    {loadingAvailability
+                      ? ' · Checking conflicts...'
+                      : selfAvailability?.conflictMinutes && selfAvailability.conflictMinutes > 0
+                        ? ` · ⚠ Runs ${selfAvailability.conflictMinutes}m over next apt`
+                        : ' · No conflicts'}
                   </p>
                 </div>
               </div>
@@ -1306,28 +1321,130 @@ function ClockButton({ staffMember, tenantId, firestore, clockStatus }: any) {
 // ─── NEXT APPOINTMENT BANNER ──────────────────────────────────────────────────
 function NextBanner({ appointments, services }: any) {
   const [now, setNow] = useState(new Date());
-  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60_000); return () => clearInterval(t); }, []);
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 30_000); return () => clearInterval(t); }, []);
+
   const next = useMemo(() => {
     if (!appointments) return null;
+    // Show the soonest upcoming or very recently started (within 10 min) appointment
     return appointments.filter((a: any) =>
-      safeDate(a.startTime) > now && !['cancelled','completed'].includes(a.status) && isSameDay(safeDate(a.startTime), now)
+      !['cancelled', 'completed', 'no_show'].includes(a.status) &&
+      isSameDay(safeDate(a.startTime), now) &&
+      safeDate(a.startTime) > addMinutes(now, -10)
     ).sort((a: any, b: any) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0] || null;
   }, [appointments, now]);
+
   if (!next) return null;
-  const start = safeDate(next.startTime);
-  const mins  = differenceInMinutes(start, now);
-  const svc   = (services || []).find((s: any) => s.id === next.serviceId);
+
+  const start        = safeDate(next.startTime);
+  const minsUntil    = differenceInMinutes(start, now);
+  const svc          = (services || []).find((s: any) => s.id === next.serviceId);
+  const checkIn      = next.checkInStatus;
+  const lateBy       = next.lateTimeMinutes || 0;
+  const isCancelled  = next.status === 'cancelled';
+  const isRunningLate = checkIn === 'running_late';
+  const isOnMyWay    = checkIn === 'on_my_way';
+  const isArrived    = checkIn === 'arrived';
+
+  // Estimated arrival when running late
+  const estimatedArrival = isRunningLate && lateBy > 0
+    ? addMinutes(start, lateBy)
+    : null;
+
+  // Late fee applies if tenant has a cancellation window and they're past it
+  const lateFeeApplies = isRunningLate && lateBy >= 15;
+
+  // Colour theme based on situation
+  const theme = isCancelled       ? 'bg-destructive/5 border-destructive/30 text-destructive' :
+                isRunningLate     ? 'bg-amber-50 border-amber-300 text-amber-800' :
+                isArrived         ? 'bg-green-50 border-green-300 text-green-800' :
+                isOnMyWay         ? 'bg-blue-50 border-blue-200 text-blue-700' :
+                minsUntil <= 10   ? 'bg-primary/10 border-primary/30 text-primary' :
+                                    'bg-slate-50 border-slate-200 text-slate-700';
+
+  const iconTheme = isCancelled   ? 'bg-destructive text-white' :
+                    isRunningLate ? 'bg-amber-500 text-white' :
+                    isArrived     ? 'bg-green-500 text-white' :
+                    isOnMyWay     ? 'bg-blue-500 text-white' :
+                                    'bg-primary text-white';
+
   return (
-    <div className="flex items-center gap-3 p-3 rounded-2xl bg-primary/10 border-2 border-primary/20">
-      <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shrink-0"><Timer className="w-5 h-5 text-white" /></div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest">Next Up</p>
-        <p className="font-black text-sm text-primary truncate">{svc?.name || 'Service'} · {next.clientName?.split(' ')[0] || 'Guest'}</p>
+    <div className={cn('rounded-2xl border-2 p-3 space-y-2 transition-all', theme)}>
+      <div className="flex items-center gap-3">
+        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', iconTheme)}>
+          {isCancelled   ? <XCircle className="w-5 h-5" /> :
+           isRunningLate ? <AlertTriangle className="w-5 h-5" /> :
+           isArrived     ? <CheckCircle2 className="w-5 h-5" /> :
+           isOnMyWay     ? <Car className="w-5 h-5" /> :
+                           <Timer className="w-5 h-5" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-widest opacity-60">
+            {isCancelled   ? 'Appointment Cancelled' :
+             isRunningLate ? 'Client Running Late' :
+             isArrived     ? 'Client Arrived' :
+             isOnMyWay     ? 'Client En Route' :
+             minsUntil <= 0 ? 'Starting Now' : 'Next Up'}
+          </p>
+          <p className="font-black text-sm truncate">
+            {svc?.name || 'Service'} · {next.clientName?.split(' ')[0] || 'Guest'}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          {!isCancelled && (
+            <>
+              <p className="font-black text-lg leading-none">
+                {minsUntil <= 0 ? 'Now' : minsUntil < 60 ? `${minsUntil}m` : `${Math.floor(minsUntil/60)}h ${minsUntil%60}m`}
+              </p>
+              <p className="text-[8px] font-black uppercase opacity-60">{format(start, 'h:mm a')}</p>
+            </>
+          )}
+        </div>
       </div>
-      <div className="text-right shrink-0">
-        <p className="font-black text-lg text-primary leading-none">{mins < 60 ? `${mins}m` : `${Math.floor(mins/60)}h ${mins%60}m`}</p>
-        <p className="text-[8px] font-black uppercase text-primary/50">{format(start, 'h:mm a')}</p>
-      </div>
+
+      {/* Running late details */}
+      {isRunningLate && (
+        <div className="space-y-1.5 pl-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-700 rounded-lg px-2 py-0.5">
+              +{lateBy}m late
+            </span>
+            {estimatedArrival && (
+              <span className="text-[10px] font-black uppercase opacity-70">
+                Est. arrival {format(estimatedArrival, 'h:mm a')}
+              </span>
+            )}
+          </div>
+          {lateFeeApplies && (
+            <div className="flex items-center gap-1.5 text-amber-700">
+              <DollarSign className="w-3 h-3 shrink-0" />
+              <p className="text-[9px] font-black uppercase">Late fee may apply — notify front desk</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* On my way ETA */}
+      {isOnMyWay && !isRunningLate && (
+        <p className="text-[9px] font-bold uppercase opacity-70 pl-1">
+          Client is heading in · {format(start, 'h:mm a')} appointment
+        </p>
+      )}
+
+      {/* Cancellation reason */}
+      {isCancelled && (
+        <div className="pl-1 space-y-1">
+          <p className="text-[9px] font-black uppercase text-destructive">
+            {next.cancellationReason
+              ? `Reason: ${next.cancellationReason}`
+              : 'No reason provided'}
+          </p>
+          {next.cancelledAt && (
+            <p className="text-[8px] font-bold uppercase opacity-60">
+              Cancelled at {format(safeDate(next.cancelledAt), 'h:mm a')}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
