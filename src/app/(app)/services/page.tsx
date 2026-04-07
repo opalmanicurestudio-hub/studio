@@ -13,42 +13,33 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { 
-    MoreHorizontal, 
     PlusCircle, 
     Clock, 
-    DollarSign, 
     Sparkles, 
     Pencil, 
     Search, 
     SlidersHorizontal, 
-    Trash2, 
     Calculator,
-    ChevronLeft,
-    ChevronRight,
-    Filter,
     Check,
     Link as LinkIcon,
     BarChart,
-    ArrowRight
+    ArrowRight,
+    BookOpen,
 } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { 
     Accordion, 
     AccordionContent, 
     AccordionItem, 
     AccordionTrigger 
 } from '@/components/ui/accordion';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from '@/components/ui/label';
-import { type Service, type Appointment, type Transaction, type PricingTier, type Staff } from '@/lib/data';
+import { type Service, type Appointment, type Transaction, type PricingTier } from '@/lib/data';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { AddServiceDialog } from '@/components/services/AddServiceDialog';
-import { EditServiceDialog } from '@/components/services/EditServiceDialog';
+
+// ── KEY CHANGE: both dialogs now come from ServiceFormSheet ──
+import { AddServiceDialog, EditServiceDialog } from '@/components/services/ServiceFormSheet';
+
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
@@ -85,15 +76,10 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
     if (!appointments || !transactions) return { totalBookings: 0, totalRevenue: 0 };
     const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
     const bookingIds = new Set(bookings.map(b => b.id));
-
     const totalRevenue = transactions
         .filter(t => t.appointmentId && bookingIds.has(t.appointmentId) && t.category === 'Service Revenue')
         .reduce((total, t) => total + t.amount, 0);
-
-    return {
-        totalBookings: bookings.length,
-        totalRevenue,
-    };
+    return { totalBookings: bookings.length, totalRevenue };
   }, [service.id, appointments, transactions]);
 
   const materialCost = useMemo(() => {
@@ -114,9 +100,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
         const tierPriceConfig = service.serviceTiers?.find(t => t.tierId === tier.id);
         const price = tierPriceConfig ? tierPriceConfig.price : service.price;
         const duration = tierPriceConfig ? tierPriceConfig.durationMinutes : service.duration;
-
         const relevantStaff = staff.filter(s => s.pricingTierId === tier.id);
-
         const staffAnalysis = relevantStaff.map(member => {
             let laborCost = 0;
             if (member.payStructure === 'hourly' && member.hourlyRate) {
@@ -124,28 +108,14 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
             } else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) {
                 laborCost = ((duration / 60) * member.hourlyRate) + (price * ((member.commissionRate || 40) / 100));
             } else {
-                const rate = member.commissionRate || 40;
-                laborCost = price * (rate / 100);
+                laborCost = price * ((member.commissionRate || 40) / 100);
             }
-
             const burdenedLabor = laborCost * (1 + (taxBurden / 100));
             const studioNet = price - materialCost - timeCost - burdenedLabor;
             const margin = price > 0 ? (studioNet / price) * 100 : 0;
-
-            return {
-                id: member.id,
-                name: member.name,
-                avatarUrl: member.avatarUrl,
-                studioNet,
-                margin
-            };
+            return { id: member.id, name: member.name, avatarUrl: member.avatarUrl, studioNet, margin };
         });
-
-        return {
-            ...tier,
-            price,
-            staffAnalysis
-        };
+        return { ...tier, price, staffAnalysis };
     });
   }, [pricingTiers, service, staff, materialCost, timeCost, taxBurden]);
 
@@ -153,10 +123,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
     e.stopPropagation();
     const bookingLink = `${window.location.origin}/book/${service.id}`;
     navigator.clipboard.writeText(bookingLink);
-    toast({
-        title: "Link Copied!",
-        description: "Direct booking URL is on your clipboard.",
-    });
+    toast({ title: "Link Copied!", description: "Direct booking URL is on your clipboard." });
   };
   
   return (
@@ -189,8 +156,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                 </div>
                 <div className="flex items-center gap-3 mt-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-primary/60">
-                        <Clock className="w-3 h-3" />
-                        {service.duration}m
+                        <Clock className="w-3 h-3" />{service.duration}m
                     </div>
                     {totalPadding > 0 && (
                         <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase text-muted-foreground opacity-40">
@@ -202,7 +168,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
         </div>
         
         <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/10 transition-all text-left">
+            <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/10 transition-all text-left">
                 <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Volume</p>
                 <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{performance.totalBookings}</p>
             </div>
@@ -237,11 +203,9 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                                             </Avatar>
                                             <span className="font-black uppercase text-[9px] truncate text-slate-700">{sa.name.split(' ')[0]}</span>
                                         </div>
-                                        <div className="text-right">
-                                            <span className={cn("font-black font-mono text-[10px]", sa.studioNet >= 0 ? "text-primary" : "text-destructive")}>
-                                                ${sa.studioNet.toFixed(2)}
-                                            </span>
-                                        </div>
+                                        <span className={cn("font-black font-mono text-[10px]", sa.studioNet >= 0 ? "text-primary" : "text-destructive")}>
+                                            ${sa.studioNet.toFixed(2)}
+                                        </span>
                                     </div>
                                 )) : (
                                     <div className="p-2 rounded-xl border-2 border-dashed bg-muted/5 text-center">
@@ -256,7 +220,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
         </Accordion>
       </CardContent>
       
-       <CardFooter className="p-3 border-t bg-muted/5 flex items-center justify-between gap-4">
+      <CardFooter className="p-3 border-t bg-muted/5 flex items-center justify-between gap-4">
             <div className="flex gap-2">
                 <TooltipProvider>
                     <Tooltip>
@@ -304,7 +268,6 @@ export default function ServicesPage() {
   const [tmhr, setTmhr] = useState(0);
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
-  
   const [showArchived, setShowArchived] = useState(false);
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
@@ -317,144 +280,84 @@ export default function ServicesPage() {
   
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
-        const newSelection = new Set(prev);
-        if (newSelection.has(itemId)) {
-            newSelection.delete(itemId);
-        } else {
-            newSelection.add(itemId);
-        }
-        return newSelection;
+        const next = new Set(prev);
+        if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
+        return next;
     });
   }, []);
 
   const handleBulkArchive = useCallback(() => {
     if (!firestore || !tenantId) return;
-    selectedItems.forEach(id => {
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { status: 'archived' });
-    });
-    toast({ title: `${selectedItems.size} service(s) have been archived.` });
+    selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { status: 'archived' }));
+    toast({ title: `${selectedItems.size} service(s) archived.` });
     setSelectedItems(new Set());
   }, [selectedItems, firestore, tenantId, toast]);
 
   const handleBulkUnarchive = useCallback(() => {
     if (!firestore || !tenantId) return;
-    selectedItems.forEach(id => {
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { status: 'active' });
-    });
-    toast({ title: `${selectedItems.size} service(s) have been restored.` });
+    selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { status: 'active' }));
+    toast({ title: `${selectedItems.size} service(s) restored.` });
     setSelectedItems(new Set());
   }, [selectedItems, firestore, tenantId, toast]);
 
-  const handleBulkDeleteClick = () => {
-    setIsBulkDeleteConfirmOpen(true);
-  };
-  
   const handleBulkDeleteConfirm = useCallback(() => {
     if (!firestore || !tenantId) return;
-    const itemCount = selectedItems.size;
-    selectedItems.forEach(id => {
-        deleteDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id));
-    });
+    const count = selectedItems.size;
+    selectedItems.forEach(id => deleteDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id)));
     setSelectedItems(new Set());
     setIsBulkDeleteConfirmOpen(false);
-    toast({
-        title: "Services Deleted",
-        description: `${itemCount} service(s) have been removed.`,
-    })
+    toast({ title: "Services Deleted", description: `${count} service(s) removed.` });
   }, [selectedItems, firestore, tenantId, toast]);
 
   useEffect(() => {
-      if (selectedTenant && typeof selectedTenant.tmhr === 'number') {
-        setTmhr(selectedTenant.tmhr);
-    } else {
-        setTmhr(50); // Fallback
-    }
+    setTmhr(selectedTenant?.tmhr ?? 50);
   }, [selectedTenant]);
 
   const handleOpenEditService = (service: Service) => {
     setSelectedService(service);
     setIsEditServiceDialogOpen(true);
   };
-  
-  const handlePriceUpdate = (serviceId: string, newPrice: number) => {
-    if (!firestore || !services || !tenantId) return;
-    const serviceToUpdate = services.find(s => s.id === serviceId);
-    if (!serviceToUpdate) return;
-    
-    const breakEvenCost = serviceToUpdate.cost;
-    const newProfit = newPrice - breakEvenCost;
-    const finalPrice = newPrice;
-    const newMargin = finalPrice > 0 ? (newProfit / finalPrice) * 100 : 0;
 
-    const serviceRef = doc(firestore, 'tenants', tenantId, 'services', serviceId);
-    updateDocumentNonBlocking(serviceRef, { 
-        price: newPrice,
-        profit: newProfit,
-        margin: newMargin
-    });
-  };
-  
-    const [serviceCategories, setServiceCategories] = useState<string[]>([]);
-    
-    useEffect(() => {
-        if (services) {
-            const allCategories = services.map(s => s.category).filter((c): c is string => !!c);
-            setServiceCategories([...new Set(allCategories)]);
-        }
-    }, [services]);
-
-  const handleNewCategory = (newCategory: string) => {
-    if (!serviceCategories.includes(newCategory)) {
-        setServiceCategories(prev => [...prev, newCategory]);
+  const [serviceCategories, setServiceCategories] = useState<string[]>([]);
+  useEffect(() => {
+    if (services) {
+        const cats = services.map(s => s.category).filter((c): c is string => !!c);
+        setServiceCategories([...new Set(cats)]);
     }
+  }, [services]);
+
+  const handleNewCategory = (cat: string) => {
+    if (!serviceCategories.includes(cat)) setServiceCategories(prev => [...prev, cat]);
   };
   
   const handleAddNewService = (newService: Service) => {
     if (!firestore || !tenantId) return;
-    const serviceRef = doc(firestore, 'tenants', tenantId, 'services', newService.id);
-    const sanitizedData = Object.fromEntries(
-        Object.entries(newService).filter(([key, value]) => value !== undefined)
-    );
-    setDocumentNonBlocking(serviceRef, sanitizedData, {});
-
-    if (newService.category && !serviceCategories.includes(newService.category)) {
+    const ref = doc(firestore, 'tenants', tenantId, 'services', newService.id);
+    const data = Object.fromEntries(Object.entries(newService).filter(([, v]) => v !== undefined));
+    setDocumentNonBlocking(ref, data, {});
+    if (newService.category && !serviceCategories.includes(newService.category))
       setServiceCategories(prev => [...prev, newService.category as string]);
-    }
   };
 
-  const handleUpdateService = (updatedService: Service) => {
+  const handleUpdateService = (updated: Service) => {
     if (!firestore || !tenantId) return;
-    const serviceRef = doc(firestore, 'tenants', tenantId, 'services', updatedService.id);
-    const sanitizedData = Object.fromEntries(
-        Object.entries(updatedService).filter(([key, value]) => value !== undefined)
-    );
-    updateDocumentNonBlocking(serviceRef, sanitizedData);
-
-    if (updatedService.category && !serviceCategories.includes(updatedService.category)) {
-      setServiceCategories(prev => [...prev, updatedService.category as string]);
-    }
-    toast({
-        title: "Service Updated",
-        description: `${updatedService.name} has been updated successfully.`
-    })
+    const ref = doc(firestore, 'tenants', tenantId, 'services', updated.id);
+    const data = Object.fromEntries(Object.entries(updated).filter(([, v]) => v !== undefined));
+    updateDocumentNonBlocking(ref, data);
+    if (updated.category && !serviceCategories.includes(updated.category))
+      setServiceCategories(prev => [...prev, updated.category as string]);
+    toast({ title: "Service Updated", description: `${updated.name} has been updated.` });
   };
 
   const filteredServices = useMemo(() => {
     if (!services) return [];
-    let servicesToFilter = services.filter(service => {
-        return showArchived ? service.status === 'archived' : service.status !== 'archived';
-    });
-    if (searchTerm) {
-        servicesToFilter = servicesToFilter.filter(service =>
-          service.name.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }
-    return servicesToFilter;
+    return services
+        .filter(s => showArchived ? s.status === 'archived' : s.status !== 'archived')
+        .filter(s => !searchTerm || s.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [services, searchTerm, showArchived]);
 
   const mainServices = filteredServices.filter(s => s.type === 'service');
   const addOnServices = filteredServices.filter(s => s.type === 'addon');
-  
   const hasServices = services && services.length > 0;
 
   return (
@@ -479,31 +382,25 @@ export default function ServicesPage() {
 
         <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
             <div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
-                
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
-                        <div className="flex flex-col md:flex-row items-center gap-4">
-                            <div className="relative flex-1 w-full">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
-                                <Input 
-                                    placeholder="SEARCH SERVICES & TREATMENTS..." 
-                                    className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
+                        <div className="relative">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                            <Input 
+                                placeholder="SEARCH SERVICES & TREATMENTS..." 
+                                className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
                         </div>
-
-                        <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-6 md:gap-x-10 gap-y-4 md:gap-y-6">
-                            <div className="flex items-center gap-3 w-full md:w-auto">
+                        <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-4">
+                            <div className="flex items-center gap-3">
                                 <div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div>
                                 <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Library Matrix</h4>
                             </div>
-                            <div className="flex flex-wrap items-center gap-4 md:gap-8">
-                                <div className="flex items-center space-x-2">
-                                    <Switch id="show-archived-svc" checked={showArchived} onCheckedChange={setShowArchived} />
-                                    <Label htmlFor="show-archived-svc" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived</Label>
-                                </div>
+                            <div className="flex items-center space-x-2">
+                                <Switch id="show-archived-svc" checked={showArchived} onCheckedChange={setShowArchived} />
+                                <Label htmlFor="show-archived-svc" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived</Label>
                             </div>
                         </div>
                     </CardHeader>
@@ -515,12 +412,11 @@ export default function ServicesPage() {
                                     <p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p>
                                 </div>
                                 <div className="flex gap-2">
-                                    {showArchived ? (
-                                        <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore</Button>
-                                    ) : (
-                                        <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>
-                                    )}
-                                    <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={handleBulkDeleteClick}>Purge</Button>
+                                    {showArchived
+                                        ? <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore</Button>
+                                        : <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>
+                                    }
+                                    <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={() => setIsBulkDeleteConfirmOpen(true)}>Purge</Button>
                                 </div>
                             </div>
                         )}
@@ -530,47 +426,21 @@ export default function ServicesPage() {
                                 <TabsTrigger value="services" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Treatments</TabsTrigger>
                                 <TabsTrigger value="add-ons" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Enhancements</TabsTrigger>
                             </TabsList>
-                            
                             <TabsContent value="services" className="mt-0">
                                 {!hasServices && !isLoading ? (
                                     <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />
                                 ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         {mainServices.map(service => (
-                                            <ServiceCard 
-                                                key={service.id} 
-                                                service={service} 
-                                                onEditServiceOpen={handleOpenEditService} 
-                                                tmhr={tmhr} 
-                                                taxBurden={taxBurden}
-                                                appointments={appointments}
-                                                transactions={transactions}
-                                                onPriceUpdate={handlePriceUpdate}
-                                                isSelected={selectedItems.has(service.id)}
-                                                onSelectItem={() => handleItemSelect(service.id)}
-                                                pricingTiers={pricingTiers || []}
-                                            />
+                                            <ServiceCard key={service.id} service={service} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} taxBurden={taxBurden} appointments={appointments} transactions={transactions} onPriceUpdate={() => {}} isSelected={selectedItems.has(service.id)} onSelectItem={() => handleItemSelect(service.id)} pricingTiers={pricingTiers || []} />
                                         ))}
                                     </div>
                                 )}
                             </TabsContent>
-                            
                             <TabsContent value="add-ons" className="mt-0">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {addOnServices.map(service => (
-                                        <ServiceCard 
-                                            key={service.id} 
-                                            service={service} 
-                                            onEditServiceOpen={handleOpenEditService} 
-                                            tmhr={tmhr} 
-                                            taxBurden={taxBurden}
-                                            appointments={appointments}
-                                            transactions={transactions}
-                                            onPriceUpdate={handlePriceUpdate}
-                                            isSelected={selectedItems.has(service.id)}
-                                            onSelectItem={() => handleItemSelect(service.id)}
-                                            pricingTiers={pricingTiers || []}
-                                        />
+                                        <ServiceCard key={service.id} service={service} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} taxBurden={taxBurden} appointments={appointments} transactions={transactions} onPriceUpdate={() => {}} isSelected={selectedItems.has(service.id)} onSelectItem={() => handleItemSelect(service.id)} pricingTiers={pricingTiers || []} />
                                     ))}
                                 </div>
                             </TabsContent>
@@ -581,13 +451,12 @@ export default function ServicesPage() {
 
             <div className="hidden lg:block lg:col-span-1 space-y-6">
                 <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
-                    <div className="absolute top-0 right-0 p-6 opacity-5 transition-opacity group-hover:opacity-10">
+                    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
                         <Calculator className="w-24 h-24 text-primary" />
                     </div>
                     <CardHeader className="p-8 pb-4">
                         <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
-                            <Sparkles className="w-3 h-3" />
-                            Efficiency Hub
+                            <Sparkles className="w-3 h-3" />Efficiency Hub
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="p-8 pt-0 text-left">
@@ -595,8 +464,8 @@ export default function ServicesPage() {
                         <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
                         <div className="mt-6 p-4 rounded-2xl bg-white/50 border border-primary/10 shadow-sm">
                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-2">Base Metric</p>
-                            <p className="text-xs font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left">
-                                Every session is evaluated against this hourly breakeven threshold to ensure studio growth.
+                            <p className="text-xs font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                                Every session is evaluated against this hourly breakeven threshold.
                             </p>
                         </div>
                         <Button variant="outline" asChild className="w-full mt-6 h-12 rounded-xl border-2 font-black uppercase tracking-widest text-[9px] bg-white shadow-sm">
@@ -606,9 +475,9 @@ export default function ServicesPage() {
                 </Card>
             </div>
         </div>
-
       </main>
 
+      {/* ADD — uses ServiceFormSheet under the hood */}
       <AddServiceDialog 
         open={isAddServiceDialogOpen} 
         onOpenChange={setIsAddServiceDialogOpen}
@@ -620,12 +489,12 @@ export default function ServicesPage() {
         services={services || []}
       />
       
+      {/* EDIT — uses ServiceFormSheet under the hood */}
       {selectedService && (
         <EditServiceDialog 
             open={isEditServiceDialogOpen}
             onOpenChange={setIsEditServiceDialogOpen}
             service={selectedService}
-            services={services || []}
             categories={serviceCategories}
             onNewCategory={handleNewCategory}
             onServiceUpdated={handleUpdateService}
@@ -636,17 +505,17 @@ export default function ServicesPage() {
       <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
             <AlertDialogHeader className="p-6 pb-0 text-left">
-                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Terminate Menu Items</AlertDialogTitle>
-                <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
-                    You are about to permanently delete {selectedItems.size} services. This will wipe all associated profitability data and historical formulas. <strong>This action is non-reversible.</strong>
+                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Menu Items</AlertDialogTitle>
+                <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+                    Permanently delete {selectedItems.size} services. This cannot be undone.
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Services</Button>
+                <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Services</Button>
                 <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
-    </AlertDialog>
+      </AlertDialog>
     </div>
   );
 }
@@ -658,15 +527,10 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
         </div>
         <div className="space-y-2 text-center">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Library is Empty</h3>
-            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
-                Populate your menu to unlock automated breakeven analysis and client booking.
-            </p>
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">Populate your menu to unlock automated breakeven analysis.</p>
         </div>
         <Button size="lg" onClick={onAddNewService} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 mt-4">
-            <PlusCircle className="mr-2 h-5 w-5" />
-            Add First Treatment
+            <PlusCircle className="mr-2 h-5 w-5" />Add First Treatment
         </Button>
     </div>
 );
-
-import { BookOpen } from 'lucide-react';
