@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import { TechnicianReviewDialog } from '@/components/appointments/TechnicianReviewDialog';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -95,9 +96,10 @@ function TabSkeleton() {
 // ─── APPOINTMENT ACTION DRAWER ────────────────────────────────────────────────
 // Bottom sheet that opens when staff tap any appointment block.
 // Contains ALL possible actions for that appointment's current status.
-function AppointmentDrawer({ apt, service, onClose, onAction }: {
+function AppointmentDrawer({ apt, service, onClose, onAction, onReview }: {
   apt: any; service: any; onClose: () => void;
   onAction: (aptId: string, action: string, apt: any) => void;
+  onReview: (apt: any) => void;
 }) {
   if (!apt) return null;
   const start    = safeDate(apt.startTime);
@@ -106,15 +108,10 @@ function AppointmentDrawer({ apt, service, onClose, onAction }: {
   const st       = apt.status || 'confirmed';
 
   // Build available actions based on current status
+  // NOTE: 'checkout' is handled separately — it opens TechnicianReviewDialog
   const actions = ([
     (st === 'confirmed' || st === 'pending')
       ? { id: 'start',    label: 'Start Service',       icon: Play,          cls: 'bg-primary text-white shadow-lg shadow-primary/30' }
-      : null,
-    st === 'servicing'
-      ? { id: 'checkout', label: 'Send to Checkout',    icon: ShoppingCart,  cls: 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' }
-      : null,
-    st === 'servicing'
-      ? { id: 'complete', label: 'Mark Complete',       icon: CheckCircle2,  cls: 'bg-green-500 text-white' }
       : null,
     st === 'ready_for_checkout'
       ? { id: 'escalate', label: 'Escalate to Manager', icon: AlertTriangle, cls: 'bg-amber-500 text-white' }
@@ -176,11 +173,41 @@ function AppointmentDrawer({ apt, service, onClose, onAction }: {
               <p className="text-xs text-amber-800">{apt.notes}</p>
             </div>
           )}
+          {/* Check-in status */}
+          {apt.checkInStatus && apt.checkInStatus !== 'none' && st !== 'servicing' && st !== 'completed' && (
+            <div className={cn('mt-3 p-2.5 rounded-xl border flex items-center gap-2',
+              apt.checkInStatus === 'arrived'      ? 'bg-green-50 border-green-200' :
+              apt.checkInStatus === 'running_late' ? 'bg-amber-50 border-amber-200' :
+                                                     'bg-blue-50 border-blue-200')}>
+              <div className={cn('w-2 h-2 rounded-full shrink-0',
+                apt.checkInStatus === 'arrived'      ? 'bg-green-500' :
+                apt.checkInStatus === 'running_late' ? 'bg-amber-500 animate-pulse' :
+                                                       'bg-blue-500')} />
+              <p className={cn('text-[10px] font-black uppercase',
+                apt.checkInStatus === 'arrived'      ? 'text-green-700' :
+                apt.checkInStatus === 'running_late' ? 'text-amber-700' :
+                                                       'text-blue-700')}>
+                {apt.checkInStatus === 'arrived'      ? 'Client has arrived' :
+                 apt.checkInStatus === 'running_late' ? `Running late · est. arrival ${apt.lateTimeMinutes}min` :
+                                                        'Client is on their way'}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Action buttons */}
         <div className="p-4 space-y-2.5">
-          {actions.length === 0 ? (
+          {/* Finish Service opens TechnicianReviewDialog — not a direct Firestore write */}
+          {st === 'servicing' && (
+            <button
+              onClick={() => { onReview(apt); onClose(); }}
+              className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-emerald-600 text-white shadow-lg shadow-emerald-500/30"
+            >
+              <ShoppingCart className="w-5 h-5" />
+              Finish Service & Review
+            </button>
+          )}
+          {actions.length === 0 && st !== 'servicing' ? (
             <p className="text-center text-[11px] font-black uppercase text-muted-foreground opacity-40 py-4">
               No actions available for this appointment
             </p>
@@ -335,12 +362,21 @@ function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
                 style={{ top: topPx, height: heightPx }}
               >
                 <div className="p-3 h-full flex flex-col gap-1">
-                  {/* Service name + dot */}
+                  {/* Service name + dot + check-in badge */}
                   <div className="flex items-center gap-1.5 min-w-0">
                     <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls[st] || 'bg-slate-400')} />
-                    <p className="font-black text-[11px] uppercase truncate text-slate-800">
+                    <p className="font-black text-[11px] uppercase truncate text-slate-800 flex-1">
                       {svc?.name || 'Service'}
                     </p>
+                    {apt.checkInStatus === 'arrived' && (
+                      <span className="shrink-0 text-[7px] font-black uppercase bg-green-500 text-white rounded-md px-1 py-0.5">HERE</span>
+                    )}
+                    {apt.checkInStatus === 'running_late' && (
+                      <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">+{apt.lateTimeMinutes}M</span>
+                    )}
+                    {apt.checkInStatus === 'on_my_way' && (
+                      <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">EN ROUTE</span>
+                    )}
                   </div>
                   {/* Time + client */}
                   <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
@@ -798,6 +834,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
+  const [reviewApt, setReviewApt]   = useState<any>(null);
+  const [reviewSvc, setReviewSvc]   = useState<any>(null);
   const [isRequestOpen, setIsRequestOpen] = useState(false);
   const [requestType, setRequestType]     = useState<'day_off'|'swap'|'early_release'>('day_off');
   const [requestDate, setRequestDate]     = useState('');
@@ -1215,7 +1253,31 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       {drawerApt && (
         <AppointmentDrawer apt={drawerApt} service={drawerSvc}
           onClose={() => { setDrawerApt(null); setDrawerSvc(null); }}
-          onAction={handleAptAction} />
+          onAction={handleAptAction}
+          onReview={apt => {
+            const svc = (services||[]).find((s: any) => s.id === apt.serviceId);
+            setReviewApt(apt);
+            setReviewSvc(svc);
+          }} />
+      )}
+
+      {/* Technician Review Dialog — opens when staff tap "Finish Service & Review" */}
+      {reviewApt && reviewSvc && (
+        <TechnicianReviewDialog
+          open={!!reviewApt}
+          onOpenChange={v => { if (!v) { setReviewApt(null); setReviewSvc(null); } }}
+          appointmentData={{ appointment: reviewApt, client: { id: reviewApt.clientId, name: reviewApt.clientName, phone: reviewApt.clientPhone, ...reviewApt.clientSnapshot }, service: reviewSvc }}
+          onSendToFrontDesk={(aptId, checkoutState) => {
+            if (!firestore || !tenantId) return;
+            const batch = writeBatch(firestore);
+            batch.update(doc(firestore, `tenants/${tenantId}/appointments`, aptId), {
+              checkoutState: JSON.parse(JSON.stringify(checkoutState)),
+            });
+            batch.commit().then(() => toast({ title: 'Handed off to front desk ✓' }));
+            setReviewApt(null); setReviewSvc(null);
+          }}
+          staff={allStaff || []}
+        />
       )}
 
       {/* Request dialog */}
