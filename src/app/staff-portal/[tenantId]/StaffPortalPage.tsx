@@ -577,12 +577,21 @@ function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
                   'pointer-events-auto cursor-pointer',
                   'transition-all active:scale-[0.97] active:brightness-95',
                   'z-30',
-                  ringCls[st] || 'border-primary/20 bg-white shadow-sm',
-                  isPast && st !== 'completed' && 'opacity-55',
+                  apt.isEscalated
+                    ? 'border-destructive ring-2 ring-destructive/30 bg-destructive/5 animate-pulse'
+                    : ringCls[st] || 'border-primary/20 bg-white shadow-sm',
+                  isPast && st !== 'completed' && !apt.isEscalated && 'opacity-55',
                 )}
                 style={{ top: topPx, height: heightPx }}
               >
                 <div className="p-3 h-full flex flex-col gap-1">
+                  {/* Escalated banner */}
+                  {apt.isEscalated && (
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <ShieldAlert className="w-2.5 h-2.5 text-destructive shrink-0" />
+                      <span className="text-[7px] font-black uppercase text-destructive tracking-widest">Manager Alerted</span>
+                    </div>
+                  )}
                   {/* Service name + dot + check-in badge */}
                   <div className="flex items-center gap-1.5 min-w-0">
                     <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls[st] || 'bg-slate-400')} />
@@ -1085,6 +1094,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const myApptsQ        = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
   // Add-on handoff appointments — where this staff member is assigned via assignedStaffIds array
   const myAddonApptsQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('assignedStaffIds','array-contains',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
+  // Check-in status — separate collection merged by checkInToken (same pattern as InventoryContext)
+  const checkInsQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore,'appointmentCheckIns'), where('tenantId','==',tenantId)), [firestore,tenantId]);
   const myRequestsQ     = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
   const incomingSwapQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('swapWithStaffId','==',staffMember.id), where('status','==','pending_swap_consent')), [firestore,tenantId,staffMember?.id]);
   const pendingApprovalQ = useMemoFirebase(() => (!firestore||!tenantId||!isOwnerOrAdmin) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('status','==','swap_consent_given')), [firestore,tenantId,isOwnerOrAdmin]);
@@ -1098,6 +1109,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: allShiftsRaw }                          = useCollection<any>(allShiftsQ);
   const { data: myApptsRaw,   loading: apptsLoading }   = useCollection<any>(myApptsQ);
   const { data: myAddonAptsRaw }                        = useCollection<any>(myAddonApptsQ);
+  const { data: checkInsRaw }                           = useCollection<any>(checkInsQ);
   const { data: myRequests }                            = useCollection<any>(myRequestsQ);
   const { data: incomingSwaps }                         = useCollection<any>(incomingSwapQ);
   const { data: pendingApprovals }                      = useCollection<any>(pendingApprovalQ);
@@ -1107,15 +1119,33 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: activityLogs }                          = useCollection<any>(activityLogsQ);
   const { data: transactions }                          = useCollection<any>(transactionsQ);
 
-  // Merge primary + add-on appointments, deduplicating by id
-  // Tag add-on appointments with _viewingStaffId so the card knows this staff is the add-on tech
+  // Build a token→checkIn map for fast lookup — mirrors InventoryContext pattern
+  const checkInMap = useMemo(() => {
+    const map = new Map<string, any>();
+    (checkInsRaw || []).forEach((ci: any) => { if (ci.checkInToken) map.set(ci.checkInToken, ci); });
+    return map;
+  }, [checkInsRaw]);
+
+  // Merge primary + add-on appointments, deduplicating by id.
+  // Also merges live checkInStatus from the appointmentCheckIns collection.
+  // Tags add-on appointments with _viewingStaffId so the card knows this staff is the add-on tech.
   const allMyApts = useMemo(() => {
-    const primary = (myApptsRaw || []);
+    const mergeCheckIn = (apt: any) => {
+      const ci = apt.checkInToken ? checkInMap.get(apt.checkInToken) : null;
+      return {
+        ...apt,
+        checkInStatus:   ci?.checkInStatus   ?? apt.checkInStatus   ?? 'pending',
+        lateTimeMinutes: ci?.lateTimeMinutes  ?? apt.lateTimeMinutes ?? 0,
+        // If the check-in says confirmed but appt is still confirmed, keep appt status
+        status: (ci?.status && apt.status === 'confirmed') ? ci.status : apt.status,
+      };
+    };
+    const primary = (myApptsRaw || []).map(mergeCheckIn);
     const addon   = (myAddonAptsRaw || [])
       .filter((a: any) => !primary.find((p: any) => p.id === a.id))
-      .map((a: any) => ({ ...a, _viewingStaffId: staffMember.id }));
+      .map((a: any) => mergeCheckIn({ ...a, _viewingStaffId: staffMember.id }));
     return [...primary, ...addon];
-  }, [myApptsRaw, myAddonAptsRaw, staffMember.id]);
+  }, [myApptsRaw, myAddonAptsRaw, checkInMap, staffMember.id]);
 
   const isLoadingToday = apptsLoading || svcsLoading;
 
@@ -1372,6 +1402,69 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                     )}
                   </div>
                 )}
+
+                {/* Today's Activity Feed — real-time appointment status changes */}
+                {isSameDay(selectedDate, today) && (() => {
+                  const todayApts = allMyApts
+                    .filter((a: any) => isSameDay(safeDate(a.startTime), today))
+                    .sort((a: any, b: any) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
+                  if (todayApts.length === 0) return null;
+
+                  const statusIcon: Record<string, any> = {
+                    confirmed:          { icon: CheckCircle2,  color: 'text-blue-500',    bg: 'bg-blue-50',    label: 'Confirmed'          },
+                    servicing:          { icon: Play,           color: 'text-primary',     bg: 'bg-primary/5',  label: 'In Service'         },
+                    ready_for_checkout: { icon: ShoppingCart,   color: 'text-emerald-600', bg: 'bg-emerald-50', label: 'Ready for Checkout' },
+                    completed:          { icon: CheckCircle,    color: 'text-green-600',   bg: 'bg-green-50',   label: 'Completed'          },
+                    no_show:            { icon: XCircle,        color: 'text-slate-500',   bg: 'bg-slate-50',   label: 'No Show'            },
+                    cancelled:          { icon: XCircle,        color: 'text-destructive', bg: 'bg-destructive/5', label: 'Cancelled'       },
+                  };
+                  const checkInIcon: Record<string, any> = {
+                    arrived:      { label: 'Client Arrived',    color: 'text-green-600', bg: 'bg-green-50' },
+                    running_late: { label: 'Running Late',      color: 'text-amber-600', bg: 'bg-amber-50' },
+                    on_my_way:    { label: 'Client En Route',   color: 'text-blue-600',  bg: 'bg-blue-50'  },
+                  };
+
+                  return (
+                    <div className="space-y-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Today's Activity</p>
+                      <div className="space-y-2">
+                        {todayApts.map((a: any) => {
+                          const svc = (services || []).find((s: any) => s.id === a.serviceId);
+                          const st  = statusIcon[a.status] || statusIcon.confirmed;
+                          const ci  = a.checkInStatus && a.checkInStatus !== 'pending' ? checkInIcon[a.checkInStatus] : null;
+                          const Icon = st.icon;
+                          return (
+                            <div key={a.id}
+                              onClick={() => { setDrawerApt(a); setDrawerSvc(svc); }}
+                              className="flex items-center gap-3 p-3 rounded-2xl border-2 border-slate-100 bg-white cursor-pointer active:scale-[0.98] transition-all">
+                              <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center shrink-0', st.bg)}>
+                                <Icon className={cn('w-4 h-4', st.color)} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-black uppercase text-[11px] text-slate-800 truncate">
+                                  {a.clientName?.split(' ')[0] || 'Guest'} · {svc?.name || 'Service'}
+                                </p>
+                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                                  {format(safeDate(a.startTime), 'h:mm a')} · {st.label}
+                                </p>
+                              </div>
+                              {ci && (
+                                <span className={cn('shrink-0 text-[7px] font-black uppercase rounded-lg px-1.5 py-0.5', ci.bg, ci.color)}>
+                                  {ci.label}
+                                </span>
+                              )}
+                              {a.isEscalated && (
+                                <span className="shrink-0 text-[7px] font-black uppercase rounded-lg px-1.5 py-0.5 bg-destructive/10 text-destructive animate-pulse">
+                                  Escalated
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )
           )}
