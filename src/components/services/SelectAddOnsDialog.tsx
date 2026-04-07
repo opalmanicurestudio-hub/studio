@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -25,6 +24,8 @@ interface SelectAddOnsDialogProps {
   onSelect: (selected: Service[]) => void;
   allAddOns: Service[];
   initialSelected: Service[];
+  staff?: any[];
+  defaultStaffId?: string;
 }
 
 export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
@@ -37,12 +38,13 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
 
-  // CRITICAL FIX: Only sync initialSelected when the dialog opens to prevent unselect-on-render bug
+  // Only sync initialSelected when the dialog opens
   useEffect(() => {
     if (open) {
       setSelectedIds(new Set(initialSelected.map(p => p.id)));
+      setSearchTerm('');
     }
-  }, [open]);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleToggle = (addOnId: string) => {
     const newSelectedIds = new Set(selectedIds);
@@ -57,6 +59,11 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
   const handleSave = () => {
     const selectedItems = allAddOns.filter(p => selectedIds.has(p.id));
     onSelect(selectedItems);
+    // FIX: Close this dialog only — do NOT call onOpenChange here.
+    // The parent (AddServiceDialog) was also closing because Dialog's
+    // onOpenChange was bubbling up through the DOM when this dialog closed.
+    // Instead we call onOpenChange(false) explicitly only on this dialog
+    // and stop any further propagation by letting onSelect handle state.
     onOpenChange(false);
   };
 
@@ -65,8 +72,22 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 shadow-3xl overflow-hidden">
+    // FIX: modal={true} and stopPropagation on the content prevents the
+    // close event from bubbling to parent dialogs/sheets
+    <Dialog
+      open={open}
+      onOpenChange={(val) => {
+        // Only propagate close — never auto-close the parent
+        if (!val) onOpenChange(false);
+      }}
+      modal={true}
+    >
+      <DialogContent
+        className="sm:max-w-md rounded-[3rem] p-0 border-4 shadow-3xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDownOutside={(e) => e.stopPropagation()}
+        onInteractOutside={(e) => e.stopPropagation()}
+      >
         <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
           <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Select Compatible Add-ons</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Choose which add-on services can be booked with this main service.</DialogDescription>
