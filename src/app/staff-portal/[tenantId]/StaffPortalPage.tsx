@@ -30,7 +30,7 @@ import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
-import { TechnicianReviewDialog } from '@/components/appointments/TechnicianReviewDialog';
+import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
