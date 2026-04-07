@@ -136,6 +136,10 @@ function AppointmentDrawer({ apt, service, onClose, onAction }: {
     no_show: 'bg-slate-100 text-slate-600',
   };
 
+  // Guard: createPortal requires document, which doesn't exist during SSR.
+  // Without this check Next.js crashes the entire page on server render.
+  if (typeof document === 'undefined') return null;
+
   // Portal ensures fixed overlay escapes every scroll container / stacking context
   return createPortal(
     <AnimatePresence>
