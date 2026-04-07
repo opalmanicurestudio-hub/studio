@@ -543,23 +543,21 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
   onReview: (apt: any) => void;
   onEscalate: (apt: any) => void;
 }) {
-  if (!apt) return null;
-
-  const start      = safeDate(apt.startTime);
-  const padBefore  = service?.padBefore ?? apt.padBefore ?? 0;
-  const padAfter   = service?.padAfter  ?? apt.padAfter  ?? 0;
-  const svcDur     = service?.duration  ?? apt.duration  ?? 60;
-  const totalDur   = padBefore + svcDur + padAfter;
-  const end        = addMinutes(start, totalDur);
-  const st         = apt.status || 'confirmed';
-
-  // Live timer state — ticks every second when servicing
+  // ── ALL hooks must come before any early return ──
   const [elapsed, setElapsed]       = useState('');
   const [isOverTime, setIsOverTime] = useState(false);
   const [showAddOn, setShowAddOn]   = useState(false);
 
+  const start     = apt ? safeDate(apt.startTime) : new Date();
+  const padBefore = service?.padBefore ?? apt?.padBefore ?? 0;
+  const padAfter  = service?.padAfter  ?? apt?.padAfter  ?? 0;
+  const svcDur    = service?.duration  ?? apt?.duration  ?? 60;
+  const totalDur  = padBefore + svcDur + padAfter;
+  const end       = addMinutes(start, totalDur);
+  const st        = apt?.status || 'confirmed';
+
   useEffect(() => {
-    if (st !== 'servicing' || !apt.actualStartTime) return;
+    if (st !== 'servicing' || !apt?.actualStartTime) return;
     const tick = () => {
       const secs = differenceInSeconds(new Date(), safeDate(apt.actualStartTime));
       const h = Math.floor(secs / 3600);
@@ -573,7 +571,10 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [st, apt.actualStartTime, service?.duration]);
+  }, [st, apt?.actualStartTime, svcDur]);
+
+  // Early return AFTER all hooks
+  if (!apt) return null;
 
   const statusLabel: Record<string, string> = {
     pending: 'Pending', confirmed: 'Confirmed', servicing: 'In Service',
