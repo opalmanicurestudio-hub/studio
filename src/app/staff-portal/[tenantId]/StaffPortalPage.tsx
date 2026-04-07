@@ -545,10 +545,13 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
 }) {
   if (!apt) return null;
 
-  const start    = safeDate(apt.startTime);
-  const duration = service?.duration || apt.duration || 60;
-  const end      = addMinutes(start, duration);
-  const st       = apt.status || 'confirmed';
+  const start      = safeDate(apt.startTime);
+  const padBefore  = service?.padBefore ?? apt.padBefore ?? 0;
+  const padAfter   = service?.padAfter  ?? apt.padAfter  ?? 0;
+  const svcDur     = service?.duration  ?? apt.duration  ?? 60;
+  const totalDur   = padBefore + svcDur + padAfter;
+  const end        = addMinutes(start, totalDur);
+  const st         = apt.status || 'confirmed';
 
   // Live timer state — ticks every second when servicing
   const [elapsed, setElapsed]       = useState('');
@@ -565,7 +568,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
       setElapsed(h > 0
         ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
         : `${m}:${String(s).padStart(2,'0')}`);
-      setIsOverTime(Math.floor(secs / 60) > (service?.duration || 60));
+      setIsOverTime(Math.floor(secs / 60) > svcDur);
     };
     tick();
     const t = setInterval(tick, 1000);
@@ -604,6 +607,11 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               <p className="font-black text-xl uppercase tracking-tight text-slate-900 truncate">{service?.name || 'Service'}</p>
               <p className="text-sm font-bold text-muted-foreground mt-0.5">
                 {apt.clientName || 'Guest'} · {format(start, 'h:mm a')} – {format(end, 'h:mm a')}
+                {(padBefore > 0 || padAfter > 0) && (
+                  <span className="text-[10px] font-bold opacity-50 ml-1">
+                    ({svcDur}m svc{padBefore > 0 ? ` · ${padBefore}m pre` : ''}{padAfter > 0 ? ` · ${padAfter}m post` : ''})
+                  </span>
+                )}
               </p>
               {apt.clientPhone && <p className="text-[11px] font-bold text-muted-foreground mt-0.5">📞 {apt.clientPhone}</p>}
             </div>
@@ -850,86 +858,143 @@ function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
           )}
 
           {/* Appointment blocks
-              KEY DESIGN: these are <button> elements — always tappable.
-              Height is MAX(MIN_BLOCK, natural duration * PX_PER_MIN) so there's
-              always room for the status row + "Tap for actions" cue. */}
+              KEY DESIGN:
+              - Total height = padBefore + service duration + padAfter
+              - Block is divided into 3 visual zones:
+                  top pad zone   (muted, hatched)
+                  service zone   (coloured, contains all info + tap target)
+                  bottom pad zone (muted, hatched)
+              - topPx is placed at startTime (booked time)
+              - padBefore pushes the service zone down inside the block
+              - This way padding visually "holds space" on the timeline */}
           {dayApts.map(apt => {
-            const start    = safeDate(apt.startTime);
-            const svc      = (services || []).find((s: any) => s.id === apt.serviceId);
-            const dur      = svc?.duration || apt.duration || 60;
-            const topPx    = timeToPx(start);
-            const heightPx = Math.max(MIN_BLOCK, dur * PX_PER_MIN);
-            const st       = apt.status || 'confirmed';
-            const isPast   = addMinutes(start, dur) < now && isToday_;
-            // Determine if this staff member is the add-on tech (secondary)
+            const start      = safeDate(apt.startTime);
+            const svc        = (services || []).find((s: any) => s.id === apt.serviceId);
+            // Use service fields for pad; fall back to appointment fields
+            const padBefore  = svc?.padBefore  ?? apt.padBefore  ?? 0;
+            const padAfter   = svc?.padAfter   ?? apt.padAfter   ?? 0;
+            const svcDur     = svc?.duration   ?? apt.duration   ?? 60;
+            const totalDur   = padBefore + svcDur + padAfter;
+
+            const topPx       = timeToPx(start);
+            const totalHeight = Math.max(MIN_BLOCK, totalDur * PX_PER_MIN);
+            // Heights of each zone in px (proportional, min 0)
+            const padBeforePx = padBefore > 0 ? Math.max(16, padBefore * PX_PER_MIN) : 0;
+            const padAfterPx  = padAfter  > 0 ? Math.max(16, padAfter  * PX_PER_MIN) : 0;
+            const svcHeight   = Math.max(MIN_BLOCK, totalHeight - padBeforePx - padAfterPx);
+
+            const st     = apt.status || 'confirmed';
+            const isPast = addMinutes(start, totalDur) < now && isToday_;
             const isAddOnTech = apt.checkoutState?.serviceStaffOverrides &&
               Object.entries(apt.checkoutState.serviceStaffOverrides).some(
                 ([svcId, staffId]) => staffId === apt._viewingStaffId && svcId !== apt.serviceId
               );
 
             return (
-              <button
+              <div
                 key={apt.id}
-                onClick={() => onAptTap(apt)}
-                className={cn(
-                  'absolute left-14 right-2 rounded-2xl border-2 text-left',
-                  'pointer-events-auto cursor-pointer',
-                  'transition-all active:scale-[0.97] active:brightness-95',
-                  'z-30',
-                  apt.isEscalated
-                    ? 'border-destructive ring-2 ring-destructive/30 bg-destructive/5 animate-pulse'
-                    : ringCls[st] || 'border-primary/20 bg-white shadow-sm',
-                  isPast && st !== 'completed' && !apt.isEscalated && 'opacity-55',
-                )}
-                style={{ top: topPx, height: heightPx }}
+                className="absolute left-14 right-2 z-30 flex flex-col"
+                style={{ top: topPx, height: totalHeight }}
               >
-                <div className="p-3 h-full flex flex-col gap-1">
-                  {/* Escalated banner */}
-                  {apt.isEscalated && (
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <ShieldAlert className="w-2.5 h-2.5 text-destructive shrink-0" />
-                      <span className="text-[7px] font-black uppercase text-destructive tracking-widest">Manager Alerted</span>
+                {/* ── PRE-PAD ZONE ── */}
+                {padBefore > 0 && (
+                  <div
+                    className="shrink-0 rounded-t-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden"
+                    style={{ height: padBeforePx }}
+                  >
+                    <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
+                    <span className="text-[7px] font-black uppercase text-slate-400 tracking-widest truncate">
+                      {padBefore}m prep
+                    </span>
+                  </div>
+                )}
+
+                {/* ── SERVICE ZONE — tappable ── */}
+                <button
+                  onClick={() => onAptTap(apt)}
+                  className={cn(
+                    'flex-1 text-left pointer-events-auto cursor-pointer',
+                    'transition-all active:scale-[0.97] active:brightness-95',
+                    padBefore > 0 && padAfter > 0 ? 'rounded-none border-x-2 border-b-0 border-t-0' :
+                    padBefore > 0              ? 'rounded-b-2xl border-2 border-t-0' :
+                    padAfter  > 0              ? 'rounded-t-2xl border-2 border-b-0' :
+                                                 'rounded-2xl border-2',
+                    apt.isEscalated
+                      ? 'border-destructive ring-2 ring-destructive/30 bg-destructive/5 animate-pulse'
+                      : ringCls[st] || 'border-primary/20 bg-white shadow-sm',
+                    isPast && st !== 'completed' && !apt.isEscalated && 'opacity-55',
+                  )}
+                  style={{ height: svcHeight }}
+                >
+                  <div className="p-3 h-full flex flex-col gap-1">
+                    {/* Escalated banner */}
+                    {apt.isEscalated && (
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <ShieldAlert className="w-2.5 h-2.5 text-destructive shrink-0" />
+                        <span className="text-[7px] font-black uppercase text-destructive tracking-widest">Manager Alerted</span>
+                      </div>
+                    )}
+                    {/* Service name + dot + check-in badge */}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls[st] || 'bg-slate-400')} />
+                      <p className="font-black text-[11px] uppercase truncate text-slate-800 flex-1">
+                        {svc?.name || 'Service'}
+                      </p>
+                      {apt.checkInStatus === 'arrived' && (
+                        <span className="shrink-0 text-[7px] font-black uppercase bg-green-500 text-white rounded-md px-1 py-0.5">HERE</span>
+                      )}
+                      {apt.checkInStatus === 'running_late' && (
+                        <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">+{apt.lateTimeMinutes}M</span>
+                      )}
+                      {apt.checkInStatus === 'on_my_way' && (
+                        <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">EN ROUTE</span>
+                      )}
                     </div>
-                  )}
-                  {/* Service name + dot + check-in badge */}
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls[st] || 'bg-slate-400')} />
-                    <p className="font-black text-[11px] uppercase truncate text-slate-800 flex-1">
-                      {svc?.name || 'Service'}
+                    {/* Time + client */}
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
+                      {format(start, 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
                     </p>
-                    {apt.checkInStatus === 'arrived' && (
-                      <span className="shrink-0 text-[7px] font-black uppercase bg-green-500 text-white rounded-md px-1 py-0.5">HERE</span>
+                    {/* Duration summary — shows total vs service only when there's padding */}
+                    {(padBefore > 0 || padAfter > 0) && (
+                      <p className="text-[8px] font-bold text-muted-foreground opacity-50 uppercase pl-3 truncate">
+                        {svcDur}m svc
+                        {padBefore > 0 ? ` · ${padBefore}m pre` : ''}
+                        {padAfter  > 0 ? ` · ${padAfter}m post` : ''}
+                      </p>
                     )}
-                    {apt.checkInStatus === 'running_late' && (
-                      <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">+{apt.lateTimeMinutes}M</span>
+                    {/* Add-on tech badge */}
+                    {isAddOnTech && (
+                      <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>
                     )}
-                    {apt.checkInStatus === 'on_my_way' && (
-                      <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">EN ROUTE</span>
+                    {/* Live timer — shown when servicing */}
+                    {st === 'servicing' && apt.actualStartTime && (
+                      <LiveTimerBadge startTime={apt.actualStartTime} duration={svcDur} />
                     )}
+                    {/* Status + "tap for actions" — always at the bottom */}
+                    <div className="flex items-center justify-between mt-auto pl-3">
+                      <span className="text-[8px] font-black uppercase text-muted-foreground opacity-50">
+                        {statusTxt[st] || st}
+                      </span>
+                      <span className="flex items-center gap-0.5 text-[8px] font-black uppercase text-primary bg-primary/10 rounded-lg px-1.5 py-0.5">
+                        <ChevronUp className="w-2.5 h-2.5" />Actions
+                      </span>
+                    </div>
                   </div>
-                  {/* Time + client */}
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
-                    {format(start, 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
-                  </p>
-                  {/* Add-on tech badge */}
-                  {isAddOnTech && (
-                    <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>
-                  )}
-                  {/* Live timer — shown when servicing */}
-                  {st === 'servicing' && apt.actualStartTime && (
-                    <LiveTimerBadge startTime={apt.actualStartTime} duration={dur} />
-                  )}
-                  {/* Status + "tap for actions" — always at the bottom */}
-                  <div className="flex items-center justify-between mt-auto pl-3">
-                    <span className="text-[8px] font-black uppercase text-muted-foreground opacity-50">
-                      {statusTxt[st] || st}
-                    </span>
-                    <span className="flex items-center gap-0.5 text-[8px] font-black uppercase text-primary bg-primary/10 rounded-lg px-1.5 py-0.5">
-                      <ChevronUp className="w-2.5 h-2.5" />Actions
+                </button>
+
+                {/* ── POST-PAD ZONE ── */}
+                {padAfter > 0 && (
+                  <div
+                    className="shrink-0 rounded-b-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden"
+                    style={{ height: padAfterPx }}
+                  >
+                    <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
+                    <span className="text-[7px] font-black uppercase text-slate-400 tracking-widest truncate">
+                      {padAfter}m buffer
                     </span>
                   </div>
-                </div>
-              </button>
+                )}
+              </div>
             );
           })}
 
