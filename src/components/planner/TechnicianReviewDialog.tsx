@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -68,7 +67,8 @@ import { format, differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Badge } from '@/components/ui/badge';
-import { useUser, useFirebase } from '@/firebase';
+// FIX #2: Added updateDocumentNonBlocking to the firebase import
+import { useUser, useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -322,15 +322,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const adjustmentBreakdown = useMemo(() => {
     if (!service) return { rescheduleFee: 0, timeOverage: 0, materialOverage: 0, total: 0 };
     
-    // 1. Existing Deferred Fee (usually from reschedule)
     const rescheduleFee = safeNumber(appointment?.checkoutState?.additionalCharge);
     
-    // 2. Time overage based on target vs actual
     const targetDuration = service.duration || 60;
     const timeOverageMinutes = Math.max(0, actualDuration - targetDuration);
     const timeOverage = (timeOverageMinutes / 60) * tmhr;
     
-    // 3. Material overage based on target formula vs actual formula
     const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
     const standardCost = service.products?.reduce((acc, p) => {
         const item = inventory.find(inv => inv.id === p.id);
@@ -338,7 +335,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         let baseCpu = item.costPerUnit || 0;
         if (item.costingMethod === 'size' && item.size) baseCpu = (item.costPerUnit || 0) / item.size;
         else if (item.costingMethod === 'uses' && item.estimatedUses) baseCpu = (item.costPerUnit || 0) / item.estimatedUses;
-        
         return acc + (p.quantityUsed * baseCpu);
     }, 0) || 0;
     const materialOverage = Math.max(0, currentCost - standardCost);
@@ -516,6 +512,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     }
   };
 
+  // FIX #2: updateDocumentNonBlocking is now imported above — no longer undefined at runtime
   const handleMarkupSave = (markedUpUrl: string) => {
       if (!firestore || !tenantId || !appointment) return;
       const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
@@ -843,7 +840,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                         <div className="flex items-center gap-4 shrink-0 text-left">
                                             {safeNumber(ref.price) === 0 ? (
                                                 <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm">
-                                                    <Star className="w-2  h-2 mr-1 fill-current" /> Club Perk
+                                                    <Star className="w-2 h-2 mr-1 fill-current" /> Club Perk
                                                 </Badge>
                                             ) : (
                                                 <p className="font-black font-mono text-xs text-primary">${safeNumber(ref.price).toFixed(2)}</p>
@@ -939,6 +936,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
           />
       )}
 
+      {/* FIX #1: Replaced <img priority /> with Next.js <Image> which accepts the priority prop correctly */}
       <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
         <DialogContent className="max-w-fit p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
             <DialogHeader className="sr-only">
@@ -946,7 +944,16 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <DialogDescription>Full screen preview of technical asset.</DialogDescription>
             </DialogHeader>
             <div className="relative rounded-[2.5rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl max-w-[95vw] max-h-[95vh]">
-                {expandedImage && <img src={expandedImage} alt="Expanded Inspiration" className="block max-w-full max-h-[90vh] object-contain" priority />}
+                {expandedImage && (
+                  <Image
+                    src={expandedImage}
+                    alt="Expanded Inspiration"
+                    width={1200}
+                    height={900}
+                    priority
+                    className="block max-w-full max-h-[90vh] object-contain w-auto h-auto"
+                  />
+                )}
             </div>
         </DialogContent>
       </Dialog>
