@@ -684,7 +684,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               className="overflow-hidden border-t border-slate-100 bg-slate-50">
               <MidServiceAddOnSheet
                 apt={apt} service={service} allServices={allServices} allStaff={allStaff}
-                allShifts={allShiftsRaw} currentStaffId={staffMember?.id}
+                allShifts={allShifts} currentStaffId={currentStaffId}
                 tenantId={tenantId} firestore={firestore}
                 onClose={() => setShowAddOn(false)} />
             </motion.div>
