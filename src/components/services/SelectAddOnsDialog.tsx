@@ -151,8 +151,8 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
         </div>
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
           <div className="flex flex-col gap-3 w-full">
-            <Button onClick={handleSave} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Add Selected</Button>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+            <Button type="button" onClick={handleSave} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Add Selected</Button>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
           </div>
         </DialogFooter>
       </DialogContent>
