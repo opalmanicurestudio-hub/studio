@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Calendar, Clock, Repeat, Zap, Bell, CheckCircle2, XCircle,
   LogOut, Delete, Shield, CalendarDays, ClipboardList,
@@ -18,17 +20,18 @@ import {
   Activity, ShoppingCart, LogIn,
   AlertCircle, ChevronRight, Trash2, Loader,
   ChevronLeft, ChevronDown, ChevronUp, RefreshCw,
-  User, Lock, AlertTriangle,
+  User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert,
+  PlusCircle, Car,
 } from 'lucide-react';
 import {
   format, parseISO, startOfWeek, endOfWeek, addWeeks,
   eachDayOfInterval, isToday, isBefore, startOfDay,
-  differenceInMinutes, isSameDay, addMinutes, addMonths,
+  differenceInMinutes, differenceInSeconds, isSameDay, addMinutes, addMonths,
   startOfMonth, endOfMonth,
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where, doc, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
+import { collection, query, where, doc, getDocs, writeBatch, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 
@@ -93,33 +96,183 @@ function TabSkeleton() {
   );
 }
 
+// ─── MID-SERVICE ADD-ON SHEET ─────────────────────────────────────────────────
+// Lets staff add a compatible add-on mid-service, assign a tech, set flow type,
+// then writes to Firestore and notifies the assigned technician.
+function MidServiceAddOnSheet({ apt, service, allServices, allStaff, tenantId, firestore, onClose }: any) {
+  const { toast } = useToast();
+  const [selectedId, setSelectedId]   = useState<string | null>(null);
+  const [assignedStaffId, setAssignedStaffId] = useState('');
+  const [isConcurrent, setIsConcurrent] = useState(false);
+  const [saving, setSaving]           = useState(false);
+
+  const compatibleAddOns = useMemo(() => {
+    if (!allServices || !service) return [];
+    const compatible = service.compatibleAddOnIds || [];
+    const already    = apt.addOnIds || [];
+    return allServices.filter((s: any) => s.type === 'addon' && compatible.includes(s.id) && !already.includes(s.id));
+  }, [allServices, service, apt]);
+
+  const activeStaff = useMemo(() => (allStaff || []).filter((s: any) => s.active && !s.onBreak), [allStaff]);
+
+  const handleConfirm = async () => {
+    if (!selectedId || !assignedStaffId || !firestore || !tenantId) return;
+    setSaving(true);
+    try {
+      const now   = new Date().toISOString();
+      const batch = writeBatch(firestore);
+      const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
+      const currentOverrides = apt.checkoutState?.serviceStaffOverrides || {};
+      const currentConcurrent = apt.checkoutState?.concurrentServiceIds || [];
+
+      // Write add-on to appointment — mirrors what AddAndConfigurePartsDialog does
+      batch.update(aptRef, {
+        addOnIds: arrayUnion(selectedId),
+        // top-level array so staff portal can query by assignedStaffIds array-contains
+        assignedStaffIds: arrayUnion(assignedStaffId),
+        'checkoutState.serviceStaffOverrides': { ...currentOverrides, [selectedId]: assignedStaffId },
+        'checkoutState.concurrentServiceIds': isConcurrent
+          ? [...new Set([...currentConcurrent, selectedId])]
+          : currentConcurrent,
+      });
+
+      // Notify the assigned technician
+      const addon = allServices.find((s: any) => s.id === selectedId);
+      const n = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+      batch.set(n, {
+        id: n.id,
+        userId: assignedStaffId,
+        read: false,
+        createdAt: now,
+        type: 'addon_handoff',
+        link: 'today',
+        message: `${apt.clientName || 'A guest'} needs ${addon?.name || 'an add-on'} — ${isConcurrent ? 'concurrent with current service' : 'sequential after current service'}. Please proceed.`,
+      });
+
+      await batch.commit();
+      toast({ title: 'Add-on assigned ✓', description: `${isConcurrent ? 'Concurrent' : 'Sequential'} · Tech notified.` });
+      onClose();
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to assign add-on.' });
+    } finally { setSaving(false); }
+  };
+
+  if (compatibleAddOns.length === 0) {
+    return (
+      <div className="p-6 text-center space-y-3">
+        <p className="text-[10px] font-black uppercase text-muted-foreground opacity-40">No compatible add-ons available</p>
+        <button onClick={onClose} className="text-[10px] font-black uppercase text-primary">Close</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Select Add-on</p>
+      <div className="space-y-2 max-h-48 overflow-y-auto">
+        {compatibleAddOns.map((addon: any) => (
+          <button key={addon.id} onClick={() => setSelectedId(addon.id)}
+            className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 text-left transition-all active:scale-[0.98]',
+              selectedId === addon.id ? 'border-primary bg-primary/5' : 'border-slate-100 bg-white hover:border-primary/20')}>
+            <div>
+              <p className="font-black uppercase text-[11px] text-slate-800">{addon.name}</p>
+              <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{addon.duration}m · ${addon.price?.toFixed(2)}</p>
+            </div>
+            {selectedId === addon.id && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
+          </button>
+        ))}
+      </div>
+
+      {selectedId && (
+        <AnimatePresence>
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-2 border-t border-dashed">
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Assign Technician</p>
+              <Select value={assignedStaffId} onValueChange={setAssignedStaffId}>
+                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px]"><SelectValue placeholder="Select tech..." /></SelectTrigger>
+                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                  {activeStaff.map((s: any) => (
+                    <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px]">
+                      <div className="flex items-center gap-2">
+                        <span className={cn('w-2 h-2 rounded-full', s.status === 'busy' ? 'bg-red-500' : 'bg-green-500')} />
+                        {s.name?.split(' ')[0]}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Flow Type</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: 'Sequential', value: false, icon: Workflow, desc: 'After current' },
+                  { label: 'Concurrent', value: true,  icon: Zap,      desc: 'Same time'    },
+                ].map(opt => (
+                  <button key={opt.label} onClick={() => setIsConcurrent(opt.value)}
+                    className={cn('p-3 rounded-2xl border-2 flex flex-col items-center gap-1 transition-all',
+                      isConcurrent === opt.value ? 'border-primary bg-primary/5 text-primary' : 'border-slate-100 bg-white text-slate-500')}>
+                    <opt.icon className="w-4 h-4" />
+                    <p className="font-black uppercase text-[9px]">{opt.label}</p>
+                    <p className="font-bold text-[8px] opacity-60">{opt.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={handleConfirm} disabled={!assignedStaffId || saving}
+              className="w-full h-14 rounded-2xl bg-primary text-white font-black uppercase text-[12px] tracking-wide flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.97] transition-all shadow-lg shadow-primary/20">
+              {saving ? <Loader className="w-4 h-4 animate-spin" /> : <><PlusCircle className="w-5 h-5" />Assign & Notify Tech</>}
+            </button>
+          </motion.div>
+        </AnimatePresence>
+      )}
+
+      <button onClick={onClose} className="w-full h-10 rounded-2xl border-2 border-slate-200 font-black uppercase text-[10px] text-slate-400 tracking-widest active:scale-[0.97]">
+        Cancel
+      </button>
+    </div>
+  );
+}
+
 // ─── APPOINTMENT ACTION DRAWER ────────────────────────────────────────────────
-// Bottom sheet that opens when staff tap any appointment block.
-// Contains ALL possible actions for that appointment's current status.
-function AppointmentDrawer({ apt, service, onClose, onAction, onReview }: {
-  apt: any; service: any; onClose: () => void;
+function AppointmentDrawer({ apt, service, allServices, allStaff, tenantId, firestore, onClose, onAction, onReview, onEscalate }: {
+  apt: any; service: any; allServices: any[]; allStaff: any[];
+  tenantId: string; firestore: any;
+  onClose: () => void;
   onAction: (aptId: string, action: string, apt: any) => void;
   onReview: (apt: any) => void;
+  onEscalate: (apt: any) => void;
 }) {
   if (!apt) return null;
+
   const start    = safeDate(apt.startTime);
   const duration = service?.duration || apt.duration || 60;
   const end      = addMinutes(start, duration);
   const st       = apt.status || 'confirmed';
 
-  // Build available actions based on current status
-  // NOTE: 'checkout' is handled separately — it opens TechnicianReviewDialog
-  const actions = ([
-    (st === 'confirmed' || st === 'pending')
-      ? { id: 'start',    label: 'Start Service',       icon: Play,          cls: 'bg-primary text-white shadow-lg shadow-primary/30' }
-      : null,
-    st === 'ready_for_checkout'
-      ? { id: 'escalate', label: 'Escalate to Manager', icon: AlertTriangle, cls: 'bg-amber-500 text-white' }
-      : null,
-    st !== 'completed' && st !== 'cancelled' && st !== 'no_show'
-      ? { id: 'noshow',   label: 'Mark No Show',        icon: XCircle,       cls: 'bg-slate-100 text-slate-700 border-2 border-slate-200' }
-      : null,
-  ] as any[]).filter(Boolean);
+  // Live timer state — ticks every second when servicing
+  const [elapsed, setElapsed]       = useState('');
+  const [isOverTime, setIsOverTime] = useState(false);
+  const [showAddOn, setShowAddOn]   = useState(false);
+
+  useEffect(() => {
+    if (st !== 'servicing' || !apt.actualStartTime) return;
+    const tick = () => {
+      const secs = differenceInSeconds(new Date(), safeDate(apt.actualStartTime));
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      setElapsed(h > 0
+        ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+        : `${m}:${String(s).padStart(2,'0')}`);
+      setIsOverTime(Math.floor(secs / 60) > (service?.duration || 60));
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [st, apt.actualStartTime, service?.duration]);
 
   const statusLabel: Record<string, string> = {
     pending: 'Pending', confirmed: 'Confirmed', servicing: 'In Service',
@@ -134,106 +287,169 @@ function AppointmentDrawer({ apt, service, onClose, onAction, onReview }: {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] bg-black/60 flex items-end"
-      onClick={onClose}
-    >
-      <div
+    <div className="fixed inset-0 z-[9999] bg-black/60 flex items-end" onClick={onClose}>
+      <motion.div
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 30, stiffness: 320 }}
         className="w-full max-w-lg mx-auto bg-white rounded-t-[2.5rem] overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        {/* Handle bar */}
+        {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 rounded-full bg-slate-200" />
         </div>
 
-        {/* Appointment info */}
-        <div className="px-5 py-4 border-b border-slate-100">
+        {/* Header info */}
+        <div className="px-5 py-4 border-b border-slate-100 space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <p className="font-black text-xl uppercase tracking-tight text-slate-900 truncate">
-                {service?.name || 'Service'}
-              </p>
+              <p className="font-black text-xl uppercase tracking-tight text-slate-900 truncate">{service?.name || 'Service'}</p>
               <p className="text-sm font-bold text-muted-foreground mt-0.5">
                 {apt.clientName || 'Guest'} · {format(start, 'h:mm a')} – {format(end, 'h:mm a')}
               </p>
-              {apt.clientPhone && (
-                <p className="text-[11px] font-bold text-muted-foreground mt-0.5">
-                  📞 {apt.clientPhone}
-                </p>
-              )}
+              {apt.clientPhone && <p className="text-[11px] font-bold text-muted-foreground mt-0.5">📞 {apt.clientPhone}</p>}
             </div>
             <Badge className={cn('font-black text-[10px] uppercase border-none shrink-0 mt-1', statusColor[st] || 'bg-slate-100 text-slate-600')}>
               {statusLabel[st] || st}
             </Badge>
           </div>
+
+          {/* Live timer */}
+          {st === 'servicing' && elapsed && (
+            <div className={cn('rounded-2xl border-4 text-center py-3 transition-all',
+              isOverTime ? 'bg-destructive/5 border-destructive/30 animate-pulse' : 'bg-primary/5 border-primary/20')}>
+              <p className="text-[8px] font-black uppercase tracking-widest opacity-60 mb-0.5">
+                {isOverTime ? '⚠ Running Over' : 'Live Session Time'}
+              </p>
+              <p className={cn('font-black font-mono text-3xl tracking-tighter', isOverTime ? 'text-destructive' : 'text-primary')}>
+                {elapsed}
+              </p>
+            </div>
+          )}
+
+          {/* Notes */}
           {apt.notes && (
-            <div className="mt-3 p-2.5 rounded-xl bg-amber-50 border border-amber-100">
+            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-100">
               <p className="text-[10px] font-black uppercase text-amber-700 mb-0.5">Client Notes</p>
               <p className="text-xs text-amber-800">{apt.notes}</p>
             </div>
           )}
+
           {/* Check-in status */}
-          {apt.checkInStatus && apt.checkInStatus !== 'none' && st !== 'servicing' && st !== 'completed' && (
-            <div className={cn('mt-3 p-2.5 rounded-xl border flex items-center gap-2',
+          {apt.checkInStatus && !['none', undefined, null].includes(apt.checkInStatus) && !['servicing','completed'].includes(st) && (
+            <div className={cn('p-2.5 rounded-xl border flex items-center gap-2',
               apt.checkInStatus === 'arrived'      ? 'bg-green-50 border-green-200' :
               apt.checkInStatus === 'running_late' ? 'bg-amber-50 border-amber-200' :
                                                      'bg-blue-50 border-blue-200')}>
-              <div className={cn('w-2 h-2 rounded-full shrink-0',
-                apt.checkInStatus === 'arrived'      ? 'bg-green-500' :
-                apt.checkInStatus === 'running_late' ? 'bg-amber-500 animate-pulse' :
-                                                       'bg-blue-500')} />
+              {apt.checkInStatus === 'arrived'      ? <MapPin className="w-3 h-3 text-green-600 shrink-0" /> :
+               apt.checkInStatus === 'running_late' ? <Clock   className="w-3 h-3 text-amber-600 shrink-0 animate-pulse" /> :
+                                                      <Car     className="w-3 h-3 text-blue-600 shrink-0" />}
               <p className={cn('text-[10px] font-black uppercase',
                 apt.checkInStatus === 'arrived'      ? 'text-green-700' :
-                apt.checkInStatus === 'running_late' ? 'text-amber-700' :
-                                                       'text-blue-700')}>
+                apt.checkInStatus === 'running_late' ? 'text-amber-700' : 'text-blue-700')}>
                 {apt.checkInStatus === 'arrived'      ? 'Client has arrived' :
-                 apt.checkInStatus === 'running_late' ? `Running late · est. arrival ${apt.lateTimeMinutes}min` :
+                 apt.checkInStatus === 'running_late' ? `Running late · est. +${apt.lateTimeMinutes}min` :
                                                         'Client is on their way'}
               </p>
             </div>
           )}
         </div>
 
-        {/* Action buttons */}
-        <div className="p-4 space-y-2.5">
-          {/* Finish Service opens TechnicianReviewDialog — not a direct Firestore write */}
-          {st === 'servicing' && (
-            <button
-              onClick={() => { onReview(apt); onClose(); }}
-              className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-emerald-600 text-white shadow-lg shadow-emerald-500/30"
-            >
-              <ShoppingCart className="w-5 h-5" />
-              Finish Service & Review
-            </button>
+        {/* Add-on sheet — slides in when toggled */}
+        <AnimatePresence>
+          {showAddOn && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden border-t border-slate-100 bg-slate-50">
+              <MidServiceAddOnSheet
+                apt={apt} service={service} allServices={allServices} allStaff={allStaff}
+                tenantId={tenantId} firestore={firestore}
+                onClose={() => setShowAddOn(false)} />
+            </motion.div>
           )}
-          {actions.length === 0 && st !== 'servicing' ? (
-            <p className="text-center text-[11px] font-black uppercase text-muted-foreground opacity-40 py-4">
-              No actions available for this appointment
-            </p>
-          ) : actions.map((a: any) => (
-            <button
-              key={a.id}
-              onClick={() => { onAction(apt.id, a.id, apt); onClose(); }}
-              className={cn(
-                'w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide',
-                'flex items-center justify-center gap-3 transition-all active:scale-[0.97]',
-                a.cls,
-              )}
-            >
-              <a.icon className="w-5 h-5" />
-              {a.label}
+        </AnimatePresence>
+
+        {/* Actions */}
+        {!showAddOn && (
+          <div className="p-4 space-y-2.5">
+            {/* Start */}
+            {(st === 'confirmed' || st === 'pending') && (
+              <button onClick={() => { onAction(apt.id, 'start', apt); onClose(); }}
+                className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-primary text-white shadow-lg shadow-primary/30">
+                <Play className="w-5 h-5" />Start Service
+              </button>
+            )}
+
+            {/* Servicing actions */}
+            {st === 'servicing' && (<>
+              <button onClick={() => { onReview(apt); onClose(); }}
+                className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-emerald-600 text-white shadow-lg shadow-emerald-500/30">
+                <ShoppingCart className="w-5 h-5" />Finish Service & Review
+              </button>
+              <button onClick={() => setShowAddOn(true)}
+                className="w-full h-12 rounded-2xl font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] border-2 border-primary/20 bg-primary/5 text-primary">
+                <PlusCircle className="w-4 h-4" />Add On Mid-Service
+              </button>
+              <button onClick={() => { onEscalate(apt); onClose(); }}
+                className="w-full h-12 rounded-2xl font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] bg-destructive/10 border-2 border-destructive/20 text-destructive">
+                <ShieldAlert className="w-4 h-4" />Alert Management
+              </button>
+            </>)}
+
+            {/* Ready for checkout */}
+            {st === 'ready_for_checkout' && (
+              <button onClick={() => { onEscalate(apt); onClose(); }}
+                className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-amber-500 text-white shadow-lg">
+                <AlertTriangle className="w-5 h-5" />Escalate to Manager
+              </button>
+            )}
+
+            {/* No show — available on any non-terminal status */}
+            {!['completed','cancelled','no_show'].includes(st) && (
+              <button onClick={() => { onAction(apt.id, 'noshow', apt); onClose(); }}
+                className="w-full h-11 rounded-2xl font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] bg-slate-100 text-slate-600 border-2 border-slate-200">
+                <XCircle className="w-4 h-4" />Mark No Show
+              </button>
+            )}
+
+            {['completed','cancelled','no_show'].includes(st) && (
+              <p className="text-center text-[11px] font-black uppercase text-muted-foreground opacity-30 py-2">
+                No actions available
+              </p>
+            )}
+
+            <button onClick={onClose}
+              className="w-full h-11 rounded-2xl border-2 border-slate-200 font-black uppercase text-[11px] text-slate-400 tracking-widest hover:bg-slate-50 transition-all active:scale-[0.97]">
+              Dismiss
             </button>
-          ))}
-          <button
-            onClick={onClose}
-            className="w-full h-11 rounded-2xl border-2 border-slate-200 font-black uppercase text-[11px] text-slate-400 tracking-widest hover:bg-slate-50 transition-all active:scale-[0.97] mt-1"
-          >
-            Dismiss
-          </button>
-        </div>
-        <div className="pb-6" /> {/* iOS home indicator clearance */}
-      </div>
+          </div>
+        )}
+        <div className="pb-6" />
+      </motion.div>
+    </div>
+  );
+}
+
+// ─── LIVE TIMER BADGE ─────────────────────────────────────────────────────────
+// Ticking timer shown on appointment blocks when status is 'servicing'
+function LiveTimerBadge({ startTime, duration }: { startTime: any; duration: number }) {
+  const [elapsed, setElapsed]       = useState('');
+  const [isOver, setIsOver]         = useState(false);
+  useEffect(() => {
+    const tick = () => {
+      const secs = differenceInSeconds(new Date(), safeDate(startTime));
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      setElapsed(h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`);
+      setIsOver(Math.floor(secs / 60) > duration);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [startTime, duration]);
+  return (
+    <div className={cn('flex items-center justify-center rounded-xl py-1 mt-0.5', isOver ? 'bg-destructive/10' : 'bg-primary/10')}>
+      <p className={cn('font-black font-mono text-sm tracking-tighter', isOver ? 'text-destructive' : 'text-primary')}>{elapsed}</p>
     </div>
   );
 }
@@ -346,6 +562,11 @@ function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
             const heightPx = Math.max(MIN_BLOCK, dur * PX_PER_MIN);
             const st       = apt.status || 'confirmed';
             const isPast   = addMinutes(start, dur) < now && isToday_;
+            // Determine if this staff member is the add-on tech (secondary)
+            const isAddOnTech = apt.checkoutState?.serviceStaffOverrides &&
+              Object.entries(apt.checkoutState.serviceStaffOverrides).some(
+                ([svcId, staffId]) => staffId === apt._viewingStaffId && svcId !== apt.serviceId
+              );
 
             return (
               <button
@@ -382,6 +603,14 @@ function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
                   <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
                     {format(start, 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
                   </p>
+                  {/* Add-on tech badge */}
+                  {isAddOnTech && (
+                    <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>
+                  )}
+                  {/* Live timer — shown when servicing */}
+                  {st === 'servicing' && apt.actualStartTime && (
+                    <LiveTimerBadge startTime={apt.actualStartTime} duration={dur} />
+                  )}
                   {/* Status + "tap for actions" — always at the bottom */}
                   <div className="flex items-center justify-between mt-auto pl-3">
                     <span className="text-[8px] font-black uppercase text-muted-foreground opacity-50">
@@ -852,7 +1081,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // ── Queries ──
   const myShiftsQ       = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shifts`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
   const allShiftsQ      = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/shifts`), [firestore,tenantId]);
+  // Primary appointments
   const myApptsQ        = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
+  // Add-on handoff appointments — where this staff member is assigned via assignedStaffIds array
+  const myAddonApptsQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('assignedStaffIds','array-contains',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
   const myRequestsQ     = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
   const incomingSwapQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('swapWithStaffId','==',staffMember.id), where('status','==','pending_swap_consent')), [firestore,tenantId,staffMember?.id]);
   const pendingApprovalQ = useMemoFirebase(() => (!firestore||!tenantId||!isOwnerOrAdmin) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('status','==','swap_consent_given')), [firestore,tenantId,isOwnerOrAdmin]);
@@ -865,6 +1097,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: myShiftsRaw,  loading: shiftsLoading }  = useCollection<any>(myShiftsQ);
   const { data: allShiftsRaw }                          = useCollection<any>(allShiftsQ);
   const { data: myApptsRaw,   loading: apptsLoading }   = useCollection<any>(myApptsQ);
+  const { data: myAddonAptsRaw }                        = useCollection<any>(myAddonApptsQ);
   const { data: myRequests }                            = useCollection<any>(myRequestsQ);
   const { data: incomingSwaps }                         = useCollection<any>(incomingSwapQ);
   const { data: pendingApprovals }                      = useCollection<any>(pendingApprovalQ);
@@ -873,6 +1106,16 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: notifs }                                = useCollection<any>(notifsQ);
   const { data: activityLogs }                          = useCollection<any>(activityLogsQ);
   const { data: transactions }                          = useCollection<any>(transactionsQ);
+
+  // Merge primary + add-on appointments, deduplicating by id
+  // Tag add-on appointments with _viewingStaffId so the card knows this staff is the add-on tech
+  const allMyApts = useMemo(() => {
+    const primary = (myApptsRaw || []);
+    const addon   = (myAddonAptsRaw || [])
+      .filter((a: any) => !primary.find((p: any) => p.id === a.id))
+      .map((a: any) => ({ ...a, _viewingStaffId: staffMember.id }));
+    return [...primary, ...addon];
+  }, [myApptsRaw, myAddonAptsRaw, staffMember.id]);
 
   const isLoadingToday = apptsLoading || svcsLoading;
 
@@ -966,9 +1209,24 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     toast({ title: labels[action] || 'Updated' });
   }, [firestore, tenantId, staffMember]);
 
+  // ── Escalation handler ──
+  const handleEscalate = useCallback(async (apt: any) => {
+    if (!firestore||!tenantId) return;
+    const now  = new Date().toISOString();
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore,`tenants/${tenantId}/appointments`,apt.id), { isEscalated: true, escalatedAt: now, escalatedBy: staffMember.id });
+    const mgrs = await getDocs(query(collection(firestore,`tenants/${tenantId}/staff`),where('role','in',['owner','admin'])));
+    mgrs.docs.forEach(mgr => {
+      const n = doc(collection(firestore,`tenants/${tenantId}/notifications`));
+      batch.set(n,{ id:n.id, userId:mgr.id, read:false, createdAt:now, type:'escalation', link:'/appointments', message:`URGENT: ${staffMember.name} escalated an issue with ${apt.clientName||'a guest'} (${apt.id.slice(-6).toUpperCase()}).` });
+    });
+    await batch.commit();
+    toast({ title:'Management Alerted ✓', description:'All owners and admins have been notified.' });
+  }, [firestore, tenantId, staffMember]);
+
   const handleNotifClick = async (n: any) => {
     if (!n.read) { try { await updateDoc(doc(firestore,`tenants/${tenantId}/notifications`,n.id),{ read:true }); } catch {} }
-    const map: Record<string,typeof activeTab> = { requests:'requests', schedule:'schedule', '/my-schedule':'schedule', '/schedule/requests':'requests', earnings:'earnings' };
+    const map: Record<string,typeof activeTab> = { requests:'requests', schedule:'schedule', '/my-schedule':'schedule', '/schedule/requests':'requests', earnings:'earnings', today:'today' };
     if (n.link && map[n.link]) setActiveTab(map[n.link]);
   };
 
@@ -1093,9 +1351,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
-                <NextBanner appointments={myApptsRaw} services={services} />
+                <NextBanner appointments={allMyApts} services={services} />
                 <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />
-                <DayTimeline appointments={myApptsRaw} services={services} selectedDate={selectedDate}
+                <DayTimeline appointments={allMyApts} services={services} selectedDate={selectedDate}
                   onAptTap={apt => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />
                 {isSameDay(selectedDate,today) && (
                   <div className="space-y-3">
@@ -1146,7 +1404,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                     </div>
                   );
                 })()}
-                <DayTimeline appointments={myApptsRaw} services={services} selectedDate={selectedDate}
+                <DayTimeline appointments={allMyApts} services={services} selectedDate={selectedDate}
                   onAptTap={apt => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />
               </div>
             )
@@ -1251,9 +1509,16 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
       {/* Appointment action drawer */}
       {drawerApt && (
-        <AppointmentDrawer apt={drawerApt} service={drawerSvc}
+        <AppointmentDrawer
+          apt={drawerApt}
+          service={drawerSvc}
+          allServices={services || []}
+          allStaff={allStaff || []}
+          tenantId={tenantId}
+          firestore={firestore}
           onClose={() => { setDrawerApt(null); setDrawerSvc(null); }}
           onAction={handleAptAction}
+          onEscalate={handleEscalate}
           onReview={apt => {
             const svc = (services||[]).find((s: any) => s.id === apt.serviceId);
             setReviewApt(apt);
