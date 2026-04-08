@@ -7,11 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
@@ -19,10 +15,10 @@ import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase'
 import { collection, getDocs, query, where, doc, writeBatch, deleteField } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { 
-    Sparkles, User, Phone, ArrowRight, ArrowLeft, Users, Mail, Loader, Clock, 
-    PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, 
-    XCircle, Ban, MapPin, ShieldCheck, Fingerprint, Star, ArrowDown, Cake, 
+import {
+    Sparkles, User, Phone, ArrowRight, ArrowLeft, Users, Mail, Loader, Clock,
+    PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks,
+    XCircle, Ban, MapPin, ShieldCheck, Fingerprint, Star, ArrowDown, Cake,
     PartyPopper, Gift, Delete, Workflow, CalendarCheck, CheckCircle2, Award, Lock,
     AlertTriangle
 } from 'lucide-react';
@@ -67,7 +63,7 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     if (period === 'AM' && hours === 12) hours = 0;
     d.setHours(hours, minutes);
     return d;
-}
+};
 
 const isBusinessOpen = (date: Date, schedule: any) => {
     if (!schedule || !schedule.week) return { open: true };
@@ -81,14 +77,14 @@ const isBusinessOpen = (date: Date, schedule: any) => {
         const closeTime = parseTime(dayHours.end);
         return { open: now >= openTime && now <= closeTime, hours: `${dayHours.start} - ${dayHours.end}` };
     } catch (e) {
-        return { open: true }; 
+        return { open: true };
     }
 };
 
 const ViewContainer = ({ children }: { children: React.ReactNode }) => (
-    <motion.div 
-        initial={{ opacity: 0, scale: 0.98 }} 
-        animate={{ opacity: 1, scale: 1 }} 
+    <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
         className="w-full max-w-4xl mx-auto bg-white/40 border-2 border-white/50 rounded-[2.5rem] md:rounded-[4rem] shadow-[0_32px_64px_rgba(0,0,0,0.05)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10 text-center"
     >
         {children}
@@ -280,7 +276,7 @@ const BirthdayCelebrationView = ({ clientName, onDone }: { clientName: string, o
 
 const StepDetails = ({ member, onUpdate, primaryMember, isGroup, bannedClient, existingClientWithBalance, isResolvingIdentity, isKnownClient, clientType }: any) => {
     const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
-    
+
     return (
         <div className="space-y-6 text-left">
             <div className="space-y-2">
@@ -291,35 +287,29 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup, bannedClient, e
                     <PhoneInput name={`phone-${member.id}`} international defaultCountry="US" value={member.phone || ''} onChange={(value) => onUpdate({ phone: value || '' })} placeholder="(555) 000-0000" className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-xl font-bold focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 [&_input]:bg-transparent shadow-inner text-slate-900" />
                 </div>
             </div>
-
             <div className="space-y-2">
                 <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                     <User className="w-3 h-3 text-primary opacity-60"/><span>Full Name</span>
                 </Label>
                 <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your name" : "Guest's name"} className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-within:ring-primary/10 focus-visible:border-primary transition-all shadow-inner text-slate-900 placeholder:text-slate-300 uppercase tracking-tight"/>
             </div>
-
-            {isGroup && !member.isPrimary && ( 
+            {isGroup && !member.isPrimary && (
                 <Button variant="ghost" size="sm" onClick={usePrimaryContact} className="w-full rounded-xl h-10 bg-white/40 backdrop-blur-xl text-slate-500 font-bold uppercase tracking-widest text-[9px]">
                     Use same contact as {primaryMember?.name.split(' ')[0] || '1st guest'}
-                </Button> 
+                </Button>
             )}
-
             <div className="space-y-2">
                 <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                     <Mail className="w-3 h-3 text-primary opacity-60"/><span>Email Address</span>
                 </Label>
                 <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="alex@example.com" className="h-12 md:h-14 text-lg font-bold rounded-2xl border-2 border-white/50 bg-white/80 focus-visible:ring-primary shadow-inner text-slate-900"/>
             </div>
-
             <AnimatePresence>
                 {isResolvingIdentity && (
                     <motion.div key="resolving" className="flex items-center justify-center gap-2 text-[9px] uppercase font-black tracking-widest text-primary animate-pulse py-2 opacity-60">
                         <Loader className="w-3 h-3 animate-spin" /> Verifying Profile...
                     </motion.div>
                 )}
-
-                {/* NEW: warn first-time guests whose contact matches an existing record */}
                 {isKnownClient && clientType === 'new' && !bannedClient && !existingClientWithBalance && (
                     <motion.div key="known-client" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
                         <Alert className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4">
@@ -331,7 +321,6 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup, bannedClient, e
                         </Alert>
                     </motion.div>
                 )}
-                
                 {bannedClient && (
                     <motion.div key="banned" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
                         <div className="bg-destructive/10 text-destructive border border-destructive/20 p-4 rounded-xl flex gap-3">
@@ -488,13 +477,13 @@ const MemberSetup = ({ member, onUpdate, partyMembers, memberSubStep, services, 
         consents: { title: 'Agreements', icon: <FileSignature className="w-4 h-4 md:w-5 md:h-5" /> },
         staff: { title: 'Preferences', icon: <Users className="w-4 h-4 md:w-5 md:h-5" /> },
     };
-    
+
     const primaryService = services.find((s: Service) => s.id === member.serviceIds[0]);
     const requiredForms = consentForms.filter((f: ConsentForm) => primaryService?.requiredFormIds?.includes(f.id));
     const subSteps: MemberSubStep[] = ['details', 'services'];
     if (requiredForms.length > 0) subSteps.push('consents');
     subSteps.push('staff');
-    
+
     const currentSubStepIndex = subSteps.indexOf(memberSubStep);
     const progress = useMemo(() => {
         const stepProgress = (currentSubStepIndex) / (subSteps.length);
@@ -503,7 +492,6 @@ const MemberSetup = ({ member, onUpdate, partyMembers, memberSubStep, services, 
     }, [currentSubStepIndex, subSteps.length, isGroup, member.index, partyMembers.length]);
 
     const hasNextSubStep = currentSubStepIndex < subSteps.length - 1;
-    // Block progression if guest is flagged as known client trying to check in as new
     const isBlocked = !!bannedClient || !!existingClientWithBalance || isResolvingIdentity || (isKnownClient && clientType === 'new');
 
     return (
@@ -546,11 +534,11 @@ const MemberSetup = ({ member, onUpdate, partyMembers, memberSubStep, services, 
                                         <p className="text-[9px] text-center font-black uppercase text-primary opacity-40">Or continue to change services</p>
                                     </div>
                                 )}
-                                <StepDetails 
-                                    member={member} 
-                                    onUpdate={onUpdate} 
-                                    isGroup={isGroup} 
-                                    primaryMember={partyMembers?.[0]} 
+                                <StepDetails
+                                    member={member}
+                                    onUpdate={onUpdate}
+                                    isGroup={isGroup}
+                                    primaryMember={partyMembers?.[0]}
                                     bannedClient={bannedClient}
                                     existingClientWithBalance={existingClientWithBalance}
                                     isResolvingIdentity={isResolvingIdentity}
@@ -606,7 +594,7 @@ export default function WalkInPage() {
   const pricingTiersQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
   const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
   const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
-  
+
   const { data: tenant } = useDoc<Tenant>(tenantDocRef);
   const { data: services } = useCollection<Service>(servicesQuery);
   const { data: staff } = useCollection<Staff>(staffQuery);
@@ -626,7 +614,6 @@ export default function WalkInPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
   const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
-
   const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
   const [bannedClient, setBannedClient] = useState<Client | null>(null);
   const [isResolvingIdentity, setIsResolvingIdentity] = useState(false);
@@ -636,8 +623,6 @@ export default function WalkInPage() {
   const [birthdayName, setBirthdayName] = useState('');
   const [clientType, setClientType] = useState<'new' | 'returning' | null>(null);
   const [phonePadValue, setPhonePadValue] = useState('');
-
-  // NEW: flag when a first-visit guest's contact matches an existing client record
   const [isKnownClient, setIsKnownClient] = useState(false);
 
   const activeDaySchedule = useMemo(() => {
@@ -645,7 +630,12 @@ export default function WalkInPage() {
       return scheduleProfiles?.[0]?.week?.[dayName] || null;
   }, [scheduleProfiles]);
 
-  const resolveIdentity = useCallback(async (email?: string, phone?: string): Promise<{isBanned: boolean, hasBalance: boolean, isKnown: boolean, client: any}> => {
+  // ── PATCH: resolveIdentity accepts callerClientType to avoid stale closure ──
+  const resolveIdentity = useCallback(async (
+      email?: string,
+      phone?: string,
+      callerClientType?: 'new' | 'returning' | null
+  ): Promise<{isBanned: boolean, hasBalance: boolean, isKnown: boolean, client: any}> => {
     const empty = { isBanned: false, hasBalance: false, isKnown: false, client: null };
     if (!firestore || !tenantId || (!email && !phone)) return empty;
     setIsResolvingIdentity(true);
@@ -663,7 +653,6 @@ export default function WalkInPage() {
             const matchedClientData = matchedClientDoc.data() as Client;
             const matchedClientId = matchedClientDoc.id;
             const clientObj = { ...matchedClientData, id: matchedClientId };
-
             setMatchedClient(clientObj);
 
             if (clientObj.status === 'banned') {
@@ -682,13 +671,14 @@ export default function WalkInPage() {
                 setBannedClient(null);
                 setExistingClientWithBalance(null);
 
-                // FLAG: if this is a "first visit" guest but we found their record -- warn them
-                if (clientType === 'new') {
+                // Use callerClientType if provided, otherwise fall back to state
+                const effectiveClientType = callerClientType ?? clientType;
+
+                if (effectiveClientType === 'new') {
                     setIsKnownClient(true);
                     return { isBanned: false, hasBalance: false, isKnown: true, client: clientObj };
                 } else {
                     setIsKnownClient(false);
-                    // For returning guests, load their appointment
                     const aptsRef = collection(firestore, 'tenants', tenantId, 'appointments');
                     const aptSnap = await getDocs(query(aptsRef, where("clientId", "==", matchedClientId), where("status", "==", "confirmed")));
                     const todayApt = aptSnap.docs
@@ -704,7 +694,7 @@ export default function WalkInPage() {
             setMatchedAppointment(null);
             setMatchedClient(null);
             setIsKnownClient(false);
-            if (clientType === 'returning' && step === 'phonePad') {
+            if ((callerClientType ?? clientType) === 'returning' && step === 'phonePad') {
                 toast({ variant: 'destructive', title: 'Profile Not Found', description: "We couldn't find a record with that number. Proceeding as a first visit." });
                 setClientType('new');
                 setStep('memberSetup');
@@ -739,10 +729,14 @@ export default function WalkInPage() {
   const handlePhonePadDigit = (digit: string) => { if (phonePadValue.length < 10) setPhonePadValue(prev => prev + digit); };
   const handlePhonePadDelete = () => { setPhonePadValue(prev => prev.slice(0, -1)); };
 
+  // ── PATCH: Only navigate to identityConfirm if a client was actually found ──
   const handlePhonePadConfirm = async () => {
       if (phonePadValue.length < 10) return;
-      await resolveIdentity(undefined, `+1${phonePadValue}`); 
-      setStep('identityConfirm');
+      const result = await resolveIdentity(undefined, `+1${phonePadValue}`, 'returning');
+      if (result.client) {
+          setStep('identityConfirm');
+      }
+      // If no client found, resolveIdentity already redirected to memberSetup above
   };
 
   const handleIdentityConfirm = async () => {
@@ -757,7 +751,6 @@ export default function WalkInPage() {
       }
   };
 
-  // Reset identity flags when contact info changes so detection re-runs cleanly
   const handleMemberUpdate = (updates: Partial<PartyMember>) => {
     if (updates.phone !== undefined || updates.email !== undefined) {
         setIsKnownClient(false);
@@ -771,22 +764,19 @@ export default function WalkInPage() {
 
   const handleNextSubStep = async (next: MemberSubStep) => {
     const member = partyMembers[currentMemberIndex];
-    
+
     if (memberSubStep === 'details') {
         if (!member.phone || member.phone.length < 5) return toast({ variant: 'destructive', title: 'Phone Required', description: 'Enter your phone number to help us identify your record.' });
         if (!member.name.trim()) return toast({ variant: 'destructive', title: 'Name Required' });
         if (!member.email?.trim()) return toast({ variant: 'destructive', title: 'Email Required' });
         if (!/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email' });
 
-        // Run identity check for ALL guests -- use returned value directly (not stale state)
-        const identityResult = await resolveIdentity(member.email, member.phone);
+        // ── PATCH: pass clientType explicitly to avoid stale closure ──
+        const identityResult = await resolveIdentity(member.email, member.phone, clientType);
 
         if (identityResult.isBanned || identityResult.hasBalance) return;
-
-        // Block first-visit guests who match an existing record
         if (identityResult.isKnown && clientType === 'new') return;
 
-        // Tiered access check
         const dayAccess = activeDaySchedule?.accessTier || 'all';
         if (dayAccess === 'members') {
             const isClientMember = !!(matchedClient?.activeMembershipId || matchedClient?.subscription);
@@ -877,7 +867,6 @@ export default function WalkInPage() {
             }
 
             if (!clientId) {
-                // Genuinely new client -- create full record
                 clientId = nanoid();
                 batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), {
                     id: clientId,
@@ -890,7 +879,6 @@ export default function WalkInPage() {
                     status: 'active'
                 });
             } else {
-                // Existing client -- only update name/contact, never overwrite lifetimeValue
                 batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), {
                     name: member.name,
                     email: member.email || '',
@@ -906,7 +894,8 @@ export default function WalkInPage() {
                 customerPhone: member.phone || '',
                 customerEmail: member.email || '',
                 serviceIds: member.serviceIds, checkInTime: now, status: 'waiting',
-                queueOrder: Date.now() + tickets.length,
+                // ── PATCH: space group members 1 second apart so they each get their own queue position ──
+                queueOrder: Date.now() + (tickets.length * 1000),
                 waitForPreferredStaff: !!member.waitForPreferredStaff,
                 estimatedDuration: services?.filter(s => member.serviceIds.includes(s.id)).reduce((acc, s) => acc + (s.duration || 0), 0) || 0,
             };
@@ -952,7 +941,7 @@ export default function WalkInPage() {
   }
 
   if (!tenant || !services) return <div className="h-screen flex items-center justify-center bg-background"><Loader className="animate-spin text-primary w-10 h-10" /></div>;
-  
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body relative" style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}>
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -986,16 +975,23 @@ export default function WalkInPage() {
                                 {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
                                 {step === 'identityChoice' && <IdentityChoiceView onSelect={handleIdentitySelect} onBack={() => setStep('partyType')} />}
                                 {step === 'phonePad' && <PhonePadView value={phonePadValue} onDigit={handlePhonePadDigit} onDelete={handlePhonePadDelete} onConfirm={handlePhonePadConfirm} onBack={() => setStep('identityChoice')} isVerifying={isResolvingIdentity} />}
-                                {step === 'identityConfirm' && matchedClient && <IdentityConfirmView client={matchedClient} onConfirm={handleIdentityConfirm} onBack={() => setStep('phonePad')} />}
+                                {step === 'identityConfirm' && (
+                                    matchedClient
+                                        ? <IdentityConfirmView client={matchedClient} onConfirm={handleIdentityConfirm} onBack={() => { setStep('phonePad'); setMatchedClient(null); }} />
+                                        : <div className="p-12 text-center space-y-4">
+                                            <p className="text-sm font-bold text-muted-foreground uppercase">Something went wrong. Please try again.</p>
+                                            <Button onClick={() => setStep('phonePad')}>Try Again</Button>
+                                          </div>
+                                )}
                                 {step === 'welcomeBack' && matchedClient && <WelcomeBackView name={matchedClient.name} onContinue={() => setStep('memberSetup')} />}
                                 {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
-                                    <MemberSetup 
+                                    <MemberSetup
                                         member={{...partyMembers[currentMemberIndex], index: currentMemberIndex}}
                                         partyMembers={partyMembers}
                                         onUpdate={handleMemberUpdate}
                                         memberSubStep={memberSubStep}
-                                        services={services} 
-                                        staff={activeStaff} 
+                                        services={services}
+                                        staff={activeStaff}
                                         pricingTiers={pricingTiers || []}
                                         consentForms={consentForms || []}
                                         formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
