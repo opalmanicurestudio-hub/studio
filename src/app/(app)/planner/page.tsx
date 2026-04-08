@@ -14,7 +14,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { Badge } from '@/components/ui/badge';
-import { AddEventDialog } from '@/components/planner/AddEventDialog';
+import { AddEventDialog } from '@/components/planner/EventsDialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking, useUser } from '@/firebase';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -125,7 +125,6 @@ function PlannerPageContent() {
     if (columns.length > 0 && !mobileSelectedColumnId) setMobileSelectedColumnId(columns[0].id);
   }, [columns, mobileSelectedColumnId]);
 
-  // Auto-open booking dialog pre-filled when coming from client history rebook
   useEffect(() => {
     const rebookAptId = searchParams.get('rebook_apt_id');
     if (rebookAptId && appointments && appointments.length > 0) {
@@ -134,7 +133,6 @@ function PlannerPageContent() {
         setAppointmentToRebook(apt);
         setClientForNewApt(null);
         setIsAddAppointmentOpen(true);
-        // Clean URL so refreshing does not re-open the dialog
         router.replace('/planner');
       }
     }
@@ -486,8 +484,8 @@ function PlannerPageContent() {
           allStaff={allStaff || []} mobileSelectedColumnId={mobileSelectedColumnId} onMobileColumnChange={onMobileColumnChange}
           onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus}
           onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
-          onPrintReceipt={() => {}} onPrintTicket={() => {}
-          } onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
+          onPrintReceipt={() => {}} onPrintTicket={() => {}}
+          onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
           onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onChecklistItemToggleCallback={() => {}} onUpdateEvent={() => {}}
           dailyTransactions={transactions?.filter(t => isSameDay(safeDate(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
           onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
