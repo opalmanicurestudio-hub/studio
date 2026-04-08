@@ -52,6 +52,32 @@ const FLOOR_WALKIN_COLOR = 'bg-teal-500'; // walk-in accent
 
 const DIGITS = ['1','2','3','4','5','6','7','8','9','','0','del'];
 
+// ─── ERROR BOUNDARY ───────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 gap-4">
+          <div className="text-destructive font-black uppercase text-[10px] tracking-widest">Something went wrong</div>
+          <div className="bg-white/10 rounded-2xl p-4 max-w-sm w-full">
+            <p className="text-white text-xs font-mono break-all">{(this.state.error as Error).message}</p>
+            <p className="text-white/40 text-[9px] font-mono mt-2 break-all">{(this.state.error as Error).stack?.split('\n').slice(0,3).join('\n')}</p>
+          </div>
+          <button onClick={() => this.setState({ error: null })} className="text-white/60 text-[10px] font-black uppercase tracking-widest">Try Again</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+
+
 const STATUS_SWAP: Record<string, { label: string; color: string }> = {
   pending:              { label: 'Pending Review',          color: 'bg-amber-100 text-amber-700'   },
   pending_swap_consent: { label: 'Awaiting Response',       color: 'bg-purple-100 text-purple-700' },
@@ -3647,5 +3673,5 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
 
   if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} onSuccess={setSignedInStaff} />;
 
-  return <StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => setSignedInStaff(null)} />;
+  return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => setSignedInStaff(null)} /></ErrorBoundary>;
 }
