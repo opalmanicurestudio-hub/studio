@@ -47,10 +47,7 @@ import { PrintTicket } from '@/components/planner/PrintTicket';
 
 const sanitizeForFirestore = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
-  // Preserve Firestore FieldValue instances (increment, arrayUnion, deleteField, etc.)
-  // They have a private _methodName property that identifies them
   if (obj._methodName !== undefined || (obj.constructor && obj.constructor.name === 'FieldValue')) return obj;
-  // Also preserve by duck-typing -- Firestore FieldValues are not plain objects
   if (typeof obj.isEqual === 'function' && typeof obj._methodName !== undefined) return obj;
   if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
   return Object.fromEntries(
@@ -83,7 +80,6 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
   </Card>
 );
 
-// Top-level PIN dialog -- renders above everything including the mobile Sheet
 const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) => {
     const [pin, setPin] = useState('');
     const [reason, setReason] = useState('');
@@ -125,17 +121,14 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
         <div 
             style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', pointerEvents: 'all' }}
         >
-            {/* Backdrop -- closes modal on tap but doesn't block modal content */}
             <div 
                 style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 0 }}
                 onClick={() => handleOpenChange(false)}
             />
-            {/* Modal -- sits above backdrop */}
             <div 
                 style={{ position: 'relative', zIndex: 1, backgroundColor: 'white', borderRadius: '2rem', border: '4px solid #e2e8f0', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', overflow: 'hidden' }}
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
                 <div style={{ padding: '1.5rem 1.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
                         <ShieldCheck style={{ width: '1.5rem', height: '1.5rem', color: 'var(--primary, #6366f1)' }} />
@@ -143,7 +136,6 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
                     </div>
                     <p style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8', marginBottom: '1rem' }}>Manager PIN required to authorize this adjustment.</p>
                 </div>
-                {/* Body */}
                 <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '12rem' }}>
                         <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em', color: '#94a3b8' }}>Manager PIN</label>
@@ -170,7 +162,6 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
                         />
                     </div>
                 </div>
-                {/* Footer */}
                 <div style={{ padding: '0 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     <button
                         onClick={handleConfirm}
@@ -192,12 +183,10 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
 };
 
 
-// Identity Match Dialog -- 3 options: link session only, full merge, or keep separate
 const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLinkSession, onMerge, onKeepSeparate }: any) => {
     const walkInPhone = walkIn?.customerPhone || walkIn?.phone || '';
     const walkInEmail = walkIn?.customerEmail || walkIn?.email || '';
 
-    // Detect if walk-in has newer/different contact info worth merging
     const hasNewContact = (walkInPhone && walkInPhone !== matchedClient?.phone) || 
                           (walkInEmail && walkInEmail !== matchedClient?.email);
 
@@ -215,7 +204,6 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                 </DialogHeader>
 
                 <div className="p-6 space-y-4">
-                    {/* Side by side comparison */}
                     <div className="grid grid-cols-2 gap-3">
                         <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-2">
                             <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Existing Record</p>
@@ -237,7 +225,6 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                 </div>
 
                 <div className="px-6 pb-6 space-y-3">
-                    {/* Option 1 -- Link session only */}
                     <button
                         onClick={() => onLinkSession(matchedClient)}
                         className="w-full p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 hover:border-primary/40 transition-all text-left group"
@@ -251,7 +238,6 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                         </div>
                     </button>
 
-                    {/* Option 2 -- Full merge */}
                     <button
                         onClick={() => onMerge(matchedClient)}
                         className="w-full p-4 rounded-2xl border-2 border-green-500/20 bg-green-50/50 hover:bg-green-50 hover:border-green-500/40 transition-all text-left group"
@@ -269,7 +255,6 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                         </div>
                     </button>
 
-                    {/* Option 3 -- Keep separate */}
                     <button
                         onClick={() => onKeepSeparate()}
                         className="w-full p-3 rounded-2xl border-2 border-transparent hover:border-muted hover:bg-muted/20 transition-all text-left group"
@@ -324,7 +309,6 @@ function POSPage() {
     const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package'; id: string; itemId?: string } | null>(null);
     const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
 
-    // Top-level override dialog state -- lives here so it renders ABOVE the mobile Sheet
     const [isRecoveryOverrideOpen, setIsRecoveryOverrideOpen] = useState(false);
     const [pendingIdentityMatch, setPendingIdentityMatch] = useState<any | null>(null);
 
@@ -492,11 +476,33 @@ function POSPage() {
         const waitingQueue = [...walkIns].filter(w => w.status === 'waiting').sort((a, b) => (a.queueOrder || safeDate(a.checkInTime).getTime()) - (b.queueOrder || safeDate(b.checkInTime).getTime()));
         if (waitingQueue.length === 0) return;
         const nextGuest = waitingQueue[0];
-        const idleStaff = staff.filter(s => s.active && !s.onBreak && (s.status === 'idle' || !s.status));
+
+        // ── CHANGE 1: expanded idle filter ──
+        const idleStaff = staff.filter((s: any) =>
+            s.active &&
+            !s.onBreak &&
+            (s.status === 'idle' || s.status === 'available' || !s.status) &&
+            s.acceptingWalkIns !== false
+        );
         if (idleStaff.length === 0) return;
         const qualified = idleStaff.filter(s => nextGuest.serviceIds.every(sid => { const svc = services.find(ser => ser.id === sid); return !svc?.requiredSkills?.length || svc.requiredSkills.every(skill => (s.skillSet || []).includes(skill)); }));
         if (qualified.length === 0) return;
-        let selected = [...qualified].sort((a, b) => (assignmentMode === 'fair_play' ? (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0) : (a.turnOrder || 0) - (b.turnOrder || 0)))[0];
+
+        // ── CHANGE 2: improved sort using lastWalkInCompletedAt ──
+        let selected = [...qualified].sort((a: any, b: any) => {
+            if (assignmentMode === 'ordered_list') {
+                return (a.turnOrder || 999) - (b.turnOrder || 999);
+            }
+            // fair_play: use lastWalkInCompletedAt, fall back to lastServedTimestamp
+            const aTime = a.lastWalkInCompletedAt
+                ? new Date(a.lastWalkInCompletedAt).getTime()
+                : a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
+            const bTime = b.lastWalkInCompletedAt
+                ? new Date(b.lastWalkInCompletedAt).getTime()
+                : b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0;
+            return aTime - bTime;
+        })[0];
+
         handleAssignStaff(nextGuest, selected.id);
     }, [firestore, tenantId, walkIns, staff, services, assignmentMode, handleAssignStaff]);
 
@@ -592,7 +598,9 @@ function POSPage() {
             batch.update(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }));
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'completed' }));
             const involvedIds = new Set<string>(); if (apt.staffId) involvedIds.add(apt.staffId); if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
-            involvedIds.forEach(sid => { if (sid) batch.update(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }); });
+
+            // ── CHANGE 4: write available + lastWalkInCompletedAt on checkout ──
+            involvedIds.forEach(sid => { if (sid) batch.update(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now }); });
         }
 
         retailItems.forEach(item => { const productValue = item.price * item.quantity; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId })); batch.update(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }); batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore({ id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}` })); totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue; });
@@ -605,7 +613,6 @@ function POSPage() {
 
         if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
         
-        // Write service recovery transaction -- matched exactly to what the recovery ledger queries
         if (recoveryAmount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Service Recovery: ${recoveryReason}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
         if (paymentTab === 'cash' && activeTill) { const finalCashInput = totalCashIncrease + cashTipsTotal; batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate })); }
         try { await batch.commit(); toast({ title: "Checkout Successful" }); setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); }
@@ -651,7 +658,6 @@ function POSPage() {
         allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
         waivedAppointmentFees, onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); },
         tipAllocations, setTipAllocations, activeTill, staff, role,
-        // Pass the setter up so CheckoutHub can open the top-level dialog
         onRequestOverride: () => { setIsCartSheetOpen(false); setTimeout(() => setIsRecoveryOverrideOpen(true), 300); },
     };
 
@@ -683,7 +689,6 @@ function POSPage() {
 
             {isMobile && (<div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40"><Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}><SheetTrigger asChild><Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30">View Cart (${totalCalc.toFixed(2)})</Button></SheetTrigger><SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem] bg-background"><SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0"><SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle></SheetHeader><div className="flex-1 overflow-y-auto"><div className="p-6 pb-24"><CheckoutHub {...checkoutHubProps} /></div></div></SheetContent></Sheet></div>)}
 
-            {/* TOP-LEVEL DIALOGS -- render above Sheet and all other overlays */}
             <RecoveryOverrideDialog
                 open={isRecoveryOverrideOpen}
                 onOpenChange={setIsRecoveryOverrideOpen}
@@ -706,8 +711,13 @@ function POSPage() {
                 walkIn={pendingIdentityMatch}
                 matchedClient={pendingIdentityMatch?.matchedClient}
                 onLinkSession={async (matchedClient: any) => {
-                    // Link this session only -- write clientId to walk-in, no profile changes
                     if (!firestore || !tenantId || !pendingIdentityMatch) return;
+                    // ── CHANGE 3: guard against non-walk-in items ──
+                    if (pendingIdentityMatch.type !== 'walk-in') {
+                        toast({ title: 'Cannot link', description: 'Identity matching only applies to walk-in guests.' });
+                        setPendingIdentityMatch(null);
+                        return;
+                    }
                     updateDocumentNonBlocking(
                         doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id),
                         { clientId: matchedClient.id, customerName: matchedClient.name }
@@ -716,19 +726,13 @@ function POSPage() {
                     setPendingIdentityMatch(null);
                 }}
                 onMerge={async (matchedClient: any) => {
-                    // Full merge -- link session AND update client profile with any new contact info
                     if (!firestore || !tenantId || !pendingIdentityMatch) return;
                     const walkInPhone = pendingIdentityMatch.customerPhone || pendingIdentityMatch.phone || '';
                     const walkInEmail = pendingIdentityMatch.customerEmail || pendingIdentityMatch.email || '';
-                    const profileUpdates: any = { customerName: matchedClient.name };
-                    if (walkInPhone && walkInPhone !== matchedClient.phone) profileUpdates.phone = walkInPhone;
-                    if (walkInEmail && walkInEmail !== matchedClient.email) profileUpdates.email = walkInEmail;
-                    // Link walk-in to client
                     updateDocumentNonBlocking(
                         doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id),
                         { clientId: matchedClient.id, customerName: matchedClient.name }
                     );
-                    // Update client profile if new contact info detected
                     const clientUpdates: any = {};
                     if (walkInPhone && walkInPhone !== matchedClient.phone) clientUpdates.phone = walkInPhone;
                     if (walkInEmail && walkInEmail !== matchedClient.email) clientUpdates.email = walkInEmail;
@@ -742,7 +746,6 @@ function POSPage() {
                     setPendingIdentityMatch(null);
                 }}
                 onKeepSeparate={() => {
-                    // Dismiss -- treat as genuinely new/different guest
                     toast({ title: "Kept Separate", description: "Walk-in will be treated as a new guest." });
                     setPendingIdentityMatch(null);
                 }}
