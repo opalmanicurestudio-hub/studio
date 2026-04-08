@@ -2919,7 +2919,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const eventsQ         = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/events`), [firestore,tenantId,refreshKey]);
 
   const myRequestsQ     = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
-  const incomingSwapQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('swapWithStaffId','==',staffMember.id), where('status','==','pending_swap_consent')), [firestore,tenantId,staffMember?.id]);
+  // Single-field where only — filter status client-side to avoid composite index requirement
+  const incomingSwapQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('swapWithStaffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
   const pendingApprovalQ = useMemoFirebase(() => (!firestore||!tenantId||!isOwnerOrAdmin) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('status','==','swap_consent_given')), [firestore,tenantId,isOwnerOrAdmin]);
   const allStaffQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/staff`), [firestore,tenantId]);
   const servicesQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/services`), [firestore,tenantId]);
@@ -2937,7 +2938,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: staffBlocksRaw }                        = useCollection<any>(staffBlocksQ);
   const { data: allEventsRaw }                          = useCollection<any>(eventsQ);
   const { data: myRequests }                            = useCollection<any>(myRequestsQ);
-  const { data: incomingSwaps }                         = useCollection<any>(incomingSwapQ);
+  const { data: incomingSwapsRaw }                      = useCollection<any>(incomingSwapQ);
   const { data: pendingApprovals }                      = useCollection<any>(pendingApprovalQ);
   const { data: allStaff }                              = useCollection<any>(allStaffQ);
   const { data: services,     loading: svcsLoading }    = useCollection<any>(servicesQ);
@@ -2997,6 +2998,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   }, [myApptsRaw, myAddonAptsRaw, checkInMap, staffMember.id]);
 
   const isLoadingToday = apptsLoading || svcsLoading;
+
+  // Filter incomingSwaps client-side (single-field query avoids composite index)
+  const incomingSwaps = useMemo(() => (incomingSwapsRaw||[]).filter((r: any) => r.status === 'pending_swap_consent'), [incomingSwapsRaw]);
 
   // ── Derived state ──
   const todayShift = useMemo(() => {
