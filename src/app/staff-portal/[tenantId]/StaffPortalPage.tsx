@@ -21,9 +21,7 @@ import {
   AlertCircle, ChevronRight, Trash2, Loader,
   ChevronLeft, ChevronDown, ChevronUp, RefreshCw,
   User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert,
-  PlusCircle, Car, Users, Columns, PersonStanding,
-  Eye, EyeOff, UserCheck, Pause, Hash, PersonStandingIcon,
-  CalendarClock, Footprints, ListOrdered, UserPlus2,
+  PlusCircle, Car, Users,
 } from 'lucide-react';
 import {
   format, parseISO, startOfWeek, endOfWeek, addWeeks,
