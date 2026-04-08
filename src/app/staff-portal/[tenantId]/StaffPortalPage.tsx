@@ -1155,6 +1155,11 @@ function DayTimeline({
                  ──────────────────────────────────────────────────────────── */}
             {(allEvents || [])
               .filter((e: any) => {
+                // Only show if event is global (no staffIds) OR includes this staff member
+                const staffIds: string[] = e.staffIds || [];
+                const isGlobal = staffIds.length === 0;
+                const isForMe  = currentStaffId ? staffIds.includes(currentStaffId) : false;
+                if (!isGlobal && !isForMe) return false;
                 // Include if event covers selectedDate at all
                 const evS = safeDate(e.startTime || e.date || e.start);
                 const evE = e.endTime ? safeDate(e.endTime) : e.allDay ? addMinutes(evS, 1440) : addMinutes(evS, e.duration || 60);
@@ -1485,7 +1490,11 @@ if (!allStaff) return null;
 
               {/* ── Cross-column event banners — rendered over all columns ── */}
               {(allEvents || [])
-                .filter((e: any) => isSameDay(safeDate(e.startTime || e.date), selectedDate))
+                .filter((e: any) => {
+                  // Cross-column banner: only truly global events (no staffIds assigned)
+                  const staffIds: string[] = e.staffIds || [];
+                  return staffIds.length === 0 && isSameDay(safeDate(e.startTime || e.date), selectedDate);
+                })
                 .map((e: any) => {
                   const evStart  = safeDate(e.startTime || e.date);
                   const evEnd    = e.endTime ? safeDate(e.endTime) : addMinutes(evStart, e.duration || 60);
@@ -1567,9 +1576,14 @@ if (!allStaff) return null;
                       <div className="absolute left-0 right-0 h-[2px] bg-rose-500/60 z-20 pointer-events-none" style={{ top: timeToPx(now) }} />
                     )}
 
-                    {/* Event overlays for this column */}
+                    {/* Event overlays for this column — show if global OR assigned to this tech */}
                     {(allEvents || [])
-                      .filter((e: any) => isSameDay(safeDate(e.startTime || e.date), selectedDate))
+                      .filter((e: any) => {
+                        const staffIds: string[] = e.staffIds || [];
+                        const isGlobal  = staffIds.length === 0;
+                        const isForTech = staffIds.includes(tech.id);
+                        return (isGlobal || isForTech) && isSameDay(safeDate(e.startTime || e.date), selectedDate);
+                      })
                       .map((e: any) => {
                         const evStart = safeDate(e.startTime || e.date);
                         const evEnd   = e.endTime ? safeDate(e.endTime) : addMinutes(evStart, e.duration || 60);
