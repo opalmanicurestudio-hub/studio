@@ -2305,7 +2305,6 @@ function WalkInLeaderboard({
   const isAccepting = me?.acceptingWalkIns !== false;
   const myQueue = queue.filter((w: any) => w.staffId === currentStaffId);
   const totalActive = queue.length + inService.length;
-  if (totalActive === 0 && inService.length === 0 && queue.length === 0) return null;
 
   // ── Tech status helpers ──────────────────────────────────────
   const getTechStatus = (tech: any) => {
@@ -2316,6 +2315,7 @@ function WalkInLeaderboard({
     return { dot: 'bg-slate-400', label: 'Not Clocked In', priority: 3 };
   };
 
+  // ALL hooks must be before any early return — Rules of Hooks
   const onShiftToday = useMemo(() => {
     const ids = new Set((allShifts || []).filter((s: any) => s.date === todayStr && s.status !== 'cancelled').map((s: any) => s.staffId));
     return (allStaff || []).filter((t: any) => ids.has(t.id)).sort((a: any, b: any) => {
@@ -2328,6 +2328,9 @@ function WalkInLeaderboard({
       return 0;
     });
   }, [allStaff, allShifts, todayStr]);
+
+  // Early return AFTER all hooks
+  if (totalActive === 0 && inService.length === 0 && queue.length === 0) return null;
 
   return (
     <>
