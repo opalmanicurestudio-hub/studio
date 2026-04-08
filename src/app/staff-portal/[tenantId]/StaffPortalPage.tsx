@@ -22,7 +22,8 @@ import {
   ChevronLeft, ChevronDown, ChevronUp, RefreshCw,
   User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert,
   PlusCircle, Car, Users, Columns, PersonStanding,
-  Eye, EyeOff, UserCheck,
+  Eye, EyeOff, UserCheck, Pause, Hash, PersonStandingIcon,
+  CalendarClock, Footprints, ListOrdered, UserPlus2,
 } from 'lucide-react';
 import {
   format, parseISO, startOfWeek, endOfWeek, addWeeks,
@@ -907,7 +908,7 @@ function TechPeekSheet({ apt, tech, service, onClose }: any) {
 function DayTimeline({
   appointments, services, selectedDate, onAptTap,
   allStaffApts, allWalkIns, allStaff, allStaffBlocks,
-  currentStaffId,
+  allEvents, allShiftsForDay, currentStaffId, clockStatus,
 }: {
   appointments: any[]; services: any[]; selectedDate: Date;
   onAptTap: (apt: any) => void;
@@ -915,7 +916,10 @@ function DayTimeline({
   allWalkIns?: any[];      // all walk-ins for floor view
   allStaff?: any[];        // all staff members
   allStaffBlocks?: any[];  // sequential add-on blocks
+  allEvents?: any[];       // studio events and blocked time
+  allShiftsForDay?: any[]; // for capacity calculation
   currentStaffId?: string;
+  clockStatus?: any;       // for break block rendering
 }) {
   const scrollRef    = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(new Date());
@@ -1114,6 +1118,56 @@ function DayTimeline({
               </div>
             )}
 
+            {/* Event blocks — all-staff events as full-width banners */}
+            {(allEvents || [])
+              .filter((e: any) => isSameDay(safeDate(e.startTime || e.date), selectedDate))
+              .map((e: any) => {
+                const evStart = safeDate(e.startTime || e.date);
+                const evEnd   = e.endTime ? safeDate(e.endTime) : addMinutes(evStart, e.duration || 60);
+                const evDur   = differenceInMinutes(evEnd, evStart);
+                const evTop   = timeToPx(evStart);
+                const evH     = Math.max(24, evDur * PX_PER_MIN);
+                const isAllDay = e.allDay || evDur >= 1380;
+                const evColor = e.type === 'blocked'
+                  ? 'bg-slate-700/80 border-slate-600'
+                  : e.type === 'holiday'
+                    ? 'bg-rose-500/80 border-rose-600'
+                    : 'bg-indigo-500/80 border-indigo-600';
+                return (
+                  <div
+                    key={e.id}
+                    className={cn('absolute left-12 right-0 z-10 rounded-xl border flex items-center px-2 gap-1.5 overflow-hidden pointer-events-none', evColor)}
+                    style={{ top: evTop, height: isAllDay ? 20 : evH, opacity: 0.85 }}
+                  >
+                    <CalendarDays className="w-2.5 h-2.5 text-white shrink-0" />
+                    <p className="text-[7px] font-black uppercase text-white truncate">{e.title || e.name || 'Event'}</p>
+                    {!isAllDay && (
+                      <p className="text-[6px] font-bold text-white/70 uppercase shrink-0 ml-auto">
+                        {format(evStart, 'h:mm')}–{format(evEnd, 'h:mm')}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+
+            {/* Break block — amber hatched block while tech is on break */}
+            {clockStatus?.isOnBreak && clockStatus?.breakStartTime && isToday_ && (
+              <div
+                className="absolute left-14 right-2 z-25 rounded-2xl overflow-hidden pointer-events-none"
+                style={{
+                  top: timeToPx(clockStatus.breakStartTime),
+                  height: Math.max(40, differenceInMinutes(now, clockStatus.breakStartTime) * PX_PER_MIN),
+                }}
+              >
+                <div className="h-full w-full bg-amber-400/20 border-2 border-dashed border-amber-400 flex flex-col items-center justify-center gap-0.5">
+                  <Coffee className="w-3 h-3 text-amber-600 animate-pulse" />
+                  <p className="text-[7px] font-black uppercase text-amber-700 tracking-widest">
+                    On Break · {clockStatus.breakMinutes}m
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Appointment blocks — collision-aware side-by-side */}
             {myDayWithCols.map(apt => {
               const start      = safeDate(apt.startTime);
@@ -1139,10 +1193,14 @@ function DayTimeline({
               // Multi-staff indicators
               const concurrentIds = apt.checkoutState?.concurrentServiceIds || [];
               const overrideEntries = Object.entries(apt.checkoutState?.serviceStaffOverrides || {});
+              // Add-on techs: any override where the service is not the primary service
+              // Includes self-assigned add-ons (staffId === currentStaffId)
               const addOnTechs = overrideEntries
-                .filter(([svcId, staffId]: any) => svcId !== apt.serviceId && staffId !== apt._viewingStaffId)
-                .map(([, staffId]) => (allStaff || []).find((s: any) => s.id === staffId))
+                .filter(([svcId]: any) => svcId !== apt.serviceId)
+                .map(([, staffId]) => (allStaff || []).find((s: any) => s.id === staffId)
+                  || (staffId === currentStaffId ? { id: currentStaffId, name: 'You', _isSelf: true } : null))
                 .filter(Boolean);
+              const hasSelfAddOn  = addOnTechs.some((t: any) => t?.id === currentStaffId || t?._isSelf);
               const hasMultiStaff = addOnTechs.length > 0;
               const isConcurrent  = concurrentIds.length > 0;
 
@@ -1211,19 +1269,26 @@ function DayTimeline({
                       {/* Multi-staff badge */}
                       {hasMultiStaff && (
                         <div className={cn('flex items-center gap-1 ml-3 px-1.5 py-0.5 rounded-lg w-fit',
+                          hasSelfAddOn ? 'bg-teal-100 text-teal-700' :
                           isConcurrent ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700')}>
                           <Zap className="w-2.5 h-2.5 shrink-0" />
                           <span className="text-[7px] font-black uppercase tracking-widest">
-                            {isConcurrent ? 'Concurrent' : 'Sequential'} · {addOnTechs.length + 1} techs
+                            {hasSelfAddOn
+                              ? `Self · +Add-on`
+                              : isConcurrent
+                                ? `Concurrent · ${addOnTechs.length + 1} techs`
+                                : `Sequential · ${addOnTechs.length + 1} techs`}
                           </span>
-                          <div className="flex -space-x-1 ml-0.5">
-                            {addOnTechs.slice(0, 2).map((t: any) => (
-                              <Avatar key={t.id} className="h-3.5 w-3.5 border border-white rounded-full shrink-0">
-                                <AvatarImage src={t.avatarUrl} className="object-cover" />
-                                <AvatarFallback className="text-[5px] font-black">{t.name?.[0]}</AvatarFallback>
-                              </Avatar>
-                            ))}
-                          </div>
+                          {!hasSelfAddOn && (
+                            <div className="flex -space-x-1 ml-0.5">
+                              {addOnTechs.slice(0, 2).map((t: any) => (
+                                <Avatar key={t.id} className="h-3.5 w-3.5 border border-white rounded-full shrink-0">
+                                  <AvatarImage src={t.avatarUrl} className="object-cover" />
+                                  <AvatarFallback className="text-[5px] font-black">{t.name?.[0]}</AvatarFallback>
+                                </Avatar>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                       {/* Add-on tech badge */}
@@ -1290,10 +1355,52 @@ function DayTimeline({
                   <p className={cn('font-black uppercase truncate text-center', isMe ? 'text-[9px] text-primary' : 'text-[8px] text-slate-500')}>
                     {isMe ? `★ ${tech.name?.split(' ')[0]}` : tech.name?.split(' ')[0]}
                   </p>
+                  {/* On-break indicator in column header */}
+                  {isMe && clockStatus?.isOnBreak && (
+                    <span className="text-[6px] font-black uppercase bg-amber-400 text-amber-900 rounded px-1 animate-pulse">
+                      Break
+                    </span>
+                  )}
+                  {/* Tech status dot for other techs */}
+                  {!isMe && (() => {
+                    const techObj = (allStaff || []).find((s: any) => s.id === tech.id);
+                    const techStatus = techObj?.status;
+                    return techStatus ? (
+                      <div className={cn('w-1.5 h-1.5 rounded-full shrink-0',
+                        techStatus === 'busy'     ? 'bg-primary animate-pulse' :
+                        techStatus === 'on_break' ? 'bg-amber-400 animate-pulse' :
+                        techStatus === 'available'? 'bg-green-400' :
+                        techStatus === 'off'      ? 'bg-slate-300' : 'bg-slate-300',
+                      )} />
+                    ) : null;
+                  })()}
                 </div>
               ))}
             </div>
           </div>
+
+          {/* Floor at capacity banner */}
+          {(() => {
+if (!allStaff) return null;
+            const todayStr2 = format(selectedDate, 'yyyy-MM-dd');
+            const onShiftIds = (allShiftsForDay || [])
+              .filter((s: any) => s.date === todayStr2 && s.status !== 'cancelled' && s.status !== 'draft')
+              .map((s: any) => s.staffId);
+            if (onShiftIds.length === 0) return null;
+            const allBusy = onShiftIds.every((id: string) => {
+              const tech = (allStaff || []).find((s: any) => s.id === id);
+              return tech?.status === 'busy' || tech?.status === 'on_break';
+            });
+            if (!allBusy) return null;
+            return (
+              <div className="px-3 py-1.5 bg-rose-500 flex items-center justify-center gap-2 shrink-0">
+                <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse shrink-0" />
+                <p className="text-[9px] font-black uppercase text-white tracking-widest">
+                  Floor at Capacity — All Techs Busy
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Scrollable body */}
           <div
@@ -1305,7 +1412,48 @@ function DayTimeline({
               if (hdr) hdr.scrollLeft = (e.target as HTMLElement).scrollLeft;
             }}
           >
-            <div className="flex" style={{ height: TIMELINE_H }}>
+            <div className="relative flex" style={{ height: TIMELINE_H }}>
+
+              {/* ── Cross-column event banners — rendered over all columns ── */}
+              {(allEvents || [])
+                .filter((e: any) => isSameDay(safeDate(e.startTime || e.date), selectedDate))
+                .map((e: any) => {
+                  const evStart  = safeDate(e.startTime || e.date);
+                  const evEnd    = e.endTime ? safeDate(e.endTime) : addMinutes(evStart, e.duration || 60);
+                  const evDur    = differenceInMinutes(evEnd, evStart);
+                  const evTop    = timeToPx(evStart);
+                  const evH      = e.allDay ? 20 : Math.max(24, evDur * PX_PER_MIN);
+                  const evColor  = e.type === 'blocked'  ? 'bg-slate-800/75 border-slate-600' :
+                                   e.type === 'holiday'  ? 'bg-rose-500/75 border-rose-400'   :
+                                                           'bg-indigo-500/75 border-indigo-400';
+                  // left offset = time gutter + starts after gutter
+                  return (
+                    <div
+                      key={`ev-floor-${e.id}`}
+                      className={cn(
+                        'absolute z-40 flex items-center gap-1.5 px-2 overflow-hidden pointer-events-none border',
+                        evColor,
+                      )}
+                      style={{
+                        top: evTop,
+                        height: evH,
+                        left: FLOOR_TIME_GUTTER,
+                        right: 0,
+                        opacity: 0.88,
+                      }}
+                    >
+                      <CalendarDays className="w-2.5 h-2.5 text-white shrink-0" />
+                      <p className="text-[7px] font-black uppercase text-white truncate flex-1">
+                        {e.title || e.name || 'Event'}
+                      </p>
+                      {!e.allDay && (
+                        <p className="text-[6px] font-bold text-white/70 uppercase shrink-0">
+                          {format(evStart, 'h:mm')}–{format(evEnd, 'h:mm')}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
 
               {/* Fixed time gutter */}
               <div className="relative shrink-0" style={{ width: FLOOR_TIME_GUTTER, minWidth: FLOOR_TIME_GUTTER }}>
@@ -1348,6 +1496,48 @@ function DayTimeline({
                     {/* Now line */}
                     {isToday_ && (
                       <div className="absolute left-0 right-0 h-[2px] bg-rose-500/60 z-20 pointer-events-none" style={{ top: timeToPx(now) }} />
+                    )}
+
+                    {/* Event overlays for this column */}
+                    {(allEvents || [])
+                      .filter((e: any) => isSameDay(safeDate(e.startTime || e.date), selectedDate))
+                      .map((e: any) => {
+                        const evStart = safeDate(e.startTime || e.date);
+                        const evEnd   = e.endTime ? safeDate(e.endTime) : addMinutes(evStart, e.duration || 60);
+                        const evDur   = differenceInMinutes(evEnd, evStart);
+                        const evTop   = timeToPx(evStart);
+                        const evH     = Math.max(20, evDur * PX_PER_MIN);
+                        return (
+                          <div key={e.id}
+                            className="absolute left-0 right-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none bg-indigo-400/15 border-y border-indigo-300/40"
+                            style={{ top: evTop, height: e.allDay ? 16 : evH }}>
+                            {isMe && (
+                              <p className="text-[6px] font-black uppercase text-indigo-600 truncate px-1">
+                                {e.title || e.name || 'Event'}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                    {/* Break overlay for this tech's column */}
+                    {isMe && clockStatus?.isOnBreak && clockStatus?.breakStartTime && isToday_ && (
+                      <div
+                        className="absolute left-0 right-0 z-25 overflow-hidden pointer-events-none"
+                        style={{
+                          top: timeToPx(clockStatus.breakStartTime),
+                          height: Math.max(32, differenceInMinutes(now, clockStatus.breakStartTime) * PX_PER_MIN),
+                        }}
+                      >
+                        <div className="h-full w-full bg-amber-400/20 border-y-2 border-dashed border-amber-400 flex items-center justify-center gap-1">
+                          <Coffee className="w-2.5 h-2.5 text-amber-600 animate-pulse shrink-0" />
+                          <p className="text-[6px] font-black uppercase text-amber-700">Break</p>
+                        </div>
+                      </div>
+                    )}
+                    {/* Other tech on break — amber column tint */}
+                    {!isMe && tech.status === 'on_break' && (
+                      <div className="absolute inset-0 bg-amber-400/8 pointer-events-none z-5" />
                     )}
 
                     {/* Appointment / walk-in / block items */}
@@ -1553,6 +1743,8 @@ function DayTimeline({
             { color: 'bg-slate-200 border border-slate-300', label: 'Other techs' },
             { color: 'bg-teal-400', label: 'Walk-in' },
             { color: 'bg-purple-100 border border-dashed border-purple-300', label: 'Add-on block' },
+            { color: 'bg-amber-300/40 border border-dashed border-amber-400', label: 'On break' },
+            { color: 'bg-indigo-400/50', label: 'Event' },
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-1.5">
               <div className={cn('w-3 h-3 rounded shrink-0', color)} />
@@ -1822,15 +2014,23 @@ function PinEntry({ onSuccess, tenantId, firestore }: any) {
 }
 
 // ─── CLOCK BUTTON ─────────────────────────────────────────────────────────────
-function ClockButton({ staffMember, tenantId, firestore, clockStatus }: any) {
+// ─── STAFF STATUS BUTTON ─────────────────────────────────────────────────────
+// Handles: Clock In, Clock Out, Go on Break, End Break
+// Break time is tracked in activityLogs and subtracted from hours worked
+function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: any) {
   const [processing, setProcessing] = useState(false);
   const { toast } = useToast();
 
-  const handle = async () => {
+  // Determine current state from clockStatus
+  const isOnBreak = clockStatus.isOnBreak;
+  const isClockedIn = clockStatus.isClockedIn;
+
+  const handleClockInOut = async () => {
+    if (!isClockedIn && isOnBreak) return; // can't clock out while on break
     setProcessing(true);
     try {
-      const now   = new Date().toISOString();
-      const type  = clockStatus.isClockedIn ? 'clock_out' : 'clock_in';
+      const now  = new Date().toISOString();
+      const type = isClockedIn ? 'clock_out' : 'clock_in';
       const batch = writeBatch(firestore);
       const logRef = doc(collection(firestore, `tenants/${tenantId}/activityLogs`));
       batch.set(logRef, { id: logRef.id, staffId: staffMember.id, type, timestamp: now, createdAt: now });
@@ -1843,15 +2043,238 @@ function ClockButton({ staffMember, tenantId, firestore, clockStatus }: any) {
     finally { setProcessing(false); }
   };
 
+  const handleBreak = async () => {
+    setProcessing(true);
+    try {
+      const now  = new Date().toISOString();
+      const type = isOnBreak ? 'break_end' : 'break_start';
+      const batch = writeBatch(firestore);
+      const logRef = doc(collection(firestore, `tenants/${tenantId}/activityLogs`));
+      batch.set(logRef, { id: logRef.id, staffId: staffMember.id, type, timestamp: now, createdAt: now });
+      batch.set(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id),
+        { status: isOnBreak ? 'available' : 'on_break', ...(isOnBreak ? { lastBreakEnd: now } : { lastBreakStart: now }) },
+        { merge: true });
+      await batch.commit();
+      toast({ title: isOnBreak ? 'Break Ended ✓' : 'On Break ✓' });
+    } catch { toast({ variant: 'destructive', title: 'Failed.' }); }
+    finally { setProcessing(false); }
+  };
+
+  if (!isClockedIn) {
+    return (
+      <button onClick={handleClockInOut} disabled={processing}
+        className="flex items-center gap-1.5 h-8 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest transition-all active:scale-95 disabled:opacity-50 bg-green-500/20 border border-green-400/30 text-green-300 hover:bg-green-500/30">
+        {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><LogIn className="w-3 h-3" />Clock In</>}
+      </button>
+    );
+  }
+
   return (
-    <button onClick={handle} disabled={processing}
-      className={cn('flex items-center gap-1.5 h-8 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest transition-all active:scale-95 disabled:opacity-50',
-        clockStatus.isClockedIn
-          ? 'bg-rose-500/20 border border-rose-400/30 text-rose-300 hover:bg-rose-500/30'
-          : 'bg-green-500/20 border border-green-400/30 text-green-300 hover:bg-green-500/30')}>
-      {processing ? <Loader className="w-3 h-3 animate-spin" />
-        : clockStatus.isClockedIn ? <><LogOut className="w-3 h-3" />Out</> : <><LogIn className="w-3 h-3" />In</>}
-    </button>
+    <div className="flex items-center gap-1.5">
+      {/* Break toggle */}
+      <button onClick={handleBreak} disabled={processing}
+        className={cn('flex items-center gap-1 h-8 px-2.5 rounded-xl font-black uppercase text-[9px] tracking-widest transition-all active:scale-95 disabled:opacity-50',
+          isOnBreak
+            ? 'bg-amber-500/20 border border-amber-400/30 text-amber-300 hover:bg-amber-500/30 animate-pulse'
+            : 'bg-white/10 border border-white/10 text-white/50 hover:bg-white/20')}>
+        {processing ? <Loader className="w-3 h-3 animate-spin" /> : isOnBreak ? <><Coffee className="w-3 h-3" />End Break</> : <><Coffee className="w-3 h-3" />Break</>}
+      </button>
+      {/* Clock out */}
+      <button onClick={handleClockInOut} disabled={processing || isOnBreak}
+        className="flex items-center gap-1 h-8 px-2.5 rounded-xl font-black uppercase text-[9px] tracking-widest transition-all active:scale-95 disabled:opacity-50 bg-rose-500/20 border border-rose-400/30 text-rose-300 hover:bg-rose-500/30">
+        {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><LogOut className="w-3 h-3" />Out</>}
+      </button>
+    </div>
+  );
+}
+
+// Keep ClockButton as alias for backwards compat
+const ClockButton = StaffStatusButton;
+
+// ─── WALK-IN QUEUE PANEL ─────────────────────────────────────────────────────
+// Shows the full walk-in turn order, highlights the tech's assigned walk-ins,
+// and provides Accept / Pass actions. Position = checkInTime sort order.
+function WalkInQueuePanel({ allWalkIns, allStaff, services, tenantId, firestore, currentStaffId, onStartService }: any) {
+  const { toast } = useToast();
+  const [processing, setProcessing] = useState<string | null>(null);
+
+  // Sort by checkInTime — position in queue = index + 1
+  const queue = useMemo(() => {
+    return (allWalkIns || [])
+      .filter((w: any) => ['waiting', 'notified'].includes(w.status))
+      .sort((a: any, b: any) => safeDate(a.checkInTime).getTime() - safeDate(b.checkInTime).getTime());
+  }, [allWalkIns]);
+
+  const myAssigned = queue.filter((w: any) => w.staffId === currentStaffId);
+  const totalWaiting = queue.length;
+
+  if (totalWaiting === 0) return null;
+
+  const acceptWalkIn = async (walkIn: any) => {
+    if (!firestore || !tenantId) return;
+    setProcessing(walkIn.id);
+    try {
+      const now = new Date().toISOString();
+      const batch = writeBatch(firestore);
+      // Update walk-in status
+      batch.update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), {
+        status: 'in_service', serviceStartTime: now,
+      });
+      // Update linked appointment if exists
+      if (walkIn.appointmentId) {
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, walkIn.appointmentId), {
+          status: 'servicing', actualStartTime: now,
+        });
+      }
+      // Update tech status
+      batch.set(doc(firestore, `tenants/${tenantId}/staff`, currentStaffId),
+        { status: 'busy' }, { merge: true });
+      await batch.commit();
+      toast({ title: 'Service Started ✓', description: `${walkIn.customerName || walkIn.clientName || 'Guest'} seated.` });
+      if (onStartService) onStartService(walkIn);
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to start service.' });
+    } finally { setProcessing(null); }
+  };
+
+  const passWalkIn = async (walkIn: any) => {
+    if (!firestore || !tenantId) return;
+    setProcessing(`pass-${walkIn.id}`);
+    try {
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), {
+        status: 'waiting', staffId: null, notifiedAt: null,
+      });
+      await batch.commit();
+      toast({ title: 'Passed ✓', description: 'Walk-in returned to queue.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed.' });
+    } finally { setProcessing(null); }
+  };
+
+  return (
+    <div className="rounded-[2rem] border-2 border-slate-100 bg-white overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-white">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-xl bg-teal-500 flex items-center justify-center shrink-0">
+            <Users className="w-3.5 h-3.5 text-white" />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">
+              Walk-in Queue
+            </p>
+            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+              {totalWaiting} waiting{myAssigned.length > 0 ? ` · ${myAssigned.length} assigned to you` : ''}
+            </p>
+          </div>
+        </div>
+        {myAssigned.length > 0 && (
+          <span className="text-[8px] font-black uppercase bg-teal-500 text-white rounded-xl px-2 py-1 animate-pulse">
+            Your Turn
+          </span>
+        )}
+      </div>
+
+      {/* Queue list */}
+      <div className="divide-y divide-slate-50">
+        {queue.map((walkIn: any, idx: number) => {
+          const isMe = walkIn.staffId === currentStaffId;
+          const isNotified = walkIn.status === 'notified';
+          const assignedTech = walkIn.staffId
+            ? (allStaff || []).find((s: any) => s.id === walkIn.staffId)
+            : null;
+          const svcName = walkIn.serviceId
+            ? (services || []).find((s: any) => s.id === walkIn.serviceId)?.name
+            : walkIn.serviceIds?.[0]
+              ? (services || []).find((s: any) => s.id === walkIn.serviceIds[0])?.name
+              : null;
+          const waitMins = differenceInMinutes(new Date(), safeDate(walkIn.checkInTime));
+
+          return (
+            <div
+              key={walkIn.id}
+              className={cn(
+                'px-4 py-3 transition-all',
+                isMe ? 'bg-teal-50 border-l-4 border-teal-500' : 'bg-white',
+              )}
+            >
+              <div className="flex items-center gap-3">
+                {/* Position bubble */}
+                <div className={cn(
+                  'w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-black text-sm',
+                  isMe ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500',
+                )}>
+                  {idx + 1}
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className={cn('font-black uppercase text-[11px] truncate',
+                      isMe ? 'text-teal-800' : 'text-slate-700')}>
+                      {walkIn.customerName || walkIn.clientName || 'Guest'}
+                    </p>
+                    {isMe && (
+                      <span className="text-[7px] font-black uppercase bg-teal-500 text-white rounded px-1.5 py-0.5 shrink-0">
+                        YOU
+                      </span>
+                    )}
+                    {isNotified && (
+                      <span className="text-[7px] font-black uppercase bg-blue-500 text-white rounded px-1.5 py-0.5 shrink-0 animate-pulse">
+                        Notified
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {svcName && (
+                      <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-70 truncate">
+                        {svcName}
+                      </p>
+                    )}
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-50">
+                      {waitMins < 60 ? `${waitMins}m wait` : `${Math.floor(waitMins/60)}h ${waitMins%60}m wait`}
+                    </p>
+                    {assignedTech && !isMe && (
+                      <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-50">
+                        → {assignedTech.name?.split(' ')[0]}
+                      </p>
+                    )}
+                    {!walkIn.staffId && (
+                      <p className="text-[8px] font-bold text-amber-600 uppercase">Unassigned</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Actions — only for your assigned walk-ins */}
+                {isMe && (
+                  <div className="flex flex-col gap-1.5 shrink-0">
+                    <button
+                      onClick={() => acceptWalkIn(walkIn)}
+                      disabled={!!processing}
+                      className="h-8 px-3 rounded-xl bg-teal-500 text-white font-black uppercase text-[8px] tracking-widest flex items-center gap-1 active:scale-95 transition-all disabled:opacity-50 shadow-sm shadow-teal-500/30"
+                    >
+                      {processing === walkIn.id
+                        ? <Loader className="w-3 h-3 animate-spin" />
+                        : <><Play className="w-2.5 h-2.5" />Accept</>}
+                    </button>
+                    <button
+                      onClick={() => passWalkIn(walkIn)}
+                      disabled={!!processing}
+                      className="h-7 px-3 rounded-xl border-2 border-slate-200 text-slate-400 font-black uppercase text-[7px] tracking-widest flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      {processing === `pass-${walkIn.id}`
+                        ? <Loader className="w-2.5 h-2.5 animate-spin" />
+                        : 'Pass'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -2122,6 +2545,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const allWalkInsQ     = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore,`tenants/${tenantId}/walkIns`), where('status','in',['waiting','notified','in_service'])), [firestore,tenantId,refreshKey]);
   // Staff blocks (sequential add-on time holds)
   const staffBlocksQ    = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/staffBlocks`), [firestore,tenantId,refreshKey]);
+  // Events (studio-wide blocked time, staff meetings, etc.)
+  const eventsQ         = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/events`), [firestore,tenantId,refreshKey]);
 
   const myRequestsQ     = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
   const incomingSwapQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('swapWithStaffId','==',staffMember.id), where('status','==','pending_swap_consent')), [firestore,tenantId,staffMember?.id]);
@@ -2140,6 +2565,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: allTodayApptsRaw }                      = useCollection<any>(allTodayApptsQ);
   const { data: allWalkInsRaw }                         = useCollection<any>(allWalkInsQ);
   const { data: staffBlocksRaw }                        = useCollection<any>(staffBlocksQ);
+  const { data: allEventsRaw }                          = useCollection<any>(eventsQ);
   const { data: myRequests }                            = useCollection<any>(myRequestsQ);
   const { data: incomingSwaps }                         = useCollection<any>(incomingSwapQ);
   const { data: pendingApprovals }                      = useCollection<any>(pendingApprovalQ);
@@ -2155,6 +2581,29 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     (checkInsRaw || []).forEach((ci: any) => { if (ci.checkInToken) map.set(ci.checkInToken, ci); });
     return map;
   }, [checkInsRaw]);
+
+  // Notify tech when a walk-in is newly assigned to them
+  const prevMyWalkIns = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!allWalkInsRaw || !staffMember?.id || !firestore || !tenantId) return;
+    const myNotified = (allWalkInsRaw as any[]).filter(
+      (w: any) => w.staffId === staffMember.id && w.status === 'notified'
+    );
+    const newOnes = myNotified.filter((w: any) => !prevMyWalkIns.current.has(w.id));
+    newOnes.forEach(async (w: any) => {
+      // Write notification to inbox
+      try {
+        const svcName = (w.serviceIds || []).join(', ') || 'service';
+        const n = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+        await writeBatch(firestore).set(n, {
+          id: n.id, userId: staffMember.id, read: false,
+          createdAt: new Date().toISOString(), type: 'walk_in_assigned', link: 'today',
+          message: `Walk-in assigned: ${w.customerName || w.clientName || 'Guest'} · ready for you now.`,
+        }).commit();
+      } catch {}
+    });
+    prevMyWalkIns.current = new Set(myNotified.map((w: any) => w.id));
+  }, [allWalkInsRaw, staffMember?.id]);
 
   // Merge primary + add-on appointments, deduplicating by id.
   // Also merges live checkInStatus from the appointmentCheckIns collection.
@@ -2187,15 +2636,40 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   }, [myShiftsRaw]);
 
   const clockStatus = useMemo(() => {
-    if (!activityLogs) return { isClockedIn: false, minutesWorked: 0 };
-    const logs = activityLogs.filter((l: any) => isSameDay(safeDate(l.timestamp), today)).sort((a: any, b: any) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
-    let isClockedIn = false, clockInTime: Date | null = null, total = 0;
+    if (!activityLogs) return { isClockedIn: false, isOnBreak: false, minutesWorked: 0, breakMinutes: 0, breakStartTime: null as Date | null };
+    const logs = activityLogs
+      .filter((l: any) => isSameDay(safeDate(l.timestamp), today))
+      .sort((a: any, b: any) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
+
+    let isClockedIn = false, clockInTime: Date | null = null;
+    let isOnBreak = false, breakStartTime: Date | null = null;
+    let totalWorked = 0, totalBreak = 0;
+
     for (const l of logs) {
-      if (l.type === 'clock_in') { isClockedIn = true; clockInTime = safeDate(l.timestamp); }
-      else if (l.type === 'clock_out' && clockInTime) { total += differenceInMinutes(safeDate(l.timestamp), clockInTime); isClockedIn = false; clockInTime = null; }
+      const ts = safeDate(l.timestamp);
+      if      (l.type === 'clock_in')    { isClockedIn = true;  clockInTime = ts; }
+      else if (l.type === 'clock_out' && clockInTime) {
+        totalWorked += differenceInMinutes(ts, clockInTime);
+        isClockedIn = false; clockInTime = null;
+      }
+      else if (l.type === 'break_start') { isOnBreak = true;  breakStartTime = ts; }
+      else if (l.type === 'break_end' && breakStartTime) {
+        totalBreak += differenceInMinutes(ts, breakStartTime);
+        isOnBreak = false; breakStartTime = null;
+      }
     }
-    if (isClockedIn && clockInTime) total += differenceInMinutes(new Date(), clockInTime);
-    return { isClockedIn, minutesWorked: total };
+    // Add current open clock-in period
+    if (isClockedIn && clockInTime) totalWorked += differenceInMinutes(new Date(), clockInTime);
+    // Add current open break period
+    if (isOnBreak && breakStartTime) totalBreak += differenceInMinutes(new Date(), breakStartTime);
+
+    return {
+      isClockedIn,
+      isOnBreak,
+      breakStartTime,
+      minutesWorked: Math.max(0, totalWorked - totalBreak), // net of breaks
+      breakMinutes: totalBreak,
+    };
   }, [activityLogs]);
 
   const weekEarnings = useMemo(() => {
@@ -2370,10 +2844,18 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           </div>
         </div>
         <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10">
-          <div className={cn('w-2.5 h-2.5 rounded-full shrink-0', clockStatus.isClockedIn ? 'bg-green-400 animate-pulse' : 'bg-white/20')} />
+          <div className={cn('w-2.5 h-2.5 rounded-full shrink-0',
+            clockStatus.isOnBreak ? 'bg-amber-400 animate-pulse' :
+            clockStatus.isClockedIn ? 'bg-green-400 animate-pulse' : 'bg-white/20')} />
           <div className="flex-1 min-w-0">
             <p className="text-[9px] font-black uppercase text-white/40">Status</p>
-            <p className="font-black text-white text-sm">{clockStatus.isClockedIn ? `Clocked In · ${Math.floor(clockStatus.minutesWorked/60)}h ${clockStatus.minutesWorked%60}m` : 'Not Clocked In'}</p>
+            <p className="font-black text-white text-sm">
+              {clockStatus.isOnBreak
+                ? `On Break · ${clockStatus.breakMinutes}m`
+                : clockStatus.isClockedIn
+                  ? `Clocked In · ${Math.floor(clockStatus.minutesWorked/60)}h ${clockStatus.minutesWorked%60}m`
+                  : 'Not Clocked In'}
+            </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {todayShift && <div className="text-right"><p className="text-[9px] font-black uppercase text-white/40">Shift</p><p className="font-black text-primary text-sm">{fmt12(todayShift.startTime)} – {fmt12(todayShift.endTime)}</p></div>}
@@ -2412,6 +2894,16 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
                 <NextBanner appointments={allMyApts} services={services} />
+                {isSameDay(selectedDate, today) && (
+                  <WalkInQueuePanel
+                    allWalkIns={allWalkInsRaw || []}
+                    allStaff={allStaff || []}
+                    services={services || []}
+                    tenantId={tenantId}
+                    firestore={firestore}
+                    currentStaffId={staffMember?.id}
+                  />
+                )}
                 <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />
                 <DayTimeline
                   appointments={allMyApts}
@@ -2422,7 +2914,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   allWalkIns={allWalkInsRaw || []}
                   allStaff={allStaff || []}
                   allStaffBlocks={staffBlocksRaw || []}
+                  allEvents={allEventsRaw || []}
+                  allShiftsForDay={allShiftsRaw || []}
                   currentStaffId={staffMember?.id}
+                  clockStatus={clockStatus}
                 />
                 {isSameDay(selectedDate,today) && (
                   <div className="space-y-3">
@@ -2545,7 +3040,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   allWalkIns={allWalkInsRaw || []}
                   allStaff={allStaff || []}
                   allStaffBlocks={staffBlocksRaw || []}
+                  allEvents={allEventsRaw || []}
+                  allShiftsForDay={allShiftsRaw || []}
                   currentStaffId={staffMember?.id}
+                  clockStatus={clockStatus}
                 />
               </div>
             )
