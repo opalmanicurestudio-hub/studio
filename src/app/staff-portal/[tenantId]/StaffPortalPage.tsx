@@ -1118,34 +1118,79 @@ function DayTimeline({
               </div>
             )}
 
-            {/* Event blocks — all-staff events as full-width banners */}
+            {/* ── EVENT BLOCKS ──────────────────────────────────────────
+                 Logic:
+                 1. allDay flag OR duration ≥ 1 full day (1440m)
+                    → full-height background wash behind all blocks (z-5)
+                    → no top/height positioning needed — fills entire column
+                 2. Multi-day event spanning today
+                    → starts at midnight (top=0) if event started before today
+                    → ends at midnight (bottom=TIMELINE_H) if event ends after today
+                 3. Timed single-day event
+                    → precise top/height from actual startTime → endTime
+                 ──────────────────────────────────────────────────────────── */}
             {(allEvents || [])
-              .filter((e: any) => isSameDay(safeDate(e.startTime || e.date), selectedDate))
+              .filter((e: any) => {
+                // Include if event covers selectedDate at all
+                const evS = safeDate(e.startTime || e.date || e.start);
+                const evE = e.endTime ? safeDate(e.endTime) : e.allDay ? addMinutes(evS, 1440) : addMinutes(evS, e.duration || 60);
+                const dayStart = startOfDay(selectedDate);
+                const dayEnd   = addMinutes(dayStart, 1440);
+                return evS < dayEnd && evE > dayStart;
+              })
               .map((e: any) => {
-                const evStart = safeDate(e.startTime || e.date);
-                const evEnd   = e.endTime ? safeDate(e.endTime) : addMinutes(evStart, e.duration || 60);
-                const evDur   = differenceInMinutes(evEnd, evStart);
-                const evTop   = timeToPx(evStart);
-                const evH     = Math.max(24, evDur * PX_PER_MIN);
-                const isAllDay = e.allDay || evDur >= 1380;
-                const evColor = e.type === 'blocked'
-                  ? 'bg-slate-700/80 border-slate-600'
-                  : e.type === 'holiday'
-                    ? 'bg-rose-500/80 border-rose-600'
-                    : 'bg-indigo-500/80 border-indigo-600';
+                const evS    = safeDate(e.startTime || e.date || e.start);
+                const evE    = e.endTime ? safeDate(e.endTime) : e.allDay ? addMinutes(evS, 1440) : addMinutes(evS, e.duration || 60);
+                const dayStart = startOfDay(selectedDate);
+                const dayEnd   = addMinutes(dayStart, 1440);
+
+                // Is this an all-day or multi-day event?
+                const spansDays = differenceInMinutes(evE, evS) >= 1440 || e.allDay;
+
+                // Clamp to today's visible window
+                const clampedStart = evS < dayStart ? dayStart : evS;
+                const clampedEnd   = evE > dayEnd   ? dayEnd   : evE;
+                const evTop  = spansDays ? 0 : timeToPx(clampedStart);
+                const evH    = spansDays ? TIMELINE_H : Math.max(28, differenceInMinutes(clampedEnd, clampedStart) * PX_PER_MIN);
+
+                // Colour by event type
+                const evBg = e.type === 'blocked'  ? 'bg-slate-800/10 border-slate-400/30' :
+                             e.type === 'holiday'  ? 'bg-rose-500/10 border-rose-400/30' :
+                             e.type === 'training' ? 'bg-amber-500/10 border-amber-400/30' :
+                                                     'bg-indigo-500/10 border-indigo-400/30';
+                const evText = e.type === 'blocked'  ? 'text-slate-600' :
+                               e.type === 'holiday'  ? 'text-rose-600' :
+                               e.type === 'training' ? 'text-amber-700' :
+                                                       'text-indigo-600';
+
                 return (
                   <div
                     key={e.id}
-                    className={cn('absolute left-12 right-0 z-10 rounded-xl border flex items-center px-2 gap-1.5 overflow-hidden pointer-events-none', evColor)}
-                    style={{ top: evTop, height: isAllDay ? 20 : evH, opacity: 0.85 }}
-                  >
-                    <CalendarDays className="w-2.5 h-2.5 text-white shrink-0" />
-                    <p className="text-[7px] font-black uppercase text-white truncate">{e.title || e.name || 'Event'}</p>
-                    {!isAllDay && (
-                      <p className="text-[6px] font-bold text-white/70 uppercase shrink-0 ml-auto">
-                        {format(evStart, 'h:mm')}–{format(evEnd, 'h:mm')}
-                      </p>
+                    className={cn(
+                      'absolute left-12 right-0 pointer-events-none overflow-hidden',
+                      spansDays
+                        ? `${evBg} border-l-4 z-5`           // all-day: full wash, left accent
+                        : `${evBg} border-2 rounded-xl z-10`, // timed: precise block
                     )}
+                    style={{ top: evTop, height: evH }}
+                  >
+                    {/* Label — pinned to top-left so it's always visible */}
+                    <div className="sticky top-0 flex items-center gap-1.5 px-2 py-1">
+                      <CalendarDays className={cn('w-2.5 h-2.5 shrink-0', evText)} />
+                      <p className={cn('text-[7px] font-black uppercase truncate', evText)}>
+                        {e.title || e.name || 'Event'}
+                        {spansDays && !e.allDay && (
+                          <span className="opacity-60 ml-1 normal-case font-bold">
+                            {format(evS, 'MMM d')}–{format(evE, 'MMM d')}
+                          </span>
+                        )}
+                      </p>
+                      {!spansDays && (
+                        <p className={cn('text-[6px] font-bold uppercase shrink-0 ml-auto opacity-70', evText)}>
+                          {format(clampedStart, 'h:mm')}–{format(clampedEnd, 'h:mm a')}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -2094,187 +2139,514 @@ const ClockButton = StaffStatusButton;
 // ─── WALK-IN QUEUE PANEL ─────────────────────────────────────────────────────
 // Shows the full walk-in turn order, highlights the tech's assigned walk-ins,
 // and provides Accept / Pass actions. Position = checkInTime sort order.
-function WalkInQueuePanel({ allWalkIns, allStaff, services, tenantId, firestore, currentStaffId, onStartService }: any) {
-  const { toast } = useToast();
-  const [processing, setProcessing] = useState<string | null>(null);
+// ─── WALK-IN LEADERBOARD ─────────────────────────────────────────────────────
+// Two views:
+//   ALL TECHS  — every tech on shift, their current status, accepting toggle
+//   WALK-IN QUEUE — full guest lineup with positions, est. wait, actions
 
-  // Sort by checkInTime — position in queue = index + 1
+const CANCEL_REASONS = [
+  'Client left', 'Wait too long', 'Changed mind',
+  'Wrong service', 'Price concern', 'Other',
+];
+
+function WalkInLeaderboard({
+  allWalkIns, allStaff, allShifts, services,
+  tenantId, firestore, currentStaffId, activityLogs,
+}: any) {
+  const { toast } = useToast();
+  const [view, setView]             = useState<'floor' | 'queue'>('queue');
+  const [processing, setProcessing] = useState<string | null>(null);
+  const [actionSheet, setActionSheet] = useState<{ walkIn: any; type: 'cancel' | 'noshow' | 'skip' } | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+  const today = new Date();
+  const todayStr = format(today, 'yyyy-MM-dd');
+
+  // ── Queue: waiting + notified + arrived, sorted by checkInTime ──
   const queue = useMemo(() => {
     return (allWalkIns || [])
-      .filter((w: any) => ['waiting', 'notified'].includes(w.status))
+      .filter((w: any) => ['waiting', 'notified', 'arrived'].includes(w.status))
       .sort((a: any, b: any) => safeDate(a.checkInTime).getTime() - safeDate(b.checkInTime).getTime());
   }, [allWalkIns]);
 
-  const myAssigned = queue.filter((w: any) => w.staffId === currentStaffId);
-  const totalWaiting = queue.length;
+  // In-service walk-ins
+  const inService = useMemo(() => {
+    return (allWalkIns || []).filter((w: any) => w.status === 'in_service');
+  }, [allWalkIns]);
 
-  if (totalWaiting === 0) return null;
+  // Avg service duration for wait estimate
+  const avgSvcMins = useMemo(() => {
+    const durations = (allWalkIns || [])
+      .filter((w: any) => w.status === 'in_service' && w.serviceStartTime)
+      .map((w: any) => {
+        const svc = w.serviceId
+          ? (services || []).find((s: any) => s.id === w.serviceId)
+          : (services || []).find((s: any) => (w.serviceIds || []).includes(s.id));
+        return svc?.duration || 30;
+      });
+    return durations.length ? durations.reduce((a: number, b: number) => a + b, 0) / durations.length : 30;
+  }, [allWalkIns, services]);
 
-  const acceptWalkIn = async (walkIn: any) => {
-    if (!firestore || !tenantId) return;
+  // Turn order: techs accepting walk-ins, sorted by lastWalkInCompletedAt asc
+  const turnOrder = useMemo(() => {
+    const onShift = (allShifts || [])
+      .filter((s: any) => s.date === todayStr && s.status !== 'cancelled')
+      .map((s: any) => s.staffId);
+    return (allStaff || [])
+      .filter((t: any) => onShift.includes(t.id) && t.acceptingWalkIns !== false)
+      .sort((a: any, b: any) => {
+        const aLast = a.lastWalkInCompletedAt ? safeDate(a.lastWalkInCompletedAt).getTime() : 0;
+        const bLast = b.lastWalkInCompletedAt ? safeDate(b.lastWalkInCompletedAt).getTime() : 0;
+        return aLast - bLast;
+      });
+  }, [allStaff, allShifts, todayStr]);
+
+  // ── Actions ──────────────────────────────────────────────────
+  const startService = async (walkIn: any) => {
+    if (!firestore || !tenantId || !currentStaffId) return;
     setProcessing(walkIn.id);
     try {
       const now = new Date().toISOString();
       const batch = writeBatch(firestore);
-      // Update walk-in status
       batch.update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), {
         status: 'in_service', serviceStartTime: now,
       });
-      // Update linked appointment if exists
       if (walkIn.appointmentId) {
         batch.update(doc(firestore, `tenants/${tenantId}/appointments`, walkIn.appointmentId), {
           status: 'servicing', actualStartTime: now,
         });
       }
-      // Update tech status
       batch.set(doc(firestore, `tenants/${tenantId}/staff`, currentStaffId),
-        { status: 'busy' }, { merge: true });
+        { status: 'busy', lastWalkInStartedAt: now }, { merge: true });
       await batch.commit();
-      toast({ title: 'Service Started ✓', description: `${walkIn.customerName || walkIn.clientName || 'Guest'} seated.` });
-      if (onStartService) onStartService(walkIn);
-    } catch {
-      toast({ variant: 'destructive', title: 'Failed to start service.' });
-    } finally { setProcessing(null); }
+      toast({ title: 'Service Started ✓' });
+    } catch { toast({ variant: 'destructive', title: 'Failed.' }); }
+    finally { setProcessing(null); }
   };
 
   const passWalkIn = async (walkIn: any) => {
     if (!firestore || !tenantId) return;
     setProcessing(`pass-${walkIn.id}`);
     try {
-      const batch = writeBatch(firestore);
-      batch.update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), {
-        status: 'waiting', staffId: null, notifiedAt: null,
-      });
-      await batch.commit();
-      toast({ title: 'Passed ✓', description: 'Walk-in returned to queue.' });
-    } catch {
-      toast({ variant: 'destructive', title: 'Failed.' });
-    } finally { setProcessing(null); }
+      await writeBatch(firestore)
+        .update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), {
+          status: 'waiting', staffId: null, notifiedAt: null,
+        })
+        .commit();
+      toast({ title: 'Passed — back to queue' });
+    } catch { toast({ variant: 'destructive', title: 'Failed.' }); }
+    finally { setProcessing(null); }
   };
 
+  const confirmAction = async () => {
+    if (!actionSheet || !firestore || !tenantId) return;
+    const { walkIn, type } = actionSheet;
+    const reason = cancelReason === 'Other' ? customReason.trim() : cancelReason;
+    setProcessing(`action-${walkIn.id}`);
+    try {
+      const now = new Date().toISOString();
+      const batch = writeBatch(firestore);
+      const newStatus = type === 'noshow' ? 'no_show' : type === 'skip' ? 'waiting' : 'cancelled';
+      const update: any = { status: newStatus, updatedAt: now };
+      if (type === 'cancel') { update.cancellationReason = reason || 'No reason'; update.cancelledAt = now; }
+      if (type === 'skip')   { update.staffId = null; update.notifiedAt = null; }
+      batch.update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), update);
+      if (walkIn.appointmentId && (type === 'cancel' || type === 'noshow')) {
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, walkIn.appointmentId), {
+          status: type === 'noshow' ? 'no_show' : 'cancelled',
+          ...(type === 'cancel' ? { cancellationReason: reason } : {}),
+        });
+      }
+      await batch.commit();
+      toast({ title: type === 'noshow' ? 'Marked No Show' : type === 'skip' ? 'Skipped — back to queue' : 'Walk-in Cancelled' });
+      setActionSheet(null); setCancelReason(''); setCustomReason('');
+    } catch { toast({ variant: 'destructive', title: 'Failed.' }); }
+    finally { setProcessing(null); }
+  };
+
+  const toggleAccepting = async () => {
+    if (!firestore || !tenantId || !currentStaffId) return;
+    const me = (allStaff || []).find((s: any) => s.id === currentStaffId);
+    const next = me?.acceptingWalkIns === false ? true : false;
+    try {
+      await writeBatch(firestore)
+        .set(doc(firestore, `tenants/${tenantId}/staff`, currentStaffId),
+          { acceptingWalkIns: next }, { merge: true })
+        .commit();
+      toast({ title: next ? 'Now accepting walk-ins ✓' : 'Walk-ins paused' });
+    } catch {}
+  };
+
+  const me = (allStaff || []).find((s: any) => s.id === currentStaffId);
+  const isAccepting = me?.acceptingWalkIns !== false;
+  const myQueue = queue.filter((w: any) => w.staffId === currentStaffId);
+  const totalActive = queue.length + inService.length;
+  if (totalActive === 0 && inService.length === 0 && queue.length === 0) return null;
+
+  // ── Tech status helpers ──────────────────────────────────────
+  const getTechStatus = (tech: any) => {
+    const st = tech.status || 'off';
+    if (st === 'busy')     return { dot: 'bg-blue-500',  label: 'In Service', priority: 0 };
+    if (st === 'on_break') return { dot: 'bg-amber-400 animate-pulse', label: 'On Break', priority: 1 };
+    if (st === 'available' || st === 'idle') return { dot: 'bg-green-500', label: 'Available', priority: 2 };
+    return { dot: 'bg-slate-400', label: 'Not Clocked In', priority: 3 };
+  };
+
+  const onShiftToday = useMemo(() => {
+    const ids = new Set((allShifts || []).filter((s: any) => s.date === todayStr && s.status !== 'cancelled').map((s: any) => s.staffId));
+    return (allStaff || []).filter((t: any) => ids.has(t.id)).sort((a: any, b: any) => {
+      const as_ = getTechStatus(a).priority;
+      const bs_ = getTechStatus(b).priority;
+      if (as_ !== bs_) return as_ - bs_;
+      // My entry first
+      if (a.id === currentStaffId) return -1;
+      if (b.id === currentStaffId) return 1;
+      return 0;
+    });
+  }, [allStaff, allShifts, todayStr]);
+
   return (
-    <div className="rounded-[2rem] border-2 border-slate-100 bg-white overflow-hidden">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-white">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-xl bg-teal-500 flex items-center justify-center shrink-0">
-            <Users className="w-3.5 h-3.5 text-white" />
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">
-              Walk-in Queue
-            </p>
-            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
-              {totalWaiting} waiting{myAssigned.length > 0 ? ` · ${myAssigned.length} assigned to you` : ''}
-            </p>
-          </div>
-        </div>
-        {myAssigned.length > 0 && (
-          <span className="text-[8px] font-black uppercase bg-teal-500 text-white rounded-xl px-2 py-1 animate-pulse">
-            Your Turn
-          </span>
-        )}
-      </div>
-
-      {/* Queue list */}
-      <div className="divide-y divide-slate-50">
-        {queue.map((walkIn: any, idx: number) => {
-          const isMe = walkIn.staffId === currentStaffId;
-          const isNotified = walkIn.status === 'notified';
-          const assignedTech = walkIn.staffId
-            ? (allStaff || []).find((s: any) => s.id === walkIn.staffId)
-            : null;
-          const svcName = walkIn.serviceId
-            ? (services || []).find((s: any) => s.id === walkIn.serviceId)?.name
-            : walkIn.serviceIds?.[0]
-              ? (services || []).find((s: any) => s.id === walkIn.serviceIds[0])?.name
-              : null;
-          const waitMins = differenceInMinutes(new Date(), safeDate(walkIn.checkInTime));
-
-          return (
-            <div
-              key={walkIn.id}
-              className={cn(
-                'px-4 py-3 transition-all',
-                isMe ? 'bg-teal-50 border-l-4 border-teal-500' : 'bg-white',
-              )}
+    <>
+      {/* ── Action bottom sheet (cancel / no-show / skip) ── */}
+      <AnimatePresence>
+        {actionSheet && (
+          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-end" onClick={() => setActionSheet(null)}>
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="w-full max-w-lg mx-auto bg-white rounded-t-[2.5rem] overflow-hidden"
+              onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center gap-3">
-                {/* Position bubble */}
-                <div className={cn(
-                  'w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-black text-sm',
-                  isMe ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500',
-                )}>
-                  {idx + 1}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className={cn('font-black uppercase text-[11px] truncate',
-                      isMe ? 'text-teal-800' : 'text-slate-700')}>
-                      {walkIn.customerName || walkIn.clientName || 'Guest'}
-                    </p>
-                    {isMe && (
-                      <span className="text-[7px] font-black uppercase bg-teal-500 text-white rounded px-1.5 py-0.5 shrink-0">
-                        YOU
-                      </span>
-                    )}
-                    {isNotified && (
-                      <span className="text-[7px] font-black uppercase bg-blue-500 text-white rounded px-1.5 py-0.5 shrink-0 animate-pulse">
-                        Notified
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {svcName && (
-                      <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-70 truncate">
-                        {svcName}
-                      </p>
-                    )}
-                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-50">
-                      {waitMins < 60 ? `${waitMins}m wait` : `${Math.floor(waitMins/60)}h ${waitMins%60}m wait`}
-                    </p>
-                    {assignedTech && !isMe && (
-                      <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-50">
-                        → {assignedTech.name?.split(' ')[0]}
-                      </p>
-                    )}
-                    {!walkIn.staffId && (
-                      <p className="text-[8px] font-bold text-amber-600 uppercase">Unassigned</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Actions — only for your assigned walk-ins */}
-                {isMe && (
-                  <div className="flex flex-col gap-1.5 shrink-0">
-                    <button
-                      onClick={() => acceptWalkIn(walkIn)}
-                      disabled={!!processing}
-                      className="h-8 px-3 rounded-xl bg-teal-500 text-white font-black uppercase text-[8px] tracking-widest flex items-center gap-1 active:scale-95 transition-all disabled:opacity-50 shadow-sm shadow-teal-500/30"
-                    >
-                      {processing === walkIn.id
-                        ? <Loader className="w-3 h-3 animate-spin" />
-                        : <><Play className="w-2.5 h-2.5" />Accept</>}
-                    </button>
-                    <button
-                      onClick={() => passWalkIn(walkIn)}
-                      disabled={!!processing}
-                      className="h-7 px-3 rounded-xl border-2 border-slate-200 text-slate-400 font-black uppercase text-[7px] tracking-widest flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      {processing === `pass-${walkIn.id}`
-                        ? <Loader className="w-2.5 h-2.5 animate-spin" />
-                        : 'Pass'}
-                    </button>
+              <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-slate-200" /></div>
+              <div className="px-5 py-4 space-y-4">
+                <p className="font-black uppercase text-base text-slate-900">
+                  {actionSheet.type === 'cancel' ? 'Cancel Walk-in' :
+                   actionSheet.type === 'noshow' ? 'Mark No Show' : 'Skip Guest'}
+                </p>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  {actionSheet.walkIn.customerName || actionSheet.walkIn.clientName || 'Guest'}
+                  {actionSheet.type === 'skip' && ' will be returned to the back of the queue.'}
+                  {actionSheet.type === 'noshow' && ' will be marked as no show.'}
+                  {actionSheet.type === 'cancel' && ' — select a reason:'}
+                </p>
+                {actionSheet.type === 'cancel' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {CANCEL_REASONS.map(r => (
+                      <button key={r} onClick={() => setCancelReason(r)}
+                        className={cn('p-2.5 rounded-2xl border-2 font-black uppercase text-[9px] transition-all active:scale-95',
+                          cancelReason === r ? 'border-destructive bg-destructive/5 text-destructive' : 'border-slate-200 bg-white text-slate-600')}>
+                        {r}
+                      </button>
+                    ))}
                   </div>
                 )}
+                {actionSheet.type === 'cancel' && cancelReason === 'Other' && (
+                  <input value={customReason} onChange={e => setCustomReason(e.target.value)}
+                    placeholder="Describe reason..."
+                    className="w-full h-11 rounded-2xl border-2 px-4 font-bold text-sm outline-none focus:border-primary/40" />
+                )}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button onClick={() => { setActionSheet(null); setCancelReason(''); setCustomReason(''); }}
+                    className="h-12 rounded-2xl border-2 border-slate-200 font-black uppercase text-[10px] text-slate-400 active:scale-95">
+                    Back
+                  </button>
+                  <button
+                    onClick={confirmAction}
+                    disabled={!!processing || (actionSheet.type === 'cancel' && !cancelReason)}
+                    className={cn('h-12 rounded-2xl font-black uppercase text-[10px] text-white active:scale-95 disabled:opacity-50',
+                      actionSheet.type === 'noshow' ? 'bg-slate-600' :
+                      actionSheet.type === 'skip'   ? 'bg-amber-500' : 'bg-destructive')}>
+                    {processing ? <Loader className="w-4 h-4 animate-spin mx-auto" /> :
+                      actionSheet.type === 'cancel' ? 'Cancel Walk-in' :
+                      actionSheet.type === 'noshow' ? 'Mark No Show' : 'Skip'}
+                  </button>
+                </div>
               </div>
+              <div className="pb-6" />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Main panel ── */}
+      <div className="rounded-[2rem] border-2 border-slate-100 bg-white overflow-hidden">
+
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-white">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-xl bg-teal-500 flex items-center justify-center shrink-0">
+              <Users className="w-3.5 h-3.5 text-white" />
             </div>
-          );
-        })}
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">Walk-ins</p>
+              <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                {queue.length} waiting · {inService.length} in service
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
+              <button onClick={() => setView('queue')}
+                className={cn('px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all',
+                  view === 'queue' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500')}>
+                Queue
+              </button>
+              <button onClick={() => setView('floor')}
+                className={cn('px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all',
+                  view === 'floor' ? 'bg-white text-primary shadow-sm' : 'text-slate-500')}>
+                Floor
+              </button>
+            </div>
+            {/* My accepting toggle */}
+            <button onClick={toggleAccepting}
+              className={cn('h-7 px-2.5 rounded-xl font-black uppercase text-[8px] tracking-widest transition-all active:scale-95 border',
+                isAccepting
+                  ? 'bg-teal-500/10 border-teal-400/30 text-teal-700'
+                  : 'bg-slate-100 border-slate-200 text-slate-400')}>
+              {isAccepting ? '● Accepting' : '○ Paused'}
+            </button>
+          </div>
+        </div>
+
+        {/* ══════ QUEUE VIEW ══════ */}
+        {view === 'queue' && (
+          <div>
+            {/* Turn order strip */}
+            {turnOrder.length > 0 && (
+              <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+                <p className="text-[7px] font-black uppercase text-slate-400 shrink-0">Turn:</p>
+                {turnOrder.map((t: any, i: number) => (
+                  <div key={t.id} className={cn('flex items-center gap-1 shrink-0 px-2 py-0.5 rounded-lg',
+                    t.id === currentStaffId ? 'bg-teal-100 text-teal-700' : 'bg-white border border-slate-200 text-slate-500')}>
+                    <span className="text-[7px] font-black uppercase">
+                      {i === 0 ? '★ ' : ''}{t.name?.split(' ')[0]}
+                      {t.id === currentStaffId ? ' (You)' : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Waiting guests */}
+            {queue.length === 0 && inService.length === 0 ? (
+              <div className="py-10 text-center opacity-30">
+                <Users className="w-8 h-8 mx-auto mb-2" />
+                <p className="text-[9px] font-black uppercase tracking-widest">Queue clear</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {queue.map((w: any, idx: number) => {
+                  const isMe       = w.staffId === currentStaffId;
+                  const isArrived  = w.status === 'arrived';
+                  const isNotified = w.status === 'notified';
+                  const assignedT  = w.staffId ? (allStaff || []).find((s: any) => s.id === w.staffId) : null;
+                  const svcName    = w.serviceId
+                    ? (services || []).find((s: any) => s.id === w.serviceId)?.name
+                    : (services || []).find((s: any) => (w.serviceIds || []).includes(s.id))?.name;
+                  const waitMins   = differenceInMinutes(new Date(), safeDate(w.checkInTime));
+                  const estWait    = Math.round(idx * avgSvcMins);
+                  const groupSize  = w.groupSize || 1;
+
+                  return (
+                    <div key={w.id}
+                      className={cn('px-4 py-3 transition-all',
+                        isMe && isArrived ? 'bg-green-50 border-l-4 border-green-500' :
+                        isMe ? 'bg-teal-50 border-l-4 border-teal-500' : 'bg-white')}>
+                      <div className="flex items-start gap-3">
+                        {/* Position */}
+                        <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-black text-sm mt-0.5',
+                          isMe && isArrived ? 'bg-green-500 text-white' :
+                          isMe ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500')}>
+                          {idx + 1}
+                        </div>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className={cn('font-black uppercase text-[11px] truncate',
+                              isMe ? 'text-teal-800' : 'text-slate-700')}>
+                              {w.customerName || w.clientName || 'Guest'}
+                            </p>
+                            {groupSize > 1 && (
+                              <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded px-1.5 py-0.5 shrink-0">
+                                Group · {groupSize}
+                              </span>
+                            )}
+                            {isMe && (
+                              <span className="text-[7px] font-black uppercase bg-teal-500 text-white rounded px-1.5 py-0.5 shrink-0">YOU</span>
+                            )}
+                            {isArrived && (
+                              <span className="text-[7px] font-black uppercase bg-green-500 text-white rounded px-1.5 py-0.5 shrink-0 animate-pulse">
+                                HERE
+                              </span>
+                            )}
+                            {isNotified && !isArrived && (
+                              <span className="text-[7px] font-black uppercase bg-blue-500 text-white rounded px-1.5 py-0.5 shrink-0">
+                                Notified
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            {svcName && <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-70 truncate">{svcName}</p>}
+                            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-50">
+                              {waitMins < 60 ? `${waitMins}m wait` : `${Math.floor(waitMins/60)}h ${waitMins%60}m`}
+                            </p>
+                            {idx > 0 && (
+                              <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40">~{estWait}m est.</p>
+                            )}
+                            {assignedT && !isMe && (
+                              <p className="text-[8px] font-bold text-slate-500 uppercase">→ {assignedT.name?.split(' ')[0]}</p>
+                            )}
+                            {!w.staffId && (
+                              <p className="text-[8px] font-bold text-amber-600 uppercase">Unassigned</p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Actions */}
+                        {isMe && (
+                          <div className="flex flex-col gap-1 shrink-0">
+                            {/* Start service — only when arrived */}
+                            {isArrived ? (
+                              <button onClick={() => startService(w)} disabled={!!processing}
+                                className="h-9 px-3 rounded-xl bg-green-500 text-white font-black uppercase text-[8px] flex items-center gap-1 active:scale-95 disabled:opacity-50 shadow-sm">
+                                {processing === w.id ? <Loader className="w-3 h-3 animate-spin" /> : <><Play className="w-2.5 h-2.5" />Start</>}
+                              </button>
+                            ) : (
+                              <button onClick={() => startService(w)} disabled={!!processing}
+                                className="h-9 px-3 rounded-xl bg-teal-500 text-white font-black uppercase text-[8px] flex items-center gap-1 active:scale-95 disabled:opacity-50 shadow-sm shadow-teal-500/20">
+                                {processing === w.id ? <Loader className="w-3 h-3 animate-spin" /> : <><Play className="w-2.5 h-2.5" />Accept</>}
+                              </button>
+                            )}
+                            <button onClick={() => passWalkIn(w)} disabled={!!processing}
+                              className="h-7 px-3 rounded-xl border border-slate-200 text-slate-400 font-black uppercase text-[7px] active:scale-95 disabled:opacity-50">
+                              Pass
+                            </button>
+                            <button onClick={() => setActionSheet({ walkIn: w, type: 'cancel' })}
+                              className="h-7 px-2 rounded-xl text-destructive/60 font-black uppercase text-[6px] active:scale-95">
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                        {!isMe && w.staffId && (
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <button onClick={() => setActionSheet({ walkIn: w, type: 'noshow' })}
+                              className="h-7 px-2 rounded-xl border border-slate-100 text-slate-400 font-black uppercase text-[6px] active:scale-95">
+                              No Show
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* In service section */}
+                {inService.length > 0 && (
+                  <>
+                    <div className="px-4 py-2 bg-slate-50 border-t border-slate-100">
+                      <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest">In Service Now</p>
+                    </div>
+                    {inService.map((w: any) => {
+                      const tech    = w.staffId ? (allStaff || []).find((s: any) => s.id === w.staffId) : null;
+                      const svcName = (services || []).find((s: any) => s.id === w.serviceId || (w.serviceIds || []).includes(s.id))?.name;
+                      const elapsed = w.serviceStartTime ? differenceInMinutes(new Date(), safeDate(w.serviceStartTime)) : 0;
+                      const isMe    = w.staffId === currentStaffId;
+                      return (
+                        <div key={w.id} className={cn('px-4 py-2.5 flex items-center gap-3',
+                          isMe ? 'bg-primary/5' : 'bg-white')}>
+                          <div className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-black uppercase text-[10px] text-slate-700 truncate">
+                              {tech?.name?.split(' ')[0] || 'Tech'}{isMe ? ' (You)' : ''}
+                              {svcName ? ` · ${svcName}` : ''}
+                            </p>
+                            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                              {w.customerName || w.clientName || 'Guest'} · {elapsed}m in
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══════ FLOOR VIEW ══════ */}
+        {view === 'floor' && (
+          <div className="divide-y divide-slate-50">
+            {onShiftToday.length === 0 ? (
+              <div className="py-10 text-center opacity-30">
+                <Users className="w-8 h-8 mx-auto mb-2" />
+                <p className="text-[9px] font-black uppercase tracking-widest">No techs on shift</p>
+              </div>
+            ) : onShiftToday.map((tech: any) => {
+              const isMe   = tech.id === currentStaffId;
+              const ts     = getTechStatus(tech);
+              const myWalkIn = (allWalkIns || []).find((w: any) =>
+                w.staffId === tech.id && ['notified', 'arrived', 'in_service'].includes(w.status)
+              );
+              const myApt = null; // Could wire in current appointment later
+              const accepting = tech.acceptingWalkIns !== false;
+              const turnPos = turnOrder.findIndex((t: any) => t.id === tech.id);
+
+              return (
+                <div key={tech.id}
+                  className={cn('px-4 py-3 transition-all',
+                    isMe ? 'bg-primary/[0.02] border-l-4 border-primary/30' : 'bg-white')}>
+                  <div className="flex items-center gap-3">
+                    <Avatar className={cn('rounded-xl border-2 shrink-0', isMe ? 'h-10 w-10 border-primary/30' : 'h-8 w-8 border-slate-200')}>
+                      <AvatarImage src={tech.avatarUrl} className="object-cover" />
+                      <AvatarFallback className={cn('font-black', isMe ? 'text-sm bg-primary/10 text-primary' : 'text-xs bg-slate-100 text-slate-500')}>
+                        {(tech.name || 'T')[0]}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className={cn('font-black uppercase text-[11px]', isMe ? 'text-primary' : 'text-slate-800')}>
+                          {tech.name?.split(' ')[0]}{isMe ? ' (You)' : ''}
+                        </p>
+                        {turnPos === 0 && accepting && (
+                          <span className="text-[7px] font-black uppercase bg-teal-500 text-white rounded px-1.5 py-0.5">Up Next</span>
+                        )}
+                        {turnPos > 0 && accepting && (
+                          <span className="text-[7px] font-black uppercase bg-slate-100 text-slate-500 rounded px-1.5 py-0.5">#{turnPos + 1} in rotation</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', ts.dot)} />
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-70">{ts.label}</p>
+                        {myWalkIn && (
+                          <p className="text-[8px] font-bold text-teal-600 uppercase">
+                            {myWalkIn.status === 'in_service' ? '● Walk-in in service' :
+                             myWalkIn.status === 'arrived' ? '★ Client arrived' : '→ Walk-in assigned'}
+                          </p>
+                        )}
+                        {!accepting && (
+                          <span className="text-[7px] font-black uppercase bg-amber-100 text-amber-700 rounded px-1.5 py-0.5">Not accepting</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Accepting toggle — only for current tech */}
+                    {isMe && (
+                      <button onClick={toggleAccepting}
+                        className={cn('h-7 px-2.5 rounded-xl font-black uppercase text-[7px] transition-all active:scale-95 border shrink-0',
+                          isAccepting
+                            ? 'bg-teal-500/10 border-teal-400/30 text-teal-700'
+                            : 'bg-slate-100 border-slate-200 text-slate-400')}>
+                        {isAccepting ? '● On' : '○ Off'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -2894,16 +3266,16 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
                 <NextBanner appointments={allMyApts} services={services} />
-                {isSameDay(selectedDate, today) && (
-                  <WalkInQueuePanel
-                    allWalkIns={allWalkInsRaw || []}
-                    allStaff={allStaff || []}
-                    services={services || []}
-                    tenantId={tenantId}
-                    firestore={firestore}
-                    currentStaffId={staffMember?.id}
-                  />
-                )}
+                <WalkInLeaderboard
+                  allWalkIns={allWalkInsRaw || []}
+                  allStaff={allStaff || []}
+                  allShifts={allShiftsRaw || []}
+                  services={services || []}
+                  tenantId={tenantId}
+                  firestore={firestore}
+                  currentStaffId={staffMember?.id}
+                  activityLogs={activityLogs || []}
+                />
                 <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />
                 <DayTimeline
                   appointments={allMyApts}
