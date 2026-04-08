@@ -21,7 +21,8 @@ import {
   AlertCircle, ChevronRight, Trash2, Loader,
   ChevronLeft, ChevronDown, ChevronUp, RefreshCw,
   User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert,
-  PlusCircle, Car,
+  PlusCircle, Car, Users, Columns, PersonStanding,
+  Eye, EyeOff, UserCheck,
 } from 'lucide-react';
 import {
   format, parseISO, startOfWeek, endOfWeek, addWeeks,
@@ -43,6 +44,12 @@ const TOTAL_MINS  = (HOUR_END - HOUR_START) * 60; // 1440
 const PX_PER_MIN  = 2.4;
 const TIMELINE_H  = TOTAL_MINS * PX_PER_MIN;       // 3456px
 const MIN_BLOCK   = 96;  // minimum block height — always enough room for the button
+
+// ─── FLOOR VIEW CONSTANTS ─────────────────────────────────────────────────────
+const FLOOR_TIME_GUTTER  = 52;   // px — fixed left time label column
+const FLOOR_MY_COL       = 160;  // px — current tech's column (wider)
+const FLOOR_OTHER_COL    = 120;  // px — other techs' columns
+const FLOOR_WALKIN_COLOR = 'bg-teal-500'; // walk-in accent
 
 const DIGITS = ['1','2','3','4','5','6','7','8','9','','0','del'];
 
@@ -309,6 +316,23 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
           id: n.id, userId: techId, read: false, createdAt: now,
           type: 'addon_handoff', link: 'today',
           message: `${apt.clientName || 'A guest'} needs ${selectedAddOn.name} — ${isConcurrent ? 'concurrent with current service' : 'sequential after current service'}. Please proceed.`,
+        });
+      }
+
+      // Write a staffBlock for sequential assignments so the tech's slot is
+      // protected in the booking system and visible in floor view.
+      if (!isConcurrent) {
+        const blockRef = doc(collection(firestore, `tenants/${tenantId}/staffBlocks`));
+        batch.set(blockRef, {
+          id: blockRef.id,
+          staffId: techId,
+          startTime: now,
+          duration: selectedAddOn.duration,
+          type: 'sequential_addon',
+          sourceAppointmentId: apt.id,
+          addOnId: selectedAddOn.id,
+          createdAt: now,
+          createdBy: currentStaffId || techId,
         });
       }
 
@@ -777,13 +801,126 @@ function LiveTimerBadge({ startTime, duration }: { startTime: any; duration: num
   );
 }
 
+// ─── COLLISION DETECTION ─────────────────────────────────────────────────────
+// Groups overlapping appointments into columns for side-by-side rendering.
+// Returns each apt with { colIndex, totalCols } added.
+function assignColumns(apts: any[]): any[] {
+  if (!apts.length) return [];
+  const sorted = [...apts].sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
+  const result: any[] = [];
+  // Each "group" tracks the end times of active columns
+  const colEnds: number[] = [];
+
+  for (const apt of sorted) {
+    const svcDur   = apt._svcDur ?? apt.duration ?? 60;
+    const start    = safeDate(apt.startTime).getTime();
+    const end      = start + (apt.padBefore ?? 0) * 60000 + svcDur * 60000 + (apt.padAfter ?? 0) * 60000;
+
+    // Find a free column
+    let col = colEnds.findIndex(e => e <= start);
+    if (col === -1) { col = colEnds.length; colEnds.push(end); }
+    else colEnds[col] = end;
+
+    result.push({ ...apt, _colIndex: col });
+  }
+
+  // Second pass — assign totalCols per overlap group
+  for (let i = 0; i < result.length; i++) {
+    const apt   = result[i];
+    const start = safeDate(apt.startTime).getTime();
+    const svcDur = apt._svcDur ?? apt.duration ?? 60;
+    const end   = start + ((apt.padBefore ?? 0) + svcDur + (apt.padAfter ?? 0)) * 60000;
+    let maxCol  = apt._colIndex;
+    for (const other of result) {
+      const os  = safeDate(other.startTime).getTime();
+      const od  = other._svcDur ?? other.duration ?? 60;
+      const oe  = os + ((other.padBefore ?? 0) + od + (other.padAfter ?? 0)) * 60000;
+      if (os < end && oe > start) maxCol = Math.max(maxCol, other._colIndex);
+    }
+    result[i] = { ...apt, _totalCols: maxCol + 1 };
+  }
+  return result;
+}
+
+// ─── READ-ONLY TECH PEEK SHEET ────────────────────────────────────────────────
+function TechPeekSheet({ apt, tech, service, onClose }: any) {
+  if (!apt) return null;
+  const start  = safeDate(apt.startTime);
+  const dur    = apt.duration ?? 60;
+  const end    = addMinutes(start, dur);
+  const st     = apt.status ?? 'confirmed';
+  const stColor: Record<string, string> = {
+    servicing: 'text-primary', confirmed: 'text-blue-600',
+    completed: 'text-green-600', no_show: 'text-slate-500',
+  };
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black/50 flex items-end" onClick={onClose}>
+      <motion.div
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+        className="w-full max-w-sm mx-auto bg-white rounded-t-[2rem] overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-slate-200" /></div>
+        <div className="px-5 py-4 space-y-4">
+          {/* Tech info */}
+          <div className="flex items-center gap-3">
+            <Avatar className="h-10 w-10 rounded-2xl border-2 shrink-0">
+              <AvatarImage src={tech?.avatarUrl} className="object-cover" />
+              <AvatarFallback className="font-black text-sm bg-primary/10 text-primary">{(tech?.name || 'T')[0]}</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="font-black uppercase text-sm text-slate-900">{tech?.name?.split(' ')[0] || 'Tech'}</p>
+              <p className={cn('text-[10px] font-black uppercase', stColor[st] || 'text-slate-500')}>
+                {st === 'servicing' ? '● In Service' : st === 'confirmed' ? '● Confirmed' : st === 'completed' ? '✓ Done' : st}
+              </p>
+            </div>
+            <div className="ml-auto text-right">
+              <p className="font-black text-sm text-slate-900">{format(start, 'h:mm a')}</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">→ {format(end, 'h:mm a')}</p>
+            </div>
+          </div>
+          {/* Service category shown but NOT client name */}
+          <div className="p-3 rounded-2xl bg-slate-50 border-2 border-slate-100 flex items-center gap-3">
+            <div className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
+            <div>
+              <p className="font-black uppercase text-[11px] text-slate-700">
+                {apt._isWalkIn ? 'Walk-in' : (service?.category || 'Service')}
+              </p>
+              <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{dur}m · {apt._isWalkIn ? 'Unscheduled' : 'Scheduled'}</p>
+            </div>
+          </div>
+          <p className="text-center text-[9px] font-black uppercase text-muted-foreground opacity-40">
+            Client info is private to assigned staff
+          </p>
+          <button onClick={onClose} className="w-full h-11 rounded-2xl border-2 border-slate-200 font-black uppercase text-[10px] text-slate-400 tracking-widest">
+            Close
+          </button>
+        </div>
+        <div className="pb-4" />
+      </motion.div>
+    </div>
+  );
+}
+
 // ─── FULL 24H DAY TIMELINE ────────────────────────────────────────────────────
-function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
+function DayTimeline({
+  appointments, services, selectedDate, onAptTap,
+  allStaffApts, allWalkIns, allStaff, allStaffBlocks,
+  currentStaffId,
+}: {
   appointments: any[]; services: any[]; selectedDate: Date;
   onAptTap: (apt: any) => void;
+  allStaffApts?: any[];    // all staff's appointments for floor view
+  allWalkIns?: any[];      // all walk-ins for floor view
+  allStaff?: any[];        // all staff members
+  allStaffBlocks?: any[];  // sequential add-on blocks
+  currentStaffId?: string;
 }) {
   const scrollRef    = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(new Date());
+  const [viewMode, setViewMode] = useState<'my_day' | 'floor'>('my_day');
+  const [peekApt, setPeekApt]   = useState<any>(null);   // read-only peek for other tech's apt
   const isToday_     = isSameDay(selectedDate, now);
 
   useEffect(() => {
@@ -806,6 +943,94 @@ function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
       .filter(a => isSameDay(safeDate(a.startTime), selectedDate) && a.status !== 'cancelled')
       .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
   }, [appointments, selectedDate]);
+
+  // ── Floor view data ──────────────────────────────────────────────────────────
+  // Techs on shift today (for column headers)
+  const todayStr = format(selectedDate, 'yyyy-MM-dd');
+
+  // Build per-tech columns for floor view
+  const floorColumns = useMemo(() => {
+    if (!allStaff || !allStaffApts) return [];
+    const staffOnShift = allStaff; // show all staff, grey out if not on shift
+
+    return staffOnShift.map((tech: any) => {
+      const isMe = tech.id === currentStaffId;
+
+      // This tech's appointments today
+      const techApts = (allStaffApts || [])
+        .filter((a: any) =>
+          a.staffId === tech.id &&
+          isSameDay(safeDate(a.startTime), selectedDate) &&
+          a.status !== 'cancelled'
+        )
+        .map((a: any) => {
+          const svc = (services || []).find((s: any) => s.id === a.serviceId);
+          return {
+            ...a,
+            _svcDur:    svc?.duration   ?? a.duration   ?? 60,
+            _padBefore: svc?.padBefore  ?? a.padBefore  ?? 0,
+            _padAfter:  svc?.padAfter   ?? a.padAfter   ?? 0,
+            _isMe: isMe,
+            _isWalkIn: false,
+          };
+        });
+
+      // This tech's walk-ins today
+      const techWalkIns = (allWalkIns || [])
+        .filter((w: any) =>
+          w.staffId === tech.id &&
+          isSameDay(safeDate(w.checkInTime || w.startTime || new Date()), selectedDate) &&
+          !['cancelled'].includes(w.status)
+        )
+        .map((w: any) => ({
+          ...w,
+          startTime: w.startTime || w.checkInTime,
+          _svcDur: w.estimatedDuration || 30,
+          _padBefore: 0, _padAfter: 0,
+          _isMe: isMe,
+          _isWalkIn: true,
+        }));
+
+      // Sequential add-on staff blocks
+      const techBlocks = (allStaffBlocks || [])
+        .filter((b: any) =>
+          b.staffId === tech.id &&
+          isSameDay(safeDate(b.startTime), selectedDate)
+        )
+        .map((b: any) => ({
+          ...b,
+          _svcDur: b.duration ?? 30,
+          _padBefore: 0, _padAfter: 0,
+          _isMe: isMe,
+          _isWalkIn: false,
+          _isBlock: true,
+        }));
+
+      const all = [...techApts, ...techWalkIns, ...techBlocks];
+      const withCols = assignColumns(all);
+
+      return { tech, isMe, items: withCols };
+    }).sort((a: any, b: any) => {
+      // My column always first
+      if (a.isMe) return -1;
+      if (b.isMe) return 1;
+      return (a.tech.name || '').localeCompare(b.tech.name || '');
+    });
+  }, [allStaff, allStaffApts, allWalkIns, allStaffBlocks, services, selectedDate, currentStaffId]);
+
+  // My Day: collision-aware layout for own appointments
+  const myDayWithCols = useMemo(() => {
+    const enriched = dayApts.map(a => {
+      const svc = (services || []).find((s: any) => s.id === a.serviceId);
+      return {
+        ...a,
+        _svcDur:    svc?.duration   ?? a.duration   ?? 60,
+        _padBefore: svc?.padBefore  ?? a.padBefore  ?? 0,
+        _padAfter:  svc?.padAfter   ?? a.padAfter   ?? 0,
+      };
+    });
+    return assignColumns(enriched);
+  }, [dayApts, services]);
 
   const hours = Array.from({ length: 25 }, (_, i) => i); // 0–24
 
@@ -831,6 +1056,7 @@ function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
 
   return (
     <div className="rounded-[2rem] border-2 border-slate-100 bg-white flex flex-col">
+      {/* ── Header with mode toggle ── */}
       <div className="px-4 py-3 border-b bg-white flex items-center justify-between shrink-0 rounded-t-[2rem]">
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
           {isToday_ ? "Today's Timeline" : format(selectedDate, 'EEE, MMM d')}
@@ -839,191 +1065,502 @@ function DayTimeline({ appointments, services, selectedDate, onAptTap }: {
           <p className="text-[9px] font-black uppercase text-primary">
             {dayApts.length} apt{dayApts.length !== 1 ? 's' : ''}
           </p>
-          {dayApts.length > 0 && (
-            <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">· tap to act</span>
-          )}
-        </div>
-      </div>
-
-      <div ref={scrollRef} className="overflow-y-auto rounded-b-[2rem]" style={{ height: 460 }}>
-        <div className="relative overflow-hidden" style={{ height: TIMELINE_H }}>
-
-          {/* Hour grid lines — full 24h */}
-          {hours.map(h => {
-            const topPx = h * 60 * PX_PER_MIN;
-            const label = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
-            return (
-              <div key={h} className="absolute left-0 right-0 flex items-center pointer-events-none" style={{ top: topPx }}>
-                <span className="text-[8px] font-black text-slate-400 w-12 text-right pr-2 shrink-0 leading-none select-none bg-white z-10">
-                  {label}
-                </span>
-                <div className={cn('flex-1 border-t', h % 6 === 0 ? 'border-slate-200' : 'border-dashed border-slate-100')} />
-              </div>
-            );
-          })}
-
-          {/* Now indicator — only on today */}
-          {isToday_ && (
-            <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: timeToPx(now) }}>
-              <div className="w-3 h-3 rounded-full bg-rose-500 ml-10 shrink-0 ring-2 ring-white shadow-md shadow-rose-400/60" />
-              <div className="flex-1 h-[2px] bg-rose-500 opacity-80" />
-              <span className="text-[8px] font-black text-rose-500 pr-2 shrink-0 bg-white/90 rounded px-1">
-                {format(now, 'h:mm a')}
-              </span>
-            </div>
-          )}
-
-          {/* Appointment blocks
-              KEY DESIGN:
-              - Total height = padBefore + service duration + padAfter
-              - Block is divided into 3 visual zones:
-                  top pad zone   (muted, hatched)
-                  service zone   (coloured, contains all info + tap target)
-                  bottom pad zone (muted, hatched)
-              - topPx is placed at startTime (booked time)
-              - padBefore pushes the service zone down inside the block
-              - This way padding visually "holds space" on the timeline */}
-          {dayApts.map(apt => {
-            const start      = safeDate(apt.startTime);
-            const svc        = (services || []).find((s: any) => s.id === apt.serviceId);
-            // Use service fields for pad; fall back to appointment fields
-            const padBefore  = svc?.padBefore  ?? apt.padBefore  ?? 0;
-            const padAfter   = svc?.padAfter   ?? apt.padAfter   ?? 0;
-            const svcDur     = svc?.duration   ?? apt.duration   ?? 60;
-            const totalDur   = padBefore + svcDur + padAfter;
-
-            const topPx       = timeToPx(start);
-            const totalHeight = Math.max(MIN_BLOCK, totalDur * PX_PER_MIN);
-            // Heights of each zone in px (proportional, min 0)
-            const padBeforePx = padBefore > 0 ? Math.max(16, padBefore * PX_PER_MIN) : 0;
-            const padAfterPx  = padAfter  > 0 ? Math.max(16, padAfter  * PX_PER_MIN) : 0;
-            const svcHeight   = Math.max(MIN_BLOCK, totalHeight - padBeforePx - padAfterPx);
-
-            const st     = apt.status || 'confirmed';
-            const isPast = addMinutes(start, totalDur) < now && isToday_;
-            const isAddOnTech = apt.checkoutState?.serviceStaffOverrides &&
-              Object.entries(apt.checkoutState.serviceStaffOverrides).some(
-                ([svcId, staffId]) => staffId === apt._viewingStaffId && svcId !== apt.serviceId
-              );
-
-            return (
-              <div
-                key={apt.id}
-                className="absolute left-14 right-2 z-30 flex flex-col"
-                style={{ top: topPx, height: totalHeight }}
+          {/* View mode toggle — only shown when floor data is available */}
+          {(allStaff?.length ?? 0) > 1 && (
+            <div className="flex items-center bg-slate-100 rounded-xl p-0.5 ml-1">
+              <button
+                onClick={() => setViewMode('my_day')}
+                className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all',
+                  viewMode === 'my_day' ? 'bg-white text-primary shadow-sm' : 'text-slate-500')}
               >
-                {/* ── PRE-PAD ZONE ── */}
-                {padBefore > 0 && (
-                  <div
-                    className="shrink-0 rounded-t-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden"
-                    style={{ height: padBeforePx }}
-                  >
-                    <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
-                    <span className="text-[7px] font-black uppercase text-slate-400 tracking-widest truncate">
-                      {padBefore}m prep
-                    </span>
-                  </div>
-                )}
-
-                {/* ── SERVICE ZONE — tappable ── */}
-                <button
-                  onClick={() => onAptTap(apt)}
-                  className={cn(
-                    'flex-1 text-left pointer-events-auto cursor-pointer',
-                    'transition-all active:scale-[0.97] active:brightness-95',
-                    padBefore > 0 && padAfter > 0 ? 'rounded-none border-x-2 border-b-0 border-t-0' :
-                    padBefore > 0              ? 'rounded-b-2xl border-2 border-t-0' :
-                    padAfter  > 0              ? 'rounded-t-2xl border-2 border-b-0' :
-                                                 'rounded-2xl border-2',
-                    apt.isEscalated
-                      ? 'border-destructive ring-2 ring-destructive/30 bg-destructive/5 animate-pulse'
-                      : ringCls[st] || 'border-primary/20 bg-white shadow-sm',
-                    isPast && st !== 'completed' && !apt.isEscalated && 'opacity-55',
-                  )}
-                  style={{ height: svcHeight }}
-                >
-                  <div className="p-3 h-full flex flex-col gap-1">
-                    {/* Escalated banner */}
-                    {apt.isEscalated && (
-                      <div className="flex items-center gap-1 mb-0.5">
-                        <ShieldAlert className="w-2.5 h-2.5 text-destructive shrink-0" />
-                        <span className="text-[7px] font-black uppercase text-destructive tracking-widest">Manager Alerted</span>
-                      </div>
-                    )}
-                    {/* Service name + dot + check-in badge */}
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls[st] || 'bg-slate-400')} />
-                      <p className="font-black text-[11px] uppercase truncate text-slate-800 flex-1">
-                        {svc?.name || 'Service'}
-                      </p>
-                      {apt.checkInStatus === 'arrived' && (
-                        <span className="shrink-0 text-[7px] font-black uppercase bg-green-500 text-white rounded-md px-1 py-0.5">HERE</span>
-                      )}
-                      {apt.checkInStatus === 'running_late' && (
-                        <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">+{apt.lateTimeMinutes}M</span>
-                      )}
-                      {apt.checkInStatus === 'on_my_way' && (
-                        <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">EN ROUTE</span>
-                      )}
-                    </div>
-                    {/* Time + client */}
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
-                      {format(start, 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
-                    </p>
-                    {/* Duration summary — shows total vs service only when there's padding */}
-                    {(padBefore > 0 || padAfter > 0) && (
-                      <p className="text-[8px] font-bold text-muted-foreground opacity-50 uppercase pl-3 truncate">
-                        {svcDur}m svc
-                        {padBefore > 0 ? ` · ${padBefore}m pre` : ''}
-                        {padAfter  > 0 ? ` · ${padAfter}m post` : ''}
-                      </p>
-                    )}
-                    {/* Add-on tech badge */}
-                    {isAddOnTech && (
-                      <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>
-                    )}
-                    {/* Live timer — shown when servicing */}
-                    {st === 'servicing' && apt.actualStartTime && (
-                      <LiveTimerBadge startTime={apt.actualStartTime} duration={svcDur} />
-                    )}
-                    {/* Status + "tap for actions" — always at the bottom */}
-                    <div className="flex items-center justify-between mt-auto pl-3">
-                      <span className="text-[8px] font-black uppercase text-muted-foreground opacity-50">
-                        {statusTxt[st] || st}
-                      </span>
-                      <span className="flex items-center gap-0.5 text-[8px] font-black uppercase text-primary bg-primary/10 rounded-lg px-1.5 py-0.5">
-                        <ChevronUp className="w-2.5 h-2.5" />Actions
-                      </span>
-                    </div>
-                  </div>
-                </button>
-
-                {/* ── POST-PAD ZONE ── */}
-                {padAfter > 0 && (
-                  <div
-                    className="shrink-0 rounded-b-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden"
-                    style={{ height: padAfterPx }}
-                  >
-                    <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
-                    <span className="text-[7px] font-black uppercase text-slate-400 tracking-widest truncate">
-                      {padAfter}m buffer
-                    </span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {dayApts.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingTop: 8 * 60 * PX_PER_MIN }}>
-              <div className="text-center opacity-20">
-                <Scissors className="w-8 h-8 mx-auto mb-2" />
-                <p className="text-[10px] font-black uppercase tracking-widest">No appointments</p>
-              </div>
+                <User className="w-2.5 h-2.5" />My Day
+              </button>
+              <button
+                onClick={() => setViewMode('floor')}
+                className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all',
+                  viewMode === 'floor' ? 'bg-white text-primary shadow-sm' : 'text-slate-500')}
+              >
+                <Users className="w-2.5 h-2.5" />Floor
+              </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* ════════════════════════════════════════════
+          MY DAY VIEW — collision-aware own apt layout
+          ════════════════════════════════════════════ */}
+      {viewMode === 'my_day' && (
+        <div ref={scrollRef} className="overflow-y-auto rounded-b-[2rem]" style={{ height: 460 }}>
+          <div className="relative overflow-hidden" style={{ height: TIMELINE_H }}>
+            {/* Hour grid lines */}
+            {hours.map(h => {
+              const topPx = h * 60 * PX_PER_MIN;
+              const label = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+              return (
+                <div key={h} className="absolute left-0 right-0 flex items-center pointer-events-none" style={{ top: topPx }}>
+                  <span className="text-[8px] font-black text-slate-400 w-12 text-right pr-2 shrink-0 leading-none select-none bg-white z-10">{label}</span>
+                  <div className={cn('flex-1 border-t', h % 6 === 0 ? 'border-slate-200' : 'border-dashed border-slate-100')} />
+                </div>
+              );
+            })}
+
+            {/* Now indicator */}
+            {isToday_ && (
+              <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: timeToPx(now) }}>
+                <div className="w-3 h-3 rounded-full bg-rose-500 ml-10 shrink-0 ring-2 ring-white shadow-md shadow-rose-400/60" />
+                <div className="flex-1 h-[2px] bg-rose-500 opacity-80" />
+                <span className="text-[8px] font-black text-rose-500 pr-2 shrink-0 bg-white/90 rounded px-1">{format(now, 'h:mm a')}</span>
+              </div>
+            )}
+
+            {/* Appointment blocks — collision-aware side-by-side */}
+            {myDayWithCols.map(apt => {
+              const start      = safeDate(apt.startTime);
+              const padBefore  = apt._padBefore ?? 0;
+              const padAfter   = apt._padAfter  ?? 0;
+              const svcDur     = apt._svcDur    ?? apt.duration ?? 60;
+              const totalDur   = padBefore + svcDur + padAfter;
+              const topPx      = timeToPx(start);
+              const totalH     = Math.max(MIN_BLOCK, totalDur * PX_PER_MIN);
+              const padBPx     = padBefore > 0 ? Math.max(16, padBefore * PX_PER_MIN) : 0;
+              const padAPx     = padAfter  > 0 ? Math.max(16, padAfter  * PX_PER_MIN) : 0;
+              const svcH       = Math.max(MIN_BLOCK, totalH - padBPx - padAPx);
+              const st         = apt.status || 'confirmed';
+              const isPast     = addMinutes(start, totalDur) < now && isToday_;
+
+              // Collision layout: left/width based on column assignment
+              const colIdx   = apt._colIndex   ?? 0;
+              const totalCols = apt._totalCols  ?? 1;
+              const availW   = '100%';
+              const leftPct  = totalCols > 1 ? `calc(52px + ${(colIdx / totalCols) * (100 - 14)}%)` : undefined;
+              const widthPct = totalCols > 1 ? `calc(${(1 / totalCols) * (100 - 14)}% - 4px)` : undefined;
+
+              // Multi-staff indicators
+              const concurrentIds = apt.checkoutState?.concurrentServiceIds || [];
+              const overrideEntries = Object.entries(apt.checkoutState?.serviceStaffOverrides || {});
+              const addOnTechs = overrideEntries
+                .filter(([svcId, staffId]: any) => svcId !== apt.serviceId && staffId !== apt._viewingStaffId)
+                .map(([, staffId]) => (allStaff || []).find((s: any) => s.id === staffId))
+                .filter(Boolean);
+              const hasMultiStaff = addOnTechs.length > 0;
+              const isConcurrent  = concurrentIds.length > 0;
+
+              const isAddOnTech = apt.checkoutState?.serviceStaffOverrides &&
+                overrideEntries.some(([svcId, staffId]: any) => staffId === apt._viewingStaffId && svcId !== apt.serviceId);
+
+              return (
+                <div
+                  key={apt.id}
+                  className="absolute z-30 flex flex-col"
+                  style={totalCols > 1
+                    ? { top: topPx, height: totalH, left: leftPct, width: widthPct }
+                    : { top: topPx, height: totalH, left: '56px', right: '8px' }
+                  }
+                >
+                  {/* Pre-pad */}
+                  {padBefore > 0 && (
+                    <div className="shrink-0 rounded-t-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden" style={{ height: padBPx }}>
+                      <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
+                      <span className="text-[7px] font-black uppercase text-slate-400 tracking-widest truncate">{padBefore}m prep</span>
+                    </div>
+                  )}
+
+                  {/* Service zone */}
+                  <button
+                    onClick={() => onAptTap(apt)}
+                    className={cn(
+                      'flex-1 text-left pointer-events-auto cursor-pointer transition-all active:scale-[0.97] active:brightness-95',
+                      padBefore > 0 && padAfter > 0 ? 'rounded-none border-x-2 border-b-0 border-t-0' :
+                      padBefore > 0 ? 'rounded-b-2xl border-2 border-t-0' :
+                      padAfter  > 0 ? 'rounded-t-2xl border-2 border-b-0' : 'rounded-2xl border-2',
+                      apt.isEscalated ? 'border-destructive ring-2 ring-destructive/30 bg-destructive/5 animate-pulse' :
+                      ringCls[st] || 'border-primary/20 bg-white shadow-sm',
+                      isPast && st !== 'completed' && !apt.isEscalated && 'opacity-55',
+                    )}
+                    style={{ height: svcH }}
+                  >
+                    <div className="p-3 h-full flex flex-col gap-1 overflow-hidden">
+                      {/* Escalated banner */}
+                      {apt.isEscalated && (
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <ShieldAlert className="w-2.5 h-2.5 text-destructive shrink-0" />
+                          <span className="text-[7px] font-black uppercase text-destructive tracking-widest">Manager Alerted</span>
+                        </div>
+                      )}
+                      {/* Service name + dot + check-in */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls[st] || 'bg-slate-400')} />
+                        <p className="font-black text-[11px] uppercase truncate text-slate-800 flex-1">
+                          {(services || []).find((s: any) => s.id === apt.serviceId)?.name || 'Service'}
+                        </p>
+                        {apt.checkInStatus === 'arrived'      && <span className="shrink-0 text-[7px] font-black uppercase bg-green-500 text-white rounded-md px-1 py-0.5">HERE</span>}
+                        {apt.checkInStatus === 'running_late' && <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">+{apt.lateTimeMinutes}M</span>}
+                        {apt.checkInStatus === 'on_my_way'    && <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">EN ROUTE</span>}
+                      </div>
+                      {/* Time + client */}
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
+                        {format(start, 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
+                      </p>
+                      {/* Padding summary */}
+                      {(padBefore > 0 || padAfter > 0) && (
+                        <p className="text-[8px] font-bold text-muted-foreground opacity-50 uppercase pl-3 truncate">
+                          {svcDur}m svc{padBefore > 0 ? ` · ${padBefore}m pre` : ''}{padAfter > 0 ? ` · ${padAfter}m post` : ''}
+                        </p>
+                      )}
+                      {/* Multi-staff badge */}
+                      {hasMultiStaff && (
+                        <div className={cn('flex items-center gap-1 ml-3 px-1.5 py-0.5 rounded-lg w-fit',
+                          isConcurrent ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700')}>
+                          <Zap className="w-2.5 h-2.5 shrink-0" />
+                          <span className="text-[7px] font-black uppercase tracking-widest">
+                            {isConcurrent ? 'Concurrent' : 'Sequential'} · {addOnTechs.length + 1} techs
+                          </span>
+                          <div className="flex -space-x-1 ml-0.5">
+                            {addOnTechs.slice(0, 2).map((t: any) => (
+                              <Avatar key={t.id} className="h-3.5 w-3.5 border border-white rounded-full shrink-0">
+                                <AvatarImage src={t.avatarUrl} className="object-cover" />
+                                <AvatarFallback className="text-[5px] font-black">{t.name?.[0]}</AvatarFallback>
+                              </Avatar>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Add-on tech badge */}
+                      {isAddOnTech && <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>}
+                      {/* Live timer */}
+                      {st === 'servicing' && apt.actualStartTime && <LiveTimerBadge startTime={apt.actualStartTime} duration={svcDur} />}
+                      {/* Status */}
+                      <div className="flex items-center justify-between mt-auto pl-3">
+                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-50">{statusTxt[st] || st}</span>
+                        <span className="flex items-center gap-0.5 text-[8px] font-black uppercase text-primary bg-primary/10 rounded-lg px-1.5 py-0.5">
+                          <ChevronUp className="w-2.5 h-2.5" />Actions
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Post-pad */}
+                  {padAfter > 0 && (
+                    <div className="shrink-0 rounded-b-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden" style={{ height: padAPx }}>
+                      <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
+                      <span className="text-[7px] font-black uppercase text-slate-400 tracking-widest truncate">{padAfter}m buffer</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {dayApts.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingTop: 8 * 60 * PX_PER_MIN }}>
+                <div className="text-center opacity-20">
+                  <Scissors className="w-8 h-8 mx-auto mb-2" />
+                  <p className="text-[10px] font-black uppercase tracking-widest">No appointments</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════
+          FLOOR VIEW — horizontally scrollable columns
+          ════════════════════════════════════════════ */}
+      {viewMode === 'floor' && (
+        <div className="flex flex-col rounded-b-[2rem] overflow-hidden" style={{ height: 460 }}>
+          {/* Column headers — sticky */}
+          <div className="flex shrink-0 border-b border-slate-100 bg-white">
+            {/* Time gutter spacer */}
+            <div style={{ width: FLOOR_TIME_GUTTER, minWidth: FLOOR_TIME_GUTTER }} className="shrink-0" />
+            {/* Horizontally scrollable headers — sync scroll with body */}
+            <div className="flex overflow-x-auto scrollbar-hide" id="floor-header-scroll">
+              {floorColumns.map(({ tech, isMe }) => (
+                <div
+                  key={tech.id}
+                  style={{ minWidth: isMe ? FLOOR_MY_COL : FLOOR_OTHER_COL, width: isMe ? FLOOR_MY_COL : FLOOR_OTHER_COL }}
+                  className={cn('shrink-0 px-2 py-2 border-r border-slate-100 flex flex-col items-center gap-1',
+                    isMe ? 'bg-primary/5 border-primary/10' : 'bg-white')}
+                >
+                  <Avatar className={cn('rounded-xl border-2 shrink-0', isMe ? 'h-8 w-8 border-primary/30' : 'h-6 w-6 border-slate-200')}>
+                    <AvatarImage src={tech.avatarUrl} className="object-cover" />
+                    <AvatarFallback className={cn('font-black', isMe ? 'text-xs bg-primary/10 text-primary' : 'text-[8px] bg-slate-100 text-slate-500')}>
+                      {(tech.name || 'T')[0]}
+                    </AvatarFallback>
+                  </Avatar>
+                  <p className={cn('font-black uppercase truncate text-center', isMe ? 'text-[9px] text-primary' : 'text-[8px] text-slate-500')}>
+                    {isMe ? `★ ${tech.name?.split(' ')[0]}` : tech.name?.split(' ')[0]}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Scrollable body */}
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-auto"
+            onScroll={e => {
+              // Sync horizontal scroll of header
+              const hdr = document.getElementById('floor-header-scroll');
+              if (hdr) hdr.scrollLeft = (e.target as HTMLElement).scrollLeft;
+            }}
+          >
+            <div className="flex" style={{ height: TIMELINE_H }}>
+
+              {/* Fixed time gutter */}
+              <div className="relative shrink-0" style={{ width: FLOOR_TIME_GUTTER, minWidth: FLOOR_TIME_GUTTER }}>
+                {hours.map(h => {
+                  const topPx = h * 60 * PX_PER_MIN;
+                  const label = h === 0 ? '12A' : h < 12 ? `${h}A` : h === 12 ? '12P' : `${h-12}P`;
+                  return (
+                    <div key={h} className="absolute right-0 flex items-center justify-end pr-1.5 pointer-events-none" style={{ top: topPx }}>
+                      <span className="text-[7px] font-black text-slate-400 leading-none select-none">{label}</span>
+                    </div>
+                  );
+                })}
+                {/* Now indicator dot */}
+                {isToday_ && (
+                  <div className="absolute right-0 w-full z-20 pointer-events-none" style={{ top: timeToPx(now) }}>
+                    <div className="w-2 h-2 rounded-full bg-rose-500 ml-auto mr-1 ring-1 ring-white" />
+                  </div>
+                )}
+              </div>
+
+              {/* Tech columns */}
+              {floorColumns.map(({ tech, isMe, items }) => {
+                const colW = isMe ? FLOOR_MY_COL : FLOOR_OTHER_COL;
+                return (
+                  <div
+                    key={tech.id}
+                    className={cn('relative shrink-0 border-r border-slate-100', isMe ? 'bg-primary/[0.01]' : 'bg-white')}
+                    style={{ width: colW, minWidth: colW, height: TIMELINE_H }}
+                  >
+                    {/* Hour grid lines for this column */}
+                    {hours.map(h => (
+                      <div
+                        key={h}
+                        className={cn('absolute left-0 right-0 border-t pointer-events-none',
+                          h % 6 === 0 ? 'border-slate-200' : 'border-dashed border-slate-100')}
+                        style={{ top: h * 60 * PX_PER_MIN }}
+                      />
+                    ))}
+
+                    {/* Now line */}
+                    {isToday_ && (
+                      <div className="absolute left-0 right-0 h-[2px] bg-rose-500/60 z-20 pointer-events-none" style={{ top: timeToPx(now) }} />
+                    )}
+
+                    {/* Appointment / walk-in / block items */}
+                    {items.map((item: any) => {
+                      const start    = safeDate(item.startTime || item.checkInTime);
+                      const dur      = item._svcDur ?? 30;
+                      const padB     = item._padBefore ?? 0;
+                      const padA     = item._padAfter  ?? 0;
+                      const totalDur = padB + dur + padA;
+                      const topPx    = timeToPx(start);
+                      const totalH   = Math.max(isMe ? MIN_BLOCK : 32, totalDur * PX_PER_MIN);
+                      const padBPx   = padB > 0 ? Math.max(12, padB * PX_PER_MIN) : 0;
+                      const padAPx   = padA > 0 ? Math.max(12, padA * PX_PER_MIN) : 0;
+                      const svcH     = Math.max(isMe ? MIN_BLOCK : 32, totalH - padBPx - padAPx);
+                      const st       = item.status || 'confirmed';
+
+                      // Column layout within this tech's column
+                      const colIdx   = item._colIndex  ?? 0;
+                      const totCols  = item._totalCols ?? 1;
+                      const leftPx   = totCols > 1 ? (colIdx / totCols) * colW : 2;
+                      const widthPx  = totCols > 1 ? (colW / totCols) - 2 : colW - 4;
+
+                      // Walk-in styling
+                      if (item._isWalkIn) {
+                        return (
+                          <div
+                            key={item.id}
+                            className="absolute z-30 flex flex-col"
+                            style={{ top: topPx, height: totalH, left: leftPx, width: widthPx }}
+                          >
+                            <button
+                              onClick={() => isMe ? onAptTap(item) : setPeekApt({ apt: item, tech })}
+                              className={cn(
+                                'flex-1 rounded-xl border-2 text-left transition-all active:scale-[0.97] overflow-hidden',
+                                isMe
+                                  ? 'bg-teal-500 border-teal-600 shadow-md shadow-teal-500/20'
+                                  : 'bg-teal-100 border-teal-200 cursor-default',
+                              )}
+                              style={{ height: svcH }}
+                            >
+                              <div className="p-1.5 h-full flex flex-col gap-0.5 overflow-hidden">
+                                <div className="flex items-center gap-1">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-white/80 shrink-0 animate-pulse" />
+                                  <p className={cn('font-black text-[9px] uppercase truncate', isMe ? 'text-white' : 'text-teal-700')}>
+                                    {isMe ? (item.customerName || item.clientName || 'Walk-in')?.split(' ')[0] : 'Walk-in'}
+                                  </p>
+                                </div>
+                                {isMe && (
+                                  <p className="text-[8px] font-bold text-white/70 uppercase pl-2.5 truncate">
+                                    {format(start, 'h:mm a')} · {dur}m
+                                  </p>
+                                )}
+                              </div>
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      // Staff block (sequential add-on)
+                      if (item._isBlock) {
+                        return (
+                          <div
+                            key={item.id}
+                            className="absolute z-30"
+                            style={{ top: topPx, height: Math.max(24, totalH), left: leftPx + 2, width: widthPx - 4 }}
+                          >
+                            <div className="h-full rounded-xl border-2 border-dashed border-purple-300 bg-purple-50/80 flex flex-col items-center justify-center p-1 overflow-hidden">
+                              <Zap className="w-2.5 h-2.5 text-purple-500 shrink-0" />
+                              <p className="text-[7px] font-black uppercase text-purple-600 truncate">{dur}m add-on</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Regular appointment
+                      const isEsc = item.isEscalated;
+                      const statusDot: Record<string,string> = {
+                        servicing: 'bg-primary animate-pulse', confirmed: 'bg-blue-400',
+                        completed: 'bg-green-500', no_show: 'bg-slate-400', pending: 'bg-amber-400',
+                        ready_for_checkout: 'bg-emerald-500',
+                      };
+                      const myBg: Record<string,string> = {
+                        servicing: 'bg-primary/5 border-primary/30 shadow-md shadow-primary/10',
+                        confirmed: 'bg-white border-primary/20 shadow-sm',
+                        completed: 'bg-green-50 border-green-200',
+                        ready_for_checkout: 'bg-emerald-50 border-emerald-300',
+                        no_show: 'bg-slate-50 border-slate-200 opacity-40',
+                        pending: 'bg-amber-50 border-amber-200',
+                      };
+                      // Multi-staff indicator
+                      const overrides = Object.entries(item.checkoutState?.serviceStaffOverrides || {});
+                      const concIds = item.checkoutState?.concurrentServiceIds || [];
+                      const addOnTs = overrides
+                        .filter(([sid, sid2]: any) => sid !== item.serviceId)
+                        .map(([, techId]) => (allStaff || []).find((s: any) => s.id === techId))
+                        .filter(Boolean);
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="absolute z-30 flex flex-col"
+                          style={{ top: topPx, height: totalH, left: leftPx, width: widthPx }}
+                        >
+                          {/* Pre-pad */}
+                          {padB > 0 && (
+                            <div className="shrink-0 rounded-t-xl border border-dashed border-slate-200 bg-slate-50 flex items-center px-1 overflow-hidden" style={{ height: padBPx }}>
+                              <span className="text-[6px] font-black uppercase text-slate-400 truncate">{padB}m</span>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={() => isMe ? onAptTap(item) : setPeekApt({ apt: item, tech, service: (services||[]).find((s: any) => s.id === item.serviceId) })}
+                            className={cn(
+                              'flex-1 text-left transition-all overflow-hidden',
+                              padB > 0 && padA > 0 ? 'rounded-none border-x border-b-0 border-t-0' :
+                              padB > 0 ? 'rounded-b-xl border border-t-0' :
+                              padA > 0 ? 'rounded-t-xl border border-b-0' : 'rounded-xl border',
+                              isMe
+                                ? (isEsc ? 'border-destructive bg-destructive/5 ring-1 ring-destructive/20 animate-pulse' : (myBg[st] || 'bg-white border-slate-200'))
+                                : 'bg-slate-100 border-slate-200 cursor-default',
+                              !isMe && 'opacity-70',
+                            )}
+                            style={{ height: svcH }}
+                          >
+                            <div className="p-1.5 h-full flex flex-col gap-0.5 overflow-hidden">
+                              <div className="flex items-center gap-1 min-w-0">
+                                <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', isMe ? (statusDot[st] || 'bg-slate-400') : 'bg-slate-400')} />
+                                {isMe ? (
+                                  <p className="font-black text-[9px] uppercase truncate text-slate-800 flex-1">
+                                    {(services||[]).find((s: any) => s.id === item.serviceId)?.name || 'Svc'}
+                                  </p>
+                                ) : (
+                                  <p className="font-black text-[9px] uppercase text-slate-500 truncate flex-1">Booked</p>
+                                )}
+                              </div>
+                              {isMe && (
+                                <>
+                                  <p className="text-[8px] font-bold text-muted-foreground uppercase pl-2.5 truncate">
+                                    {format(start, 'h:mm')} · {item.clientName?.split(' ')[0] || 'Guest'}
+                                  </p>
+                                  {/* Check-in badge */}
+                                  {item.checkInStatus === 'arrived'      && <span className="text-[6px] font-black uppercase bg-green-500 text-white rounded px-1 w-fit ml-2.5">HERE</span>}
+                                  {item.checkInStatus === 'running_late' && <span className="text-[6px] font-black uppercase bg-amber-500 text-white rounded px-1 w-fit ml-2.5 animate-pulse">LATE</span>}
+                                  {/* Multi-staff badge */}
+                                  {addOnTs.length > 0 && (
+                                    <div className={cn('flex items-center gap-0.5 ml-2.5 px-1 py-0.5 rounded w-fit',
+                                      concIds.length > 0 ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700')}>
+                                      <Zap className="w-2 h-2 shrink-0" />
+                                      <span className="text-[6px] font-black uppercase">{concIds.length > 0 ? 'CON' : 'SEQ'} +{addOnTs.length}</span>
+                                    </div>
+                                  )}
+                                  {/* Escalated */}
+                                  {isEsc && <span className="text-[6px] font-black uppercase bg-destructive text-white rounded px-1 w-fit ml-2.5 animate-pulse">ESC</span>}
+                                  {/* Live timer */}
+                                  {st === 'servicing' && item.actualStartTime && (
+                                    <LiveTimerBadge startTime={item.actualStartTime} duration={dur} />
+                                  )}
+                                </>
+                              )}
+                              {/* For other techs — just show status dot and time, no client info */}
+                              {!isMe && (
+                                <p className="text-[7px] font-bold text-slate-400 uppercase pl-2.5 truncate">
+                                  {format(start, 'h:mm')}–{format(addMinutes(start, dur), 'h:mm')}
+                                </p>
+                              )}
+                            </div>
+                          </button>
+
+                          {/* Post-pad */}
+                          {padA > 0 && (
+                            <div className="shrink-0 rounded-b-xl border border-dashed border-slate-200 bg-slate-50 flex items-center px-1 overflow-hidden" style={{ height: padAPx }}>
+                              <span className="text-[6px] font-black uppercase text-slate-400 truncate">{padA}m</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Read-only peek sheet for other techs' appointments */}
+      <AnimatePresence>
+        {peekApt && (
+          <TechPeekSheet
+            apt={peekApt.apt}
+            tech={peekApt.tech}
+            service={peekApt.service}
+            onClose={() => setPeekApt(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Floor view legend */}
+      {viewMode === 'floor' && (
+        <div className="px-4 py-2 border-t border-slate-100 flex items-center gap-4 flex-wrap bg-slate-50 rounded-b-[2rem]">
+          {[
+            { color: 'bg-primary/20 border border-primary/30', label: 'Your apts' },
+            { color: 'bg-slate-200 border border-slate-300', label: 'Other techs' },
+            { color: 'bg-teal-400', label: 'Walk-in' },
+            { color: 'bg-purple-100 border border-dashed border-purple-300', label: 'Add-on block' },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <div className={cn('w-3 h-3 rounded shrink-0', color)} />
+              <span className="text-[8px] font-black uppercase text-slate-500">{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1578,6 +2115,14 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const myAddonApptsQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('assignedStaffIds','array-contains',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
   // Check-in status — separate collection merged by checkInToken (same pattern as InventoryContext)
   const checkInsQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore,'appointmentCheckIns'), where('tenantId','==',tenantId)), [firestore,tenantId]);
+  // ── Floor view queries ──
+  // All today's appointments across ALL staff for floor view
+  const allTodayApptsQ  = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('status','in',['confirmed','servicing','ready_for_checkout','pending'])), [firestore,tenantId,refreshKey]);
+  // All today's walk-ins for floor view
+  const allWalkInsQ     = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore,`tenants/${tenantId}/walkIns`), where('status','in',['waiting','notified','in_service'])), [firestore,tenantId,refreshKey]);
+  // Staff blocks (sequential add-on time holds)
+  const staffBlocksQ    = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/staffBlocks`), [firestore,tenantId,refreshKey]);
+
   const myRequestsQ     = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
   const incomingSwapQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('swapWithStaffId','==',staffMember.id), where('status','==','pending_swap_consent')), [firestore,tenantId,staffMember?.id]);
   const pendingApprovalQ = useMemoFirebase(() => (!firestore||!tenantId||!isOwnerOrAdmin) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('status','==','swap_consent_given')), [firestore,tenantId,isOwnerOrAdmin]);
@@ -1592,6 +2137,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: myApptsRaw,   loading: apptsLoading }   = useCollection<any>(myApptsQ);
   const { data: myAddonAptsRaw }                        = useCollection<any>(myAddonApptsQ);
   const { data: checkInsRaw }                           = useCollection<any>(checkInsQ);
+  const { data: allTodayApptsRaw }                      = useCollection<any>(allTodayApptsQ);
+  const { data: allWalkInsRaw }                         = useCollection<any>(allWalkInsQ);
+  const { data: staffBlocksRaw }                        = useCollection<any>(staffBlocksQ);
   const { data: myRequests }                            = useCollection<any>(myRequestsQ);
   const { data: incomingSwaps }                         = useCollection<any>(incomingSwapQ);
   const { data: pendingApprovals }                      = useCollection<any>(pendingApprovalQ);
@@ -1865,8 +2413,17 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               <div className="space-y-4">
                 <NextBanner appointments={allMyApts} services={services} />
                 <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />
-                <DayTimeline appointments={allMyApts} services={services} selectedDate={selectedDate}
-                  onAptTap={apt => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />
+                <DayTimeline
+                  appointments={allMyApts}
+                  services={services}
+                  selectedDate={selectedDate}
+                  onAptTap={apt => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
+                  allStaffApts={allTodayApptsRaw || []}
+                  allWalkIns={allWalkInsRaw || []}
+                  allStaff={allStaff || []}
+                  allStaffBlocks={staffBlocksRaw || []}
+                  currentStaffId={staffMember?.id}
+                />
                 {isSameDay(selectedDate,today) && (
                   <div className="space-y-3">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Also Working Today</p>
@@ -1979,8 +2536,17 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                     </div>
                   );
                 })()}
-                <DayTimeline appointments={allMyApts} services={services} selectedDate={selectedDate}
-                  onAptTap={apt => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />
+                <DayTimeline
+                  appointments={allMyApts}
+                  services={services}
+                  selectedDate={selectedDate}
+                  onAptTap={apt => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
+                  allStaffApts={allTodayApptsRaw || []}
+                  allWalkIns={allWalkInsRaw || []}
+                  allStaff={allStaff || []}
+                  allStaffBlocks={staffBlocksRaw || []}
+                  currentStaffId={staffMember?.id}
+                />
               </div>
             )
           )}
