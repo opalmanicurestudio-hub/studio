@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense, useRef } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption, type TillSession, type Membership, type Package } from '@/lib/data';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
@@ -8,13 +8,13 @@ import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { Button } from '@/components/ui/button';
-import { 
-  Card, 
-  CardContent, 
-  CardHeader, 
-  CardTitle, 
-  CardDescription, 
-  CardFooter 
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardFooter
 } from '@/components/ui/card';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField } from 'firebase/firestore';
@@ -44,6 +44,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { CheckInConfirmationDialog } from '@/components/pos/CheckInConfirmationDialog';
 import { PrintTicket } from '@/components/planner/PrintTicket';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const sanitizeForFirestore = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
@@ -58,11 +59,11 @@ const sanitizeForFirestore = (obj: any): any => {
 };
 
 const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
-    if (typeof val?.toDate === 'function') return val.toDate();
-    return new Date(val);
+  if (!val) return new Date();
+  if (val instanceof Date) return val;
+  if (typeof val === 'string') return parseISO(val);
+  if (typeof val?.toDate === 'function') return val.toDate();
+  return new Date(val);
 };
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
@@ -87,48 +88,25 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
     const pinInputRef = React.useRef<HTMLInputElement>(null);
 
     React.useEffect(() => {
-        if (open) {
-            setTimeout(() => pinInputRef.current?.focus(), 150);
-        } else {
-            setPin('');
-            setReason('');
-        }
+        if (open) { setTimeout(() => pinInputRef.current?.focus(), 150); }
+        else { setPin(''); setReason(''); }
     }, [open]);
 
     const handleConfirm = () => {
         const authorizedStaff = (staff || []).find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
-        if (!authorizedStaff) {
-            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager PIN not recognized.' });
-            return;
-        }
-        if (!reason.trim()) {
-            toast({ variant: 'destructive', title: 'Reason Required' });
-            return;
-        }
+        if (!authorizedStaff) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager PIN not recognized.' }); return; }
+        if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
         onConfirm(authorizedStaff, reason);
-        setPin('');
-        setReason('');
+        setPin(''); setReason('');
     };
 
-    const handleOpenChange = (val: boolean) => {
-        if (!val) { setPin(''); setReason(''); }
-        onOpenChange(val);
-    };
-
+    const handleOpenChange = (val: boolean) => { if (!val) { setPin(''); setReason(''); } onOpenChange(val); };
     if (!open) return null;
 
     return (
-        <div 
-            style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', pointerEvents: 'all' }}
-        >
-            <div 
-                style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 0 }}
-                onClick={() => handleOpenChange(false)}
-            />
-            <div 
-                style={{ position: 'relative', zIndex: 1, backgroundColor: 'white', borderRadius: '2rem', border: '4px solid #e2e8f0', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', overflow: 'hidden' }}
-                onClick={(e) => e.stopPropagation()}
-            >
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', pointerEvents: 'all' }}>
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 0 }} onClick={() => handleOpenChange(false)} />
+            <div style={{ position: 'relative', zIndex: 1, backgroundColor: 'white', borderRadius: '2rem', border: '4px solid #e2e8f0', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
                 <div style={{ padding: '1.5rem 1.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
                         <ShieldCheck style={{ width: '1.5rem', height: '1.5rem', color: 'var(--primary, #6366f1)' }} />
@@ -139,41 +117,22 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
                 <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '12rem' }}>
                         <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em', color: '#94a3b8' }}>Manager PIN</label>
-                        <input
-                            ref={pinInputRef}
-                            type="number"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            placeholder="0000"
-                            maxLength={4}
-                            value={pin}
-                            onChange={e => setPin(e.target.value.slice(0, 4).replace(/\D/g, ''))}
-                            style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, height: '5rem', letterSpacing: '0.4em', backgroundColor: '#f8fafc', border: '4px solid #e2e8f0', borderRadius: '1.5rem', outline: 'none', padding: '0 1rem' }}
-                        />
+                        <input ref={pinInputRef} type="number" inputMode="numeric" pattern="[0-9]*" placeholder="0000" maxLength={4} value={pin} onChange={e => setPin(e.target.value.slice(0, 4).replace(/\D/g, ''))}
+                            style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, height: '5rem', letterSpacing: '0.4em', backgroundColor: '#f8fafc', border: '4px solid #e2e8f0', borderRadius: '1.5rem', outline: 'none', padding: '0 1rem' }} />
                     </div>
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Override Reason</label>
-                        <textarea
-                            value={reason}
-                            onChange={e => setReason(e.target.value)}
-                            placeholder="Detail the justification..."
-                            rows={3}
-                            style={{ width: '100%', borderRadius: '1rem', border: '2px solid #e2e8f0', padding: '0.75rem', fontSize: '0.875rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }}
-                        />
+                        <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Detail the justification..." rows={3}
+                            style={{ width: '100%', borderRadius: '1rem', border: '2px solid #e2e8f0', padding: '0.75rem', fontSize: '0.875rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }} />
                     </div>
                 </div>
                 <div style={{ padding: '0 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <button
-                        onClick={handleConfirm}
-                        disabled={pin.length < 4 || !reason.trim()}
-                        style={{ width: '100%', height: '4rem', borderRadius: '1rem', border: 'none', backgroundColor: pin.length < 4 || !reason.trim() ? '#cbd5e1' : '#6366f1', color: 'white', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: pin.length < 4 || !reason.trim() ? 'not-allowed' : 'pointer' }}
-                    >
+                    <button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()}
+                        style={{ width: '100%', height: '4rem', borderRadius: '1rem', border: 'none', backgroundColor: pin.length < 4 || !reason.trim() ? '#cbd5e1' : '#6366f1', color: 'white', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: pin.length < 4 || !reason.trim() ? 'not-allowed' : 'pointer' }}>
                         Authorize Override
                     </button>
-                    <button
-                        onClick={() => handleOpenChange(false)}
-                        style={{ width: '100%', height: '2.5rem', borderRadius: '1rem', border: 'none', backgroundColor: 'transparent', color: '#94a3b8', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer' }}
-                    >
+                    <button onClick={() => handleOpenChange(false)}
+                        style={{ width: '100%', height: '2.5rem', borderRadius: '1rem', border: 'none', backgroundColor: 'transparent', color: '#94a3b8', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer' }}>
                         Cancel
                     </button>
                 </div>
@@ -182,27 +141,22 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
     );
 };
 
-
 const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLinkSession, onMerge, onKeepSeparate }: any) => {
     const walkInPhone = walkIn?.customerPhone || walkIn?.phone || '';
     const walkInEmail = walkIn?.customerEmail || walkIn?.email || '';
-
-    const hasNewContact = (walkInPhone && walkInPhone !== matchedClient?.phone) || 
-                          (walkInEmail && walkInEmail !== matchedClient?.email);
+    const hasNewContact = (walkInPhone && walkInPhone !== matchedClient?.phone) || (walkInEmail && walkInEmail !== matchedClient?.email);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background">
                 <DialogHeader className="p-6 pb-0 text-left">
                     <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-slate-900">
-                        <Fingerprint className="w-6 h-6 text-primary" />
-                        Identity Match Found
+                        <Fingerprint className="w-6 h-6 text-primary" />Identity Match Found
                     </DialogTitle>
                     <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
                         This walk-in shares contact info with an existing client record.
                     </DialogDescription>
                 </DialogHeader>
-
                 <div className="p-6 space-y-4">
                     <div className="grid grid-cols-2 gap-3">
                         <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-2">
@@ -210,9 +164,7 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                             <p className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{matchedClient?.name}</p>
                             {matchedClient?.phone && <p className="text-[9px] font-bold text-slate-500 uppercase truncate">{matchedClient.phone}</p>}
                             {matchedClient?.email && <p className="text-[9px] font-bold text-slate-500 uppercase truncate">{matchedClient.email}</p>}
-                            {matchedClient?.lifetimeValue > 0 && (
-                                <p className="text-[8px] font-black text-primary uppercase">LTV: ${matchedClient.lifetimeValue.toFixed(0)}</p>
-                            )}
+                            {matchedClient?.lifetimeValue > 0 && <p className="text-[8px] font-black text-primary uppercase">LTV: ${matchedClient.lifetimeValue.toFixed(0)}</p>}
                         </div>
                         <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-200 space-y-2">
                             <p className="text-[8px] font-black uppercase tracking-widest text-amber-600">Walk-in Guest</p>
@@ -223,12 +175,8 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                         </div>
                     </div>
                 </div>
-
                 <div className="px-6 pb-6 space-y-3">
-                    <button
-                        onClick={() => onLinkSession(matchedClient)}
-                        className="w-full p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 hover:border-primary/40 transition-all text-left group"
-                    >
+                    <button onClick={() => onLinkSession(matchedClient)} className="w-full p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 hover:border-primary/40 transition-all text-left group">
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
                                 <p className="text-[11px] font-black uppercase tracking-widest text-primary">Link This Session Only</p>
@@ -237,28 +185,16 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
                             <ArrowRight className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100 transition-opacity shrink-0 ml-3" />
                         </div>
                     </button>
-
-                    <button
-                        onClick={() => onMerge(matchedClient)}
-                        className="w-full p-4 rounded-2xl border-2 border-green-500/20 bg-green-50/50 hover:bg-green-50 hover:border-green-500/40 transition-all text-left group"
-                    >
+                    <button onClick={() => onMerge(matchedClient)} className="w-full p-4 rounded-2xl border-2 border-green-500/20 bg-green-50/50 hover:bg-green-50 hover:border-green-500/40 transition-all text-left group">
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
                                 <p className="text-[11px] font-black uppercase tracking-widest text-green-700">Merge & Update Profile</p>
-                                <p className="text-[9px] font-bold text-slate-500 uppercase">
-                                    {hasNewContact 
-                                        ? 'Link session and update profile with new contact info.' 
-                                        : 'Link session and confirm this is the same person.'}
-                                </p>
+                                <p className="text-[9px] font-bold text-slate-500 uppercase">{hasNewContact ? 'Link session and update profile with new contact info.' : 'Link session and confirm this is the same person.'}</p>
                             </div>
                             <ShieldCheck className="w-4 h-4 text-green-600 opacity-40 group-hover:opacity-100 transition-opacity shrink-0 ml-3" />
                         </div>
                     </button>
-
-                    <button
-                        onClick={() => onKeepSeparate()}
-                        className="w-full p-3 rounded-2xl border-2 border-transparent hover:border-muted hover:bg-muted/20 transition-all text-left group"
-                    >
+                    <button onClick={() => onKeepSeparate()} className="w-full p-3 rounded-2xl border-2 border-transparent hover:border-muted hover:bg-muted/20 transition-all text-left group">
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
                                 <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Keep as New Guest</p>
@@ -279,7 +215,6 @@ function POSPage() {
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
-    const router = useRouter();
     const { toast } = useToast();
 
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
@@ -308,9 +243,36 @@ function POSPage() {
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
     const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package'; id: string; itemId?: string } | null>(null);
     const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
-
     const [isRecoveryOverrideOpen, setIsRecoveryOverrideOpen] = useState(false);
     const [pendingIdentityMatch, setPendingIdentityMatch] = useState<any | null>(null);
+
+    // ── NEW WALK-IN ALERT ─────────────────────────────────────────────────────
+    const [newWalkInAlert, setNewWalkInAlert] = useState<string | null>(null);
+    const prevWalkInCountRef = useRef<number>(0);
+
+    useEffect(() => {
+        const waitingCount = (walkIns || []).filter(w => w.status === 'waiting').length;
+        if (prevWalkInCountRef.current > 0 && waitingCount > prevWalkInCountRef.current) {
+            const newest = [...(walkIns || [])]
+                .filter(w => w.status === 'waiting')
+                .sort((a, b) => safeDate(b.checkInTime).getTime() - safeDate(a.checkInTime).getTime())[0];
+            if (newest) {
+                setNewWalkInAlert(`${newest.customerName || 'New guest'} joined the queue`);
+                try {
+                    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain); gain.connect(ctx.destination);
+                    osc.frequency.value = 880;
+                    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+                    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+                } catch { /* audio unavailable */ }
+                setTimeout(() => setNewWalkInAlert(null), 5000);
+            }
+        }
+        prevWalkInCountRef.current = waitingCount;
+    }, [walkIns]);
 
     const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
     const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
@@ -363,9 +325,7 @@ function POSPage() {
                 let adjTotal = 0;
                 if (adjustments) {
                     const isWaived = waivedAppointmentFees.has(data.appointment.id);
-                    if (!isWaived) {
-                        adjTotal = safeNumber(adjustments.rescheduleFee) + safeNumber(adjustments.timeOverage) + safeNumber(adjustments.materialOverage);
-                    }
+                    if (!isWaived) adjTotal = safeNumber(adjustments.rescheduleFee) + safeNumber(adjustments.timeOverage) + safeNumber(adjustments.materialOverage);
                 } else {
                     const isWaived = waivedAppointmentFees.has(data.appointment.id);
                     adjTotal = isWaived ? 0 : safeNumber(data.appointment.checkoutState?.additionalCharge);
@@ -397,10 +357,7 @@ function POSPage() {
         let eligibleProductIds: string[] = [];
         if (mId) {
             const membership = memberships.find(m => m.id === mId);
-            if (membership?.retailDiscount) {
-                bestDiscountPct = membership.retailDiscount;
-                eligibleProductIds = membership.applicableProductIds || [];
-            }
+            if (membership?.retailDiscount) { bestDiscountPct = membership.retailDiscount; eligibleProductIds = membership.applicableProductIds || []; }
         }
         if (bestDiscountPct === 0) return 0;
         return retailItems.reduce((acc, item) => {
@@ -414,22 +371,14 @@ function POSPage() {
 
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
-        readyForCheckoutAppointments
-            .filter(a => selectedAppointmentIds.has(a.id))
-            .forEach(data => { if (data.client?.id) clientIds.add(data.client.id); });
+        readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).forEach(data => { if (data.client?.id) clientIds.add(data.client.id); });
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [readyForCheckoutAppointments, selectedAppointmentIds, clients]);
 
     const handleSelectAppointment = useCallback((id: string) => {
         const nextIds = new Set(selectedAppointmentIds);
-        if (nextIds.has(id)) {
-            nextIds.delete(id);
-            if (nextIds.size === 0) setSelectedClientId(null);
-        } else {
-            nextIds.add(id);
-            const aptData = readyForCheckoutAppointments.find(a => a.id === id);
-            if (aptData?.client?.id) setSelectedClientId(aptData.client.id);
-        }
+        if (nextIds.has(id)) { nextIds.delete(id); if (nextIds.size === 0) setSelectedClientId(null); }
+        else { nextIds.add(id); const aptData = readyForCheckoutAppointments.find(a => a.id === id); if (aptData?.client?.id) setSelectedClientId(aptData.client.id); }
         setSelectedAppointmentIds(nextIds);
     }, [readyForCheckoutAppointments, selectedAppointmentIds]);
 
@@ -437,8 +386,7 @@ function POSPage() {
         setRetailItems(prev => {
             const existing = prev.find(i => i.id === item.id);
             if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
-            let price = 0;
-            let type: 'product' | 'service' | 'membership' | 'package' = 'product';
+            let price = 0; let type: 'product' | 'service' | 'membership' | 'package' = 'product';
             if ('msrp' in item) { price = safeNumber(item.msrp || item.costPerUnit); type = 'product'; }
             else if ('duration' in item) { price = safeNumber(item.price); type = 'service'; }
             else if ('interval' in item) { price = safeNumber(item.price); type = 'membership'; }
@@ -448,36 +396,66 @@ function POSPage() {
     }, []);
 
     const handleStartService = (appointmentId: string) => {
-      if (!firestore || !tenantId || !appointmentsFromInventory) return;
-      const appointment = (appointmentsFromInventory || []).find(a => a.id === appointmentId) || (appointmentsFromInventory || []).find(a => a.id === `apt-walkin-${appointmentId}`);
-      if (!appointment) return;
-      const nowISO = new Date().toISOString();
-      const batch = writeBatch(firestore);
-      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
-      if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
-      if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
-      if (appointment.isWalkIn) batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-', '')), { status: 'servicing', serviceStartTime: nowISO });
-      batch.commit().then(() => toast({ title: "Service Started" }));
+        if (!firestore || !tenantId || !appointmentsFromInventory) return;
+        const appointment = (appointmentsFromInventory || []).find(a => a.id === appointmentId) || (appointmentsFromInventory || []).find(a => a.id === `apt-walkin-${appointmentId}`);
+        if (!appointment) return;
+        const nowISO = new Date().toISOString();
+        const batch = writeBatch(firestore);
+        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
+        if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
+        if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
+        if (appointment.isWalkIn) batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-', '')), { status: 'servicing', serviceStartTime: nowISO });
+        batch.commit().then(() => toast({ title: "Service Started" }));
     };
 
+    // ── PATCHED: handleAssignStaff with conflict check ────────────────────────
     const handleAssignStaff = useCallback((walkIn: WalkIn, staffId: string) => {
-      if (!firestore || !tenantId || !services) return;
-      const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
-      updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
-      const personServices = (walkIn.serviceIds || []).map(id => (services || []).find(s => s.id === id)).filter(Boolean) as Service[];
-      const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
-      const appointmentId = `apt-walkin-${walkIn.id}`;
-      setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { id: appointmentId, tenantId, clientId: walkIn.clientId || walkIn.id, clientName: walkIn.customerName, serviceId: walkIn.serviceIds[0], staffId, status: 'confirmed', source: 'walk-in', isWalkIn: true, startTime: new Date().toISOString(), endTime: addMinutes(new Date(), duration).toISOString() }, {});
-      toast({ title: "Staff Assigned" });
-    }, [firestore, tenantId, services, toast]);
+        if (!firestore || !tenantId || !services) return;
 
+        const personServices = (walkIn.serviceIds || []).map(id => (services || []).find(s => s.id === id)).filter(Boolean) as Service[];
+        const estimatedDuration = personServices.reduce((acc, s) => acc + (s.duration || 0) + (s.padBefore || 0) + (s.padAfter || 0), 0);
+        const now = new Date();
+        const walkInEndsAt = addMinutes(now, estimatedDuration);
+
+        // Check for appointment conflict
+        const upcomingConflict = (appointmentsFromInventory || []).find(a =>
+            a.staffId === staffId &&
+            (a.status === 'confirmed' || a.status === 'deposit_pending') &&
+            safeDate(a.startTime) > now &&
+            safeDate(a.startTime) < walkInEndsAt
+        );
+
+        if (upcomingConflict) {
+            const conflictTime = format(safeDate(upcomingConflict.startTime), 'h:mm a');
+            const conflictClient = clients?.find(c => c.id === upcomingConflict.clientId);
+            toast({
+                variant: 'destructive',
+                title: 'Scheduling Conflict',
+                description: `This provider has ${conflictClient?.name || 'a client'} booked at ${conflictTime} — ${estimatedDuration}m service may overlap.`
+            });
+        }
+
+        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
+        updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: now.toISOString() });
+
+        const appointmentId = `apt-walkin-${walkIn.id}`;
+        setDocumentNonBlocking(
+            doc(firestore, 'tenants', tenantId, 'appointments', appointmentId),
+            { id: appointmentId, tenantId, clientId: walkIn.clientId || walkIn.id, clientName: walkIn.customerName, serviceId: walkIn.serviceIds[0], staffId, status: 'confirmed', source: 'walk-in', isWalkIn: true, startTime: now.toISOString(), endTime: addMinutes(now, estimatedDuration).toISOString() },
+            {}
+        );
+
+        toast({ title: "Staff Assigned" + (upcomingConflict ? " ⚠ Conflict detected" : "") });
+    }, [firestore, tenantId, services, appointmentsFromInventory, clients, toast]);
+
+    // ── PATCHED: handleAssignNext with fair_play sort + conflict awareness ────
     const handleAssignNext = useCallback(() => {
         if (!firestore || !tenantId || !walkIns || !staff || !services) return;
         const waitingQueue = [...walkIns].filter(w => w.status === 'waiting').sort((a, b) => (a.queueOrder || safeDate(a.checkInTime).getTime()) - (b.queueOrder || safeDate(b.checkInTime).getTime()));
         if (waitingQueue.length === 0) return;
         const nextGuest = waitingQueue[0];
 
-        // ── CHANGE 1: expanded idle filter ──
+        // PATCHED: includes 'available' status + acceptingWalkIns check
         const idleStaff = staff.filter((s: any) =>
             s.active &&
             !s.onBreak &&
@@ -485,15 +463,33 @@ function POSPage() {
             s.acceptingWalkIns !== false
         );
         if (idleStaff.length === 0) return;
-        const qualified = idleStaff.filter(s => nextGuest.serviceIds.every(sid => { const svc = services.find(ser => ser.id === sid); return !svc?.requiredSkills?.length || svc.requiredSkills.every(skill => (s.skillSet || []).includes(skill)); }));
+
+        // PATCHED: conflict-aware — skip staff with upcoming appointment overlap
+        const walkInDuration = nextGuest.serviceIds.reduce((acc: number, sid: string) => {
+            const svc = services.find((ser: Service) => ser.id === sid);
+            return acc + (svc?.duration || 0) + (svc?.padBefore || 0) + (svc?.padAfter || 0);
+        }, 0);
+        const walkInEndsAt = addMinutes(new Date(), walkInDuration);
+
+        const qualified = idleStaff.filter((s: any) => {
+            const hasSkills = nextGuest.serviceIds.every((sid: string) => {
+                const svc = services.find((ser: Service) => ser.id === sid);
+                return !svc?.requiredSkills?.length || svc.requiredSkills.every((skill: string) => (s.skillSet || []).includes(skill));
+            });
+            if (!hasSkills) return false;
+            const hasConflict = (appointmentsFromInventory || []).some(a =>
+                a.staffId === s.id &&
+                (a.status === 'confirmed' || a.status === 'deposit_pending') &&
+                safeDate(a.startTime) > new Date() &&
+                safeDate(a.startTime) < walkInEndsAt
+            );
+            return !hasConflict;
+        });
         if (qualified.length === 0) return;
 
-        // ── CHANGE 2: improved sort using lastWalkInCompletedAt ──
-        let selected = [...qualified].sort((a: any, b: any) => {
-            if (assignmentMode === 'ordered_list') {
-                return (a.turnOrder || 999) - (b.turnOrder || 999);
-            }
-            // fair_play: use lastWalkInCompletedAt, fall back to lastServedTimestamp
+        // PATCHED: fair_play uses lastWalkInCompletedAt with fallback
+        const selected = [...qualified].sort((a: any, b: any) => {
+            if (assignmentMode === 'ordered_list') return (a.turnOrder || 999) - (b.turnOrder || 999);
             const aTime = a.lastWalkInCompletedAt
                 ? new Date(a.lastWalkInCompletedAt).getTime()
                 : a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
@@ -504,7 +500,7 @@ function POSPage() {
         })[0];
 
         handleAssignStaff(nextGuest, selected.id);
-    }, [firestore, tenantId, walkIns, staff, services, assignmentMode, handleAssignStaff]);
+    }, [firestore, tenantId, walkIns, staff, services, assignmentMode, appointmentsFromInventory, handleAssignStaff]);
 
     const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
         if (!firestore || !tenantId || !selectedTenant) return;
@@ -566,7 +562,7 @@ function POSPage() {
         batch.commit().then(() => toast({ title: "Status Updated" }));
     };
 
-    const handleCheckout = async (paymentData: {paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string}) => {
+    const handleCheckout = async (paymentData: { paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string }) => {
         if (!selectedClientId || !firestore || !tenantId) return;
         setIsSubmitting(true);
         const batch = writeBatch(firestore);
@@ -574,7 +570,8 @@ function POSPage() {
         const clientObj = (clients || []).find(c => c.id === selectedClientId);
         const recoveryAmount = safeNumber(paymentData.recoveryAmount);
         const recoveryReason = paymentData.recoveryReason || 'Service Recovery Adjustment';
-        let totalLtvIncrease = 0; let totalCashIncrease = 0; let cashTipsTotal = 0; const cashTipsByStaffUpdate: Record<string, number> = {};
+        let totalLtvIncrease = 0; let totalCashIncrease = 0; let cashTipsTotal = 0;
+        const cashTipsByStaffUpdate: Record<string, number> = {};
 
         for (const aptData of readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id))) {
             const { appointment: apt, service, addOnServices } = aptData;
@@ -582,48 +579,108 @@ function POSPage() {
             const checkoutState = apt.checkoutState || {};
             const overrides = checkoutState.serviceStaffOverrides || {};
             const isWaived = waivedAppointmentFees.has(apt.id);
-            const mainStaffId = overrides[service.id] || apt.staffId; const isMainRedeemed = redeemedOffer?.itemId === service.id;
+            const mainStaffId = overrides[service.id] || apt.staffId;
+            const isMainRedeemed = redeemedOffer?.itemId === service.id;
             const mainStaffMember = staff.find(s => s.id === mainStaffId);
-            const mainPartRevenue = (isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember));
+            const mainPartRevenue = isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember);
             totalLtvIncrease += mainPartRevenue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true, tenantId }));
+
             if (!isWaived && checkoutState.adjustments) {
                 const { rescheduleFee, timeOverage, materialOverage } = checkoutState.adjustments;
                 if (safeNumber(rescheduleFee) > 0) { const amt = safeNumber(rescheduleFee); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Reschedule Recovery: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Protocol Recovery', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId })); }
                 if (safeNumber(timeOverage) > 0) { const amt = safeNumber(timeOverage); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Time Floor Overage: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Strategic Adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId })); }
                 if (safeNumber(materialOverage) > 0) { const amt = safeNumber(materialOverage); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Material Protocol Overage: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Strategic Adjustment', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId })); }
-            } else if (!isWaived && safeNumber(checkoutState.additionalCharge) > 0) { const amt = safeNumber(checkoutState.additionalCharge); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Strategic Adjustment Fee`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Adjustment Fee', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId })); }
-            addOnServices.forEach((addon: any) => { const addonStaffId = overrides[addon.id] || apt.staffId; const isAddonRedeemed = redeemedOffer?.itemId === addon.id; const addonStaff = staff.find((s: any) => s.id === addonStaffId); const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaff); totalLtvIncrease += addonPrice; if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true, tenantId })); });
-            (checkoutState.refreshments || []).forEach((amenity: any) => { const qty = safeNumber(amenity.quantity || 1); const amenityPrice = safeNumber(amenity.price) * qty; if (amenityPrice > 0) { totalLtvIncrease += amenityPrice; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amenityPrice; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Concierge: ${amenity.name} (x${qty})`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Hospitality Revenue', amount: amenityPrice, paymentMethod: paymentData.paymentMethod, appointmentId: apt.id, hasReceipt: false, tenantId })); } });
+            } else if (!isWaived && safeNumber(checkoutState.additionalCharge) > 0) {
+                const amt = safeNumber(checkoutState.additionalCharge); totalLtvIncrease += amt; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amt;
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Strategic Adjustment Fee`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Adjustment Fee', amount: amt, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId }));
+            }
+
+            addOnServices.forEach((addon: any) => {
+                const addonStaffId = overrides[addon.id] || apt.staffId;
+                const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
+                const addonStaff = staff.find((s: any) => s.id === addonStaffId);
+                const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaff);
+                totalLtvIncrease += addonPrice; if (paymentData.paymentMethod === 'cash') totalCashIncrease += addonPrice;
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: addonPrice, paymentMethod: paymentData.paymentMethod, staffId: addonStaffId, appointmentId: apt.id, hasReceipt: true, tenantId }));
+            });
+
+            (checkoutState.refreshments || []).forEach((amenity: any) => {
+                const qty = safeNumber(amenity.quantity || 1);
+                const amenityPrice = safeNumber(amenity.price) * qty;
+                if (amenityPrice > 0) { totalLtvIncrease += amenityPrice; if (paymentData.paymentMethod === 'cash') totalCashIncrease += amenityPrice; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Concierge: ${amenity.name} (x${qty})`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Hospitality Revenue', amount: amenityPrice, paymentMethod: paymentData.paymentMethod, appointmentId: apt.id, hasReceipt: false, tenantId })); }
+            });
+
             batch.update(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }));
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'completed' }));
-            const involvedIds = new Set<string>(); if (apt.staffId) involvedIds.add(apt.staffId); if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
 
-            // ── CHANGE 4: write available + lastWalkInCompletedAt on checkout ──
-            involvedIds.forEach(sid => { if (sid) batch.update(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now }); });
+            const involvedIds = new Set<string>();
+            if (apt.staffId) involvedIds.add(apt.staffId);
+            if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
+
+            // PATCHED: write 'available' + lastWalkInCompletedAt (fixes fair_play rotation)
+            involvedIds.forEach(sid => {
+                if (sid) batch.update(doc(firestore, 'tenants', tenantId, 'staff', sid), {
+                    status: 'available',
+                    lastWalkInCompletedAt: now
+                });
+            });
         }
 
-        retailItems.forEach(item => { const productValue = item.price * item.quantity; batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId })); batch.update(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }); batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore({ id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}` })); totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue; });
+        retailItems.forEach(item => {
+            const productValue = item.price * item.quantity;
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Retail', amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId }));
+            batch.update(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) });
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore({ id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}` }));
+            totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue;
+        });
 
-        if (clientObj && appliedAdjustments.size > 0) { const currentUnpaid = clientObj.unpaidFees || []; const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + safeNumber(fee?.feeAmount); }, 0); batch.update(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) }); if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal; appliedAdjustments.forEach(id => { const fee = currentUnpaid.find(f => f.feeId === id); if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: clientObj.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId })); }); totalLtvIncrease += settledTotal; }
+        if (clientObj && appliedAdjustments.size > 0) {
+            const currentUnpaid = clientObj.unpaidFees || [];
+            const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + safeNumber(fee?.feeAmount); }, 0);
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) });
+            if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
+            appliedAdjustments.forEach(id => { const fee = currentUnpaid.find(f => f.feeId === id); if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: clientObj.name, clientId: selectedClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId })); });
+            totalLtvIncrease += settledTotal;
+        }
 
-        if (clientObj) { const finalLtvDelta = Math.max(0, totalLtvIncrease - discountValue - membershipDiscountValue - recoveryAmount); const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now }; if (redeemedOffer) { const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`)); const offeringName = redeemedOffer.type === 'membership' ? memberships?.find(m => m.id === redeemedOffer.id)?.name : packages?.find(p => p.id === redeemedOffer.id)?.name; batch.set(redemptionRef, sanitizeForFirestore({ id: redemptionRef.id, clientId: selectedClientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, serviceName: services?.find(s => s.id === redeemedOffer.itemId)?.name || 'Service', date: now, staffId: currentUser?.uid, tenantId })); if (redeemedOffer.type === 'package') updates.activePackages = (clientObj.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0); else { updates[`subscription.perkUsage.${redeemedOffer.itemId}`] = increment(1); updates['subscription.perkLastUsed'] = now; } } batch.update(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates); }
+        if (clientObj) {
+            const finalLtvDelta = Math.max(0, totalLtvIncrease - discountValue - membershipDiscountValue - recoveryAmount);
+            const updates: any = { lifetimeValue: increment(finalLtvDelta), lastAppointment: now };
+            if (redeemedOffer) {
+                const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`));
+                const offeringName = redeemedOffer.type === 'membership' ? memberships?.find(m => m.id === redeemedOffer.id)?.name : packages?.find(p => p.id === redeemedOffer.id)?.name;
+                batch.set(redemptionRef, sanitizeForFirestore({ id: redemptionRef.id, clientId: selectedClientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, serviceName: services?.find(s => s.id === redeemedOffer.itemId)?.name || 'Service', date: now, staffId: currentUser?.uid, tenantId }));
+                if (redeemedOffer.type === 'package') updates.activePackages = (clientObj.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
+                else { updates[`subscription.perkUsage.${redeemedOffer.itemId}`] = increment(1); updates['subscription.perkLastUsed'] = now; }
+            }
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates);
+        }
 
-        Object.entries(tipAllocations).forEach(([staffId, amount]) => { const finalAmount = safeNumber(amount); if (finalAmount > 0) { batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Gratuity', clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true, tenantId })); if (paymentData.paymentMethod === 'cash') { cashTipsTotal += finalAmount; cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(finalAmount); } } });
+        Object.entries(tipAllocations).forEach(([staffId, amount]) => {
+            const finalAmount = safeNumber(amount);
+            if (finalAmount > 0) {
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Gratuity', clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true, tenantId }));
+                if (paymentData.paymentMethod === 'cash') { cashTipsTotal += finalAmount; cashTipsByStaffUpdate[`cashTipsByStaff.${staffId}`] = increment(finalAmount); }
+            }
+        });
 
         if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
-        
         if (recoveryAmount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Service Recovery: ${recoveryReason}`, clientOrVendor: clientObj?.name || 'Client', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
         if (paymentTab === 'cash' && activeTill) { const finalCashInput = totalCashIncrease + cashTipsTotal; batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate })); }
-        try { await batch.commit(); toast({ title: "Checkout Successful" }); setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); }
-        catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Checkout Failed' }); }
+
+        try {
+            await batch.commit();
+            toast({ title: "Checkout Successful" });
+            setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set());
+        } catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Checkout Failed' }); }
         finally { setIsSubmitting(false); }
     };
 
     const handleCancelAction = (id: string, isWalkIn: boolean) => {
         const isAssignedWalkIn = id.startsWith('apt-walkin-');
         const effectiveIsWalkIn = isWalkIn && !isAssignedWalkIn;
-        let item = effectiveIsWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
+        const item = effectiveIsWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
         if (item) { setSelectedAppointment({ ...item, isWalkIn: effectiveIsWalkIn } as any); setIsCancelDialogOpen(true); }
     };
 
@@ -644,7 +701,7 @@ function POSPage() {
     const handleRevertToService = (appointmentId: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'servicing' }); toast({ title: "Status Reverted" }); };
     const handleRevertToReady = (appointmentId: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'ready_for_checkout' }); toast({ title: "Status Reverted" }); };
     const handleOpenTill = (data: any) => { if (!firestore || !tenantId) return; const sessionRef = doc(collection(firestore, 'tenants', tenantId, 'tillSessions')); const newSession: any = { ...data, id: sessionRef.id, openedAt: new Date().toISOString(), status: 'open', expectedCash: data.openingFloat, totalCashSales: 0, totalCashTips: 0, totalCashRefunds: 0, cashTipsByStaff: {} }; setDocumentNonBlocking(sessionRef, sanitizeForFirestore(newSession), {}); toast({ title: "Till Session Initialized" }); };
-    const handleCloseTill = (data: any) => { if (!firestore || !tenantId || !activeTill) return; const sessionRef = doc(firestore, 'tenants', tenantId, 'tillSessions', activeTill.id); updateDocumentNonBlocking(sessionRef, sanitizeForFirestore({ ...data, status: 'closed', closedAt: new Date().toISOString() })); toast({ title: "Till Session Finalized" }); };
+    const handleCloseTill = (data: any) => { if (!firestore || !tenantId || !activeTill) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'tillSessions', activeTill.id), sanitizeForFirestore({ ...data, status: 'closed', closedAt: new Date().toISOString() })); toast({ title: "Till Session Finalized" }); };
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems, appointmentsData: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)), onSelectAppointment: handleSelectAppointment,
@@ -677,8 +734,8 @@ function POSPage() {
                         {isOwnerOrAdminUser && (<Button variant={activeTill ? "outline" : "default"} onClick={() => setIsTillManagementOpen(true)} className={cn("h-14 md:h-20 px-8 rounded-3xl font-black uppercase text-xs shadow-xl border-4 flex flex-col items-center justify-center gap-1", activeTill ? "border-green-500/20 bg-green-500/5 text-green-700" : "shadow-primary/20")}><Landmark className="w-5 h-5 mb-1" /> {activeTill ? `Till: $${safeNumber(activeTill.expectedCash).toFixed(2)}` : "Open Studio Till"}</Button>)}
                     </div>
                     <div className="grid gap-10 grid-cols-1">
-                        <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s, idx) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId) => { if (!firestore || !tenantId) return; const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId); setDocumentNonBlocking(staffRef, { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
-                        <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item }); setIsPrintDialogOpen(true); } } }} onSkip={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onFinishService={(apt) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } }} />
+                        <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
+                        <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } }} />
                         <div className="space-y-4 text-left"><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Retail & Additions</h3><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => {}} /></div>
                     </div>
                 </main>
@@ -689,22 +746,31 @@ function POSPage() {
 
             {isMobile && (<div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40"><Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}><SheetTrigger asChild><Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30">View Cart (${totalCalc.toFixed(2)})</Button></SheetTrigger><SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem] bg-background"><SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0"><SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle></SheetHeader><div className="flex-1 overflow-y-auto"><div className="p-6 pb-24"><CheckoutHub {...checkoutHubProps} /></div></div></SheetContent></Sheet></div>)}
 
-            <RecoveryOverrideDialog
-                open={isRecoveryOverrideOpen}
-                onOpenChange={setIsRecoveryOverrideOpen}
-                staff={staff || []}
-                onConfirm={(authorizer: any, reason: string) => {
-                    setIsRecoveryOverrideOpen(false);
-                    toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` });
-                }}
-            />
+            {/* ── NEW WALK-IN ALERT TOAST ── */}
+            <AnimatePresence>
+                {newWalkInAlert && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 60, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                        className="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-primary text-primary-foreground px-6 py-4 rounded-2xl shadow-2xl shadow-primary/30 flex items-center gap-3 border border-primary/20 whitespace-nowrap"
+                    >
+                        <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                        <p className="font-black uppercase tracking-widest text-xs">{newWalkInAlert}</p>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <RecoveryOverrideDialog open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { setIsRecoveryOverrideOpen(false); toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` }); }} />
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
-            <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment} client={clients?.find(c => c.id === selectedAppointment?.clientId) || null} service={services?.find(s => s.id === selectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={(apt) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onEdit={() => {}} onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
-            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data) => { if (!selectedAppointment || !firestore || !tenantId) return; const batch = writeBatch(firestore); const isAssignedWalkIn = selectedAppointment.id.startsWith('apt-walkin-'); const effectiveIsWalkIn = (selectedAppointment as any).isWalkIn || (isAssignedWalkIn && !selectedAppointment.clientId); const collectionPath = effectiveIsWalkIn ? 'walkIns' : 'appointments'; const updates = { status: 'cancelled' as const, cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount }; batch.set(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates), { merge: true }); if (data.feeAmount > 0 && selectedAppointment.clientId) { batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) }); } await batch.commit(); setIsCancelDialogOpen(false); setIsDetailsOpen(false); }} />}
-            <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id); updateDocumentNonBlocking(appointmentRef, { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
-            {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id, state) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, id), { status: 'ready_for_checkout', checkoutState: sanitizeForFirestore(state), actualEndTime: new Date().toISOString() }); setIsTechnicianReviewOpen(false); }} />}
+            <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment} client={clients?.find(c => c.id === selectedAppointment?.clientId) || null} service={services?.find(s => s.id === selectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onEdit={() => {}} onDelete={(id: string) => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
+            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data: any) => { if (!selectedAppointment || !firestore || !tenantId) return; const batch = writeBatch(firestore); const isAssignedWalkIn = selectedAppointment.id.startsWith('apt-walkin-'); const effectiveIsWalkIn = (selectedAppointment as any).isWalkIn || (isAssignedWalkIn && !selectedAppointment.clientId); const collectionPath = effectiveIsWalkIn ? 'walkIns' : 'appointments'; const updates = { status: 'cancelled' as const, cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount }; batch.set(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates), { merge: true }); if (data.feeAmount > 0 && selectedAppointment.clientId) { batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) }); } await batch.commit(); setIsCancelDialogOpen(false); setIsDetailsOpen(false); }} />}
+            <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
+            {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id: string, state: any) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, id), { status: 'ready_for_checkout', checkoutState: sanitizeForFirestore(state), actualEndTime: new Date().toISOString() }); setIsTechnicianReviewOpen(false); }} />}
             <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
             <CheckInConfirmationDialog open={!!pendingCheckInItem} onOpenChange={() => setPendingCheckInItem(null)} item={pendingCheckInItem} services={services || []} tenant={selectedTenant} onConfirm={handleResolveCheckInConfirmation} />
+
+            {/* ── IDENTITY MATCH DIALOG (with type guard fix) ── */}
             <IdentityMatchDialog
                 open={!!pendingIdentityMatch}
                 onOpenChange={() => setPendingIdentityMatch(null)}
@@ -712,16 +778,13 @@ function POSPage() {
                 matchedClient={pendingIdentityMatch?.matchedClient}
                 onLinkSession={async (matchedClient: any) => {
                     if (!firestore || !tenantId || !pendingIdentityMatch) return;
-                    // ── CHANGE 3: guard against non-walk-in items ──
+                    // PATCHED: guard against non-walk-in items crashing
                     if (pendingIdentityMatch.type !== 'walk-in') {
                         toast({ title: 'Cannot link', description: 'Identity matching only applies to walk-in guests.' });
                         setPendingIdentityMatch(null);
                         return;
                     }
-                    updateDocumentNonBlocking(
-                        doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id),
-                        { clientId: matchedClient.id, customerName: matchedClient.name }
-                    );
+                    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name });
                     toast({ title: "Session Linked", description: `Today's visit linked to ${matchedClient.name}.` });
                     setPendingIdentityMatch(null);
                 }}
@@ -729,19 +792,11 @@ function POSPage() {
                     if (!firestore || !tenantId || !pendingIdentityMatch) return;
                     const walkInPhone = pendingIdentityMatch.customerPhone || pendingIdentityMatch.phone || '';
                     const walkInEmail = pendingIdentityMatch.customerEmail || pendingIdentityMatch.email || '';
-                    updateDocumentNonBlocking(
-                        doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id),
-                        { clientId: matchedClient.id, customerName: matchedClient.name }
-                    );
+                    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name });
                     const clientUpdates: any = {};
                     if (walkInPhone && walkInPhone !== matchedClient.phone) clientUpdates.phone = walkInPhone;
                     if (walkInEmail && walkInEmail !== matchedClient.email) clientUpdates.email = walkInEmail;
-                    if (Object.keys(clientUpdates).length > 0) {
-                        updateDocumentNonBlocking(
-                            doc(firestore, `tenants/${tenantId}/clients`, matchedClient.id),
-                            clientUpdates
-                        );
-                    }
+                    if (Object.keys(clientUpdates).length > 0) updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, matchedClient.id), clientUpdates);
                     toast({ title: "Profile Merged", description: `${matchedClient.name}'s profile updated and session linked.` });
                     setPendingIdentityMatch(null);
                 }}
@@ -750,9 +805,16 @@ function POSPage() {
                     setPendingIdentityMatch(null);
                 }}
             />
+
             <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}><DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></DialogContent></Dialog>
         </div>
     );
 }
 
-export default function POSPageWrapper() { return <Suspense fallback={<div className="flex h-[100dvh] w-full flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>}><POSPage /></Suspense>; }
+export default function POSPageWrapper() {
+    return (
+        <Suspense fallback={<div className="flex h-[100dvh] w-full flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>}>
+            <POSPage />
+        </Suspense>
+    );
+}
