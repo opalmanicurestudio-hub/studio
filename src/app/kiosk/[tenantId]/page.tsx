@@ -1,135 +1,136 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useParams } from 'next/navigation';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { useToast } from '@/hooks/use-toast';
-import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
+import React, { useState, useMemo, useEffect, useCallback } from ‘react’;
+import { useParams } from ‘next/navigation’;
+import { Label } from ‘@/components/ui/label’;
+import { Button } from ‘@/components/ui/button’;
+import { useToast } from ‘@/hooks/use-toast’;
+import { useFirebase, useDoc, useCollection, useMemoFirebase } from ‘@/firebase’;
+import { collection, getDocs, query, where, doc, writeBatch } from ‘firebase/firestore’;
 import {
-  type Service, type Staff, type ConsentForm, type Tenant,
-  type Client, type PartyMember, type PricingTier, type Appointment
-} from '@/lib/data';
+type Service, type Staff, type ConsentForm, type Tenant,
+type Client, type PartyMember, type PricingTier, type Appointment
+} from ‘@/lib/data’;
 import {
-  Sparkles, User, ArrowRight, ArrowLeft, Users, Mail, Loader, Clock,
-  PlusCircle, Check, Printer, DollarSign, FileSignature, Ban, Star,
-  ArrowDown, Cake, PartyPopper, Delete, CalendarCheck, CheckCircle2,
-  Award, AlertTriangle, Phone, Timer,
-} from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Switch } from '@/components/ui/switch';
-import { format, parseISO, parse, isSameDay, addMinutes, differenceInMinutes, startOfDay } from 'date-fns';
-import { cn, hexToHSLComponents } from '@/lib/utils';
-import { nanoid } from 'nanoid';
-import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
-import Image from 'next/image';
-import { motion, AnimatePresence } from 'framer-motion';
-import Link from 'next/link';
-import { PhoneInput } from '@/components/ui/phone-input';
-import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { Separator } from '@/components/ui/separator';
-import { useForm, FormProvider } from 'react-hook-form';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+Sparkles, User, ArrowRight, ArrowLeft, Users, Mail, Loader, Clock,
+PlusCircle, Check, Printer, DollarSign, FileSignature, Ban, Star,
+ArrowDown, Cake, PartyPopper, Delete, CalendarCheck, CheckCircle2,
+Award, AlertTriangle, Phone, Timer,
+} from ‘lucide-react’;
+import { Avatar, AvatarFallback, AvatarImage } from ‘@/components/ui/avatar’;
+import { Switch } from ‘@/components/ui/switch’;
+import { format, parseISO, parse, isSameDay, addMinutes, differenceInMinutes, startOfDay } from ‘date-fns’;
+import { cn, hexToHSLComponents } from ‘@/lib/utils’;
+import { nanoid } from ‘nanoid’;
+import { FormFieldRenderer } from ‘@/components/consents/FormFieldRenderer’;
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from ‘@/components/ui/dialog’;
+import { PrintWalkInTicket, type WalkInTicketData } from ‘@/components/walk-in/PrintWalkInTicket’;
+import Image from ‘next/image’;
+import { motion, AnimatePresence } from ‘framer-motion’;
+import Link from ‘next/link’;
+import { PhoneInput } from ‘@/components/ui/phone-input’;
+import { ClarityFlowLogo } from ‘@/components/shared/AppSidebar’;
+import { Separator } from ‘@/components/ui/separator’;
+import { useForm, FormProvider } from ‘react-hook-form’;
+import { Alert, AlertTitle, AlertDescription } from ‘@/components/ui/alert’;
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const safeDate = (val: any): Date => {
-  if (!val) return new Date();
-  if (val instanceof Date) return val;
-  if (typeof val === 'string') { try { return parseISO(val); } catch { return new Date(val); } }
-  if (typeof val?.toDate === 'function') return val.toDate();
-  if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-  return new Date(val);
+if (!val) return new Date();
+if (val instanceof Date) return val;
+if (typeof val === ‘string’) { try { return parseISO(val); } catch { return new Date(val); } }
+if (typeof val?.toDate === ‘function’) return val.toDate();
+if (typeof val === ‘object’ && ‘seconds’ in val) return new Date(val.seconds * 1000);
+return new Date(val);
 };
 
 const isBusinessOpen = (date: Date, schedule: any) => {
-  if (!schedule?.week) return { open: true };
-  const dayName = format(date, 'eeee').toLowerCase();
-  const dayHours = schedule.week[dayName];
-  if (!dayHours?.enabled) return { open: false };
-  try {
-    const parseTime = (t: string) => parse(t, t.length > 7 ? 'hh:mm a' : 'h:mm a', date);
-    return {
-      open: date >= parseTime(dayHours.start) && date <= parseTime(dayHours.end),
-      hours: `${dayHours.start} – ${dayHours.end}`
-    };
-  } catch { return { open: true }; }
+if (!schedule?.week) return { open: true };
+const dayName = format(date, ‘eeee’).toLowerCase();
+const dayHours = schedule.week[dayName];
+if (!dayHours?.enabled) return { open: false };
+try {
+const parseTime = (t: string) => parse(t, t.length > 7 ? ‘hh:mm a’ : ‘h:mm a’, date);
+return {
+open: date >= parseTime(dayHours.start) && date <= parseTime(dayHours.end),
+hours: `${dayHours.start} – ${dayHours.end}`
+};
+} catch { return { open: true }; }
 };
 
 // ─── THEME SYSTEM ─────────────────────────────────────────────────────────────
 // Themes are configured in Settings → Kiosk Orchestration, NOT in the kiosk itself.
-type KioskTheme = 'light' | 'dark' | 'rose' | 'sage' | 'slate';
+type KioskTheme = ‘light’ | ‘dark’ | ‘rose’ | ‘sage’ | ‘slate’;
 
 interface ThemeTokens {
-  bg: string; surface: string; border: string; text: string; muted: string;
-  card: string; cardBorder: string; btn: string; btnText: string;
-  accent: string; label: string; inputBg: string; inputBorder: string;
+bg: string; surface: string; border: string; text: string; muted: string;
+card: string; cardBorder: string; btn: string; btnText: string;
+accent: string; label: string; inputBg: string; inputBorder: string;
 }
 
 const BASE_THEMES: Record<KioskTheme, ThemeTokens> = {
-  light: {
-    bg: 'bg-gradient-to-br from-slate-50 via-white to-slate-100',
-    surface: 'bg-white', border: 'border-slate-200', text: 'text-slate-900',
-    muted: 'text-slate-500', card: 'bg-white', cardBorder: 'border-slate-200',
-    btn: 'bg-slate-900 hover:bg-slate-800', btnText: 'text-white',
-    accent: 'bg-slate-900', label: 'text-slate-400',
-    inputBg: 'bg-white', inputBorder: 'border-slate-200',
-  },
-  dark: {
-    bg: 'bg-[#0c0c0f]', surface: 'bg-white/[0.04]', border: 'border-white/10',
-    text: 'text-white', muted: 'text-white/50', card: 'bg-white/[0.06]',
-    cardBorder: 'border-white/10', btn: 'bg-white hover:bg-white/90',
-    btnText: 'text-black', accent: 'bg-white', label: 'text-white/30',
-    inputBg: 'bg-white/[0.06]', inputBorder: 'border-white/10',
-  },
-  rose: {
-    bg: 'bg-gradient-to-br from-rose-50 via-pink-50 to-white',
-    surface: 'bg-white', border: 'border-rose-100', text: 'text-slate-900',
-    muted: 'text-slate-500', card: 'bg-white', cardBorder: 'border-rose-100',
-    btn: 'bg-rose-500 hover:bg-rose-600', btnText: 'text-white',
-    accent: 'bg-rose-500', label: 'text-slate-400',
-    inputBg: 'bg-white', inputBorder: 'border-rose-100',
-  },
-  sage: {
-    bg: 'bg-gradient-to-br from-emerald-50 via-teal-50 to-white',
-    surface: 'bg-white', border: 'border-emerald-100', text: 'text-slate-900',
-    muted: 'text-slate-500', card: 'bg-white', cardBorder: 'border-emerald-100',
-    btn: 'bg-emerald-600 hover:bg-emerald-700', btnText: 'text-white',
-    accent: 'bg-emerald-600', label: 'text-slate-400',
-    inputBg: 'bg-white', inputBorder: 'border-emerald-100',
-  },
-  slate: {
-    bg: 'bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900',
-    surface: 'bg-white/[0.06]', border: 'border-white/10', text: 'text-white',
-    muted: 'text-white/50', card: 'bg-white/[0.08]', cardBorder: 'border-white/15',
-    btn: 'bg-white hover:bg-white/90', btnText: 'text-slate-900',
-    accent: 'bg-white', label: 'text-white/30',
-    inputBg: 'bg-white/[0.06]', inputBorder: 'border-white/10',
-  },
+light: {
+bg: ‘bg-gradient-to-br from-slate-50 via-white to-slate-100’,
+surface: ‘bg-white’, border: ‘border-slate-200’, text: ‘text-slate-900’,
+muted: ‘text-slate-500’, card: ‘bg-white’, cardBorder: ‘border-slate-200’,
+btn: ‘bg-slate-900 hover:bg-slate-800’, btnText: ‘text-white’,
+accent: ‘bg-slate-900’, label: ‘text-slate-400’,
+inputBg: ‘bg-white’, inputBorder: ‘border-slate-200’,
+},
+dark: {
+bg: ‘bg-[#0c0c0f]’, surface: ‘bg-white/[0.04]’, border: ‘border-white/10’,
+text: ‘text-white’, muted: ‘text-white/50’, card: ‘bg-white/[0.06]’,
+cardBorder: ‘border-white/10’, btn: ‘bg-white hover:bg-white/90’,
+btnText: ‘text-black’, accent: ‘bg-white’, label: ‘text-white/30’,
+inputBg: ‘bg-white/[0.06]’, inputBorder: ‘border-white/10’,
+},
+rose: {
+bg: ‘bg-gradient-to-br from-rose-50 via-pink-50 to-white’,
+surface: ‘bg-white’, border: ‘border-rose-100’, text: ‘text-slate-900’,
+muted: ‘text-slate-500’, card: ‘bg-white’, cardBorder: ‘border-rose-100’,
+btn: ‘bg-rose-500 hover:bg-rose-600’, btnText: ‘text-white’,
+accent: ‘bg-rose-500’, label: ‘text-slate-400’,
+inputBg: ‘bg-white’, inputBorder: ‘border-rose-100’,
+},
+sage: {
+bg: ‘bg-gradient-to-br from-emerald-50 via-teal-50 to-white’,
+surface: ‘bg-white’, border: ‘border-emerald-100’, text: ‘text-slate-900’,
+muted: ‘text-slate-500’, card: ‘bg-white’, cardBorder: ‘border-emerald-100’,
+btn: ‘bg-emerald-600 hover:bg-emerald-700’, btnText: ‘text-white’,
+accent: ‘bg-emerald-600’, label: ‘text-slate-400’,
+inputBg: ‘bg-white’, inputBorder: ‘border-emerald-100’,
+},
+slate: {
+bg: ‘bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900’,
+surface: ‘bg-white/[0.06]’, border: ‘border-white/10’, text: ‘text-white’,
+muted: ‘text-white/50’, card: ‘bg-white/[0.08]’, cardBorder: ‘border-white/15’,
+btn: ‘bg-white hover:bg-white/90’, btnText: ‘text-slate-900’,
+accent: ‘bg-white’, label: ‘text-white/30’,
+inputBg: ‘bg-white/[0.06]’, inputBorder: ‘border-white/10’,
+},
 };
 
 // Build theme tokens — if a custom primary color is set, override btn/accent colors
 const buildTheme = (base: KioskTheme, primaryHex?: string): ThemeTokens => {
-  const tokens = { ...BASE_THEMES[base] };
-  // Only override btn/accent for light themes where the default btn is dark slate
-  if (primaryHex && (base === 'light' || base === 'rose' || base === 'sage')) {
-    tokens.btn = `hover:opacity-90`;
-    tokens.accent = `bg-[${primaryHex}]`;
-  }
-  return tokens;
+const tokens = { …BASE_THEMES[base] };
+// Only override btn/accent for light themes where the default btn is dark slate
+if (primaryHex && (base === ‘light’ || base === ‘rose’ || base === ‘sage’)) {
+tokens.btn = `hover:opacity-90`;
+tokens.accent = `bg-[${primaryHex}]`;
+}
+return tokens;
 };
 
 // Inline style override for custom primary color buttons
 const btnStyle = (primaryHex?: string, base?: KioskTheme): React.CSSProperties | undefined => {
-  if (!primaryHex) return undefined;
-  if (base === 'dark' || base === 'slate') return undefined; // dark themes use white button
-  return { backgroundColor: primaryHex, color: '#fff' };
+if (!primaryHex) return undefined;
+if (base === ‘dark’ || base === ‘slate’) return undefined; // dark themes use white button
+return { backgroundColor: primaryHex, color: ‘#fff’ };
 };
 
 // ─── DARK MESH BG ─────────────────────────────────────────────────────────────
 const DarkMeshBg = ({ primaryHex }: { primaryHex?: string }) => (
+
   <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
     <div className="absolute -top-[30%] -left-[10%] w-[70%] h-[70%] rounded-full opacity-25 blur-[100px]"
       style={{ background: primaryHex ? `${primaryHex}50` : '#7c3aed50' }} />
@@ -140,19 +141,23 @@ const DarkMeshBg = ({ primaryHex }: { primaryHex?: string }) => (
 
 // ─── SURFACE CARD ─────────────────────────────────────────────────────────────
 const SurfaceCard = ({ children, className, t }: { children: React.ReactNode; className?: string; t: ThemeTokens }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 12, scale: 0.98 }}
-    animate={{ opacity: 1, y: 0, scale: 1 }}
-    exit={{ opacity: 0, y: -8, scale: 0.98 }}
-    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-    className={cn('w-full max-w-2xl mx-auto overflow-hidden border rounded-3xl shadow-xl', t.card, t.cardBorder, className)}
-  >
-    {children}
-  </motion.div>
+<motion.div
+initial={{ opacity: 0, y: 12, scale: 0.98 }}
+animate={{ opacity: 1, y: 0, scale: 1 }}
+exit={{ opacity: 0, y: -8, scale: 0.98 }}
+transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+className={cn(‘w-full max-w-2xl mx-auto overflow-hidden border rounded-3xl shadow-xl’, t.card, t.cardBorder, className)}
+
+```
+{children}
+```
+
+</motion.div>
 );
 
 // ─── STEP DOTS ────────────────────────────────────────────────────────────────
 const StepDots = ({ total, current, t, primaryHex }: { total: number; current: number; t: ThemeTokens; primaryHex?: string }) => (
+
   <div className="flex items-center gap-2">
     {Array.from({ length: total }).map((_, i) => (
       <div key={i}
@@ -169,149 +174,152 @@ const StepDots = ({ total, current, t, primaryHex }: { total: number; current: n
 
 // ─── CHOICE TILE ──────────────────────────────────────────────────────────────
 const ChoiceTile = ({ onClick, icon: Icon, title, subtitle, selected, t, primaryHex }: any) => (
-  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} onClick={onClick}
-    className={cn(
-      'group relative flex flex-col items-center justify-center p-8 md:p-10 rounded-2xl border-2 transition-all duration-300 cursor-pointer text-center',
-      selected ? 'border-transparent shadow-lg' : `${t.card} ${t.cardBorder} hover:border-opacity-40`
-    )}
-    style={selected ? (btnStyle(primaryHex, undefined) || { backgroundColor: t.btn.includes('white') ? '#fff' : '#0f172a', color: t.btn.includes('white') ? '#000' : '#fff' }) : undefined}
-  >
-    <div className={cn('mb-4 p-4 rounded-xl transition-all', selected ? 'bg-white/20' : 'bg-slate-100/50')}>
-      <Icon className={cn('w-10 h-10 md:w-12 md:h-12', selected ? 'opacity-90' : t.muted)} strokeWidth={1.3} />
-    </div>
-    <p className="text-lg md:text-xl font-black uppercase tracking-tight leading-none mb-1.5">{title}</p>
-    <p className={cn('text-[10px] font-bold uppercase tracking-[0.2em]', selected ? 'opacity-60' : t.muted)}>{subtitle}</p>
-  </motion.button>
+<motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} onClick={onClick}
+className={cn(
+‘group relative flex flex-col items-center justify-center p-8 md:p-10 rounded-2xl border-2 transition-all duration-300 cursor-pointer text-center’,
+selected ? ‘border-transparent shadow-lg’ : `${t.card} ${t.cardBorder} hover:border-opacity-40`
+)}
+style={selected ? (btnStyle(primaryHex, undefined) || { backgroundColor: t.btn.includes(‘white’) ? ‘#fff’ : ‘#0f172a’, color: t.btn.includes(‘white’) ? ‘#000’ : ‘#fff’ }) : undefined}
+
+```
+<div className={cn('mb-4 p-4 rounded-xl transition-all', selected ? 'bg-white/20' : 'bg-slate-100/50')}>
+  <Icon className={cn('w-10 h-10 md:w-12 md:h-12', selected ? 'opacity-90' : t.muted)} strokeWidth={1.3} />
+</div>
+<p className="text-lg md:text-xl font-black uppercase tracking-tight leading-none mb-1.5">{title}</p>
+<p className={cn('text-[10px] font-bold uppercase tracking-[0.2em]', selected ? 'opacity-60' : t.muted)}>{subtitle}</p>
+```
+
+</motion.button>
 );
 
 // ─── LIVE FLOOR STATUS ────────────────────────────────────────────────────────
 const LiveFloorStatus = ({ staff, appointments, services, t }: {
-  staff: Staff[] | null; appointments: Appointment[]; services: Service[] | null; t: ThemeTokens;
+staff: Staff[] | null; appointments: Appointment[]; services: Service[] | null; t: ThemeTokens;
 }) => {
-  const [now, setNow] = useState(new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
+const [now, setNow] = useState(new Date());
+useEffect(() => {
+const timer = setInterval(() => setNow(new Date()), 30_000);
+return () => clearInterval(timer);
+}, []);
 
-  const enriched = useMemo(() => {
-    return (staff || []).filter(s => s.active).map(s => {
-      const servicing = (appointments || []).find(a => a.staffId === s.id && a.status === 'servicing');
-      const isOnBreak = (s as any).onBreak;
-      const isBusy = s.status === 'busy' || !!servicing;
-      let label = 'Available', dotColor = 'bg-emerald-500', estFree: number | null = null, serviceName: string | null = null;
-      if (isOnBreak) { label = 'On Break'; dotColor = 'bg-amber-400'; }
-      else if (isBusy) {
-        label = 'In Service'; dotColor = 'bg-blue-500';
-        if (servicing) {
-          const svc = (services || []).find(sv => sv.id === servicing.serviceId);
-          if (svc) serviceName = svc.name;
-          if (servicing.endTime) {
-            const mins = differenceInMinutes(safeDate(servicing.endTime), now);
-            estFree = mins > 0 ? mins : null;
-            if (mins <= 0) label = 'Finishing';
-          }
-        }
-      }
-      return { ...s, label, dotColor, estFree, serviceName };
-    }).sort((a, b) => {
-      const o: any = { 'Available': 0, 'Finishing': 1, 'In Service': 2, 'On Break': 3 };
-      return (o[a.label] ?? 4) - (o[b.label] ?? 4);
-    });
-  }, [staff, appointments, services, now]);
+const enriched = useMemo(() => {
+return (staff || []).filter(s => s.active).map(s => {
+const servicing = (appointments || []).find(a => a.staffId === s.id && a.status === ‘servicing’);
+const isOnBreak = (s as any).onBreak;
+const isBusy = s.status === ‘busy’ || !!servicing;
+let label = ‘Available’, dotColor = ‘bg-emerald-500’, estFree: number | null = null, serviceName: string | null = null;
+if (isOnBreak) { label = ‘On Break’; dotColor = ‘bg-amber-400’; }
+else if (isBusy) {
+label = ‘In Service’; dotColor = ‘bg-blue-500’;
+if (servicing) {
+const svc = (services || []).find(sv => sv.id === servicing.serviceId);
+if (svc) serviceName = svc.name;
+if (servicing.endTime) {
+const mins = differenceInMinutes(safeDate(servicing.endTime), now);
+estFree = mins > 0 ? mins : null;
+if (mins <= 0) label = ‘Finishing’;
+}
+}
+}
+return { …s, label, dotColor, estFree, serviceName };
+}).sort((a, b) => {
+const o: any = { ‘Available’: 0, ‘Finishing’: 1, ‘In Service’: 2, ‘On Break’: 3 };
+return (o[a.label] ?? 4) - (o[b.label] ?? 4);
+});
+}, [staff, appointments, services, now]);
 
-  if (!enriched.length) return null;
+if (!enriched.length) return null;
 
-  const waiting = enriched.filter(e => e.label === 'Available').length;
-  const shortestWait = enriched.filter(e => e.estFree !== null).length > 0
-    ? Math.min(...enriched.filter(e => e.estFree !== null).map(e => e.estFree!))
-    : null;
+const waiting = enriched.filter(e => e.label === ‘Available’).length;
+const shortestWait = enriched.filter(e => e.estFree !== null).length > 0
+? Math.min(…enriched.filter(e => e.estFree !== null).map(e => e.estFree!))
+: null;
 
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className={cn('h-px flex-1 opacity-20', t.border)} style={{ background: 'currentColor' }} />
-        <p className={cn('text-[9px] font-black uppercase tracking-[0.25em]', t.muted)}>Studio Floor</p>
-        <div className={cn('h-px flex-1 opacity-20', t.border)} style={{ background: 'currentColor' }} />
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-        {enriched.map(member => (
-          <div key={member.id} className={cn('flex items-center gap-3 p-3 rounded-2xl border', t.card, t.cardBorder)}>
-            <div className="relative shrink-0">
-              <Avatar className="w-10 h-10 rounded-xl">
-                <AvatarImage src={member.avatarUrl} className="object-cover" />
-                <AvatarFallback className={cn('font-black text-sm', t.text)}>{(member.name || 'S').charAt(0)}</AvatarFallback>
-              </Avatar>
-              <div className={cn('absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2', member.dotColor)}
-                style={{ borderColor: 'transparent' }} />
-            </div>
-            <div className="min-w-0">
-              <p className={cn('text-[11px] font-black uppercase tracking-tight truncate', t.text)}>{member.name?.split(' ')[0]}</p>
-              <p className={cn('text-[9px] font-bold uppercase', t.muted)}>{member.label}</p>
-              {member.estFree && <p className={cn('text-[9px] font-black', t.muted)}>~{member.estFree}m</p>}
-              {member.serviceName && !member.estFree && <p className={cn('text-[8px] font-bold truncate max-w-[70px]', t.muted)}>{member.serviceName}</p>}
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className={cn('rounded-2xl p-4 border text-center', t.card, t.cardBorder)}>
-        {waiting > 0 ? (
-          <>
-            <p className={cn('text-[10px] font-black uppercase tracking-widest', t.muted)}>Staff Available Now</p>
-            <p className={cn('text-2xl font-black mt-1', t.text)}>{waiting} provider{waiting > 1 ? 's' : ''} ready</p>
-          </>
-        ) : shortestWait !== null ? (
-          <>
-            <p className={cn('text-[10px] font-black uppercase tracking-widest', t.muted)}>Est. Next Available</p>
-            <p className={cn('text-2xl font-black mt-1', t.text)}>~{shortestWait}m</p>
-          </>
-        ) : (
-          <p className={cn('text-sm font-black', t.muted)}>Checking availability…</p>
-        )}
-      </div>
-    </div>
-  );
+return (
+<div className="space-y-3">
+<div className="flex items-center gap-3">
+<div className={cn(‘h-px flex-1 opacity-20’, t.border)} style={{ background: ‘currentColor’ }} />
+<p className={cn(‘text-[9px] font-black uppercase tracking-[0.25em]’, t.muted)}>Studio Floor</p>
+<div className={cn(‘h-px flex-1 opacity-20’, t.border)} style={{ background: ‘currentColor’ }} />
+</div>
+<div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+{enriched.map(member => (
+<div key={member.id} className={cn(‘flex items-center gap-3 p-3 rounded-2xl border’, t.card, t.cardBorder)}>
+<div className="relative shrink-0">
+<Avatar className="w-10 h-10 rounded-xl">
+<AvatarImage src={member.avatarUrl} className="object-cover" />
+<AvatarFallback className={cn(‘font-black text-sm’, t.text)}>{(member.name || ‘S’).charAt(0)}</AvatarFallback>
+</Avatar>
+<div className={cn(‘absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2’, member.dotColor)}
+style={{ borderColor: ‘transparent’ }} />
+</div>
+<div className="min-w-0">
+<p className={cn(‘text-[11px] font-black uppercase tracking-tight truncate’, t.text)}>{member.name?.split(’ ’)[0]}</p>
+<p className={cn(‘text-[9px] font-bold uppercase’, t.muted)}>{member.label}</p>
+{member.estFree && <p className={cn(‘text-[9px] font-black’, t.muted)}>~{member.estFree}m</p>}
+{member.serviceName && !member.estFree && <p className={cn(‘text-[8px] font-bold truncate max-w-[70px]’, t.muted)}>{member.serviceName}</p>}
+</div>
+</div>
+))}
+</div>
+<div className={cn(‘rounded-2xl p-4 border text-center’, t.card, t.cardBorder)}>
+{waiting > 0 ? (
+<>
+<p className={cn(‘text-[10px] font-black uppercase tracking-widest’, t.muted)}>Staff Available Now</p>
+<p className={cn(‘text-2xl font-black mt-1’, t.text)}>{waiting} provider{waiting > 1 ? ‘s’ : ‘’} ready</p>
+</>
+) : shortestWait !== null ? (
+<>
+<p className={cn(‘text-[10px] font-black uppercase tracking-widest’, t.muted)}>Est. Next Available</p>
+<p className={cn(‘text-2xl font-black mt-1’, t.text)}>~{shortestWait}m</p>
+</>
+) : (
+<p className={cn(‘text-sm font-black’, t.muted)}>Checking availability…</p>
+)}
+</div>
+</div>
+);
 };
 
 // ─── PARTY SIZE VIEW ──────────────────────────────────────────────────────────
 const PartySizeView = ({ onSelect, onBack, t, primaryHex }: any) => {
-  const [size, setSize] = useState(2);
-  return (
-    <div className="p-8 md:p-12 space-y-8">
-      <div className="text-center space-y-2">
-        <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>Group Check-in</p>
-        <h2 className={cn('text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none', t.text)}>How many guests?</h2>
-        <p className={cn('text-sm font-bold uppercase tracking-[0.15em]', t.muted)}>Each person gets their own queue ticket</p>
-      </div>
-      <div className="flex items-center justify-center gap-8">
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => setSize(s => Math.max(2, s - 1))}
-          className={cn('w-14 h-14 rounded-2xl border-2 flex items-center justify-center text-2xl font-black transition-all', t.card, t.cardBorder, t.text, 'hover:opacity-70')}>−</motion.button>
-        <div className="text-center">
-          <p className={cn('text-7xl font-black leading-none', t.text)}>{size}</p>
-          <p className={cn('text-[10px] font-black uppercase tracking-widest mt-1', t.muted)}>guests</p>
-        </div>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => setSize(s => Math.min(8, s + 1))}
-          className={cn('w-14 h-14 rounded-2xl border-2 flex items-center justify-center text-2xl font-black transition-all', t.card, t.cardBorder, t.text, 'hover:opacity-70')}>+</motion.button>
-      </div>
-      <div className="grid grid-cols-4 gap-2">
-        {[2,3,4,5,6,7,8].map(n => (
-          <button key={n} onClick={() => setSize(n)}
-            className={cn('h-12 rounded-xl border-2 font-black text-lg transition-all', size === n ? 'border-transparent shadow-md' : `${t.card} ${t.cardBorder} ${t.text}`)}
-            style={size === n ? (btnStyle(primaryHex) || {}) : undefined}>
-            {n}
-          </button>
-        ))}
-      </div>
-      <div className="space-y-3">
-        <button onClick={() => onSelect(size)}
-          className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2', t.btn, t.btnText)}
-          style={btnStyle(primaryHex)}>
-          Continue with {size} guests →
-        </button>
-        <button onClick={onBack} className={cn('w-full text-center text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70 transition-opacity')}>← Back</button>
-      </div>
-    </div>
-  );
+const [size, setSize] = useState(2);
+return (
+<div className="p-8 md:p-12 space-y-8">
+<div className="text-center space-y-2">
+<p className={cn(‘text-[9px] font-black uppercase tracking-[0.3em]’, t.muted)}>Group Check-in</p>
+<h2 className={cn(‘text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none’, t.text)}>How many guests?</h2>
+<p className={cn(‘text-sm font-bold uppercase tracking-[0.15em]’, t.muted)}>Each person gets their own queue ticket</p>
+</div>
+<div className="flex items-center justify-center gap-8">
+<motion.button whileTap={{ scale: 0.9 }} onClick={() => setSize(s => Math.max(2, s - 1))}
+className={cn(‘w-14 h-14 rounded-2xl border-2 flex items-center justify-center text-2xl font-black transition-all’, t.card, t.cardBorder, t.text, ‘hover:opacity-70’)}>−</motion.button>
+<div className="text-center">
+<p className={cn(‘text-7xl font-black leading-none’, t.text)}>{size}</p>
+<p className={cn(‘text-[10px] font-black uppercase tracking-widest mt-1’, t.muted)}>guests</p>
+</div>
+<motion.button whileTap={{ scale: 0.9 }} onClick={() => setSize(s => Math.min(8, s + 1))}
+className={cn(‘w-14 h-14 rounded-2xl border-2 flex items-center justify-center text-2xl font-black transition-all’, t.card, t.cardBorder, t.text, ‘hover:opacity-70’)}>+</motion.button>
+</div>
+<div className="grid grid-cols-4 gap-2">
+{[2,3,4,5,6,7,8].map(n => (
+<button key={n} onClick={() => setSize(n)}
+className={cn(‘h-12 rounded-xl border-2 font-black text-lg transition-all’, size === n ? ‘border-transparent shadow-md’ : `${t.card} ${t.cardBorder} ${t.text}`)}
+style={size === n ? (btnStyle(primaryHex) || {}) : undefined}>
+{n}
+</button>
+))}
+</div>
+<div className="space-y-3">
+<button onClick={() => onSelect(size)}
+className={cn(‘w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2’, t.btn, t.btnText)}
+style={btnStyle(primaryHex)}>
+Continue with {size} guests →
+</button>
+<button onClick={onBack} className={cn(‘w-full text-center text-[10px] font-black uppercase tracking-widest’, t.muted, ‘hover:opacity-70 transition-opacity’)}>← Back</button>
+</div>
+</div>
+);
 };
 
 // ─── GUEST NAMES VIEW (NEW) ───────────────────────────────────────────────────
@@ -319,84 +327,88 @@ const PartySizeView = ({ onSelect, onBack, t, primaryHex }: any) => {
 // Primary guest: name + phone (required for identity check)
 // Other guests: name only (phone/email collected in their MemberSetup details step)
 const GuestNamesView = ({ members, onChange, onConfirm, onBack, t, primaryHex }: {
-  members: PartyMember[];
-  onChange: (idx: number, field: 'name' | 'phone', value: string) => void;
-  onConfirm: () => void;
-  onBack: () => void;
-  t: ThemeTokens;
-  primaryHex?: string;
+members: PartyMember[];
+onChange: (idx: number, field: ‘name’ | ‘phone’, value: string) => void;
+onConfirm: () => void;
+onBack: () => void;
+t: ThemeTokens;
+primaryHex?: string;
 }) => {
-  const canProceed = members[0]?.name?.trim() && members[0]?.phone && members[0].phone.length >= 5;
+const canProceed = members[0]?.name?.trim() && members[0]?.phone && members[0].phone.length >= 5;
 
-  return (
-    <div className="p-6 md:p-8 space-y-6">
-      <div className="text-center space-y-2">
-        <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>Party of {members.length}</p>
-        <h2 className={cn('text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none', t.text)}>Meet the party</h2>
-        <p className={cn('text-sm font-bold uppercase tracking-[0.15em]', t.muted)}>Each guest gets their own personalized ticket</p>
-      </div>
+return (
+<div className="p-6 md:p-8 space-y-6">
+<div className="text-center space-y-2">
+<p className={cn(‘text-[9px] font-black uppercase tracking-[0.3em]’, t.muted)}>Party of {members.length}</p>
+<h2 className={cn(‘text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none’, t.text)}>Meet the party</h2>
+<p className={cn(‘text-sm font-bold uppercase tracking-[0.15em]’, t.muted)}>Each guest gets their own personalized ticket</p>
+</div>
 
-      <div className="space-y-4">
-        {members.map((member, idx) => (
-          <div key={member.id} className={cn('p-5 rounded-2xl border-2 space-y-4', t.card, t.cardBorder)}>
-            {/* Guest label */}
-            <div className="flex items-center gap-3">
-              <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black', idx === 0 ? 'bg-current text-white' : t.surface)}
-                style={idx === 0 ? (primaryHex ? { backgroundColor: primaryHex } : { backgroundColor: '#0f172a' }) : undefined}>
-                {idx + 1}
-              </div>
-              <p className={cn('text-[10px] font-black uppercase tracking-[0.2em]', t.muted)}>
-                {idx === 0 ? 'Primary Guest' : `Guest ${idx + 1}`}
-              </p>
-            </div>
-
-            {/* Name */}
-            <div className="space-y-1.5">
-              <label className={cn('text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5', t.label)}>
-                <User className="w-3 h-3" /> Full Name {idx === 0 ? '(required)' : '(required)'}
-              </label>
-              <input
-                value={member.name}
-                onChange={e => onChange(idx, 'name', e.target.value)}
-                placeholder={idx === 0 ? 'Your full name' : `Guest ${idx + 1} name`}
-                className={cn('w-full h-12 rounded-xl border-2 px-4 text-base font-bold outline-none transition-all uppercase tracking-tight', t.inputBg, t.inputBorder, t.text, 'placeholder:opacity-30 focus:ring-2')}
-              />
-            </div>
-
-            {/* Phone — primary only (required) */}
-            {idx === 0 && (
-              <div className="space-y-1.5">
-                <label className={cn('text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5', t.label)}>
-                  <Phone className="w-3 h-3" /> Phone Number (required to identify profile)
-                </label>
-                <PhoneInput
-                  name={`guest-phone-${idx}`} international defaultCountry="US"
-                  value={member.phone || ''} onChange={v => onChange(idx, 'phone', v || '')}
-                  placeholder="(555) 000-0000"
-                  className={cn('h-12 w-full rounded-xl border-2 px-4 text-base font-bold transition-all', t.inputBg, t.inputBorder, t.text, '[&_input]:border-none [&_input]:bg-transparent [&_input]:placeholder:opacity-30')}
-                />
-              </div>
-            )}
+```
+  <div className="space-y-4">
+    {members.map((member, idx) => (
+      <div key={member.id} className={cn('p-5 rounded-2xl border-2 space-y-4', t.card, t.cardBorder)}>
+        {/* Guest label */}
+        <div className="flex items-center gap-3">
+          <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black', idx === 0 ? 'bg-current text-white' : t.surface)}
+            style={idx === 0 ? (primaryHex ? { backgroundColor: primaryHex } : { backgroundColor: '#0f172a' }) : undefined}>
+            {idx + 1}
           </div>
-        ))}
-      </div>
+          <p className={cn('text-[10px] font-black uppercase tracking-[0.2em]', t.muted)}>
+            {idx === 0 ? 'Primary Guest' : `Guest ${idx + 1}`}
+          </p>
+        </div>
 
-      <div className="space-y-3 pt-2">
-        <button
-          onClick={onConfirm}
-          disabled={!canProceed}
-          className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-30', t.btn, t.btnText)}
-          style={btnStyle(primaryHex)}>
-          Let's Begin <ArrowRight className="w-4 h-4" />
-        </button>
-        <button onClick={onBack} className={cn('w-full text-center text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70 transition-opacity')}>← Back</button>
+        {/* Name */}
+        <div className="space-y-1.5">
+          <label className={cn('text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5', t.label)}>
+            <User className="w-3 h-3" /> Full Name {idx === 0 ? '(required)' : '(required)'}
+          </label>
+          <input
+            value={member.name}
+            onChange={e => onChange(idx, 'name', e.target.value)}
+            placeholder={idx === 0 ? 'Your full name' : `Guest ${idx + 1} name`}
+            className={cn('w-full h-12 rounded-xl border-2 px-4 text-base font-bold outline-none transition-all uppercase tracking-tight', t.inputBg, t.inputBorder, t.text, 'placeholder:opacity-30 focus:ring-2')}
+          />
+        </div>
+
+        {/* Phone — primary only (required) */}
+        {idx === 0 && (
+          <div className="space-y-1.5">
+            <label className={cn('text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5', t.label)}>
+              <Phone className="w-3 h-3" /> Phone Number (required to identify profile)
+            </label>
+            <PhoneInput
+              name={`guest-phone-${idx}`} international defaultCountry="US"
+              value={member.phone || ''} onChange={v => onChange(idx, 'phone', v || '')}
+              placeholder="(555) 000-0000"
+              className={cn('h-12 w-full rounded-xl border-2 px-4 text-base font-bold transition-all', t.inputBg, t.inputBorder, t.text, '[&_input]:border-none [&_input]:bg-transparent [&_input]:placeholder:opacity-30')}
+            />
+          </div>
+        )}
       </div>
-    </div>
-  );
+    ))}
+  </div>
+
+  <div className="space-y-3 pt-2">
+    <button
+      onClick={onConfirm}
+      disabled={!canProceed}
+      className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-30', t.btn, t.btnText)}
+      style={btnStyle(primaryHex)}>
+      Let's Begin <ArrowRight className="w-4 h-4" />
+    </button>
+    <button onClick={onBack} className={cn('w-full text-center text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70 transition-opacity')}>← Back</button>
+  </div>
+</div>
+```
+
+);
 };
 
 // ─── MEMBER DETAILS STEP ──────────────────────────────────────────────────────
 const StepDetails = ({ member, onUpdate, primaryMember, isGroup, bannedClient, existingClientWithBalance, isResolvingIdentity, isKnownClient, clientType, t }: any) => (
+
   <div className="space-y-4">
     <div className="space-y-2">
       <label className={cn('text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5', t.label)}><Phone className="w-3 h-3" /> Phone</label>
@@ -468,94 +480,95 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup, bannedClient, e
 
 // ─── SERVICE SELECTION ────────────────────────────────────────────────────────
 const ServiceTile = ({ service, isSelected, onToggle, t, primaryHex }: any) => {
-  const minPrice = useMemo(() => {
-    if (!service.serviceTiers?.length) return service.price;
-    return Math.min(...service.serviceTiers.map((st: any) => st.price));
-  }, [service]);
-  return (
-    <motion.button whileTap={{ scale: 0.95 }} onClick={onToggle}
-      className={cn('relative flex flex-col items-center justify-center p-5 rounded-2xl border-2 transition-all text-center gap-2.5', isSelected ? 'border-transparent shadow-lg' : `${t.card} ${t.cardBorder} ${t.text} hover:opacity-80`)}
-      style={isSelected ? (btnStyle(primaryHex) || {}) : undefined}>
-      {isSelected && <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-white/30 flex items-center justify-center"><Check className="w-2.5 h-2.5" /></div>}
-      <div className={cn('p-3 rounded-xl', isSelected ? 'bg-white/20' : 'bg-slate-100/60')}><Sparkles className="w-6 h-6" strokeWidth={1.5} /></div>
-      <p className="text-[10px] font-black uppercase tracking-tight leading-tight">{service.name}</p>
-      <p className={cn('text-[9px] font-black font-mono', isSelected ? 'opacity-70' : t.muted)}>${minPrice?.toFixed(0) ?? 0}+</p>
-    </motion.button>
-  );
+const minPrice = useMemo(() => {
+if (!service.serviceTiers?.length) return service.price;
+return Math.min(…service.serviceTiers.map((st: any) => st.price));
+}, [service]);
+return (
+<motion.button whileTap={{ scale: 0.95 }} onClick={onToggle}
+className={cn(‘relative flex flex-col items-center justify-center p-5 rounded-2xl border-2 transition-all text-center gap-2.5’, isSelected ? ‘border-transparent shadow-lg’ : `${t.card} ${t.cardBorder} ${t.text} hover:opacity-80`)}
+style={isSelected ? (btnStyle(primaryHex) || {}) : undefined}>
+{isSelected && <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-white/30 flex items-center justify-center"><Check className="w-2.5 h-2.5" /></div>}
+<div className={cn(‘p-3 rounded-xl’, isSelected ? ‘bg-white/20’ : ‘bg-slate-100/60’)}><Sparkles className="w-6 h-6" strokeWidth={1.5} /></div>
+<p className="text-[10px] font-black uppercase tracking-tight leading-tight">{service.name}</p>
+<p className={cn(‘text-[9px] font-black font-mono’, isSelected ? ‘opacity-70’ : t.muted)}>${minPrice?.toFixed(0) ?? 0}+</p>
+</motion.button>
+);
 };
 
 const StepServices = ({ member, onUpdate, services, t, primaryHex }: any) => {
-  const mainServices = useMemo(() => (services || []).filter((s: Service) => s.type === 'service'), [services]);
-  const selectedMainId = useMemo(() => member.serviceIds.find((id: string) => mainServices.some((s: Service) => s.id === id)), [member.serviceIds, mainServices]);
-  const selectedMain = useMemo(() => (services || []).find((s: Service) => s.id === selectedMainId), [services, selectedMainId]);
-  const categories = useMemo(() => Array.from(new Set(mainServices.map((s: Service) => s.category || 'Standard'))).sort() as string[], [mainServices]);
-  const addOns = useMemo(() => selectedMain ? (services || []).filter((s: Service) => s.type === 'addon' && (selectedMain.compatibleAddOnIds || []).includes(s.id)) : [], [services, selectedMain]);
-  const [view, setView] = useState<'cat' | 'main' | 'addon'>(selectedMainId ? 'addon' : 'cat');
-  const [cat, setCat] = useState<string | null>(null);
+const mainServices = useMemo(() => (services || []).filter((s: Service) => s.type === ‘service’), [services]);
+const selectedMainId = useMemo(() => member.serviceIds.find((id: string) => mainServices.some((s: Service) => s.id === id)), [member.serviceIds, mainServices]);
+const selectedMain = useMemo(() => (services || []).find((s: Service) => s.id === selectedMainId), [services, selectedMainId]);
+const categories = useMemo(() => Array.from(new Set(mainServices.map((s: Service) => s.category || ‘Standard’))).sort() as string[], [mainServices]);
+const addOns = useMemo(() => selectedMain ? (services || []).filter((s: Service) => s.type === ‘addon’ && (selectedMain.compatibleAddOnIds || []).includes(s.id)) : [], [services, selectedMain]);
+const [view, setView] = useState<‘cat’ | ‘main’ | ‘addon’>(selectedMainId ? ‘addon’ : ‘cat’);
+const [cat, setCat] = useState<string | null>(null);
 
-  return (
-    <AnimatePresence mode="wait">
-      {view === 'cat' && (
-        <motion.div key="cat" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="space-y-3">
-          <p className={cn('text-[9px] font-black uppercase tracking-[0.2em]', t.label)}>Choose category</p>
-          {categories.map(c => (
-            <motion.button key={c} whileTap={{ scale: 0.98 }} onClick={() => { setCat(c); setView('main'); }}
-              className={cn('w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all', t.card, t.cardBorder, t.text, 'hover:opacity-80')}>
-              <span className="font-black uppercase tracking-tight text-base">{c}</span>
-              <ArrowRight className={cn('w-4 h-4', t.muted)} />
-            </motion.button>
-          ))}
-        </motion.div>
-      )}
-      {view === 'main' && (
-        <motion.div key="main" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="space-y-4">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setView('cat')} className={cn('flex items-center gap-1 text-[9px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70')}><ArrowLeft className="w-3 h-3" /> Back</button>
-            <p className={cn('flex-1 text-center text-[9px] font-black uppercase tracking-[0.2em]', t.muted)}>{cat}</p>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {mainServices.filter((s: Service) => (s.category || 'Standard') === cat).map((svc: Service) => (
-              <ServiceTile key={svc.id} service={svc} isSelected={member.serviceIds.includes(svc.id)} t={t} primaryHex={primaryHex}
-                onToggle={() => {
-                  onUpdate({ serviceIds: [svc.id] });
-                  const has = (services || []).filter((s: Service) => s.type === 'addon' && (svc.compatibleAddOnIds || []).includes(s.id));
-                  if (has.length > 0) setView('addon');
-                }} />
-            ))}
-          </div>
-        </motion.div>
-      )}
-      {view === 'addon' && (
-        <motion.div key="addon" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="space-y-4">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setView('main')} className={cn('flex items-center gap-1 text-[9px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70')}><ArrowLeft className="w-3 h-3" /> Change</button>
-            <div className={cn('flex-1 text-center px-2 py-1 rounded-xl border', t.card, t.cardBorder)}>
-              <p className={cn('text-[9px] font-black uppercase tracking-tight truncate', t.muted)}>Selected: {selectedMain?.name}</p>
-            </div>
-          </div>
-          {addOns.length > 0 ? (
-            <>
-              <p className={cn('text-[9px] font-black uppercase tracking-[0.2em]', t.label)}>Add-ons (optional)</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {addOns.map((addon: Service) => (
-                  <ServiceTile key={addon.id} service={addon} t={t} primaryHex={primaryHex}
-                    isSelected={member.serviceIds.includes(addon.id)}
-                    onToggle={() => {
-                      const has = member.serviceIds.includes(addon.id);
-                      onUpdate({ serviceIds: has ? member.serviceIds.filter((id: string) => id !== addon.id) : [...member.serviceIds, addon.id] });
-                    }} />
-                ))}
-              </div>
-            </>
-          ) : <p className={cn('text-center py-4 text-[9px] font-black uppercase tracking-widest', t.muted)}>No add-ons available</p>}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+return (
+<AnimatePresence mode="wait">
+{view === ‘cat’ && (
+<motion.div key=“cat” initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className=“space-y-3”>
+<p className={cn(‘text-[9px] font-black uppercase tracking-[0.2em]’, t.label)}>Choose category</p>
+{categories.map(c => (
+<motion.button key={c} whileTap={{ scale: 0.98 }} onClick={() => { setCat(c); setView(‘main’); }}
+className={cn(‘w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all’, t.card, t.cardBorder, t.text, ‘hover:opacity-80’)}>
+<span className="font-black uppercase tracking-tight text-base">{c}</span>
+<ArrowRight className={cn(‘w-4 h-4’, t.muted)} />
+</motion.button>
+))}
+</motion.div>
+)}
+{view === ‘main’ && (
+<motion.div key=“main” initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className=“space-y-4”>
+<div className="flex items-center gap-3">
+<button onClick={() => setView(‘cat’)} className={cn(‘flex items-center gap-1 text-[9px] font-black uppercase tracking-widest’, t.muted, ‘hover:opacity-70’)}><ArrowLeft className="w-3 h-3" /> Back</button>
+<p className={cn(‘flex-1 text-center text-[9px] font-black uppercase tracking-[0.2em]’, t.muted)}>{cat}</p>
+</div>
+<div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+{mainServices.filter((s: Service) => (s.category || ‘Standard’) === cat).map((svc: Service) => (
+<ServiceTile key={svc.id} service={svc} isSelected={member.serviceIds.includes(svc.id)} t={t} primaryHex={primaryHex}
+onToggle={() => {
+onUpdate({ serviceIds: [svc.id] });
+const has = (services || []).filter((s: Service) => s.type === ‘addon’ && (svc.compatibleAddOnIds || []).includes(s.id));
+if (has.length > 0) setView(‘addon’);
+}} />
+))}
+</div>
+</motion.div>
+)}
+{view === ‘addon’ && (
+<motion.div key=“addon” initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className=“space-y-4”>
+<div className="flex items-center gap-3">
+<button onClick={() => setView(‘main’)} className={cn(‘flex items-center gap-1 text-[9px] font-black uppercase tracking-widest’, t.muted, ‘hover:opacity-70’)}><ArrowLeft className="w-3 h-3" /> Change</button>
+<div className={cn(‘flex-1 text-center px-2 py-1 rounded-xl border’, t.card, t.cardBorder)}>
+<p className={cn(‘text-[9px] font-black uppercase tracking-tight truncate’, t.muted)}>Selected: {selectedMain?.name}</p>
+</div>
+</div>
+{addOns.length > 0 ? (
+<>
+<p className={cn(‘text-[9px] font-black uppercase tracking-[0.2em]’, t.label)}>Add-ons (optional)</p>
+<div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+{addOns.map((addon: Service) => (
+<ServiceTile key={addon.id} service={addon} t={t} primaryHex={primaryHex}
+isSelected={member.serviceIds.includes(addon.id)}
+onToggle={() => {
+const has = member.serviceIds.includes(addon.id);
+onUpdate({ serviceIds: has ? member.serviceIds.filter((id: string) => id !== addon.id) : […member.serviceIds, addon.id] });
+}} />
+))}
+</div>
+</>
+) : <p className={cn(‘text-center py-4 text-[9px] font-black uppercase tracking-widest’, t.muted)}>No add-ons available</p>}
+</motion.div>
+)}
+</AnimatePresence>
+);
 };
 
 // ─── STAFF STEP ───────────────────────────────────────────────────────────────
 const StepStaff = ({ member, onUpdate, staff, t, primaryHex }: any) => (
+
   <div className="space-y-4">
     <p className={cn('text-[9px] font-black uppercase tracking-[0.2em]', t.label)}>Provider preference</p>
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -589,6 +602,7 @@ const StepStaff = ({ member, onUpdate, staff, t, primaryHex }: any) => (
 
 // ─── CONSENT STEP ─────────────────────────────────────────────────────────────
 const StepConsents = ({ requiredForms, formAnswers, setFormAnswers, t }: any) => (
+
   <div className="space-y-5">
     {requiredForms.map((form: ConsentForm) => (
       <div key={form.id} className={cn('space-y-5 p-5 rounded-2xl border-2', t.card, t.cardBorder)}>
@@ -604,105 +618,109 @@ const StepConsents = ({ requiredForms, formAnswers, setFormAnswers, t }: any) =>
 );
 
 // ─── MEMBER SETUP ─────────────────────────────────────────────────────────────
-type MemberSubStep = 'details' | 'services' | 'consents' | 'staff';
+type MemberSubStep = ‘details’ | ‘services’ | ‘consents’ | ‘staff’;
 
 const MemberSetup = ({
-  member, onUpdate, partyMembers, memberSubStep, services, staff, consentForms,
-  formAnswers, setFormAnswers, onNext, onBack, isGroup, isLastMember,
-  onFinishedThisGuest, onSubmit, isSubmitting, bannedClient, existingClientWithBalance,
-  isResolvingIdentity, matchedAppointment, onAppointmentCheckIn, dayAccessTier,
-  isKnownClient, clientType, t, primaryHex
+member, onUpdate, partyMembers, memberSubStep, services, staff, consentForms,
+formAnswers, setFormAnswers, onNext, onBack, isGroup, isLastMember,
+onFinishedThisGuest, onSubmit, isSubmitting, bannedClient, existingClientWithBalance,
+isResolvingIdentity, matchedAppointment, onAppointmentCheckIn, dayAccessTier,
+isKnownClient, clientType, t, primaryHex
 }: any) => {
-  const primaryService = (services || []).find((s: Service) => s.id === member.serviceIds[0]);
-  const requiredForms = (consentForms || []).filter((f: ConsentForm) => primaryService?.requiredFormIds?.includes(f.id));
-  const subSteps: MemberSubStep[] = ['details', 'services'];
-  if (requiredForms.length > 0) subSteps.push('consents');
-  subSteps.push('staff');
-  const stepIdx = subSteps.indexOf(memberSubStep);
-  const hasNext = stepIdx < subSteps.length - 1;
-  const isBlocked = !!bannedClient || !!existingClientWithBalance || isResolvingIdentity || (isKnownClient && clientType === 'new');
-  const stepLabel = { details: 'Your Info', services: 'Treatment', consents: 'Agreements', staff: 'Preference' }[memberSubStep];
+const primaryService = (services || []).find((s: Service) => s.id === member.serviceIds[0]);
+const requiredForms = (consentForms || []).filter((f: ConsentForm) => primaryService?.requiredFormIds?.includes(f.id));
+const subSteps: MemberSubStep[] = [‘details’, ‘services’];
+if (requiredForms.length > 0) subSteps.push(‘consents’);
+subSteps.push(‘staff’);
+const stepIdx = subSteps.indexOf(memberSubStep);
+const hasNext = stepIdx < subSteps.length - 1;
+const isBlocked = !!bannedClient || !!existingClientWithBalance || isResolvingIdentity || (isKnownClient && clientType === ‘new’);
+const stepLabel = { details: ‘Your Info’, services: ‘Treatment’, consents: ‘Agreements’, staff: ‘Preference’ }[memberSubStep];
 
-  return (
-    <div className="p-6 md:p-8 space-y-6">
-      <div className="flex items-center justify-between">
+return (
+<div className="p-6 md:p-8 space-y-6">
+<div className="flex items-center justify-between">
+<div>
+{isGroup && <p className={cn(‘text-[9px] font-black uppercase tracking-[0.2em] mb-1’, t.muted)}>Guest {member.index + 1} of {partyMembers.length}</p>}
+<h2 className={cn(‘text-2xl md:text-3xl font-black uppercase tracking-tight leading-none’, t.text)}>{stepLabel}</h2>
+{isGroup && member.name && <p className={cn(‘text-sm font-bold uppercase tracking-widest mt-1’, t.muted)}>for {member.name}</p>}
+</div>
+<StepDots total={subSteps.length} current={stepIdx} t={t} primaryHex={primaryHex} />
+</div>
+
+```
+  {memberSubStep === 'details' && matchedAppointment && (
+    <div className={cn('p-4 rounded-2xl border-2 space-y-3', t.card, t.cardBorder)}>
+      <div className="flex items-center gap-3">
+        <div className={cn('p-2 rounded-xl', t.surface)}><CalendarCheck className={cn('w-5 h-5', t.text)} /></div>
         <div>
-          {isGroup && <p className={cn('text-[9px] font-black uppercase tracking-[0.2em] mb-1', t.muted)}>Guest {member.index + 1} of {partyMembers.length}</p>}
-          <h2 className={cn('text-2xl md:text-3xl font-black uppercase tracking-tight leading-none', t.text)}>{stepLabel}</h2>
-          {isGroup && member.name && <p className={cn('text-sm font-bold uppercase tracking-widest mt-1', t.muted)}>for {member.name}</p>}
-        </div>
-        <StepDots total={subSteps.length} current={stepIdx} t={t} primaryHex={primaryHex} />
-      </div>
-
-      {memberSubStep === 'details' && matchedAppointment && (
-        <div className={cn('p-4 rounded-2xl border-2 space-y-3', t.card, t.cardBorder)}>
-          <div className="flex items-center gap-3">
-            <div className={cn('p-2 rounded-xl', t.surface)}><CalendarCheck className={cn('w-5 h-5', t.text)} /></div>
-            <div>
-              <p className={cn('text-[9px] font-black uppercase tracking-widest', t.muted)}>Appointment Found</p>
-              <p className={cn('text-sm font-black uppercase', t.text)}>{services?.find((s: any) => s.id === matchedAppointment.serviceId)?.name}</p>
-            </div>
-          </div>
-          <button onClick={() => onAppointmentCheckIn(matchedAppointment)}
-            className={cn('w-full h-12 rounded-xl font-black uppercase text-sm', t.btn, t.btnText)}
-            style={btnStyle(primaryHex)}>
-            Check In for This Appointment →
-          </button>
-          <p className={cn('text-center text-[8px] font-black uppercase tracking-widest', t.muted)}>Or continue below to change services</p>
-        </div>
-      )}
-      {memberSubStep === 'details' && dayAccessTier === 'members' && (
-        <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-4">
-          <p className="text-[9px] font-black uppercase tracking-widest text-indigo-600 mb-1">Members Priority Day</p>
-          <p className="text-[9px] font-bold text-indigo-500 uppercase">Today is reserved for Club Members only.</p>
-        </div>
-      )}
-
-      <AnimatePresence mode="wait">
-        <motion.div key={memberSubStep} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>
-          {memberSubStep === 'details' && <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} bannedClient={bannedClient} existingClientWithBalance={existingClientWithBalance} isResolvingIdentity={isResolvingIdentity} isKnownClient={isKnownClient} clientType={clientType} t={t} />}
-          {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} t={t} primaryHex={primaryHex} />}
-          {memberSubStep === 'consents' && <StepConsents requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} t={t} />}
-          {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} t={t} primaryHex={primaryHex} />}
-        </motion.div>
-      </AnimatePresence>
-
-      <div className="flex gap-3 pt-2">
-        <button onClick={onBack} disabled={isSubmitting}
-          className={cn('h-14 px-5 rounded-2xl border-2 font-black uppercase text-sm transition-all', t.card, t.cardBorder, t.muted, 'hover:opacity-70')}>←</button>
-        <div className="flex-1 flex gap-3">
-          {hasNext ? (
-            <button onClick={() => onNext(subSteps[stepIdx + 1])}
-              disabled={isSubmitting || (memberSubStep === 'details' && isBlocked) || (memberSubStep === 'services' && member.serviceIds.length === 0)}
-              className={cn('flex-1 h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-30', t.btn, t.btnText)}
-              style={btnStyle(primaryHex)}>
-              Continue <ArrowRight className="w-4 h-4" />
-            </button>
-          ) : (
-            <>
-              {isGroup && !isLastMember && (
-                <button onClick={onFinishedThisGuest}
-                  disabled={isSubmitting || isBlocked || member.serviceIds.length === 0}
-                  className={cn('flex-1 h-14 rounded-2xl border-2 font-black uppercase text-sm transition-all disabled:opacity-30', t.card, t.cardBorder, t.text)}>
-                  Next Guest →
-                </button>
-              )}
-              <button onClick={onSubmit}
-                disabled={isSubmitting || (memberSubStep === 'details' && isBlocked) || (memberSubStep === 'services' && member.serviceIds.length === 0)}
-                className={cn('flex-1 h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-30', t.btn, t.btnText)}
-                style={btnStyle(primaryHex)}>
-                {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : 'Complete ✓'}
-              </button>
-            </>
-          )}
+          <p className={cn('text-[9px] font-black uppercase tracking-widest', t.muted)}>Appointment Found</p>
+          <p className={cn('text-sm font-black uppercase', t.text)}>{services?.find((s: any) => s.id === matchedAppointment.serviceId)?.name}</p>
         </div>
       </div>
+      <button onClick={() => onAppointmentCheckIn(matchedAppointment)}
+        className={cn('w-full h-12 rounded-xl font-black uppercase text-sm', t.btn, t.btnText)}
+        style={btnStyle(primaryHex)}>
+        Check In for This Appointment →
+      </button>
+      <p className={cn('text-center text-[8px] font-black uppercase tracking-widest', t.muted)}>Or continue below to change services</p>
     </div>
-  );
+  )}
+  {memberSubStep === 'details' && dayAccessTier === 'members' && (
+    <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-4">
+      <p className="text-[9px] font-black uppercase tracking-widest text-indigo-600 mb-1">Members Priority Day</p>
+      <p className="text-[9px] font-bold text-indigo-500 uppercase">Today is reserved for Club Members only.</p>
+    </div>
+  )}
+
+  <AnimatePresence mode="wait">
+    <motion.div key={memberSubStep} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>
+      {memberSubStep === 'details' && <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} bannedClient={bannedClient} existingClientWithBalance={existingClientWithBalance} isResolvingIdentity={isResolvingIdentity} isKnownClient={isKnownClient} clientType={clientType} t={t} />}
+      {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} t={t} primaryHex={primaryHex} />}
+      {memberSubStep === 'consents' && <StepConsents requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} t={t} />}
+      {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} t={t} primaryHex={primaryHex} />}
+    </motion.div>
+  </AnimatePresence>
+
+  <div className="flex gap-3 pt-2">
+    <button onClick={onBack} disabled={isSubmitting}
+      className={cn('h-14 px-5 rounded-2xl border-2 font-black uppercase text-sm transition-all', t.card, t.cardBorder, t.muted, 'hover:opacity-70')}>←</button>
+    <div className="flex-1 flex gap-3">
+      {hasNext ? (
+        <button onClick={() => onNext(subSteps[stepIdx + 1])}
+          disabled={isSubmitting || (memberSubStep === 'details' && isBlocked) || (memberSubStep === 'services' && member.serviceIds.length === 0)}
+          className={cn('flex-1 h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-30', t.btn, t.btnText)}
+          style={btnStyle(primaryHex)}>
+          Continue <ArrowRight className="w-4 h-4" />
+        </button>
+      ) : (
+        <>
+          {isGroup && !isLastMember && (
+            <button onClick={onFinishedThisGuest}
+              disabled={isSubmitting || isBlocked || member.serviceIds.length === 0}
+              className={cn('flex-1 h-14 rounded-2xl border-2 font-black uppercase text-sm transition-all disabled:opacity-30', t.card, t.cardBorder, t.text)}>
+              Next Guest →
+            </button>
+          )}
+          <button onClick={onSubmit}
+            disabled={isSubmitting || (memberSubStep === 'details' && isBlocked) || (memberSubStep === 'services' && member.serviceIds.length === 0)}
+            className={cn('flex-1 h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-30', t.btn, t.btnText)}
+            style={btnStyle(primaryHex)}>
+            {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : 'Complete ✓'}
+          </button>
+        </>
+      )}
+    </div>
+  </div>
+</div>
+```
+
+);
 };
 
 // ─── CONFIRMATION ─────────────────────────────────────────────────────────────
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone, staff, liveAppointments, services, t, primaryHex }: any) => (
+
   <div className="p-8 md:p-10 space-y-8">
     <div className="text-center space-y-3">
       <motion.div
@@ -717,73 +735,77 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone, staff, liveAppoin
       </p>
     </div>
 
-    {/* Individual ticket cards — one per guest */}
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {confirmedParty.map((ticket: WalkInTicketData, idx: number) => (
-        <motion.div key={ticket.id}
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: idx * 0.08 }}
-          className={cn('flex items-center justify-between p-5 rounded-2xl border-2', t.card, t.cardBorder)}>
-          <div>
-            <p className={cn('text-[8px] font-black uppercase tracking-[0.2em] mb-1', t.muted)}>Guest {idx + 1} · Queue #{ticket.queuePosition}</p>
-            <p className={cn('text-xl font-black uppercase tracking-tight leading-none', t.text)}>{ticket.name}</p>
-            <p className={cn('text-[9px] font-bold uppercase mt-1 truncate max-w-[130px]', t.muted)}>
-              {ticket.services.map((s: Service) => s.name).join(', ')}
-            </p>
-          </div>
-          <button onClick={() => onPrint(ticket)}
-            className={cn('w-11 h-11 rounded-2xl border-2 flex items-center justify-center transition-all shrink-0', t.card, t.cardBorder, 'hover:opacity-70')}>
-            <Printer className={cn('w-5 h-5', t.muted)} />
-          </button>
-        </motion.div>
-      ))}
-    </div>
-
-    {/* Print all button if group */}
-    {confirmedParty.length > 1 && (
-      <button onClick={() => { confirmedParty.forEach((ticket: WalkInTicketData) => onPrint(ticket)); }}
-        className={cn('w-full h-12 rounded-2xl border-2 font-black uppercase tracking-widest text-sm transition-all', t.card, t.cardBorder, t.text, 'hover:opacity-80')}>
-        Print All {confirmedParty.length} Tickets
+```
+{/* Individual ticket cards — one per guest */}
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  {confirmedParty.map((ticket: WalkInTicketData, idx: number) => (
+    <motion.div key={ticket.id}
+      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: idx * 0.08 }}
+      className={cn('flex items-center justify-between p-5 rounded-2xl border-2', t.card, t.cardBorder)}>
+      <div>
+        <p className={cn('text-[8px] font-black uppercase tracking-[0.2em] mb-1', t.muted)}>Guest {idx + 1} · Queue #{ticket.queuePosition}</p>
+        <p className={cn('text-xl font-black uppercase tracking-tight leading-none', t.text)}>{ticket.name}</p>
+        <p className={cn('text-[9px] font-bold uppercase mt-1 truncate max-w-[130px]', t.muted)}>
+          {ticket.services.map((s: Service) => s.name).join(', ')}
+        </p>
+      </div>
+      <button onClick={() => onPrint(ticket)}
+        className={cn('w-11 h-11 rounded-2xl border-2 flex items-center justify-center transition-all shrink-0', t.card, t.cardBorder, 'hover:opacity-70')}>
+        <Printer className={cn('w-5 h-5', t.muted)} />
       </button>
-    )}
+    </motion.div>
+  ))}
+</div>
 
-    <LiveFloorStatus staff={staff} appointments={liveAppointments || []} services={services} t={t} />
+{/* Print all button if group */}
+{confirmedParty.length > 1 && (
+  <button onClick={() => { confirmedParty.forEach((ticket: WalkInTicketData) => onPrint(ticket)); }}
+    className={cn('w-full h-12 rounded-2xl border-2 font-black uppercase tracking-widest text-sm transition-all', t.card, t.cardBorder, t.text, 'hover:opacity-80')}>
+    Print All {confirmedParty.length} Tickets
+  </button>
+)}
 
-    <button onClick={onDone}
-      className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest', t.btn, t.btnText)}
-      style={btnStyle(primaryHex)}>
-      Done
-    </button>
+<LiveFloorStatus staff={staff} appointments={liveAppointments || []} services={services} t={t} />
+
+<button onClick={onDone}
+  className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest', t.btn, t.btnText)}
+  style={btnStyle(primaryHex)}>
+  Done
+</button>
+```
+
   </div>
 );
 
 // ─── BIRTHDAY CELEBRATION ─────────────────────────────────────────────────────
 const BirthdayCelebrationView = ({ clientName, onDone, t, primaryHex }: any) => (
-  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-    className={cn('fixed inset-0 z-[200] flex flex-col items-center justify-center p-6 text-center', t.bg)}>
-    {Array.from({ length: 12 }).map((_, i) => (
-      <motion.div key={i} initial={{ y: -20, opacity: 0 }} animate={{ y: '110vh', opacity: [0, 1, 1, 0] }}
-        transition={{ delay: i * 0.18, duration: 2.5, repeat: Infinity }}
-        className="absolute text-2xl" style={{ left: `${(i / 12) * 100}%`, top: '-5%' }}>
-        {['✨','🎉','🎊','💐','⭐'][i % 5]}
-      </motion.div>
-    ))}
-    <div className="relative z-10 space-y-8 max-w-sm">
-      <motion.div animate={{ scale: [1, 1.08, 1] }} transition={{ duration: 2, repeat: Infinity }}
-        className={cn('w-28 h-28 mx-auto rounded-3xl border-2 flex items-center justify-center', t.card, t.cardBorder)}>
-        <Cake className={cn('w-14 h-14', t.text)} strokeWidth={1} />
-      </motion.div>
-      <div>
-        <h2 className={cn('text-5xl font-black leading-none', t.text)}>Happy Birthday,<br /><span className={cn('italic font-light', t.muted)}>{clientName.split(' ')[0]}!</span></h2>
-        <p className={cn('font-bold uppercase tracking-[0.2em] text-sm mt-3', t.muted)}>Celebrating with us today</p>
-      </div>
-      <button onClick={onDone} className={cn('h-14 px-10 rounded-full font-black uppercase tracking-widest', t.btn, t.btnText)} style={btnStyle(primaryHex)}>Continue →</button>
-    </div>
-  </motion.div>
+<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+className={cn(‘fixed inset-0 z-[200] flex flex-col items-center justify-center p-6 text-center’, t.bg)}>
+{Array.from({ length: 12 }).map((_, i) => (
+<motion.div key={i} initial={{ y: -20, opacity: 0 }} animate={{ y: ‘110vh’, opacity: [0, 1, 1, 0] }}
+transition={{ delay: i * 0.18, duration: 2.5, repeat: Infinity }}
+className=“absolute text-2xl” style={{ left: `${(i / 12) * 100}%`, top: ‘-5%’ }}>
+{[‘✨’,‘🎉’,‘🎊’,‘💐’,‘⭐’][i % 5]}
+</motion.div>
+))}
+<div className="relative z-10 space-y-8 max-w-sm">
+<motion.div animate={{ scale: [1, 1.08, 1] }} transition={{ duration: 2, repeat: Infinity }}
+className={cn(‘w-28 h-28 mx-auto rounded-3xl border-2 flex items-center justify-center’, t.card, t.cardBorder)}>
+<Cake className={cn(‘w-14 h-14’, t.text)} strokeWidth={1} />
+</motion.div>
+<div>
+<h2 className={cn(‘text-5xl font-black leading-none’, t.text)}>Happy Birthday,<br /><span className={cn(‘italic font-light’, t.muted)}>{clientName.split(’ ’)[0]}!</span></h2>
+<p className={cn(‘font-bold uppercase tracking-[0.2em] text-sm mt-3’, t.muted)}>Celebrating with us today</p>
+</div>
+<button onClick={onDone} className={cn(‘h-14 px-10 rounded-full font-black uppercase tracking-widest’, t.btn, t.btnText)} style={btnStyle(primaryHex)}>Continue →</button>
+</div>
+</motion.div>
 );
 
 // ─── CLOSED VIEW ──────────────────────────────────────────────────────────────
 const ClosedView = ({ schedule, logoUrl, tenantName, t }: any) => (
+
   <div className={cn('text-center space-y-6 max-w-sm mx-auto p-10 rounded-3xl border-2', t.card, t.cardBorder)}>
     <div className={cn('w-20 h-20 mx-auto rounded-3xl border-2 flex items-center justify-center', t.card, t.cardBorder)}>
       {logoUrl ? <Image src={logoUrl} alt={tenantName || 'Studio'} width={48} height={48} className="object-cover rounded-xl" /> : <Clock className={cn('w-8 h-8', t.muted)} />}
@@ -803,629 +825,632 @@ const ClosedView = ({ schedule, logoUrl, tenantName, t }: any) => (
 );
 
 // ─── STEP TYPES ───────────────────────────────────────────────────────────────
-type Step = 'partyType' | 'partySize' | 'guestNames' | 'identityChoice' | 'phonePad' | 'identityConfirm' | 'welcomeBack' | 'memberSetup' | 'confirmation';
+type Step = ‘partyType’ | ‘partySize’ | ‘guestNames’ | ‘identityChoice’ | ‘phonePad’ | ‘identityConfirm’ | ‘welcomeBack’ | ‘memberSetup’ | ‘confirmation’;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function WalkInPage() {
-  const { firestore } = useFirebase();
-  const { toast } = useToast();
-  const params = useParams();
-  const tenantId = params.tenantId as string;
-  const methods = useForm({ defaultValues: { name: '', email: '', phone: '' } });
+const { firestore } = useFirebase();
+const { toast } = useToast();
+const params = useParams();
+const tenantId = params.tenantId as string;
+const methods = useForm({ defaultValues: { name: ‘’, email: ‘’, phone: ‘’ } });
 
-  const tenantRef    = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-  const servicesQ    = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
-  const staffQ       = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
-  const schedulesQ   = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where('isActive', '==', true)), [firestore, tenantId]);
-  const pricingQ     = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
-  const consentsQ    = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
-  const clientsQ     = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
-  const liveAptsQ    = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('status', 'in', ['confirmed', 'servicing'])), [firestore, tenantId]);
+const tenantRef    = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+const servicesQ    = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
+const staffQ       = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+const schedulesQ   = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where(‘isActive’, ‘==’, true)), [firestore, tenantId]);
+const pricingQ     = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
+const consentsQ    = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
+const clientsQ     = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
+const liveAptsQ    = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where(‘status’, ‘in’, [‘confirmed’, ‘servicing’])), [firestore, tenantId]);
 
-  const { data: tenant }           = useDoc<Tenant>(tenantRef);
-  const { data: services }         = useCollection<Service>(servicesQ);
-  const { data: staff }            = useCollection<Staff>(staffQ);
-  const { data: scheduleProfiles } = useCollection<any>(schedulesQ);
-  const { data: pricingTiers }     = useCollection<PricingTier>(pricingQ);
-  const { data: consentForms }     = useCollection<ConsentForm>(consentsQ);
-  const { data: clients }          = useCollection<Client>(clientsQ);
-  const { data: liveAppointments } = useCollection<Appointment>(liveAptsQ);
+const { data: tenant }           = useDoc<Tenant>(tenantRef);
+const { data: services }         = useCollection<Service>(servicesQ);
+const { data: staff }            = useCollection<Staff>(staffQ);
+const { data: scheduleProfiles } = useCollection<any>(schedulesQ);
+const { data: pricingTiers }     = useCollection<PricingTier>(pricingQ);
+const { data: consentForms }     = useCollection<ConsentForm>(consentsQ);
+const { data: clients }          = useCollection<Client>(clientsQ);
+const { data: liveAppointments } = useCollection<Appointment>(liveAptsQ);
 
-  // ── Theme — driven entirely by kioskSettings saved in the Settings page ────
-  const kioskSettings = tenant?.kioskSettings;
-  const logoUrl       = kioskSettings?.logoUrl;
-  const wordmarkUrl   = kioskSettings?.wordmarkUrl;
-  const showWordmark  = kioskSettings?.showWordmark !== false;
-  const primaryHex    = kioskSettings?.primaryColor || undefined;
-  const themeName     = (kioskSettings?.theme as KioskTheme) || 'light';
-  const t             = useMemo(() => buildTheme(themeName, primaryHex), [themeName, primaryHex]);
+// ── Theme — driven entirely by kioskSettings saved in the Settings page ────
+const kioskSettings = tenant?.kioskSettings;
+const logoUrl       = kioskSettings?.logoUrl;
+const wordmarkUrl   = kioskSettings?.wordmarkUrl;
+const showWordmark  = kioskSettings?.showWordmark !== false;
+const primaryHex    = kioskSettings?.primaryColor || undefined;
+const themeName     = (kioskSettings?.theme as KioskTheme) || ‘light’;
+const t             = useMemo(() => buildTheme(themeName, primaryHex), [themeName, primaryHex]);
 
-  // ── Flow state ──
-  const [entered, setEntered]               = useState(false);
-  const [step, setStep]                     = useState<Step>('partyType');
-  const [isGroup, setIsGroup]               = useState(false);
-  const [partySize, setPartySize]           = useState(1);
-  const [partyMembers, setPartyMembers]     = useState<PartyMember[]>([]);
-  const [currentMemberIndex, setCurrentMemberIndex] = useState(0);
-  const [memberSubStep, setMemberSubStep]   = useState<MemberSubStep>('details');
-  const [formAnswers, setFormAnswers]       = useState<Record<string, Record<string, any>>>({});
-  const [confirmedParty, setConfirmedParty] = useState<WalkInTicketData[]>([]);
-  const [isSubmitting, setIsSubmitting]     = useState(false);
-  const [ticketToPrint, setTicketToPrint]   = useState<WalkInTicketData | null>(null);
-  const [isPrintOpen, setIsPrintOpen]       = useState(false);
+// ── Flow state ──
+const [entered, setEntered]               = useState(false);
+const [step, setStep]                     = useState<Step>(‘partyType’);
+const [isGroup, setIsGroup]               = useState(false);
+const [partySize, setPartySize]           = useState(1);
+const [partyMembers, setPartyMembers]     = useState<PartyMember[]>([]);
+const [currentMemberIndex, setCurrentMemberIndex] = useState(0);
+const [memberSubStep, setMemberSubStep]   = useState<MemberSubStep>(‘details’);
+const [formAnswers, setFormAnswers]       = useState<Record<string, Record<string, any>>>({});
+const [confirmedParty, setConfirmedParty] = useState<WalkInTicketData[]>([]);
+const [isSubmitting, setIsSubmitting]     = useState(false);
+const [ticketToPrint, setTicketToPrint]   = useState<WalkInTicketData | null>(null);
+const [isPrintOpen, setIsPrintOpen]       = useState(false);
 
-  // ── Identity state ──
-  const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
-  const [bannedClient, setBannedClient]       = useState<Client | null>(null);
-  const [isResolvingIdentity, setIsResolvingIdentity] = useState(false);
-  const [matchedAppointment, setMatchedAppointment]   = useState<Appointment | null>(null);
-  const [matchedClient, setMatchedClient]     = useState<Client | null>(null);
-  const [isKnownClient, setIsKnownClient]     = useState(false);
-  const [clientType, setClientType]           = useState<'new' | 'returning' | null>(null);
-  const [phonePadValue, setPhonePadValue]     = useState('');
-  const [showBirthday, setShowBirthday]       = useState(false);
-  const [birthdayName, setBirthdayName]       = useState('');
+// ── Identity state ──
+const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
+const [bannedClient, setBannedClient]       = useState<Client | null>(null);
+const [isResolvingIdentity, setIsResolvingIdentity] = useState(false);
+const [matchedAppointment, setMatchedAppointment]   = useState<Appointment | null>(null);
+const [matchedClient, setMatchedClient]     = useState<Client | null>(null);
+const [isKnownClient, setIsKnownClient]     = useState(false);
+const [clientType, setClientType]           = useState<‘new’ | ‘returning’ | null>(null);
+const [phonePadValue, setPhonePadValue]     = useState(’’);
+const [showBirthday, setShowBirthday]       = useState(false);
+const [birthdayName, setBirthdayName]       = useState(’’);
 
-  const activeDaySchedule = useMemo(() => {
-    const day = format(new Date(), 'eeee').toLowerCase();
-    return scheduleProfiles?.[0]?.week?.[day] || null;
-  }, [scheduleProfiles]);
+const activeDaySchedule = useMemo(() => {
+const day = format(new Date(), ‘eeee’).toLowerCase();
+return scheduleProfiles?.[0]?.week?.[day] || null;
+}, [scheduleProfiles]);
 
-  const activeStaff = useMemo(() => (staff || []).filter(s => s.active && !(s as any).onBreak), [staff]);
+const activeStaff = useMemo(() => (staff || []).filter(s => s.active && !(s as any).onBreak), [staff]);
 
-  // ── Identity resolution ────────────────────────────────────────────────────
-  const resolveIdentity = useCallback(async (
-    email?: string, phone?: string, callerClientType?: 'new' | 'returning' | null
-  ): Promise<{ isBanned: boolean; hasBalance: boolean; isKnown: boolean; client: any }> => {
-    const empty = { isBanned: false, hasBalance: false, isKnown: false, client: null };
-    if (!firestore || !tenantId || (!email && !phone)) return empty;
-    setIsResolvingIdentity(true);
-    try {
-      const ref = collection(firestore, 'tenants', tenantId, 'clients');
-      const promises = [];
-      if (email) promises.push(getDocs(query(ref, where('email', '==', email.toLowerCase().trim()))));
-      if (phone) promises.push(getDocs(query(ref, where('phone', '==', phone))));
-      const snaps = await Promise.all(promises);
-      const allDocs = snaps.flatMap(s => s.docs);
-      if (allDocs.length > 0) {
-        const d = allDocs[0];
-        const clientObj = { ...d.data() as Client, id: d.id };
-        setMatchedClient(clientObj);
-        if (clientObj.status === 'banned') {
-          setBannedClient(clientObj); setExistingClientWithBalance(null); setMatchedAppointment(null); setIsKnownClient(false);
-          return { isBanned: true, hasBalance: false, isKnown: false, client: clientObj };
-        }
-        if ((clientObj.outstandingBalance || 0) > 0) {
-          setExistingClientWithBalance(clientObj); setBannedClient(null); setMatchedAppointment(null); setIsKnownClient(false);
-          return { isBanned: false, hasBalance: true, isKnown: false, client: clientObj };
-        }
-        setBannedClient(null); setExistingClientWithBalance(null);
-        const effective = callerClientType ?? clientType;
-        if (effective === 'new') {
-          setIsKnownClient(true);
-          return { isBanned: false, hasBalance: false, isKnown: true, client: clientObj };
-        } else {
-          setIsKnownClient(false);
-          const aptSnap = await getDocs(query(collection(firestore, 'tenants', tenantId, 'appointments'), where('clientId', '==', d.id), where('status', '==', 'confirmed')));
-          const todayApt = aptSnap.docs.map(ad => ({ ...ad.data(), id: ad.id } as Appointment)).find(a => isSameDay(safeDate(a.startTime), new Date()));
-          setMatchedAppointment(todayApt || null);
-          return { isBanned: false, hasBalance: false, isKnown: false, client: clientObj };
-        }
-      } else {
-        setBannedClient(null); setExistingClientWithBalance(null); setMatchedAppointment(null); setMatchedClient(null); setIsKnownClient(false);
-        const effective = callerClientType ?? clientType;
-        if (effective === 'returning' && step === 'phonePad') {
-          toast({ variant: 'destructive', title: 'Profile Not Found', description: 'Continuing as first visit.' });
-          setClientType('new'); setStep('memberSetup');
-        }
-        return empty;
-      }
-    } catch (e) { console.error(e); return empty; }
-    finally { setIsResolvingIdentity(false); }
-  }, [firestore, tenantId, clientType, step, toast]);
+// ── Identity resolution ────────────────────────────────────────────────────
+const resolveIdentity = useCallback(async (
+email?: string, phone?: string, callerClientType?: ‘new’ | ‘returning’ | null
+): Promise<{ isBanned: boolean; hasBalance: boolean; isKnown: boolean; client: any }> => {
+const empty = { isBanned: false, hasBalance: false, isKnown: false, client: null };
+if (!firestore || !tenantId || (!email && !phone)) return empty;
+setIsResolvingIdentity(true);
+try {
+const ref = collection(firestore, ‘tenants’, tenantId, ‘clients’);
+const promises = [];
+if (email) promises.push(getDocs(query(ref, where(‘email’, ‘==’, email.toLowerCase().trim()))));
+if (phone) promises.push(getDocs(query(ref, where(‘phone’, ‘==’, phone))));
+const snaps = await Promise.all(promises);
+const allDocs = snaps.flatMap(s => s.docs);
+if (allDocs.length > 0) {
+const d = allDocs[0];
+const clientObj = { …d.data() as Client, id: d.id };
+setMatchedClient(clientObj);
+if (clientObj.status === ‘banned’) {
+setBannedClient(clientObj); setExistingClientWithBalance(null); setMatchedAppointment(null); setIsKnownClient(false);
+return { isBanned: true, hasBalance: false, isKnown: false, client: clientObj };
+}
+if ((clientObj.outstandingBalance || 0) > 0) {
+setExistingClientWithBalance(clientObj); setBannedClient(null); setMatchedAppointment(null); setIsKnownClient(false);
+return { isBanned: false, hasBalance: true, isKnown: false, client: clientObj };
+}
+setBannedClient(null); setExistingClientWithBalance(null);
+const effective = callerClientType ?? clientType;
+if (effective === ‘new’) {
+setIsKnownClient(true);
+return { isBanned: false, hasBalance: false, isKnown: true, client: clientObj };
+} else {
+setIsKnownClient(false);
+const aptSnap = await getDocs(query(collection(firestore, ‘tenants’, tenantId, ‘appointments’), where(‘clientId’, ‘==’, d.id), where(‘status’, ‘==’, ‘confirmed’)));
+const todayApt = aptSnap.docs.map(ad => ({ …ad.data(), id: ad.id } as Appointment)).find(a => isSameDay(safeDate(a.startTime), new Date()));
+setMatchedAppointment(todayApt || null);
+return { isBanned: false, hasBalance: false, isKnown: false, client: clientObj };
+}
+} else {
+setBannedClient(null); setExistingClientWithBalance(null); setMatchedAppointment(null); setMatchedClient(null); setIsKnownClient(false);
+const effective = callerClientType ?? clientType;
+if (effective === ‘returning’ && step === ‘phonePad’) {
+toast({ variant: ‘destructive’, title: ‘Profile Not Found’, description: ‘Continuing as first visit.’ });
+setClientType(‘new’); setStep(‘memberSetup’);
+}
+return empty;
+}
+} catch (e) { console.error(e); return empty; }
+finally { setIsResolvingIdentity(false); }
+}, [firestore, tenantId, clientType, step, toast]);
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
+// ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handlePartyTypeSelect = (type: 'individual' | 'group') => {
-    const group = type === 'group';
-    setIsGroup(group);
-    setCurrentMemberIndex(0);
-    if (group) {
-      setStep('partySize');
-    } else {
-      setPartySize(1);
-      setPartyMembers([{ id: nanoid(5), name: '', serviceIds: [], isPrimary: true, preferredStaffId: 'any', waitForPreferredStaff: false }]);
-      setStep('identityChoice');
-    }
-  };
+const handlePartyTypeSelect = (type: ‘individual’ | ‘group’) => {
+const group = type === ‘group’;
+setIsGroup(group);
+setCurrentMemberIndex(0);
+if (group) {
+setStep(‘partySize’);
+} else {
+setPartySize(1);
+setPartyMembers([{ id: nanoid(5), name: ‘’, serviceIds: [], isPrimary: true, preferredStaffId: ‘any’, waitForPreferredStaff: false }]);
+setStep(‘identityChoice’);
+}
+};
 
-  const handlePartySizeConfirm = (size: number) => {
-    setPartySize(size);
-    // Create member slots with empty data — names collected on guestNames step
-    const members: PartyMember[] = Array.from({ length: size }, (_, i) => ({
-      id: nanoid(5), name: '', serviceIds: [], isPrimary: i === 0, preferredStaffId: 'any', waitForPreferredStaff: false,
-    }));
-    setPartyMembers(members);
-    setStep('guestNames');
-  };
+const handlePartySizeConfirm = (size: number) => {
+setPartySize(size);
+// Create member slots with empty data — names collected on guestNames step
+const members: PartyMember[] = Array.from({ length: size }, (_, i) => ({
+id: nanoid(5), name: ‘’, serviceIds: [], isPrimary: i === 0, preferredStaffId: ‘any’, waitForPreferredStaff: false,
+}));
+setPartyMembers(members);
+setStep(‘guestNames’);
+};
 
-  // Update a guest's name/phone directly in the partyMembers array (for guestNames step)
-  const handleGuestNameChange = (idx: number, field: 'name' | 'phone', value: string) => {
-    setPartyMembers(prev => prev.map((m, i) => i === idx ? { ...m, [field]: value } : m));
-  };
+// Update a guest’s name/phone directly in the partyMembers array (for guestNames step)
+const handleGuestNameChange = (idx: number, field: ‘name’ | ‘phone’, value: string) => {
+setPartyMembers(prev => prev.map((m, i) => i === idx ? { …m, [field]: value } : m));
+};
 
-  const handleGuestNamesConfirm = () => {
-    // Primary guest goes through identity choice
-    setStep('identityChoice');
-  };
+const handleGuestNamesConfirm = () => {
+// Primary guest goes through identity choice
+setStep(‘identityChoice’);
+};
 
-  const handleIdentitySelect = (type: 'new' | 'returning') => {
-    setClientType(type);
-    if (type === 'returning') { setStep('phonePad'); setPhonePadValue(''); }
-    else { setMemberSubStep('details'); setStep('memberSetup'); }
-  };
+const handleIdentitySelect = (type: ‘new’ | ‘returning’) => {
+setClientType(type);
+if (type === ‘returning’) { setStep(‘phonePad’); setPhonePadValue(’’); }
+else { setMemberSubStep(‘details’); setStep(‘memberSetup’); }
+};
 
-  const handlePhonePadConfirm = async () => {
-    if (phonePadValue.length < 10) return;
-    const result = await resolveIdentity(undefined, `+1${phonePadValue}`, 'returning');
-    if (result.client) setStep('identityConfirm');
-  };
+const handlePhonePadConfirm = async () => {
+if (phonePadValue.length < 10) return;
+const result = await resolveIdentity(undefined, `+1${phonePadValue}`, ‘returning’);
+if (result.client) setStep(‘identityConfirm’);
+};
 
-  // FIX: pre-fill member WITHOUT going through handleMemberUpdate (avoids clearing matchedClient)
-  const handleIdentityConfirm = async () => {
-    if (!matchedClient) return;
-    setPartyMembers(prev => prev.map((m, i) =>
-      i === currentMemberIndex
-        ? { ...m, name: m.name || matchedClient.name || '', email: m.email || matchedClient.email || '', phone: m.phone || matchedClient.phone || '' }
-        : m
-    ));
-    if (matchedAppointment) { await handleAppointmentCheckIn(matchedAppointment); }
-    else { setMemberSubStep('services'); setStep('welcomeBack'); }
-  };
+// FIX: pre-fill member WITHOUT going through handleMemberUpdate (avoids clearing matchedClient)
+const handleIdentityConfirm = async () => {
+if (!matchedClient) return;
+setPartyMembers(prev => prev.map((m, i) =>
+i === currentMemberIndex
+? { …m, name: m.name || matchedClient.name || ‘’, email: m.email || matchedClient.email || ‘’, phone: m.phone || matchedClient.phone || ‘’ }
+: m
+));
+if (matchedAppointment) { await handleAppointmentCheckIn(matchedAppointment); }
+else { setMemberSubStep(‘services’); setStep(‘welcomeBack’); }
+};
 
-  const handleMemberUpdate = (updates: Partial<PartyMember>) => {
-    const contactChanged = updates.phone !== undefined || updates.email !== undefined;
-    if (contactChanged) {
-      setIsKnownClient(false); setBannedClient(null); setExistingClientWithBalance(null); setMatchedAppointment(null);
-      // NOT clearing matchedClient — preserves welcomeBack name display
-    }
-    setPartyMembers(prev => prev.map((m, i) => i === currentMemberIndex ? { ...m, ...updates } : m));
-  };
+const handleMemberUpdate = (updates: Partial<PartyMember>) => {
+const contactChanged = updates.phone !== undefined || updates.email !== undefined;
+if (contactChanged) {
+setIsKnownClient(false); setBannedClient(null); setExistingClientWithBalance(null); setMatchedAppointment(null);
+// NOT clearing matchedClient — preserves welcomeBack name display
+}
+setPartyMembers(prev => prev.map((m, i) => i === currentMemberIndex ? { …m, …updates } : m));
+};
 
-  const handleNextSubStep = async (next: MemberSubStep) => {
-    const member = partyMembers[currentMemberIndex];
-    if (memberSubStep === 'details') {
-      if (!member.phone || member.phone.length < 5) return toast({ variant: 'destructive', title: 'Phone Required' });
-      if (!member.name.trim()) return toast({ variant: 'destructive', title: 'Name Required' });
-      if (!member.email?.trim()) return toast({ variant: 'destructive', title: 'Email Required' });
-      if (!/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email' });
-      const result = await resolveIdentity(member.email, member.phone, clientType);
-      if (result.isBanned || result.hasBalance) return;
-      if (result.isKnown && clientType === 'new') return;
-      const dayAccess = activeDaySchedule?.accessTier || 'all';
-      if (dayAccess === 'members') {
-        const isMember = !!(matchedClient?.activeMembershipId || matchedClient?.subscription);
-        const hasPackage = (matchedClient?.activePackages?.length || 0) > 0;
-        if (!isMember && !hasPackage) { toast({ variant: 'destructive', title: 'Members Only Today' }); return; }
-      } else if (dayAccess === 'returning' && !matchedClient) {
-        toast({ variant: 'destructive', title: 'Return Guests Only Today' }); return;
-      }
-    }
-    if (memberSubStep === 'services' && member.serviceIds.length === 0) return toast({ variant: 'destructive', title: 'Please select a service' });
-    setMemberSubStep(next);
-  };
+const handleNextSubStep = async (next: MemberSubStep) => {
+const member = partyMembers[currentMemberIndex];
+if (memberSubStep === ‘details’) {
+if (!member.phone || member.phone.length < 5) return toast({ variant: ‘destructive’, title: ‘Phone Required’ });
+if (!member.name.trim()) return toast({ variant: ‘destructive’, title: ‘Name Required’ });
+if (!member.email?.trim()) return toast({ variant: ‘destructive’, title: ‘Email Required’ });
+if (!/^\S+@\S+.\S+$/.test(member.email!)) return toast({ variant: ‘destructive’, title: ‘Invalid Email’ });
+const result = await resolveIdentity(member.email, member.phone, clientType);
+if (result.isBanned || result.hasBalance) return;
+if (result.isKnown && clientType === ‘new’) return;
+const dayAccess = activeDaySchedule?.accessTier || ‘all’;
+if (dayAccess === ‘members’) {
+const isMember = !!(matchedClient?.activeMembershipId || matchedClient?.subscription);
+const hasPackage = (matchedClient?.activePackages?.length || 0) > 0;
+if (!isMember && !hasPackage) { toast({ variant: ‘destructive’, title: ‘Members Only Today’ }); return; }
+} else if (dayAccess === ‘returning’ && !matchedClient) {
+toast({ variant: ‘destructive’, title: ‘Return Guests Only Today’ }); return;
+}
+}
+if (memberSubStep === ‘services’ && member.serviceIds.length === 0) return toast({ variant: ‘destructive’, title: ‘Please select a service’ });
+setMemberSubStep(next);
+};
 
-  // When a group member finishes all their steps → move to next member
-  const handleFinishedThisGuest = () => {
-    setCurrentMemberIndex(prev => prev + 1);
-    setMemberSubStep('details');
-    setBannedClient(null); setExistingClientWithBalance(null); setMatchedAppointment(null); setIsKnownClient(false);
-    // Non-primary members don't need identity check — their details step validates their own info
-  };
+// When a group member finishes all their steps → move to next member
+const handleFinishedThisGuest = () => {
+setCurrentMemberIndex(prev => prev + 1);
+setMemberSubStep(‘details’);
+setBannedClient(null); setExistingClientWithBalance(null); setMatchedAppointment(null); setIsKnownClient(false);
+// Non-primary members don’t need identity check — their details step validates their own info
+};
 
-  const handleBack = () => {
-    if (memberSubStep === 'details') {
-      if (currentMemberIndex > 0) {
-        setCurrentMemberIndex(prev => prev - 1);
-        setMemberSubStep('staff');
-      } else {
-        setStep('identityChoice');
-        setMemberSubStep('details');
-      }
-    } else {
-      const member = partyMembers[currentMemberIndex];
-      const primary = (services || []).find((s: Service) => s.id === member.serviceIds[0]);
-      const forms = (consentForms || []).filter((f: ConsentForm) => primary?.requiredFormIds?.includes(f.id));
-      const steps: MemberSubStep[] = ['details', 'services'];
-      if (forms.length > 0) steps.push('consents');
-      steps.push('staff');
-      const idx = steps.indexOf(memberSubStep);
-      setMemberSubStep(steps[idx - 1]);
-    }
-  };
+const handleBack = () => {
+if (memberSubStep === ‘details’) {
+if (currentMemberIndex > 0) {
+setCurrentMemberIndex(prev => prev - 1);
+setMemberSubStep(‘staff’);
+} else {
+setStep(‘identityChoice’);
+setMemberSubStep(‘details’);
+}
+} else {
+const member = partyMembers[currentMemberIndex];
+const primary = (services || []).find((s: Service) => s.id === member.serviceIds[0]);
+const forms = (consentForms || []).filter((f: ConsentForm) => primary?.requiredFormIds?.includes(f.id));
+const steps: MemberSubStep[] = [‘details’, ‘services’];
+if (forms.length > 0) steps.push(‘consents’);
+steps.push(‘staff’);
+const idx = steps.indexOf(memberSubStep);
+setMemberSubStep(steps[idx - 1]);
+}
+};
 
-  const handleAppointmentCheckIn = async (apt: Appointment) => {
-    if (isSubmitting || !firestore || !tenantId) return;
-    setIsSubmitting(true);
-    const batch = writeBatch(firestore);
-    try {
-      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', apt.id), { checkInStatus: 'arrived' });
-      if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { checkInStatus: 'arrived', tenantId });
-      if (apt.staffId) {
-        const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-        batch.set(nRef, { id: nanoid(), userId: apt.staffId, type: 'client_movement', message: `${apt.clientName || 'Your guest'} checked in.`, link: '/planner', createdAt: new Date().toISOString(), read: false });
-      }
-      await batch.commit();
-      const ticket: WalkInTicketData = { id: apt.id, name: apt.clientName || 'Guest', services: (services || []).filter(s => s.id === apt.serviceId), queuePosition: 0, checkInTime: new Date().toISOString() };
-      setConfirmedParty([ticket]);
-      const mc = (clients || []).find(c => c.id === apt.clientId);
-      if (mc && isBirthdayToday(mc.birthday)) { setBirthdayName(mc.name || 'Guest'); setShowBirthday(true); }
-      else setStep('confirmation');
-    } catch { toast({ variant: 'destructive', title: 'Check-in Error' }); }
-    finally { setIsSubmitting(false); }
-  };
+const handleAppointmentCheckIn = async (apt: Appointment) => {
+if (isSubmitting || !firestore || !tenantId) return;
+setIsSubmitting(true);
+const batch = writeBatch(firestore);
+try {
+batch.update(doc(firestore, ‘tenants’, tenantId, ‘appointments’, apt.id), { checkInStatus: ‘arrived’ });
+if (apt.checkInToken) batch.update(doc(firestore, ‘appointmentCheckIns’, apt.checkInToken), { checkInStatus: ‘arrived’, tenantId });
+if (apt.staffId) {
+const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+batch.set(nRef, { id: nanoid(), userId: apt.staffId, type: ‘client_movement’, message: `${apt.clientName || 'Your guest'} checked in.`, link: ‘/planner’, createdAt: new Date().toISOString(), read: false });
+}
+await batch.commit();
+const ticket: WalkInTicketData = { id: apt.id, name: apt.clientName || ‘Guest’, services: (services || []).filter(s => s.id === apt.serviceId), queuePosition: 0, checkInTime: new Date().toISOString() };
+setConfirmedParty([ticket]);
+const mc = (clients || []).find(c => c.id === apt.clientId);
+if (mc && isBirthdayToday(mc.birthday)) { setBirthdayName(mc.name || ‘Guest’); setShowBirthday(true); }
+else setStep(‘confirmation’);
+} catch { toast({ variant: ‘destructive’, title: ‘Check-in Error’ }); }
+finally { setIsSubmitting(false); }
+};
 
-  const handleSubmit = async () => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    const batch = writeBatch(firestore);
-    const groupId = nanoid();
-    const now = new Date().toISOString();
-    const tickets: WalkInTicketData[] = [];
-    let birthdayMemberName = '';
-    try {
-      const qSnap = await getDocs(query(collection(firestore, `tenants/${tenantId}/walkIns`), where('status', '==', 'waiting')));
-      let pos = qSnap.size + 1;
-      for (const member of partyMembers) {
-        const mc = (clients || []).find(c => (member.email && c.email?.toLowerCase() === member.email.toLowerCase()) || (member.phone && c.phone === member.phone));
-        let clientId = mc?.id;
-        if (mc && isBirthdayToday(mc.birthday)) birthdayMemberName = mc.name || member.name;
-        if (!clientId) {
-          clientId = nanoid();
-          batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { id: clientId, name: member.name, email: member.email || '', phone: member.phone || '', avatarUrl: `https://picsum.photos/seed/${clientId}/100`, lifetimeValue: 0, lastAppointment: now, status: 'active' });
-        } else {
-          batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { name: member.name, email: member.email || '', phone: member.phone || '', lastAppointment: now }, { merge: true });
-        }
-        const walkInId = nanoid();
-        batch.set(doc(firestore, `tenants/${tenantId}/walkIns`, walkInId), {
-          id: walkInId, groupId, isPrimaryContact: !!member.isPrimary, clientId,
-          customerName: member.name, customerPhone: member.phone || '', customerEmail: member.email || '',
-          serviceIds: member.serviceIds, checkInTime: now, status: 'waiting',
-          queueOrder: Date.now() + (tickets.length * 1000),
-          waitForPreferredStaff: !!member.waitForPreferredStaff,
-          estimatedDuration: (services || []).filter(s => member.serviceIds.includes(s.id)).reduce((a, s) => a + (s.duration || 0), 0) || 0,
-          ...(isGroup && { groupName: `${partyMembers[0].name}'s Party`, groupSize: partyMembers.length }),
-          ...(member.preferredStaffId && member.preferredStaffId !== 'any' ? { preferredStaffId: member.preferredStaffId } : {}),
-        });
-        const memberAnswers = formAnswers[member.id] || {};
-        Object.entries(memberAnswers).forEach(([formId, data]) => {
-          const cRef = doc(collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`));
-          const form = (consentForms || []).find(f => f.id === formId);
-          batch.set(cRef, { id: cRef.id, formId, formTitle: form?.title || 'Form', clientId, signedAt: now, formData: data });
-        });
-        tickets.push({ id: walkInId, name: member.name, services: (services || []).filter(s => member.serviceIds.includes(s.id)), queuePosition: pos++, checkInTime: now });
-      }
-      await batch.commit();
-      setConfirmedParty(tickets);
-      if (birthdayMemberName) { setBirthdayName(birthdayMemberName); setShowBirthday(true); }
-      else setStep('confirmation');
-    } catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Check-in Error' }); }
-    finally { setIsSubmitting(false); }
-  };
+const handleSubmit = async () => {
+if (isSubmitting) return;
+setIsSubmitting(true);
+const batch = writeBatch(firestore);
+const groupId = nanoid();
+const now = new Date().toISOString();
+const tickets: WalkInTicketData[] = [];
+let birthdayMemberName = ‘’;
+try {
+const qSnap = await getDocs(query(collection(firestore, `tenants/${tenantId}/walkIns`), where(‘status’, ‘==’, ‘waiting’)));
+let pos = qSnap.size + 1;
+for (const member of partyMembers) {
+const mc = (clients || []).find(c => (member.email && c.email?.toLowerCase() === member.email.toLowerCase()) || (member.phone && c.phone === member.phone));
+let clientId = mc?.id;
+if (mc && isBirthdayToday(mc.birthday)) birthdayMemberName = mc.name || member.name;
+if (!clientId) {
+clientId = nanoid();
+batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { id: clientId, name: member.name, email: member.email || ‘’, phone: member.phone || ‘’, avatarUrl: `https://picsum.photos/seed/${clientId}/100`, lifetimeValue: 0, lastAppointment: now, status: ‘active’ });
+} else {
+batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { name: member.name, email: member.email || ‘’, phone: member.phone || ‘’, lastAppointment: now }, { merge: true });
+}
+const walkInId = nanoid();
+batch.set(doc(firestore, `tenants/${tenantId}/walkIns`, walkInId), {
+id: walkInId, groupId, isPrimaryContact: !!member.isPrimary, clientId,
+customerName: member.name, customerPhone: member.phone || ‘’, customerEmail: member.email || ‘’,
+serviceIds: member.serviceIds, checkInTime: now, status: ‘waiting’,
+queueOrder: Date.now() + (tickets.length * 1000),
+waitForPreferredStaff: !!member.waitForPreferredStaff,
+estimatedDuration: (services || []).filter(s => member.serviceIds.includes(s.id)).reduce((a, s) => a + (s.duration || 0), 0) || 0,
+…(isGroup && { groupName: `${partyMembers[0].name}'s Party`, groupSize: partyMembers.length }),
+…(member.preferredStaffId && member.preferredStaffId !== ‘any’ ? { preferredStaffId: member.preferredStaffId } : {}),
+});
+const memberAnswers = formAnswers[member.id] || {};
+Object.entries(memberAnswers).forEach(([formId, data]) => {
+const cRef = doc(collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`));
+const form = (consentForms || []).find(f => f.id === formId);
+batch.set(cRef, { id: cRef.id, formId, formTitle: form?.title || ‘Form’, clientId, signedAt: now, formData: data });
+});
+tickets.push({ id: walkInId, name: member.name, services: (services || []).filter(s => member.serviceIds.includes(s.id)), queuePosition: pos++, checkInTime: now });
+}
+await batch.commit();
+setConfirmedParty(tickets);
+if (birthdayMemberName) { setBirthdayName(birthdayMemberName); setShowBirthday(true); }
+else setStep(‘confirmation’);
+} catch (e) { console.error(e); toast({ variant: ‘destructive’, title: ‘Check-in Error’ }); }
+finally { setIsSubmitting(false); }
+};
 
-  function isBirthdayToday(birthday?: string) {
-    if (!birthday) return false;
-    const b = safeDate(birthday); const today = new Date();
-    return b.getDate() === today.getDate() && b.getMonth() === today.getMonth();
-  }
+function isBirthdayToday(birthday?: string) {
+if (!birthday) return false;
+const b = safeDate(birthday); const today = new Date();
+return b.getDate() === today.getDate() && b.getMonth() === today.getMonth();
+}
 
-  const resetAll = () => {
-    setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({});
-    setMatchedAppointment(null); setPhonePadValue(''); setClientType(null);
-    setMatchedClient(null); setIsKnownClient(false); setCurrentMemberIndex(0);
-    setPartySize(1); setIsGroup(false); setMemberSubStep('details');
-    setBannedClient(null); setExistingClientWithBalance(null);
-  };
+const resetAll = () => {
+setEntered(false); setStep(‘partyType’); setPartyMembers([]); setFormAnswers({});
+setMatchedAppointment(null); setPhonePadValue(’’); setClientType(null);
+setMatchedClient(null); setIsKnownClient(false); setCurrentMemberIndex(0);
+setPartySize(1); setIsGroup(false); setMemberSubStep(‘details’);
+setBannedClient(null); setExistingClientWithBalance(null);
+};
 
-  const isClosed = !isBusinessOpen(new Date(), scheduleProfiles?.[0]).open;
+const isClosed = !isBusinessOpen(new Date(), scheduleProfiles?.[0]).open;
 
-  if (!tenant || !services) return (
-    <div className={cn('h-screen flex items-center justify-center', t.bg)}>
-      <Loader className="w-8 h-8 animate-spin text-slate-400" />
-    </div>
-  );
+if (!tenant || !services) return (
+<div className={cn(‘h-screen flex items-center justify-center’, t.bg)}>
+<Loader className="w-8 h-8 animate-spin text-slate-400" />
+</div>
+);
 
-  return (
-    <div className={cn('min-h-screen flex flex-col overflow-x-hidden relative', t.bg)}>
-      {(themeName === 'dark' || themeName === 'slate') && <DarkMeshBg primaryHex={primaryHex} />}
+return (
+<div className={cn(‘min-h-screen flex flex-col overflow-x-hidden relative’, t.bg)}>
+{(themeName === ‘dark’ || themeName === ‘slate’) && <DarkMeshBg primaryHex={primaryHex} />}
 
-      <FormProvider {...methods}>
-        {isClosed ? (
-          <div className="flex-1 flex items-center justify-center p-4">
-            <ClosedView schedule={scheduleProfiles?.[0]} logoUrl={logoUrl} tenantName={tenant.name} t={t} />
-          </div>
-        ) : (
-          <div className="flex-1 flex items-center justify-center p-4 md:p-8">
-            <AnimatePresence mode="wait">
-              {!entered ? (
-                <motion.div key="splash"
-                  initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.03 }}
-                  className="text-center cursor-pointer select-none p-8 z-10 w-full max-w-md"
-                  onClick={() => setEntered(true)}>
-                  <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }} className="mb-10">
-                    <div className={cn('relative overflow-hidden mx-auto', showWordmark ? 'w-24 h-24 rounded-3xl' : 'w-40 h-40 rounded-[2.5rem]', logoUrl ? 'shadow-xl' : cn('border-2', t.card, t.cardBorder))}>
-                      {logoUrl ? <Image src={logoUrl} alt={tenant.name} fill className="object-cover" /> : <div className="w-full h-full flex items-center justify-center"><ClarityFlowLogo className="w-16 h-16 opacity-30" /></div>}
-                    </div>
-                  </motion.div>
-                  {showWordmark && (
-                    <div className="mb-8">
-                      {wordmarkUrl ? <div className="relative h-16 w-[280px] mx-auto"><Image src={wordmarkUrl} alt={tenant.name} fill className="object-contain" /></div>
-                        : <h1 className={cn('text-5xl md:text-6xl font-black uppercase tracking-tighter leading-none', t.text)}>{tenant.name}</h1>}
-                    </div>
-                  )}
-                  <motion.p animate={{ opacity: [0.4, 0.9, 0.4] }} transition={{ duration: 2.5, repeat: Infinity }}
-                    className={cn('text-sm font-black uppercase tracking-[0.35em]', t.muted)}>
-                    Tap to check in
-                  </motion.p>
-                </motion.div>
-              ) : (
-                <div className="w-full max-w-2xl mx-auto z-10">
-                  <AnimatePresence mode="wait">
-
-                    {step === 'partyType' && (
-                      <motion.div key="party"><SurfaceCard t={t}>
-                        <div className="p-8 md:p-12 space-y-8">
-                          <div className="text-center space-y-2">
-                            <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>Walk-in Check-in</p>
-                            <h2 className={cn('text-4xl md:text-5xl font-black uppercase tracking-tighter leading-none', t.text)}>Welcome</h2>
-                            <p className={cn('font-bold uppercase tracking-[0.15em] text-sm', t.muted)}>Who are we checking in today?</p>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <ChoiceTile onClick={() => handlePartyTypeSelect('individual')} icon={User} title="Just Me" subtitle="Solo check-in" t={t} primaryHex={primaryHex} />
-                            <ChoiceTile onClick={() => handlePartyTypeSelect('group')} icon={Users} title="My Party" subtitle="Multiple guests" t={t} primaryHex={primaryHex} />
-                          </div>
-                        </div>
-                      </SurfaceCard></motion.div>
-                    )}
-
-                    {step === 'partySize' && (
-                      <motion.div key="partysize"><SurfaceCard t={t}>
-                        <PartySizeView onSelect={handlePartySizeConfirm} onBack={() => setStep('partyType')} t={t} primaryHex={primaryHex} />
-                      </SurfaceCard></motion.div>
-                    )}
-
-                    {/* NEW: collect all guest names upfront */}
-                    {step === 'guestNames' && (
-                      <motion.div key="guestnames"><SurfaceCard t={t}>
-                        <GuestNamesView
-                          members={partyMembers}
-                          onChange={handleGuestNameChange}
-                          onConfirm={handleGuestNamesConfirm}
-                          onBack={() => setStep('partySize')}
-                          t={t}
-                          primaryHex={primaryHex}
-                        />
-                      </SurfaceCard></motion.div>
-                    )}
-
-                    {step === 'identityChoice' && (
-                      <motion.div key="identity"><SurfaceCard t={t}>
-                        <div className="p-8 md:p-12 space-y-8">
-                          <div className="text-center space-y-2">
-                            <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>
-                              {isGroup ? `Party of ${partySize} · Primary Guest: ${partyMembers[0]?.name || ''}` : 'Identity'}
-                            </p>
-                            <h2 className={cn('text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none', t.text)}>First visit?</h2>
-                            <p className={cn('font-bold uppercase tracking-[0.15em] text-sm', t.muted)}>Help us find your profile</p>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <ChoiceTile onClick={() => handleIdentitySelect('returning')} icon={Star} title="Return Guest" subtitle="I've been here before" t={t} primaryHex={primaryHex} />
-                            <ChoiceTile onClick={() => handleIdentitySelect('new')} icon={PlusCircle} title="First Visit" subtitle="Brand new guest" t={t} primaryHex={primaryHex} />
-                          </div>
-                          <div className="text-center">
-                            <button onClick={() => setStep(isGroup ? 'guestNames' : 'partyType')}
-                              className={cn('text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70 transition-opacity')}>← Back</button>
-                          </div>
-                        </div>
-                      </SurfaceCard></motion.div>
-                    )}
-
-                    {step === 'phonePad' && (
-                      <motion.div key="phone"><SurfaceCard t={t}>
-                        <div className="p-8 md:p-12 space-y-8">
-                          <div className="text-center space-y-2">
-                            <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>Return Guest</p>
-                            <h2 className={cn('text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none', t.text)}>Your Phone</h2>
-                            <p className={cn('font-bold uppercase tracking-[0.15em] text-sm', t.muted)}>Enter the number on file</p>
-                          </div>
-                          <div className={cn('mx-auto max-w-xs p-6 rounded-2xl border-2 text-center', t.card, t.cardBorder)}>
-                            <p className={cn('text-3xl md:text-4xl font-black font-mono tracking-widest min-h-[1.2em]', t.text)}>
-                              {(() => {
-                                const c = phonePadValue;
-                                if (!c) return <span className={t.muted}>––––––––</span>;
-                                if (c.length <= 3) return `(${c})`;
-                                if (c.length <= 6) return `(${c.slice(0,3)}) ${c.slice(3)}`;
-                                return `(${c.slice(0,3)}) ${c.slice(3,6)}-${c.slice(6)}`;
-                              })()}
-                            </p>
-                          </div>
-                          <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
-                            {['1','2','3','4','5','6','7','8','9','','0','del'].map((d, i) => {
-                              if (d === '') return <div key={i} />;
-                              if (d === 'del') return (
-                                <motion.button key={i} whileTap={{ scale: 0.88 }} onClick={() => setPhonePadValue(p => p.slice(0,-1))}
-                                  className={cn('h-14 w-14 mx-auto rounded-xl flex items-center justify-center', t.muted, 'hover:opacity-70')}>
-                                  <Delete className="w-5 h-5" strokeWidth={1.5} />
-                                </motion.button>
-                              );
-                              return (
-                                <motion.button key={i} whileTap={{ scale: 0.9 }}
-                                  onClick={() => { if (phonePadValue.length < 10) setPhonePadValue(p => p + d); }}
-                                  className={cn('h-14 w-14 mx-auto rounded-xl border-2 text-xl font-bold transition-all', t.card, t.cardBorder, t.text, 'hover:opacity-80')}>
-                                  {d}
-                                </motion.button>
-                              );
-                            })}
-                          </div>
-                          <div className="space-y-3 max-w-xs mx-auto">
-                            <button onClick={handlePhonePadConfirm} disabled={phonePadValue.length < 10 || isResolvingIdentity}
-                              className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-30', t.btn, t.btnText)}
-                              style={btnStyle(primaryHex)}>
-                              {isResolvingIdentity ? <Loader className="w-5 h-5 animate-spin" /> : <>Find Profile <ArrowRight className="w-4 h-4" /></>}
-                            </button>
-                            <button onClick={() => setStep('identityChoice')} className={cn('w-full text-center text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70')}>← Back</button>
-                          </div>
-                        </div>
-                      </SurfaceCard></motion.div>
-                    )}
-
-                    {step === 'identityConfirm' && (
-                      <motion.div key="confirm"><SurfaceCard t={t}>
-                        {matchedClient ? (
-                          <div className="p-8 md:p-12 space-y-8 text-center">
-                            <div className="space-y-2">
-                              <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>Profile Found</p>
-                              <h2 className={cn('text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none', t.text)}>Is this you?</h2>
-                            </div>
-                            <div className="flex flex-col items-center gap-4">
-                              <div className="relative">
-                                <Avatar className="w-28 h-28 rounded-3xl border-2 shadow-lg">
-                                  <AvatarImage src={matchedClient.avatarUrl} className="object-cover" />
-                                  <AvatarFallback className={cn('text-3xl font-black', t.surface, t.text)}>{(matchedClient.name || 'G').charAt(0)}</AvatarFallback>
-                                </Avatar>
-                                <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-white shadow-md">
-                                  <Check className="w-4 h-4 text-white" />
-                                </div>
-                              </div>
-                              <div>
-                                <h3 className={cn('text-2xl font-black uppercase tracking-tight', t.text)}>{matchedClient.name}</h3>
-                                <p className={cn('text-xs font-bold uppercase tracking-widest mt-1', t.muted)}>{matchedClient.email || matchedClient.phone}</p>
-                              </div>
-                            </div>
-                            <div className="space-y-3 max-w-xs mx-auto">
-                              <button onClick={handleIdentityConfirm}
-                                className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2', t.btn, t.btnText)}
-                                style={btnStyle(primaryHex)}>
-                                Yes, That's Me <Check className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => { setMatchedClient(null); setStep('phonePad'); }}
-                                className={cn('w-full text-center text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70')}>
-                                Not me → try again
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="p-12 text-center space-y-4">
-                            <p className={cn('font-bold uppercase text-sm', t.muted)}>Something went wrong</p>
-                            <button onClick={() => setStep('phonePad')} className={cn('h-12 px-8 rounded-2xl font-black uppercase', t.btn, t.btnText)} style={btnStyle(primaryHex)}>Try Again</button>
-                          </div>
-                        )}
-                      </SurfaceCard></motion.div>
-                    )}
-
-                    {step === 'welcomeBack' && (
-                      <motion.div key="welcome"><SurfaceCard t={t}>
-                        <div className="p-12 md:p-16 text-center space-y-8">
-                          <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 14, stiffness: 140 }}
-                            className={cn('w-24 h-24 mx-auto rounded-3xl border-2 flex items-center justify-center', t.card, t.cardBorder)}>
-                            <Sparkles className={cn('w-12 h-12', t.muted)} strokeWidth={1} />
-                          </motion.div>
-                          <div className="space-y-3">
-                            <h2 className={cn('text-4xl md:text-5xl font-black leading-none', t.text)}>
-                              Welcome back,<br />
-                              <span className={cn('italic font-light', t.muted)}>
-                                {matchedClient?.name?.split(' ')[0] || partyMembers[0]?.name?.split(' ')[0] || 'friend'}
-                              </span>
-                            </h2>
-                            <p className={cn('font-bold uppercase tracking-[0.2em] text-sm', t.muted)}>Great to see you again</p>
-                          </div>
-                          <button onClick={() => setStep('memberSetup')}
-                            className={cn('h-14 px-10 rounded-2xl font-black uppercase tracking-widest inline-flex items-center gap-2', t.btn, t.btnText)}
-                            style={btnStyle(primaryHex)}>
-                            Continue <ArrowRight className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </SurfaceCard></motion.div>
-                    )}
-
-                    {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
-                      <motion.div key={`member-${currentMemberIndex}`}><SurfaceCard t={t}>
-                        <MemberSetup
-                          member={{ ...partyMembers[currentMemberIndex], index: currentMemberIndex }}
-                          partyMembers={partyMembers}
-                          onUpdate={handleMemberUpdate}
-                          memberSubStep={memberSubStep}
-                          services={services}
-                          staff={activeStaff}
-                          pricingTiers={pricingTiers || []}
-                          consentForms={consentForms || []}
-                          formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
-                          setFormAnswers={(a: any) => setFormAnswers(p => ({ ...p, [partyMembers[currentMemberIndex].id]: a }))}
-                          onNext={handleNextSubStep}
-                          onBack={handleBack}
-                          isGroup={isGroup}
-                          isLastMember={currentMemberIndex === partyMembers.length - 1}
-                          onFinishedThisGuest={handleFinishedThisGuest}
-                          onSubmit={handleSubmit}
-                          isSubmitting={isSubmitting}
-                          bannedClient={bannedClient}
-                          existingClientWithBalance={existingClientWithBalance}
-                          isResolvingIdentity={isResolvingIdentity}
-                          matchedAppointment={matchedAppointment}
-                          onAppointmentCheckIn={handleAppointmentCheckIn}
-                          dayAccessTier={activeDaySchedule?.accessTier}
-                          isKnownClient={isKnownClient}
-                          clientType={clientType}
-                          t={t}
-                          primaryHex={primaryHex}
-                        />
-                      </SurfaceCard></motion.div>
-                    )}
-
-                    {step === 'confirmation' && (
-                      <motion.div key="done"><SurfaceCard t={t}>
-                        <ConfirmationScreen
-                          confirmedParty={confirmedParty}
-                          onPrint={(ticket: WalkInTicketData) => { setTicketToPrint(ticket); setIsPrintOpen(true); }}
-                          onDone={resetAll}
-                          staff={staff}
-                          liveAppointments={liveAppointments || []}
-                          services={services}
-                          t={t}
-                          primaryHex={primaryHex}
-                        />
-                      </SurfaceCard></motion.div>
-                    )}
-
-                  </AnimatePresence>
+```
+  <FormProvider {...methods}>
+    {isClosed ? (
+      <div className="flex-1 flex items-center justify-center p-4">
+        <ClosedView schedule={scheduleProfiles?.[0]} logoUrl={logoUrl} tenantName={tenant.name} t={t} />
+      </div>
+    ) : (
+      <div className="flex-1 flex items-center justify-center p-4 md:p-8">
+        <AnimatePresence mode="wait">
+          {!entered ? (
+            <motion.div key="splash"
+              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.03 }}
+              className="text-center cursor-pointer select-none p-8 z-10 w-full max-w-md"
+              onClick={() => setEntered(true)}>
+              <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }} className="mb-10">
+                <div className={cn('relative overflow-hidden mx-auto', showWordmark ? 'w-24 h-24 rounded-3xl' : 'w-40 h-40 rounded-[2.5rem]', logoUrl ? 'shadow-xl' : cn('border-2', t.card, t.cardBorder))}>
+                  {logoUrl ? <Image src={logoUrl} alt={tenant.name} fill className="object-cover" /> : <div className="w-full h-full flex items-center justify-center"><ClarityFlowLogo className="w-16 h-16 opacity-30" /></div>}
+                </div>
+              </motion.div>
+              {showWordmark && (
+                <div className="mb-8">
+                  {wordmarkUrl ? <div className="relative h-16 w-[280px] mx-auto"><Image src={wordmarkUrl} alt={tenant.name} fill className="object-contain" /></div>
+                    : <h1 className={cn('text-5xl md:text-6xl font-black uppercase tracking-tighter leading-none', t.text)}>{tenant.name}</h1>}
                 </div>
               )}
-            </AnimatePresence>
-          </div>
-        )}
-      </FormProvider>
+              <motion.p animate={{ opacity: [0.4, 0.9, 0.4] }} transition={{ duration: 2.5, repeat: Infinity }}
+                className={cn('text-sm font-black uppercase tracking-[0.35em]', t.muted)}>
+                Tap to check in
+              </motion.p>
+            </motion.div>
+          ) : (
+            <div className="w-full max-w-2xl mx-auto z-10">
+              <AnimatePresence mode="wait">
 
-      <AnimatePresence>
-        {showBirthday && <BirthdayCelebrationView clientName={birthdayName} onDone={() => { setShowBirthday(false); setStep('confirmation'); }} t={t} primaryHex={primaryHex} />}
-      </AnimatePresence>
+                {step === 'partyType' && (
+                  <motion.div key="party"><SurfaceCard t={t}>
+                    <div className="p-8 md:p-12 space-y-8">
+                      <div className="text-center space-y-2">
+                        <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>Walk-in Check-in</p>
+                        <h2 className={cn('text-4xl md:text-5xl font-black uppercase tracking-tighter leading-none', t.text)}>Welcome</h2>
+                        <p className={cn('font-bold uppercase tracking-[0.15em] text-sm', t.muted)}>Who are we checking in today?</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <ChoiceTile onClick={() => handlePartyTypeSelect('individual')} icon={User} title="Just Me" subtitle="Solo check-in" t={t} primaryHex={primaryHex} />
+                        <ChoiceTile onClick={() => handlePartyTypeSelect('group')} icon={Users} title="My Party" subtitle="Multiple guests" t={t} primaryHex={primaryHex} />
+                      </div>
+                    </div>
+                  </SurfaceCard></motion.div>
+                )}
 
-      <Dialog open={isPrintOpen} onOpenChange={setIsPrintOpen}>
-        <DialogContent className={cn('max-w-sm rounded-3xl border-2 p-0 overflow-hidden', t.card, t.cardBorder)}>
-          <DialogHeader className={cn('p-6 border-b', t.cardBorder)}>
-            <DialogTitle className={cn('text-center font-black uppercase tracking-tight', t.text)}>Print Ticket — {ticketToPrint?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="flex justify-center p-8 bg-white">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div>
-          <DialogFooter className={cn('p-4 border-t', t.cardBorder)}>
-            <button onClick={() => { window.print(); setIsPrintOpen(false); }}
-              className={cn('w-full h-12 rounded-2xl font-black uppercase tracking-widest', t.btn, t.btnText)}
-              style={btnStyle(primaryHex)}>
-              Print Ticket
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+                {step === 'partySize' && (
+                  <motion.div key="partysize"><SurfaceCard t={t}>
+                    <PartySizeView onSelect={handlePartySizeConfirm} onBack={() => setStep('partyType')} t={t} primaryHex={primaryHex} />
+                  </SurfaceCard></motion.div>
+                )}
+
+                {/* NEW: collect all guest names upfront */}
+                {step === 'guestNames' && (
+                  <motion.div key="guestnames"><SurfaceCard t={t}>
+                    <GuestNamesView
+                      members={partyMembers}
+                      onChange={handleGuestNameChange}
+                      onConfirm={handleGuestNamesConfirm}
+                      onBack={() => setStep('partySize')}
+                      t={t}
+                      primaryHex={primaryHex}
+                    />
+                  </SurfaceCard></motion.div>
+                )}
+
+                {step === 'identityChoice' && (
+                  <motion.div key="identity"><SurfaceCard t={t}>
+                    <div className="p-8 md:p-12 space-y-8">
+                      <div className="text-center space-y-2">
+                        <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>
+                          {isGroup ? `Party of ${partySize} · Primary Guest: ${partyMembers[0]?.name || ''}` : 'Identity'}
+                        </p>
+                        <h2 className={cn('text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none', t.text)}>First visit?</h2>
+                        <p className={cn('font-bold uppercase tracking-[0.15em] text-sm', t.muted)}>Help us find your profile</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <ChoiceTile onClick={() => handleIdentitySelect('returning')} icon={Star} title="Return Guest" subtitle="I've been here before" t={t} primaryHex={primaryHex} />
+                        <ChoiceTile onClick={() => handleIdentitySelect('new')} icon={PlusCircle} title="First Visit" subtitle="Brand new guest" t={t} primaryHex={primaryHex} />
+                      </div>
+                      <div className="text-center">
+                        <button onClick={() => setStep(isGroup ? 'guestNames' : 'partyType')}
+                          className={cn('text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70 transition-opacity')}>← Back</button>
+                      </div>
+                    </div>
+                  </SurfaceCard></motion.div>
+                )}
+
+                {step === 'phonePad' && (
+                  <motion.div key="phone"><SurfaceCard t={t}>
+                    <div className="p-8 md:p-12 space-y-8">
+                      <div className="text-center space-y-2">
+                        <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>Return Guest</p>
+                        <h2 className={cn('text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none', t.text)}>Your Phone</h2>
+                        <p className={cn('font-bold uppercase tracking-[0.15em] text-sm', t.muted)}>Enter the number on file</p>
+                      </div>
+                      <div className={cn('mx-auto max-w-xs p-6 rounded-2xl border-2 text-center', t.card, t.cardBorder)}>
+                        <p className={cn('text-3xl md:text-4xl font-black font-mono tracking-widest min-h-[1.2em]', t.text)}>
+                          {(() => {
+                            const c = phonePadValue;
+                            if (!c) return <span className={t.muted}>––––––––</span>;
+                            if (c.length <= 3) return `(${c})`;
+                            if (c.length <= 6) return `(${c.slice(0,3)}) ${c.slice(3)}`;
+                            return `(${c.slice(0,3)}) ${c.slice(3,6)}-${c.slice(6)}`;
+                          })()}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
+                        {['1','2','3','4','5','6','7','8','9','','0','del'].map((d, i) => {
+                          if (d === '') return <div key={i} />;
+                          if (d === 'del') return (
+                            <motion.button key={i} whileTap={{ scale: 0.88 }} onClick={() => setPhonePadValue(p => p.slice(0,-1))}
+                              className={cn('h-14 w-14 mx-auto rounded-xl flex items-center justify-center', t.muted, 'hover:opacity-70')}>
+                              <Delete className="w-5 h-5" strokeWidth={1.5} />
+                            </motion.button>
+                          );
+                          return (
+                            <motion.button key={i} whileTap={{ scale: 0.9 }}
+                              onClick={() => { if (phonePadValue.length < 10) setPhonePadValue(p => p + d); }}
+                              className={cn('h-14 w-14 mx-auto rounded-xl border-2 text-xl font-bold transition-all', t.card, t.cardBorder, t.text, 'hover:opacity-80')}>
+                              {d}
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                      <div className="space-y-3 max-w-xs mx-auto">
+                        <button onClick={handlePhonePadConfirm} disabled={phonePadValue.length < 10 || isResolvingIdentity}
+                          className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-30', t.btn, t.btnText)}
+                          style={btnStyle(primaryHex)}>
+                          {isResolvingIdentity ? <Loader className="w-5 h-5 animate-spin" /> : <>Find Profile <ArrowRight className="w-4 h-4" /></>}
+                        </button>
+                        <button onClick={() => setStep('identityChoice')} className={cn('w-full text-center text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70')}>← Back</button>
+                      </div>
+                    </div>
+                  </SurfaceCard></motion.div>
+                )}
+
+                {step === 'identityConfirm' && (
+                  <motion.div key="confirm"><SurfaceCard t={t}>
+                    {matchedClient ? (
+                      <div className="p-8 md:p-12 space-y-8 text-center">
+                        <div className="space-y-2">
+                          <p className={cn('text-[9px] font-black uppercase tracking-[0.3em]', t.muted)}>Profile Found</p>
+                          <h2 className={cn('text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none', t.text)}>Is this you?</h2>
+                        </div>
+                        <div className="flex flex-col items-center gap-4">
+                          <div className="relative">
+                            <Avatar className="w-28 h-28 rounded-3xl border-2 shadow-lg">
+                              <AvatarImage src={matchedClient.avatarUrl} className="object-cover" />
+                              <AvatarFallback className={cn('text-3xl font-black', t.surface, t.text)}>{(matchedClient.name || 'G').charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-white shadow-md">
+                              <Check className="w-4 h-4 text-white" />
+                            </div>
+                          </div>
+                          <div>
+                            <h3 className={cn('text-2xl font-black uppercase tracking-tight', t.text)}>{matchedClient.name}</h3>
+                            <p className={cn('text-xs font-bold uppercase tracking-widest mt-1', t.muted)}>{matchedClient.email || matchedClient.phone}</p>
+                          </div>
+                        </div>
+                        <div className="space-y-3 max-w-xs mx-auto">
+                          <button onClick={handleIdentityConfirm}
+                            className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2', t.btn, t.btnText)}
+                            style={btnStyle(primaryHex)}>
+                            Yes, That's Me <Check className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => { setMatchedClient(null); setStep('phonePad'); }}
+                            className={cn('w-full text-center text-[10px] font-black uppercase tracking-widest', t.muted, 'hover:opacity-70')}>
+                            Not me → try again
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-12 text-center space-y-4">
+                        <p className={cn('font-bold uppercase text-sm', t.muted)}>Something went wrong</p>
+                        <button onClick={() => setStep('phonePad')} className={cn('h-12 px-8 rounded-2xl font-black uppercase', t.btn, t.btnText)} style={btnStyle(primaryHex)}>Try Again</button>
+                      </div>
+                    )}
+                  </SurfaceCard></motion.div>
+                )}
+
+                {step === 'welcomeBack' && (
+                  <motion.div key="welcome"><SurfaceCard t={t}>
+                    <div className="p-12 md:p-16 text-center space-y-8">
+                      <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 14, stiffness: 140 }}
+                        className={cn('w-24 h-24 mx-auto rounded-3xl border-2 flex items-center justify-center', t.card, t.cardBorder)}>
+                        <Sparkles className={cn('w-12 h-12', t.muted)} strokeWidth={1} />
+                      </motion.div>
+                      <div className="space-y-3">
+                        <h2 className={cn('text-4xl md:text-5xl font-black leading-none', t.text)}>
+                          Welcome back,<br />
+                          <span className={cn('italic font-light', t.muted)}>
+                            {matchedClient?.name?.split(' ')[0] || partyMembers[0]?.name?.split(' ')[0] || 'friend'}
+                          </span>
+                        </h2>
+                        <p className={cn('font-bold uppercase tracking-[0.2em] text-sm', t.muted)}>Great to see you again</p>
+                      </div>
+                      <button onClick={() => setStep('memberSetup')}
+                        className={cn('h-14 px-10 rounded-2xl font-black uppercase tracking-widest inline-flex items-center gap-2', t.btn, t.btnText)}
+                        style={btnStyle(primaryHex)}>
+                        Continue <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </SurfaceCard></motion.div>
+                )}
+
+                {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
+                  <motion.div key={`member-${currentMemberIndex}`}><SurfaceCard t={t}>
+                    <MemberSetup
+                      member={{ ...partyMembers[currentMemberIndex], index: currentMemberIndex }}
+                      partyMembers={partyMembers}
+                      onUpdate={handleMemberUpdate}
+                      memberSubStep={memberSubStep}
+                      services={services}
+                      staff={activeStaff}
+                      pricingTiers={pricingTiers || []}
+                      consentForms={consentForms || []}
+                      formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
+                      setFormAnswers={(a: any) => setFormAnswers(p => ({ ...p, [partyMembers[currentMemberIndex].id]: a }))}
+                      onNext={handleNextSubStep}
+                      onBack={handleBack}
+                      isGroup={isGroup}
+                      isLastMember={currentMemberIndex === partyMembers.length - 1}
+                      onFinishedThisGuest={handleFinishedThisGuest}
+                      onSubmit={handleSubmit}
+                      isSubmitting={isSubmitting}
+                      bannedClient={bannedClient}
+                      existingClientWithBalance={existingClientWithBalance}
+                      isResolvingIdentity={isResolvingIdentity}
+                      matchedAppointment={matchedAppointment}
+                      onAppointmentCheckIn={handleAppointmentCheckIn}
+                      dayAccessTier={activeDaySchedule?.accessTier}
+                      isKnownClient={isKnownClient}
+                      clientType={clientType}
+                      t={t}
+                      primaryHex={primaryHex}
+                    />
+                  </SurfaceCard></motion.div>
+                )}
+
+                {step === 'confirmation' && (
+                  <motion.div key="done"><SurfaceCard t={t}>
+                    <ConfirmationScreen
+                      confirmedParty={confirmedParty}
+                      onPrint={(ticket: WalkInTicketData) => { setTicketToPrint(ticket); setIsPrintOpen(true); }}
+                      onDone={resetAll}
+                      staff={staff}
+                      liveAppointments={liveAppointments || []}
+                      services={services}
+                      t={t}
+                      primaryHex={primaryHex}
+                    />
+                  </SurfaceCard></motion.div>
+                )}
+
+              </AnimatePresence>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    )}
+  </FormProvider>
+
+  <AnimatePresence>
+    {showBirthday && <BirthdayCelebrationView clientName={birthdayName} onDone={() => { setShowBirthday(false); setStep('confirmation'); }} t={t} primaryHex={primaryHex} />}
+  </AnimatePresence>
+
+  <Dialog open={isPrintOpen} onOpenChange={setIsPrintOpen}>
+    <DialogContent className={cn('max-w-sm rounded-3xl border-2 p-0 overflow-hidden', t.card, t.cardBorder)}>
+      <DialogHeader className={cn('p-6 border-b', t.cardBorder)}>
+        <DialogTitle className={cn('text-center font-black uppercase tracking-tight', t.text)}>Print Ticket — {ticketToPrint?.name}</DialogTitle>
+      </DialogHeader>
+      <div className="flex justify-center p-8 bg-white">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div>
+      <DialogFooter className={cn('p-4 border-t', t.cardBorder)}>
+        <button onClick={() => { window.print(); setIsPrintOpen(false); }}
+          className={cn('w-full h-12 rounded-2xl font-black uppercase tracking-widest', t.btn, t.btnText)}
+          style={btnStyle(primaryHex)}>
+          Print Ticket
+        </button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+</div>
+```
+
+);
 }
