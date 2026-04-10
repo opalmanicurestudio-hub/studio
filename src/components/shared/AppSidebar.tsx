@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Calendar, Users, User, Settings, Box, FileText, BookOpen,
   Landmark, DollarSign, FileSignature, ListChecks, BarChart, HardHat, Percent,
   Megaphone, Star, LogOut, BookText, CreditCard, Globe, Fingerprint, Coffee,
-  Clock, ClipboardList, CalendarDays, Shield,
+  Clock, ClipboardList, CalendarDays, Shield, ChefHat,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -208,6 +208,7 @@ export function AppSidebar() {
                 <PortalItem href={tenantId ? `/book/${tenantId}` : null} icon={Globe} label="Booking Page" />
                 <PortalItem href={tenantId ? `/kiosk/${tenantId}` : null} icon={Fingerprint} label="Walk-in Kiosk" />
                 <PortalItem href={tenantId ? `/concierge/${tenantId}` : null} icon={Coffee} label="Lounge Concierge" />
+                <PortalItem href={tenantId ? `/kds/${tenantId}` : null} icon={ChefHat} label="KDS Display" />
                 <PortalItem href={tenantId ? `/timeclock/${tenantId}` : null} icon={Clock} label="Time Clock" />
                 <PortalItem href={tenantId ? `/staff-portal/${tenantId}` : null} icon={Shield} label="Staff Portal" />
               </SidebarMenu>
