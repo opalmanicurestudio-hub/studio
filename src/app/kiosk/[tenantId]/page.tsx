@@ -175,51 +175,67 @@ const WaitTimePanel = ({ waitIns, staff, appointments, services, showFloor, onTo
   const [now, setNow] = useState(new Date());
   useEffect(() => { const i = setInterval(() => setNow(new Date()), 30_000); return () => clearInterval(i); }, []);
 
-  // How many people are ahead in queue
-  const queueAhead = (waitIns || []).filter(w => w.status === 'waiting').length;
-
-  // Active staff (no break, no event block now)
-  const availableCount = (staff || []).filter(s => s.active && !(s as any).onBreak && s.status !== 'busy').length;
-
-  // Staff in service with estimated free times
-  const inService = useMemo(() => {
-    return (staff || []).filter(s => s.active && s.status === 'busy').map(s => {
+  // Build a slot-based wait estimate:
+  // Each provider has a "free at" time. We assign queue members to the earliest free slot.
+  const { guestEstimate, positionInQueue } = useMemo(() => {
+    const activeStaff = (staff || []).filter(s => s.active && !(s as any).onBreak);
+    
+    // When does each provider become free?
+    const providerFreeTimes: number[] = activeStaff.map(s => {
+      if (s.status !== 'busy') return now.getTime(); // already free
       const apt = appointments.find(a => a.staffId === s.id && a.status === 'servicing');
-      let mins: number | null = null;
       if (apt?.endTime) {
-        const m = differenceInMinutes(safeDate(apt.endTime), now);
-        if (m > 0) mins = m;
+        const freeMs = safeDate(apt.endTime).getTime();
+        return freeMs > now.getTime() ? freeMs : now.getTime();
       }
-      return { ...s, estFree: mins };
-    });
-  }, [staff, appointments, now]);
+      return now.getTime();
+    }).sort((a, b) => a - b);
 
-  const shortestWait = inService.filter(s => s.estFree !== null).length > 0
-    ? Math.min(...inService.filter(s => s.estFree !== null).map(s => s.estFree!))
-    : null;
+    if (providerFreeTimes.length === 0) return { guestEstimate: null, positionInQueue: 0 };
+
+    // Sort waiting queue by queueOrder
+    const waiting = [...(waitIns || [])]
+      .filter(w => w.status === 'waiting')
+      .sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0));
+
+    const positionInQueue = waiting.length; // this guest is LAST (just checked in)
+
+    // Simulate assignment: assign each waiting guest to the earliest free provider
+    const slots = [...providerFreeTimes];
+    waiting.forEach(guest => {
+      const duration = (guest.estimatedDuration || 45) * 60 * 1000;
+      slots.sort((a, b) => a - b);
+      slots[0] = slots[0] + duration; // earliest slot now occupied
+    });
+
+    // This guest gets the next available slot after all current waiting
+    slots.sort((a, b) => a - b);
+    const mySlotMs = slots[0];
+    const waitMs = mySlotMs - now.getTime();
+    const waitMins = Math.max(0, Math.round(waitMs / 60000));
+
+    return { guestEstimate: waitMins, positionInQueue };
+  }, [staff, appointments, waitIns, now]);
 
   return (
     <div className={cn('rounded-2xl border-2 overflow-hidden', t.card, t.cardBorder)}>
-      {/* Main wait summary */}
       <div className="p-5 text-center space-y-1">
-        {availableCount > 0 ? (
+        {guestEstimate === 0 ? (
           <>
             <p className={cn('text-[9px] font-black uppercase tracking-[0.25em]', t.muted)}>Estimated Wait</p>
-            <p className={cn('text-3xl font-black', t.text)}>Ready Now</p>
-            <p className={cn('text-[10px] font-bold uppercase', t.muted)}>
-              {availableCount} provider{availableCount > 1 ? 's' : ''} available
-            </p>
+            <p className={cn('text-3xl font-black text-emerald-600')}>Ready Now</p>
+            <p className={cn('text-[10px] font-bold uppercase', t.muted)}>A provider is available for you</p>
           </>
-        ) : shortestWait !== null ? (
+        ) : guestEstimate !== null ? (
           <>
             <p className={cn('text-[9px] font-black uppercase tracking-[0.25em]', t.muted)}>Estimated Wait</p>
-            <p className={cn('text-3xl font-black', t.text)}>~{shortestWait}m</p>
-            {queueAhead > 0 && <p className={cn('text-[10px] font-bold uppercase', t.muted)}>{queueAhead} guest{queueAhead > 1 ? 's' : ''} ahead of you</p>}
+            <p className={cn('text-3xl font-black', t.text)}>~{guestEstimate}m</p>
+            {positionInQueue > 0 && <p className={cn('text-[10px] font-bold uppercase', t.muted)}>{positionInQueue} guest{positionInQueue !== 1 ? 's' : ''} ahead of you</p>}
           </>
         ) : (
           <>
             <p className={cn('text-[9px] font-black uppercase tracking-[0.25em]', t.muted)}>Floor Status</p>
-            <p className={cn('text-xl font-black', t.muted)}>Checking in…</p>
+            <p className={cn('text-xl font-black', t.muted)}>We'll be with you shortly</p>
           </>
         )}
       </div>
@@ -325,7 +341,7 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup, bannedClient, e
   <div className="space-y-4">
     <div className="space-y-2">
       <label className={cn('text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5', t.label)}><Phone className="w-3 h-3" /> Phone</label>
-      <PhoneInput name={`phone-${member.id}`} international defaultCountry="US" value={member.phone || ''} onChange={v => onUpdate({ phone: v || '' })} placeholder="(555) 000-0000"
+      <PhoneInput key={`phone-key-${member.id}-${member.phone}`} name={`phone-${member.id}`} international defaultCountry="US" value={member.phone || ''} onChange={v => onUpdate({ phone: v || '' })} placeholder="(555) 000-0000"
         className={cn('h-14 w-full rounded-2xl border-2 px-4 text-lg font-bold transition-all', t.inputBg, t.inputBorder, t.text, '[&_input]:border-none [&_input]:bg-transparent [&_input]:placeholder:opacity-30')} />
     </div>
     {/* Name is already captured — show read-only unless they want to change it */}
@@ -873,6 +889,31 @@ export default function WalkInPage() {
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
+    
+    // ── VALIDATE ALL MEMBERS before submitting ────────────────────────────────
+    const incomplete = partyMembers.map((m, i) => ({
+      idx: i,
+      name: m.name?.trim(),
+      phone: m.phone,
+      email: m.email?.trim(),
+      services: m.serviceIds,
+    })).filter(m => !m.name || !m.phone || !m.email || m.services.length === 0);
+    
+    if (incomplete.length > 0) {
+      const first = incomplete[0];
+      const issues = [];
+      if (!first.name) issues.push('name');
+      if (!first.phone) issues.push('phone');
+      if (!first.email) issues.push('email');
+      if (!first.services.length) issues.push('service selection');
+      toast({
+        variant: 'destructive',
+        title: `Guest ${first.idx + 1} Incomplete`,
+        description: `Missing: ${issues.join(', ')}. Please go back and complete their info.`,
+      });
+      return;
+    }
+    
     setIsSubmitting(true);
     const batch = writeBatch(firestore);
     const groupId = nanoid();
