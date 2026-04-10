@@ -346,9 +346,11 @@ const LaneColumn = ({
 
 const StatsBar = ({ requests }: { requests: any[] }) => {
     const stats = useMemo(() => {
+        // FIX: guard against null — useCollection may return null before data loads
+        const safeRequests = requests ?? [];
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const todayReqs = requests.filter(r => safeDate(r.requestedAt) >= today);
+        const todayReqs = safeRequests.filter(r => safeDate(r.requestedAt) >= today);
         const delivered = todayReqs.filter(r => r.status === 'delivered');
         const waitTimes = delivered.map(r =>
             Math.max(0, differenceInSeconds(safeDate(r.deliveredAt), safeDate(r.requestedAt)))
@@ -357,7 +359,7 @@ const StatsBar = ({ requests }: { requests: any[] }) => {
             ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length)
             : 0;
         const itemCount: Record<string, number> = {};
-        todayReqs.forEach(r => { itemCount[r.itemName] = (itemCount[r.itemName] || 0) + 1; });
+        safeRequests.forEach(r => { itemCount[r.itemName] = (itemCount[r.itemName] || 0) + 1; });
         const topItem = Object.entries(itemCount).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
         return {
             total: todayReqs.length,
@@ -425,14 +427,18 @@ function KDSContent() {
         ),
         [firestore, tenantId]
     );
-    const { data: activeRequests = [] } = useCollection<any>(activeQuery);
+    const { data: activeRequestsRaw } = useCollection<any>(activeQuery);
+    // FIX: guard against null — useCollection may return null before data loads
+    const activeRequests = activeRequestsRaw ?? [];
 
     // All requests for stats bar
     const allQuery = useMemoFirebase(
         () => collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
         [firestore, tenantId]
     );
-    const { data: allRequests = [] } = useCollection<any>(allQuery);
+    const { data: allRequestsRaw } = useCollection<any>(allQuery);
+    // FIX: guard against null — useCollection may return null before data loads
+    const allRequests = allRequestsRaw ?? [];
 
     // Lanes — oldest first (FIFO)
     const incoming = useMemo(() =>
