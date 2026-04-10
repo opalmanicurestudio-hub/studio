@@ -9,22 +9,16 @@ import {
     CheckCircle2,
     Loader,
     MapPin,
-    Clock,
     Star,
-    Award,
     ArrowRight,
     XCircle,
     Eye,
     ChefHat,
     Zap,
-    AlertTriangle,
     Volume2,
     VolumeX,
-    RotateCcw,
     Timer,
     User,
-    Package,
-    Sparkles,
     Bell,
     Activity,
     TrendingUp,
@@ -42,12 +36,12 @@ import {
 import { cn, safeNumber } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
-import { format, differenceInMinutes, differenceInSeconds } from 'date-fns';
+import { format, differenceInSeconds } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
-import { type InventoryItem, type RefreshmentRequest, type Tenant } from '@/lib/data';
+import { type InventoryItem, type Tenant } from '@/lib/data';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -67,70 +61,67 @@ const sanitize = (obj: any): any => {
     );
 };
 
-// ─── Elapsed Timer Hook ──────────────────────────────────────────────────────
+// ─── Elapsed Timer Hook ───────────────────────────────────────────────────────
 
 function useElapsed(startDate: Date) {
-    const [elapsed, setElapsed] = useState(0); // seconds
-
+    const [elapsed, setElapsed] = useState(0);
     useEffect(() => {
         const update = () => setElapsed(differenceInSeconds(new Date(), startDate));
         update();
         const id = setInterval(update, 1000);
         return () => clearInterval(id);
     }, [startDate]);
-
     return elapsed;
 }
 
-// ─── Urgency helpers ─────────────────────────────────────────────────────────
+// ─── Urgency ─────────────────────────────────────────────────────────────────
 
-function urgencyLevel(elapsedSeconds: number): 'fresh' | 'warm' | 'hot' | 'critical' {
-    if (elapsedSeconds < 120) return 'fresh';
-    if (elapsedSeconds < 300) return 'warm';
-    if (elapsedSeconds < 480) return 'hot';
+function urgencyLevel(s: number): 'fresh' | 'warm' | 'hot' | 'critical' {
+    if (s < 120) return 'fresh';
+    if (s < 300) return 'warm';
+    if (s < 480) return 'hot';
     return 'critical';
 }
 
-const URGENCY_STYLES = {
-    fresh:    { bar: 'bg-emerald-400',    border: 'border-slate-200',        glow: '',                                  label: 'bg-emerald-100 text-emerald-700' },
-    warm:     { bar: 'bg-amber-400',      border: 'border-amber-300',        glow: '',                                  label: 'bg-amber-100 text-amber-700'     },
-    hot:      { bar: 'bg-orange-500',     border: 'border-orange-400',       glow: 'shadow-[0_0_20px_rgba(249,115,22,0.25)]', label: 'bg-orange-100 text-orange-700'   },
-    critical: { bar: 'bg-red-500',        border: 'border-red-500',          glow: 'shadow-[0_0_30px_rgba(239,68,68,0.35)] animate-pulse', label: 'bg-red-100 text-red-700' },
+const URGENCY = {
+    fresh:    { bar: 'bg-emerald-400', border: 'border-slate-200',  glow: '',                                                     label: 'bg-emerald-100 text-emerald-700' },
+    warm:     { bar: 'bg-amber-400',   border: 'border-amber-300',  glow: '',                                                     label: 'bg-amber-100 text-amber-700'     },
+    hot:      { bar: 'bg-orange-500',  border: 'border-orange-400', glow: 'shadow-[0_0_20px_rgba(249,115,22,0.25)]',              label: 'bg-orange-100 text-orange-700'   },
+    critical: { bar: 'bg-red-500',     border: 'border-red-500',    glow: 'shadow-[0_0_30px_rgba(239,68,68,0.35)] animate-pulse', label: 'bg-red-100 text-red-700'         },
 };
 
-function formatElapsed(seconds: number): string {
-    if (seconds < 60) return `${seconds}s`;
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+function formatElapsed(s: number): string {
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
-// ─── Ticket Card ─────────────────────────────────────────────────────────────
+// ─── Ticket Card ──────────────────────────────────────────────────────────────
 
 const TicketCard = ({
     request,
     inventory,
     onClaim,
+    onMarkReady,
     onDeliver,
     onCancel,
-    currentUserId,
     lane,
 }: {
-    request: RefreshmentRequest & { claimedBy?: string; claimedAt?: string };
+    request: any;
     inventory: InventoryItem[];
     onClaim: (id: string) => void;
-    onDeliver: (request: any) => void;
+    onMarkReady: (req: any) => void;
+    onDeliver: (req: any) => void;
     onCancel: (id: string) => void;
-    currentUserId?: string;
     lane: 'incoming' | 'prep' | 'ready';
 }) => {
     const startDate = safeDate(request.requestedAt);
     const elapsed = useElapsed(startDate);
     const urgency = urgencyLevel(elapsed);
-    const styles = URGENCY_STYLES[urgency];
+    const styles = URGENCY[urgency];
     const qty = safeNumber(request.quantity) || 1;
     const item = inventory.find(i => i.id === request.itemId);
-    const isMine = request.claimedBy === currentUserId;
 
     const ingredients = useMemo(() => {
         if (!item?.formula || item.formula.length === 0) return [];
@@ -143,7 +134,7 @@ const TicketCard = ({
     return (
         <motion.div
             layout
-            initial={{ opacity: 0, y: 20, scale: 0.97 }}
+            initial={{ opacity: 0, y: 16, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.93, y: -10 }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
@@ -154,13 +145,15 @@ const TicketCard = ({
             )}
         >
             {/* Urgency bar */}
-            <div className={cn('absolute top-0 left-0 right-0 h-1.5 transition-all duration-1000', styles.bar)} />
+            <div className={cn('absolute top-0 left-0 right-0 h-1.5', styles.bar)} />
 
-            {/* Ticket number + time */}
+            {/* Header row */}
             <div className="px-5 pt-6 pb-3 flex items-start justify-between gap-3">
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-black text-[10px] uppercase tracking-[0.25em] text-slate-400">#{request.id.slice(-5).toUpperCase()}</span>
+                        <span className="font-black text-[10px] uppercase tracking-[0.25em] text-slate-400">
+                            #{(request.id ?? '').slice(-5).toUpperCase()}
+                        </span>
                         {request.isRedemption && (
                             <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest h-4 px-2">
                                 <Star className="w-2 h-2 mr-1 fill-current" /> Perk
@@ -181,9 +174,7 @@ const TicketCard = ({
                         {format(startDate, 'h:mm:ss a')}
                     </p>
                 </div>
-
-                {/* Elapsed timer */}
-                <div className={cn('px-3 py-1.5 rounded-xl font-black font-mono text-sm tabular-nums', styles.label)}>
+                <div className={cn('px-3 py-1.5 rounded-xl font-black font-mono text-sm tabular-nums shrink-0', styles.label)}>
                     {formatElapsed(elapsed)}
                 </div>
             </div>
@@ -207,10 +198,7 @@ const TicketCard = ({
                     {ingredients.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                             {ingredients.map((f: any, i: number) => (
-                                <span
-                                    key={i}
-                                    className="text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-600 px-2 py-0.5 rounded-lg border border-slate-200"
-                                >
+                                <span key={i} className="text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-600 px-2 py-0.5 rounded-lg border border-slate-200">
                                     {f.totalNeeded}{f.unit} {f.name}
                                 </span>
                             ))}
@@ -234,7 +222,6 @@ const TicketCard = ({
                         {request.stationName || 'Lounge'}
                     </span>
                 </div>
-
                 {(request.guestDescription || request.notes) && (
                     <div className="space-y-1.5 pt-1 border-t border-slate-200">
                         {request.guestDescription && (
@@ -285,7 +272,7 @@ const TicketCard = ({
                         </Button>
                         <Button
                             size="sm"
-                            onClick={() => onDeliver(request)}
+                            onClick={() => onMarkReady(request)}
                             className="h-10 flex-1 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700"
                         >
                             <CheckCircle2 className="w-3.5 h-3.5 mr-2" /> Mark Ready
@@ -306,7 +293,7 @@ const TicketCard = ({
     );
 };
 
-// ─── Lane Column ─────────────────────────────────────────────────────────────
+// ─── Lane Column ──────────────────────────────────────────────────────────────
 
 const LaneColumn = ({
     title,
@@ -324,26 +311,18 @@ const LaneColumn = ({
     emptyLabel: string;
 }) => (
     <div className="flex flex-col gap-4 min-w-0">
-        {/* Header */}
-        <div className={cn('flex items-center justify-between px-1')}>
+        <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2.5">
                 <div className={cn('p-2 rounded-xl', accentClass)}>
                     <Icon className="w-4 h-4" />
                 </div>
                 <span className="font-black text-[11px] uppercase tracking-[0.25em] text-slate-700">{title}</span>
             </div>
-            <span className={cn(
-                'font-black font-mono text-sm w-8 h-8 rounded-xl flex items-center justify-center',
-                count > 0 ? accentClass : 'bg-slate-100 text-slate-400'
-            )}>
+            <span className={cn('font-black font-mono text-sm w-8 h-8 rounded-xl flex items-center justify-center', count > 0 ? accentClass : 'bg-slate-100 text-slate-400')}>
                 {count}
             </span>
         </div>
-
-        {/* Divider */}
         <div className="h-px bg-slate-200/80" />
-
-        {/* Cards */}
         <div className="space-y-4 flex-1">
             <AnimatePresence mode="popLayout">
                 {count === 0 ? (
@@ -357,9 +336,7 @@ const LaneColumn = ({
                         <Icon className="w-8 h-8" />
                         <p className="text-[9px] font-black uppercase tracking-[0.3em]">{emptyLabel}</p>
                     </motion.div>
-                ) : (
-                    children
-                )}
+                ) : children}
             </AnimatePresence>
         </div>
     </div>
@@ -373,19 +350,15 @@ const StatsBar = ({ requests }: { requests: any[] }) => {
         today.setHours(0, 0, 0, 0);
         const todayReqs = requests.filter(r => safeDate(r.requestedAt) >= today);
         const delivered = todayReqs.filter(r => r.status === 'delivered');
-        const waitTimes = delivered.map(r => {
-            const req = safeDate(r.requestedAt);
-            const del = safeDate(r.deliveredAt);
-            return Math.max(0, differenceInSeconds(del, req));
-        });
+        const waitTimes = delivered.map(r =>
+            Math.max(0, differenceInSeconds(safeDate(r.deliveredAt), safeDate(r.requestedAt)))
+        );
         const avgWait = waitTimes.length > 0
             ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length)
             : 0;
-
         const itemCount: Record<string, number> = {};
         todayReqs.forEach(r => { itemCount[r.itemName] = (itemCount[r.itemName] || 0) + 1; });
         const topItem = Object.entries(itemCount).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
-
         return {
             total: todayReqs.length,
             delivered: delivered.length,
@@ -396,11 +369,11 @@ const StatsBar = ({ requests }: { requests: any[] }) => {
     }, [requests]);
 
     const items = [
-        { label: 'Orders Today', value: stats.total, icon: Activity },
+        { label: 'Today',     value: stats.total,     icon: Activity     },
         { label: 'Delivered', value: stats.delivered, icon: CheckCircle2 },
-        { label: 'Pending', value: stats.pending, icon: Timer },
-        { label: 'Avg Wait', value: stats.avgWait, icon: TrendingUp },
-        { label: 'Top Item', value: stats.topItem, icon: Star, truncate: true },
+        { label: 'Pending',   value: stats.pending,   icon: Timer        },
+        { label: 'Avg Wait',  value: stats.avgWait,   icon: TrendingUp   },
+        { label: 'Top Item',  value: stats.topItem,   icon: Star, truncate: true },
     ];
 
     return (
@@ -432,7 +405,10 @@ function KDSContent() {
     const audioCtxRef = useRef<AudioContext | null>(null);
 
     // Data
-    const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+    const tenantRef = useMemoFirebase(
+        () => doc(firestore, `tenants/${tenantId}`),
+        [firestore, tenantId]
+    );
     const { data: tenant } = useDoc<Tenant>(tenantRef);
 
     const inventoryQuery = useMemoFirebase(
@@ -441,28 +417,41 @@ function KDSContent() {
     );
     const { data: inventory = [] } = useCollection<InventoryItem>(inventoryQuery);
 
-    const requestsQuery = useMemoFirebase(
+    // Active orders only
+    const activeQuery = useMemoFirebase(
         () => query(
             collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
             where('status', 'in', ['pending', 'in_progress', 'ready'])
         ),
         [firestore, tenantId]
     );
-    const { data: allRequests = [] } = useCollection<any>(requestsQuery);
+    const { data: activeRequests = [] } = useCollection<any>(activeQuery);
 
-    // All requests for stats (including delivered today)
-    const allRequestsQuery = useMemoFirebase(
+    // All requests for stats bar
+    const allQuery = useMemoFirebase(
         () => collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
         [firestore, tenantId]
     );
-    const { data: statsRequests = [] } = useCollection<any>(allRequestsQuery);
+    const { data: allRequests = [] } = useCollection<any>(allQuery);
 
-    // Lanes
-    const incoming = useMemo(() => allRequests.filter(r => r.status === 'pending').sort((a, b) => safeDate(a.requestedAt).getTime() - safeDate(b.requestedAt).getTime()), [allRequests]);
-    const prep = useMemo(() => allRequests.filter(r => r.status === 'in_progress').sort((a, b) => safeDate(a.requestedAt).getTime() - safeDate(b.requestedAt).getTime()), [allRequests]);
-    const ready = useMemo(() => allRequests.filter(r => r.status === 'ready').sort((a, b) => safeDate(a.requestedAt).getTime() - safeDate(b.requestedAt).getTime()), [allRequests]);
+    // Lanes — oldest first (FIFO)
+    const incoming = useMemo(() =>
+        activeRequests.filter(r => r.status === 'pending')
+            .sort((a, b) => safeDate(a.requestedAt).getTime() - safeDate(b.requestedAt).getTime()),
+        [activeRequests]
+    );
+    const prep = useMemo(() =>
+        activeRequests.filter(r => r.status === 'in_progress')
+            .sort((a, b) => safeDate(a.requestedAt).getTime() - safeDate(b.requestedAt).getTime()),
+        [activeRequests]
+    );
+    const ready = useMemo(() =>
+        activeRequests.filter(r => r.status === 'ready')
+            .sort((a, b) => safeDate(a.requestedAt).getTime() - safeDate(b.requestedAt).getTime()),
+        [activeRequests]
+    );
 
-    // Sound alert on new incoming
+    // Sound on new incoming
     useEffect(() => {
         if (incoming.length > lastCount && lastCount !== 0 && soundEnabled) {
             try {
@@ -481,43 +470,59 @@ function KDSContent() {
             } catch (_) {}
         }
         setLastCount(incoming.length);
-    }, [incoming.length]);
+    }, [incoming.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Actions
+    // ── Actions ──────────────────────────────────────────────────────────────
+
     const handleClaim = async (requestId: string) => {
         if (!firestore || !tenantId) return;
-        const ref = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId);
-        const batch = writeBatch(firestore);
-        batch.update(ref, sanitize({ status: 'in_progress', claimedBy: user?.uid || 'kds', claimedAt: new Date().toISOString() }));
-        await batch.commit();
+        try {
+            const b = writeBatch(firestore);
+            b.update(
+                doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId),
+                sanitize({ status: 'in_progress', claimedBy: user?.uid || 'kds', claimedAt: new Date().toISOString() })
+            );
+            await b.commit();
+        } catch {
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not claim order.' });
+        }
     };
 
     const handleMarkReady = async (request: any) => {
         if (!firestore || !tenantId) return;
-        const ref = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, request.id);
-        const batch = writeBatch(firestore);
-        batch.update(ref, sanitize({ status: 'ready', readyAt: new Date().toISOString() }));
-        await batch.commit();
-        toast({ title: 'Order Ready', description: `${request.itemName} for ${request.clientName} is ready for delivery.` });
+        try {
+            const b = writeBatch(firestore);
+            b.update(
+                doc(firestore, `tenants/${tenantId}/refreshmentRequests`, request.id),
+                sanitize({ status: 'ready', readyAt: new Date().toISOString() })
+            );
+            await b.commit();
+            toast({ title: 'Order Ready', description: `${request.itemName} ready for ${request.clientName}.` });
+        } catch {
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not update order.' });
+        }
     };
 
     const handleDeliver = async (request: any) => {
-        if (!firestore || !tenantId || !inventory) return;
+        if (!firestore || !tenantId) return;
         const item = inventory.find(i => i.id === request.itemId);
         if (!item) return;
 
-        const batch = writeBatch(firestore);
+        const b = writeBatch(firestore);
         const now = new Date().toISOString();
         const qty = safeNumber(request.quantity || 1);
 
         // 1. Mark delivered
-        const reqRef = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, request.id);
-        batch.update(reqRef, sanitize({ status: 'delivered', deliveredAt: now, deliveredBy: user?.uid || 'kds' }));
+        b.update(
+            doc(firestore, `tenants/${tenantId}/refreshmentRequests`, request.id),
+            sanitize({ status: 'delivered', deliveredAt: now, deliveredBy: user?.uid || 'kds' })
+        );
 
         // 2. Inventory deduction
-        const ingredients = item.formula && item.formula.length > 0
-            ? item.formula.map((f: any) => ({ ...f, quantityUsed: safeNumber(f.quantityUsed) * qty }))
-            : [{ id: item.id, name: item.name, quantityUsed: qty, unit: item.unit || 'unit' }];
+        const ingredients =
+            item.formula && item.formula.length > 0
+                ? item.formula.map((f: any) => ({ ...f, quantityUsed: safeNumber(f.quantityUsed) * qty }))
+                : [{ id: item.id, name: item.name, quantityUsed: qty, unit: item.unit || 'unit' }];
 
         ingredients.forEach((ingredient: any) => {
             const product = inventory.find(p => p.id === ingredient.id);
@@ -535,10 +540,10 @@ function KDSContent() {
             } else {
                 updateData.totalStock = increment(-ingredient.quantityUsed);
             }
-            batch.update(productRef, sanitize(updateData));
+            b.update(productRef, sanitize(updateData));
 
             const corrRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-            batch.set(corrRef, sanitize({
+            b.set(corrRef, sanitize({
                 id: nanoid(), productId: product.id, date: now,
                 change: -ingredient.quantityUsed, unit: product.unit || 'unit',
                 reason: `KDS Delivery: ${item.name} (x${qty}) — ${request.clientName}`,
@@ -548,33 +553,53 @@ function KDSContent() {
 
         // 3. Perk usage
         if (request.isRedemption && request.clientId && request.clientId !== 'guest-walkin') {
-            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, request.clientId);
-            batch.update(clientRef, { [`subscription.perkUsage.${request.itemId}`]: increment(qty), 'subscription.perkLastUsed': now });
+            b.update(
+                doc(firestore, `tenants/${tenantId}/clients`, request.clientId),
+                {
+                    [`subscription.perkUsage.${request.itemId}`]: increment(qty),
+                    'subscription.perkLastUsed': now,
+                }
+            );
         }
 
         // 4. Appointment binding
         if (request.appointmentId && request.appointmentId !== 'guest-walkin') {
-            const aptRef = doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`);
-            batch.set(aptRef, { checkoutState: { refreshments: arrayUnion(sanitize({ id: item.id, name: item.name, price: safeNumber(request.priceAtRequest), deliveredAt: now, quantity: qty, isAccountedFor: true })) } }, { merge: true });
+            b.set(
+                doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`),
+                {
+                    checkoutState: {
+                        refreshments: arrayUnion(sanitize({
+                            id: item.id, name: item.name,
+                            price: safeNumber(request.priceAtRequest),
+                            deliveredAt: now, quantity: qty, isAccountedFor: true,
+                        })),
+                    },
+                },
+                { merge: true }
+            );
         }
 
         try {
-            await batch.commit();
+            await b.commit();
             toast({ title: 'Delivery Certified', description: `${request.itemName} delivered to ${request.clientName}.` });
-        } catch (e) {
+        } catch {
             toast({ variant: 'destructive', title: 'Error', description: 'Delivery record failed.' });
         }
     };
 
     const handleCancel = async (requestId: string) => {
         if (!firestore || !tenantId) return;
-        const ref = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId);
-        await writeBatch(firestore).update ? (() => {
+        try {
             const b = writeBatch(firestore);
-            b.update(ref, { status: 'cancelled' });
-            return b.commit();
-        })() : Promise.resolve();
-        toast({ title: 'Order Cancelled' });
+            b.update(
+                doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId),
+                { status: 'cancelled' }
+            );
+            await b.commit();
+            toast({ title: 'Order Cancelled' });
+        } catch {
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not cancel order.' });
+        }
     };
 
     const totalActive = incoming.length + prep.length + ready.length;
@@ -592,7 +617,9 @@ function KDSContent() {
                         <div className="flex items-center gap-2">
                             <h1 className="font-black text-lg uppercase tracking-tighter text-slate-900 leading-none">KDS</h1>
                             <span className="text-slate-300 font-light">·</span>
-                            <span className="font-black text-[11px] uppercase tracking-[0.2em] text-slate-400 truncate">{tenant?.name || 'Concierge'}</span>
+                            <span className="font-black text-[11px] uppercase tracking-[0.2em] text-slate-400 truncate">
+                                {tenant?.name || 'Concierge'}
+                            </span>
                         </div>
                         <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mt-0.5">Kitchen Display System</p>
                     </div>
@@ -605,12 +632,15 @@ function KDSContent() {
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
-                    <StatsBar requests={statsRequests} />
+                    <StatsBar requests={allRequests} />
                     <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setSoundEnabled(v => !v)}
-                        className={cn('h-10 w-10 rounded-2xl p-0 border-2 transition-all', soundEnabled ? 'border-primary/20 text-primary bg-primary/5' : 'border-slate-200 text-slate-400')}
+                        className={cn(
+                            'h-10 w-10 rounded-2xl p-0 border-2 transition-all',
+                            soundEnabled ? 'border-primary/20 text-primary bg-primary/5' : 'border-slate-200 text-slate-400'
+                        )}
                     >
                         {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
                     </Button>
@@ -621,74 +651,32 @@ function KDSContent() {
             <main className="flex-1 overflow-hidden p-6">
                 <div className="h-full grid grid-cols-3 gap-6">
 
-                    {/* INCOMING */}
                     <div className="overflow-y-auto pr-1 scrollbar-none">
-                        <LaneColumn
-                            title="Incoming"
-                            icon={Bell}
-                            count={incoming.length}
-                            accentClass="bg-blue-100 text-blue-600"
-                            emptyLabel="Queue Clear"
-                        >
+                        <LaneColumn title="Incoming" icon={Bell} count={incoming.length} accentClass="bg-blue-100 text-blue-600" emptyLabel="Queue Clear">
                             {incoming.map(r => (
-                                <TicketCard
-                                    key={r.id}
-                                    request={r}
-                                    inventory={inventory}
-                                    onClaim={handleClaim}
-                                    onDeliver={handleMarkReady}
-                                    onCancel={handleCancel}
-                                    currentUserId={user?.uid}
-                                    lane="incoming"
-                                />
+                                <TicketCard key={r.id} request={r} inventory={inventory}
+                                    onClaim={handleClaim} onMarkReady={handleMarkReady}
+                                    onDeliver={handleDeliver} onCancel={handleCancel} lane="incoming" />
                             ))}
                         </LaneColumn>
                     </div>
 
-                    {/* IN PREP */}
                     <div className="overflow-y-auto pr-1 scrollbar-none">
-                        <LaneColumn
-                            title="In Prep"
-                            icon={ChefHat}
-                            count={prep.length}
-                            accentClass="bg-amber-100 text-amber-600"
-                            emptyLabel="Nothing Prepping"
-                        >
+                        <LaneColumn title="In Prep" icon={ChefHat} count={prep.length} accentClass="bg-amber-100 text-amber-600" emptyLabel="Nothing Prepping">
                             {prep.map(r => (
-                                <TicketCard
-                                    key={r.id}
-                                    request={r}
-                                    inventory={inventory}
-                                    onClaim={handleClaim}
-                                    onDeliver={handleMarkReady}
-                                    onCancel={handleCancel}
-                                    currentUserId={user?.uid}
-                                    lane="prep"
-                                />
+                                <TicketCard key={r.id} request={r} inventory={inventory}
+                                    onClaim={handleClaim} onMarkReady={handleMarkReady}
+                                    onDeliver={handleDeliver} onCancel={handleCancel} lane="prep" />
                             ))}
                         </LaneColumn>
                     </div>
 
-                    {/* READY */}
                     <div className="overflow-y-auto pr-1 scrollbar-none">
-                        <LaneColumn
-                            title="Ready to Deliver"
-                            icon={Zap}
-                            count={ready.length}
-                            accentClass="bg-emerald-100 text-emerald-600"
-                            emptyLabel="Nothing Ready Yet"
-                        >
+                        <LaneColumn title="Ready to Deliver" icon={Zap} count={ready.length} accentClass="bg-emerald-100 text-emerald-600" emptyLabel="Nothing Ready Yet">
                             {ready.map(r => (
-                                <TicketCard
-                                    key={r.id}
-                                    request={r}
-                                    inventory={inventory}
-                                    onClaim={handleClaim}
-                                    onDeliver={handleDeliver}
-                                    onCancel={handleCancel}
-                                    currentUserId={user?.uid}
-                                    lane="ready"
-                                />
+                                <TicketCard key={r.id} request={r} inventory={inventory}
+                                    onClaim={handleClaim} onMarkReady={handleMarkReady}
+                                    onDeliver={handleDeliver} onCancel={handleCancel} lane="ready" />
                             ))}
                         </LaneColumn>
                     </div>
@@ -706,9 +694,9 @@ function KDSContent() {
                     <div className="flex items-center gap-3">
                         {[
                             { color: 'bg-emerald-400', label: '0–2m' },
-                            { color: 'bg-amber-400', label: '2–5m' },
-                            { color: 'bg-orange-500', label: '5–8m' },
-                            { color: 'bg-red-500', label: '8m+' },
+                            { color: 'bg-amber-400',   label: '2–5m' },
+                            { color: 'bg-orange-500',  label: '5–8m' },
+                            { color: 'bg-red-500',     label: '8m+'  },
                         ].map(({ color, label }) => (
                             <div key={label} className="flex items-center gap-1.5">
                                 <div className={cn('w-2.5 h-2.5 rounded-full', color)} />
