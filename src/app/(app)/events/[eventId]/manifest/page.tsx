@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Users, AlertTriangle, Leaf, Download, Play, CheckCircle2, Loader,
+  Users, AlertTriangle, Leaf, Download, Play, CheckCircle2, Loader, QrCode, Printer, BarChart2,
   Search, Plus, Utensils, Link2, Copy, QrCode, UserPlus, Pencil,
   Trash2, PackageCheck, PackageX, ChevronDown, ChevronUp, X,
   UserCheck, Box, Check,
@@ -64,6 +64,7 @@ const StatCard = ({ label, value, sub, color = 'slate' }: { label: string; value
 
 export default function EventManifestPage() {
   const params = useParams();
+  const router = useRouter();
   const { firestore } = useFirebase();
   const { toast } = useToast();
   const { selectedTenant } = useTenant();
@@ -108,7 +109,14 @@ export default function EventManifestPage() {
   const [isFiring, setIsFiring]         = useState<number | null>(null);
   const [showForecast, setShowForecast] = useState(true);
   const [showLink, setShowLink]         = useState(false);
+  const [qrTables, setQrTables]         = useState('');
+  const [qrSeatsPerTable, setQrSeatsPerTable] = useState('');
+  const [qrCodes, setQrCodes]           = useState<{ label: string; dataUrl: string }[]>([]);
   const [activeTab, setActiveTab]       = useState('guests');
+  const [staffToAdd, setStaffToAdd]     = useState('');
+
+  // Staff from inventory context for assignment
+  const { staff: staffFromContext } = useInventory();
 
   // Menu item form
   const [isAddingMenu, setIsAddingMenu]         = useState(false);
@@ -135,6 +143,47 @@ export default function EventManifestPage() {
   const copyLink = () => {
     navigator.clipboard.writeText(shareableLink);
     toast({ title: 'Link Copied', description: 'Share this with your guests.' });
+  };
+
+  // ── QR code generator — uses canvas to produce per-seat data URLs ──────────
+  const generateQRDataUrl = async (url: string): Promise<string> => {
+    // Use a public QR API so we don't need a package
+    return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+  };
+
+  const handleGenerateQRs = async () => {
+    const tables = qrTables.split(',').map(t => t.trim()).filter(Boolean);
+    const seatsPerTable = parseInt(qrSeatsPerTable) || 4;
+    const codes: { label: string; dataUrl: string }[] = [];
+    for (const table of tables) {
+      for (let seat = 1; seat <= seatsPerTable; seat++) {
+        const url = `${shareableLink}?table=${table}&seat=${seat}`;
+        const dataUrl = await generateQRDataUrl(url);
+        codes.push({ label: `T${table} · S${seat}`, dataUrl });
+      }
+    }
+    setQrCodes(codes);
+    toast({ title: `${codes.length} QR codes generated` });
+  };
+
+  const handlePrintQRs = () => {
+    const area = document.getElementById('qr-print-area');
+    if (!area) return;
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`<html><head><title>Seat QR Codes — ${event?.title}</title>
+      <style>body{font-family:sans-serif;} .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px;}
+      .card{border:1px solid #ddd;border-radius:8px;padding:12px;text-align:center;}
+      img{width:80px;height:80px;} p{font-size:10px;font-weight:900;text-transform:uppercase;margin-top:4px;}
+      @media print{@page{margin:0.5in;}}</style></head><body><div class="grid">`);
+    area.querySelectorAll('.flex.flex-col').forEach(card => {
+      const img = card.querySelector('img') as HTMLImageElement;
+      const label = card.querySelector('p')?.textContent || '';
+      win.document.write(`<div class="card"><img src="${img?.src}" /><p>${label}</p></div>`);
+    });
+    win.document.write('</div></body></html>');
+    win.document.close();
+    win.print();
   };
 
   // ── Stats ─────────────────────────────────────────────────────────────────
@@ -383,6 +432,26 @@ export default function EventManifestPage() {
     toast({ title: 'Menu item added' });
   };
 
+  const handleAddStaff = async () => {
+    if (!staffToAdd || !firestore || !tenantId) return;
+    const current = event?.assignedStaffIds || [];
+    if (current.includes(staffToAdd)) return;
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+      assignedStaffIds: [...current, staffToAdd],
+    });
+    setStaffToAdd('');
+    toast({ title: 'Staff assigned' });
+  };
+
+  const handleRemoveStaff = async (staffId: string) => {
+    if (!firestore || !tenantId) return;
+    const current = event?.assignedStaffIds || [];
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+      assignedStaffIds: current.filter((id: string) => id !== staffId),
+    });
+    toast({ title: 'Staff removed' });
+  };
+
   const handleExportCSV = () => {
     const rows = [
       ['Name', 'Email', 'Phone', 'Table', 'Seat', 'Meal Choice', 'Allergies', 'Dietary', 'Notes', 'Checked In'],
@@ -431,6 +500,11 @@ export default function EventManifestPage() {
               className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
               <Download className="w-4 h-4" /> Export CSV
             </Button>
+            <Button variant="outline"
+              onClick={() => router.push(`/events/${eventId}/reconciliation`)}
+              className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
+              <BarChart2 className="w-4 h-4" /> Post-Event Report
+            </Button>
           </div>
         </div>
 
@@ -452,6 +526,47 @@ export default function EventManifestPage() {
                 Guests open this link to submit meal choices and flag allergies before the event.
                 You can append ?table=3&seat=A1 to pre-fill their seat.
               </p>
+              {/* Per-seat QR generator */}
+              <div className="mt-4 space-y-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Generate Per-Seat QR Codes</p>
+                <div className="flex items-center gap-3">
+                  <Input
+                    placeholder="Tables (e.g. 1,2,3)"
+                    value={qrTables}
+                    onChange={e => setQrTables(e.target.value)}
+                    className="h-10 rounded-xl border-2 flex-1"
+                  />
+                  <Input
+                    placeholder="Seats per table (e.g. 4)"
+                    value={qrSeatsPerTable}
+                    onChange={e => setQrSeatsPerTable(e.target.value)}
+                    className="h-10 rounded-xl border-2 w-48"
+                  />
+                  <Button onClick={handleGenerateQRs}
+                    className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shrink-0">
+                    <QrCode className="w-4 h-4" /> Generate
+                  </Button>
+                </div>
+                {qrCodes.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{qrCodes.length} QR codes — right-click to save each</p>
+                      <Button onClick={handlePrintQRs} variant="outline"
+                        className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1">
+                        <Printer className="w-3 h-3" /> Print All
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-3 max-h-64 overflow-y-auto" id="qr-print-area">
+                      {qrCodes.map(qr => (
+                        <div key={qr.label} className="flex flex-col items-center gap-1 p-3 border-2 rounded-xl bg-white">
+                          <img src={qr.dataUrl} alt={qr.label} className="w-16 h-16" />
+                          <p className="text-[8px] font-black uppercase text-slate-600 text-center">{qr.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -575,6 +690,9 @@ export default function EventManifestPage() {
             </TabsTrigger>
             <TabsTrigger value="menu" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">
               Menu ({menuItems.length})
+            </TabsTrigger>
+            <TabsTrigger value="staff" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">
+              Staff
             </TabsTrigger>
           </TabsList>
 
@@ -923,6 +1041,67 @@ export default function EventManifestPage() {
               </div>
             )}
           </TabsContent>
+
+          {/* ── STAFF TAB ── */}
+          <TabsContent value="staff" className="mt-4 space-y-4">
+            <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
+              <div className="p-5 border-b border-slate-100">
+                <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" /> Assigned Staff
+                </h2>
+              </div>
+              <div className="p-5 space-y-3">
+                {(event?.assignedStaffIds || []).length === 0 && (
+                  <div className="text-center py-8 border-2 border-dashed rounded-2xl">
+                    <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No staff assigned yet</p>
+                  </div>
+                )}
+                {(event?.assignedStaffIds || []).map((staffId: string) => {
+                  const member = (staffFromContext || []).find((s: any) => s.id === staffId);
+                  if (!member) return null;
+                  return (
+                    <div key={staffId} className="flex items-center justify-between p-3 rounded-2xl border-2 border-slate-200">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center font-black text-primary text-sm">
+                          {(member as any).name?.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-black text-sm text-slate-900">{(member as any).name}</p>
+                          <p className="text-[9px] font-bold uppercase text-slate-400">{(member as any).role}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => handleRemoveStaff(staffId)}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="pt-2 space-y-2">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Add Staff Member</Label>
+                  <div className="flex gap-2">
+                    <Select value={staffToAdd} onValueChange={setStaffToAdd}>
+                      <SelectTrigger className="flex-1 h-11 rounded-xl border-2 font-bold text-sm">
+                        <SelectValue placeholder="Select staff member…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(staffFromContext || [])
+                          .filter((s: any) => !(event?.assignedStaffIds || []).includes(s.id))
+                          .map((s: any) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={handleAddStaff} disabled={!staffToAdd}
+                      className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
+                      <Plus className="w-4 h-4" /> Assign
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
         </Tabs>
       </main>
     </div>
