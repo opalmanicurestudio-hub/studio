@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Calendar, Users, User, Settings, Box, FileText, BookOpen,
   Landmark, DollarSign, FileSignature, ListChecks, BarChart, HardHat, Percent,
   Megaphone, Star, LogOut, BookText, CreditCard, Globe, Fingerprint, Coffee,
-  Clock, ClipboardList, CalendarDays, Shield, ChefHat,
+  Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -69,6 +69,12 @@ const financialSuite = [
   { href: '/bills', icon: CreditCard, label: 'Obligations' },
   { href: '/payday', icon: DollarSign, label: 'Payday' },
   { href: '/reports', icon: BarChart, label: 'Analytics' },
+];
+
+// Owner: Events
+const eventsSection = [
+  { href: '/events', icon: PartyPopper, label: 'Events' },
+  { href: '/events/manifest', icon: Layers, label: 'Event Manifest' },
 ];
 
 export function AppSidebar() {
@@ -202,6 +208,16 @@ export function AppSidebar() {
             <SidebarSeparator className="my-6 opacity-50" />
             <SidebarGroup>
               <SidebarGroupLabel className="px-2 mb-3 font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground opacity-40">
+                Events
+              </SidebarGroupLabel>
+              <SidebarMenu>
+                {eventsSection.map(item => <NavItem key={item.href} {...item} />)}
+              </SidebarMenu>
+            </SidebarGroup>
+
+            <SidebarSeparator className="my-6 opacity-50" />
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-2 mb-3 font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground opacity-40">
                 Public Portals
               </SidebarGroupLabel>
               <SidebarMenu>
@@ -209,6 +225,7 @@ export function AppSidebar() {
                 <PortalItem href={tenantId ? `/kiosk/${tenantId}` : null} icon={Fingerprint} label="Walk-in Kiosk" />
                 <PortalItem href={tenantId ? `/concierge/${tenantId}` : null} icon={Coffee} label="Lounge Concierge" />
                 <PortalItem href={tenantId ? `/kds/${tenantId}` : null} icon={ChefHat} label="KDS Display" />
+                <PortalItem href={tenantId ? `/floor/${tenantId}` : null} icon={Layers} label="Floor Staff" />
                 <PortalItem href={tenantId ? `/timeclock/${tenantId}` : null} icon={Clock} label="Time Clock" />
                 <PortalItem href={tenantId ? `/staff-portal/${tenantId}` : null} icon={Shield} label="Staff Portal" />
               </SidebarMenu>
