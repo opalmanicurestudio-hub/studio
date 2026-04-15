@@ -791,9 +791,9 @@ export default function WalkInPage() {
   // If today has an active studio event, kiosk switches to floor-service-only mode
   const activeStudioEvent = useMemo(() => {
     if (!studioEvents?.length) return null;
-    return studioEvents.find((ev: any) =>
-      ev.status === 'active' || ev.status === 'upcoming'
-    ) || null;
+    // Only activate kiosk event mode when host has deliberately set status to 'active'
+    // 'upcoming' events do NOT trigger event mode — host must press Go Live
+    return studioEvents.find((ev: any) => ev.status === 'active') || null;
   }, [studioEvents]);
 
   const isEventMode = !!activeStudioEvent;
