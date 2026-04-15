@@ -31,20 +31,44 @@ const safeDate = (v: any) => {
 };
 
 // ─── COMMON ALLERGY / DIETARY FLAGS ──────────────────────────────────────────
-const ALLERGY_OPTIONS = [
-  { id: 'gluten',    label: 'Gluten Free',   emoji: '🌾' },
-  { id: 'dairy',     label: 'Dairy Free',    emoji: '🥛' },
-  { id: 'nuts',      label: 'Tree Nuts',     emoji: '🥜' },
-  { id: 'peanuts',   label: 'Peanuts',       emoji: '🥜' },
-  { id: 'shellfish', label: 'Shellfish',     emoji: '🦐' },
-  { id: 'fish',      label: 'Fish',          emoji: '🐟' },
-  { id: 'eggs',      label: 'Eggs',          emoji: '🥚' },
-  { id: 'soy',       label: 'Soy',           emoji: '🫘' },
-  { id: 'vegan',     label: 'Vegan',         emoji: '🌿' },
-  { id: 'vegetarian',label: 'Vegetarian',    emoji: '🥦' },
-  { id: 'kosher',    label: 'Kosher',        emoji: '✡️' },
-  { id: 'halal',     label: 'Halal',         emoji: '☪️' },
+// ─── SEVERITY TIERS ──────────────────────────────────────────────────────────
+// preference  = "I prefer not to" — no health risk
+// intolerance = digestive/uncomfortable but not dangerous
+// critical    = anaphylaxis risk — requires kitchen protocol
+export type AllergySeverity = 'preference' | 'intolerance' | 'critical';
+
+export type AllergyOption = {
+  id: string;
+  label: string;
+  emoji: string;
+  severity: AllergySeverity;
+  hint?: string;
+};
+
+const ALLERGY_OPTIONS: AllergyOption[] = [
+  // Critical — anaphylaxis risk
+  { id: 'peanuts',   label: 'Peanuts',         emoji: '🥜', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'nuts',      label: 'Tree Nuts',        emoji: '🌰', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'shellfish', label: 'Shellfish',        emoji: '🦐', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'fish',      label: 'Fish',             emoji: '🐟', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'eggs',      label: 'Eggs',             emoji: '🥚', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  // Intolerance — uncomfortable but not typically dangerous
+  { id: 'gluten',    label: 'Gluten',           emoji: '🌾', severity: 'intolerance', hint: 'Celiac or intolerance' },
+  { id: 'dairy',     label: 'Dairy',            emoji: '🥛', severity: 'intolerance', hint: 'Lactose intolerance' },
+  { id: 'soy',       label: 'Soy',              emoji: '🫘', severity: 'intolerance', hint: 'Soy intolerance' },
+  // Dietary preferences
+  { id: 'vegan',     label: 'Vegan',            emoji: '🌿', severity: 'preference'  },
+  { id: 'vegetarian',label: 'Vegetarian',       emoji: '🥦', severity: 'preference'  },
+  { id: 'kosher',    label: 'Kosher',           emoji: '✡️',  severity: 'preference'  },
+  { id: 'halal',     label: 'Halal',            emoji: '☪️',  severity: 'preference'  },
 ];
+
+// Severity display config
+const SEVERITY_CONFIG = {
+  critical:    { label: 'Critical Allergy',   bg: 'bg-red-50',    border: 'border-red-300',    text: 'text-red-800',    badge: 'bg-red-100 text-red-800 border-red-300' },
+  intolerance: { label: 'Intolerance',        bg: 'bg-amber-50',  border: 'border-amber-300',  text: 'text-amber-800',  badge: 'bg-amber-100 text-amber-800 border-amber-300' },
+  preference:  { label: 'Dietary Preference', bg: 'bg-slate-50',  border: 'border-slate-200',  text: 'text-slate-700',  badge: 'bg-slate-100 text-slate-700 border-slate-200' },
+};
 
 // ─── STEP DOTS ────────────────────────────────────────────────────────────────
 const StepDots = ({ total, current }: { total: number; current: number }) => (
@@ -116,6 +140,7 @@ export default function EventGuestOrderPage() {
   const [allergyNote, setAllergyNote]   = useState('');
   const [guestNote, setGuestNote]       = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [consentGiven, setConsentGiven] = useState(false);
   const [existingOrder, setExistingOrder] = useState<any>(null);
   const [alreadyOrdered, setAlreadyOrdered] = useState(false);
 
@@ -198,8 +223,9 @@ export default function EventGuestOrderPage() {
           // Multi-course events
           courseSelections: hasCourses ? selectedCourseSelections : null,
           // Allergies
-          allergies: selectedAllergies,
+          allergies: selectedAllergies.map(a => typeof a === 'string' ? { id: a, label: a, severity: 'preference' } : a),
           allergyNote: allergyNote.trim() || null,
+          hasCriticalAllergy: selectedAllergies.some(a => typeof a === 'object' && (a as any).severity === 'critical'),
           guestNote: guestNote.trim() || null,
           // Metadata
           submittedAt: new Date().toISOString(),
@@ -419,17 +445,47 @@ export default function EventGuestOrderPage() {
                   <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Allergies & Dietary</h2>
                   <p className="text-sm text-slate-500">Select all that apply. This will be visible on your ticket.</p>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {ALLERGY_OPTIONS.map(opt => (
-                    <button key={opt.id} onClick={() => setSelectedAllergies(prev => prev.includes(opt.id) ? prev.filter(a => a !== opt.id) : [...prev, opt.id])}
-                      className={cn('flex items-center gap-2 p-3 rounded-xl border-2 text-left transition-all',
-                        selectedAllergies.includes(opt.id) ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300')}>
-                      <span className="text-lg">{opt.emoji}</span>
-                      <span className={cn('text-[10px] font-black uppercase tracking-tight', selectedAllergies.includes(opt.id) ? 'text-amber-800' : 'text-slate-700')}>{opt.label}</span>
-                      {selectedAllergies.includes(opt.id) && <Check className="w-3 h-3 text-amber-600 ml-auto" />}
-                    </button>
-                  ))}
-                </div>
+                {/* Severity-grouped allergy selector */}
+                {(['critical', 'intolerance', 'preference'] as AllergySeverity[]).map(severity => {
+                  const cfg = SEVERITY_CONFIG[severity];
+                  const opts = ALLERGY_OPTIONS.filter(o => o.severity === severity);
+                  return (
+                    <div key={severity} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className={cn('text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border', cfg.badge)}>
+                          {severity === 'critical' ? '⚠ ' : ''}{cfg.label}
+                        </span>
+                        {severity === 'critical' && (
+                          <span className="text-[9px] text-red-500 font-bold">Kitchen will be notified immediately</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {opts.map(opt => {
+                          const selected = selectedAllergies.some(a => typeof a === 'string' ? a === opt.id : (a as any).id === opt.id);
+                          return (
+                            <button key={opt.id}
+                              onClick={() => setSelectedAllergies(prev => {
+                                const exists = prev.some(a => typeof a === 'string' ? a === opt.id : (a as any).id === opt.id);
+                                if (exists) return prev.filter(a => typeof a === 'string' ? a !== opt.id : (a as any).id !== opt.id);
+                                // Store as object with severity
+                                return [...prev, { id: opt.id, label: opt.label, severity: opt.severity } as any];
+                              })}
+                              className={cn('flex items-center gap-2 p-3 rounded-xl border-2 text-left transition-all',
+                                selected ? cn(cfg.bg, cfg.border) : 'border-slate-200 hover:border-slate-300'
+                              )}>
+                              <span className="text-lg">{opt.emoji}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className={cn('text-[10px] font-black uppercase tracking-tight', selected ? cfg.text : 'text-slate-700')}>{opt.label}</p>
+                                {opt.hint && <p className="text-[8px] text-slate-400 font-bold truncate">{opt.hint}</p>}
+                              </div>
+                              {selected && <Check className={cn('w-3 h-3 ml-auto shrink-0', cfg.text)} />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
                 <div className="space-y-1.5">
                   <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Additional notes (optional)</label>
                   <textarea value={allergyNote} onChange={e => setAllergyNote(e.target.value)} rows={2} placeholder="e.g. Severe nut allergy — please ensure no cross-contamination"
@@ -483,10 +539,28 @@ export default function EventGuestOrderPage() {
                   )}
                   {/* Allergy summary */}
                   {(selectedAllergies.length > 0 || allergyNote) && (
-                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-1">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-amber-600">⚠ Dietary Requirements</p>
-                      {selectedAllergies.length > 0 && <p className="font-bold text-amber-800 text-sm">{selectedAllergies.map(a => ALLERGY_OPTIONS.find(o => o.id === a)?.label).filter(Boolean).join(', ')}</p>}
-                      {allergyNote && <p className="text-xs text-amber-700">{allergyNote}</p>}
+                    <div className={cn("p-4 rounded-2xl border space-y-2",
+                      selectedAllergies.some(a => typeof a === 'object' && (a as any).severity === 'critical')
+                        ? "bg-red-50 border-red-200"
+                        : "bg-amber-50 border-amber-200"
+                    )}>
+                      {selectedAllergies.some(a => typeof a === 'object' && (a as any).severity === 'critical') && (
+                        <p className="text-[9px] font-black uppercase tracking-widest text-red-600">⚠ Critical Allergy — Kitchen Will Be Notified</p>
+                      )}
+                      {(['critical', 'intolerance', 'preference'] as AllergySeverity[]).map(severity => {
+                        const items = selectedAllergies.filter(a => typeof a === 'object' && (a as any).severity === severity);
+                        if (!items.length) return null;
+                        const cfg = SEVERITY_CONFIG[severity];
+                        return (
+                          <div key={severity}>
+                            <p className={cn('text-[9px] font-black uppercase tracking-widest', cfg.text)}>{cfg.label}</p>
+                            <p className={cn('font-bold text-sm mt-0.5', cfg.text)}>
+                              {items.map(a => (a as any).label).join(', ')}
+                            </p>
+                          </div>
+                        );
+                      })}
+                      {allergyNote && <p className="text-xs text-amber-700 italic">{allergyNote}</p>}
                     </div>
                   )}
                   {/* Optional note */}
@@ -496,10 +570,22 @@ export default function EventGuestOrderPage() {
                       className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 resize-none" />
                   </div>
                 </div>
+                {/* Consent checkbox — required before submit */}
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={consentGiven} onChange={e => setConsentGiven(e.target.checked)}
+                    className="mt-1 w-4 h-4 rounded border-2 border-slate-300 cursor-pointer shrink-0" />
+                  <span className="text-[10px] text-slate-500 font-bold leading-relaxed">
+                    I confirm the allergy and dietary information above is accurate. I understand this information will be shared with kitchen staff to ensure my safety.
+                  </span>
+                </label>
+
                 <div className="flex gap-3">
                   <button onClick={() => setStep('allergies')} className="h-12 px-5 rounded-2xl border-2 border-slate-200 font-black text-slate-500">←</button>
-                  <button onClick={handleSubmit} disabled={isSubmitting} style={btnStyle}
-                    className={cn('flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 disabled:opacity-50', !btnStyle && 'bg-slate-900 text-white')}>
+                  <button onClick={handleSubmit} disabled={isSubmitting || !consentGiven} style={consentGiven ? btnStyle : undefined}
+                    className={cn('flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+                      consentGiven ? (!btnStyle && 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-400 cursor-not-allowed',
+                      'disabled:opacity-50'
+                    )}>
                     {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : 'Submit Order →'}
                   </button>
                 </div>
