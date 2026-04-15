@@ -106,6 +106,7 @@ export default function EventGuestOrderPage() {
   const [step, setStep]                 = useState<Step>('identity');
   const [guestName, setGuestName]       = useState('');
   const [guestEmail, setGuestEmail]     = useState('');
+  const [guestPhone, setGuestPhone]     = useState('');
   const [tableNumber, setTableNumber]   = useState('');
   const [seatNumber, setSeatNumber]     = useState('');
   const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
@@ -188,6 +189,7 @@ export default function EventGuestOrderPage() {
           id: orderId,
           guestName: guestName.trim(),
           guestEmail: guestEmail.toLowerCase().trim() || null,
+          guestPhone: guestPhone.trim() || null,
           tableNumber: tableNumber.trim(),
           seatNumber: seatNumber.trim() || null,
           // Single-course events
@@ -324,6 +326,11 @@ export default function EventGuestOrderPage() {
                     <input type="email" value={guestEmail} onChange={e => setGuestEmail(e.target.value)} placeholder="your@email.com"
                       className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 outline-none focus:border-slate-400 transition-all" />
                   </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone (optional)</label>
+                    <input type="tel" value={guestPhone} onChange={e => setGuestPhone(e.target.value)} placeholder="(555) 000-0000"
+                      className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 outline-none focus:border-slate-400 transition-all" />
+                  </div>
                 </div>
                 <button onClick={handleIdentityNext} style={btnStyle}
                   className={cn('w-full h-13 py-4 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2', !btnStyle && 'bg-slate-900 text-white')}>
@@ -450,6 +457,7 @@ export default function EventGuestOrderPage() {
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest</p>
                     <p className="font-black text-slate-900">{guestName}</p>
+                    {guestPhone && <p className="text-xs text-slate-500">{guestPhone}</p>}
                     <p className="text-xs text-slate-500">Table {tableNumber}{seatNumber ? ` · Seat ${seatNumber}` : ''}</p>
                   </div>
                   {/* Meal summary */}
