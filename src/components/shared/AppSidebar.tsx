@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Calendar, Users, User, Settings, Box, FileText, BookOpen,
   Landmark, DollarSign, FileSignature, ListChecks, BarChart, HardHat, Percent,
   Megaphone, Star, LogOut, BookText, CreditCard, Globe, Fingerprint, Coffee,
-  Clock, ClipboardList, CalendarDays, Shield, ChefHat,
+  Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Armchair,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -32,6 +32,7 @@ const coreHub = [
   { href: '/planner', icon: Calendar, label: 'Planner' },
   { href: '/pos', icon: ListChecks, label: 'Terminal (POS)' },
   { href: '/my-schedule', icon: Calendar, label: 'My Schedule' },
+  { href: '/floor', icon: Armchair, label: 'Floor Concierge' },
 ];
 
 // Admin only extras
@@ -39,6 +40,7 @@ const adminTeam = [
   { href: '/staff', icon: Users, label: 'Pro Team' },
   { href: '/timesheets', icon: ClipboardList, label: 'Timesheets' },
   { href: '/schedule', icon: CalendarDays, label: 'Shift Schedule' },
+  { href: '/events', icon: PartyPopper, label: 'Events' },
 ];
 
 // Owner: Identity & Growth
@@ -47,6 +49,7 @@ const identityGrowth = [
   { href: '/staff', icon: Users, label: 'Pro Team' },
   { href: '/timesheets', icon: ClipboardList, label: 'Timesheets' },
   { href: '/schedule', icon: CalendarDays, label: 'Shift Schedule' },
+  { href: '/events', icon: PartyPopper, label: 'Events' },
   { href: '/campaigns', icon: Megaphone, label: 'Outreach' },
   { href: '/reviews', icon: Star, label: 'Reputation' },
   { href: '/quotes', icon: FileText, label: 'Quotes' },
