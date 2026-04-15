@@ -94,7 +94,7 @@ export default function EventGuestOrderPage() {
   const { toast }    = useToast();
 
   const eventRef = useMemoFirebase(
-    () => doc(firestore, `tenants/${tenantId}/events/${eventId}`),
+    () => doc(firestore, `tenants/${tenantId}/studioEvents/${eventId}`),
     [firestore, tenantId, eventId]
   );
   const { data: event } = useDoc<any>(eventRef);
