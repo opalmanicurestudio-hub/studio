@@ -1,4 +1,4 @@
-
+(
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -970,3 +970,38 @@ export const getServicePrice = (service: Service | undefined, staffMember: Staff
 };
 
 export { nanoid };
+// ─── STUDIO EVENT TYPE ───────────────────────────────────────────────────────
+// Separate from the planner Event type to avoid collection collision.
+// Stored in tenants/${tenantId}/studioEvents
+export type StudioEvent = {
+  id: string;
+  tenantId: string;
+  name: string;
+  date: string;
+  venue?: string;
+  description?: string;
+  status: 'upcoming' | 'active' | 'completed' | 'cancelled';
+  capacity?: number;
+  orderingDeadline?: string;
+  menuNote?: string;
+  // Embedded menu items — synced from eventMenuItems subcollection
+  // so guest order page can read without an extra query
+  menuItems?: {
+    id: string;
+    name: string;
+    description?: string;
+    category: string;
+    courseNumber: number;
+    isVegan?: boolean;
+    isGlutenFree?: boolean;
+    supplies?: { inventoryId: string; qty: number }[];
+  }[];
+  // Multi-course support
+  courses?: {
+    courseNumber: number;
+    name: string;
+    menuItems: string[]; // menu item IDs in this course
+  }[];
+  createdAt: string;
+  createdBy?: string;
+};
