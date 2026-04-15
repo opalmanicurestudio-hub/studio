@@ -71,6 +71,7 @@ interface InventoryContextType {
   consentForms: ConsentForm[];
   resources: Resource[];
   events: Event[];
+  studioEvents: any[];
   discounts: Discount[];
   reviews: Review[];
   pricingTiers: PricingTier[];
@@ -113,6 +114,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'consentForms') : null, [firestore, tenantId]));
   const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'resources') : null, [firestore, tenantId]));
   const { data: rawEvents, isLoading: eventsLoading } = useCollection<Event>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId]));
+
+  // ── STUDIO EVENTS (separate from planner events — no collection collision) ──
+  const { data: rawStudioEvents, isLoading: studioEventsLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'studioEvents') : null, [firestore, tenantId]));
+
   const { data: discounts, isLoading: discountsLoading } = useCollection<Discount>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'discounts') : null, [firestore, tenantId]));
   const { data: reviews, isLoading: reviewsLoading } = useCollection<Review>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'reviews') : null, [firestore, tenantId]));
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'pricingTiers') : null, [firestore, tenantId]));
@@ -277,7 +282,11 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     }));
   }, [rawEvents]);
 
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading || refreshmentRequestsLoading;
+  const studioEvents = useMemo(() => {
+    return rawStudioEvents || [];
+  }, [rawStudioEvents]);
+
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || studioEventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading || refreshmentRequestsLoading;
   
   const value = {
     inventory: inventory || [],
@@ -298,6 +307,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     consentForms: consentForms || [],
     resources: resources || [],
     events: events || [],
+    studioEvents: studioEvents || [],
     discounts: discounts || [],
     reviews: reviews || [],
     pricingTiers: pricingTiers || [],
