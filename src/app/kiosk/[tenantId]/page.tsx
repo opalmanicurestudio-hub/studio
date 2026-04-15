@@ -617,6 +617,119 @@ type Step = 'partyType' | 'partySize' | 'identityChoice' | 'phonePad' | 'identit
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════════════════════════════
+// ─── EVENT MODE SCREEN ────────────────────────────────────────────────────────
+// Shown when kiosk detects an active studio event today.
+// Replaces walk-in flow with floor-service-only requests.
+const FLOOR_REQUESTS = [
+  { type: 'napkins',     label: 'Napkins',       emoji: '🧻' },
+  { type: 'water',       label: 'Water Refill',  emoji: '💧' },
+  { type: 'condiments',  label: 'Condiments',    emoji: '🧂' },
+  { type: 'utensils',    label: 'Extra Utensils',emoji: '🍴' },
+  { type: 'ice',         label: 'Ice',           emoji: '🧊' },
+  { type: 'accessibility', label: 'Accessibility', emoji: '♿' },
+  { type: 'temperature', label: 'Temperature',   emoji: '🌡️' },
+  { type: 'cleaning',    label: 'Spill / Cleanup', emoji: '🧹' },
+  { type: 'other',       label: 'Other Request', emoji: '💬' },
+];
+
+function EventModeScreen({ event, tenant, t, onFloorRequest, onExit }: {
+  event: any; tenant: any; t: T;
+  onFloorRequest: (type: string, label: string) => Promise<void>;
+  onExit: () => void;
+}) {
+  const [requested, setRequested] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState<string | null>(null);
+
+  const logoUrl = tenant?.kioskSettings?.logoUrl || tenant?.bookingPageSettings?.logoUrl;
+
+  const handleRequest = async (type: string, label: string) => {
+    if (requested.includes(type)) return;
+    setSubmitting(type);
+    await onFloorRequest(type, label);
+    setRequested(prev => [...prev, type]);
+    setSubmitting(null);
+  };
+
+  return (
+    <motion.div
+      key="event-mode"
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      className="w-full max-w-lg mx-auto z-10 space-y-6 p-4"
+    >
+      {/* Header */}
+      <div className={cn("rounded-3xl border-2 p-6 text-center space-y-3", t.card, t.cardBorder)}>
+        {logoUrl && (
+          <div className="relative w-14 h-14 mx-auto rounded-2xl overflow-hidden shadow-md">
+            <Image src={logoUrl} alt={tenant?.name || ''} fill className="object-cover" />
+          </div>
+        )}
+        <div>
+          <p className={cn("text-[9px] font-black uppercase tracking-[0.25em]", t.muted)}>Tonight's Event</p>
+          <h1 className={cn("text-2xl font-black uppercase tracking-tighter leading-none mt-1", t.text)}>{event?.name}</h1>
+          {event?.date && (
+            <p className={cn("text-[10px] font-bold uppercase tracking-widest mt-1", t.muted)}>
+              {format(new Date(event.date), 'EEEE, MMMM d')}
+            </p>
+          )}
+        </div>
+        <div className={cn("rounded-2xl border p-3", t.cardBorder)}>
+          <p className={cn("text-[9px] font-black uppercase tracking-widest", t.muted)}>Your meal is being prepared</p>
+          <p className={cn("text-sm font-black mt-0.5", t.text)}>Sit back and enjoy the evening ✨</p>
+        </div>
+      </div>
+
+      {/* Floor request grid */}
+      <div className={cn("rounded-3xl border-2 p-5 space-y-4", t.card, t.cardBorder)}>
+        <div className="text-center">
+          <p className={cn("text-[9px] font-black uppercase tracking-[0.25em]", t.muted)}>Need Something?</p>
+          <p className={cn("text-base font-black uppercase tracking-tight mt-0.5", t.text)}>Tap to request floor service</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {FLOOR_REQUESTS.map(req => {
+            const done = requested.includes(req.type);
+            const loading = submitting === req.type;
+            return (
+              <motion.button
+                key={req.type}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => handleRequest(req.type, req.label)}
+                disabled={done || !!submitting}
+                className={cn(
+                  "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all",
+                  done
+                    ? "border-emerald-300 bg-emerald-50 opacity-70"
+                    : cn("border-2", t.cardBorder, t.card, "hover:opacity-80 active:opacity-60")
+                )}
+              >
+                {loading
+                  ? <Loader className="w-5 h-5 animate-spin text-slate-400" />
+                  : done
+                    ? <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    : <span className="text-2xl">{req.emoji}</span>
+                }
+                <span className={cn("text-[9px] font-black uppercase tracking-tight text-center leading-tight",
+                  done ? "text-emerald-700" : t.text
+                )}>{req.label}</span>
+              </motion.button>
+            );
+          })}
+        </div>
+        <p className={cn("text-center text-[9px] font-bold uppercase tracking-widest", t.muted)}>
+          A staff member will be with you shortly
+        </p>
+      </div>
+
+      {/* Back button */}
+      <button onClick={onExit}
+        className={cn("w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest transition-all", t.card, t.cardBorder, t.muted)}>
+        ← Back
+      </button>
+    </motion.div>
+  );
+}
+
 export default function WalkInPage() {
   const { firestore } = useFirebase();
   const { toast } = useToast();
@@ -634,6 +747,8 @@ export default function WalkInPage() {
   const liveAptsQ    = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('status', 'in', ['confirmed', 'servicing'])), [firestore, tenantId]);
   // Today's events — to filter out staff with event blocks (FIX 2)
   const eventsQ      = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/events`), where('date', '==', format(new Date(), 'yyyy-MM-dd'))), [firestore, tenantId]);
+  // Studio events — detect active event for kiosk mode switch
+  const studioEventsQ = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/studioEvents`), where('date', '==', format(new Date(), 'yyyy-MM-dd'))), [firestore, tenantId]);
   // Live walk-in queue for wait estimate
   const walkInsQ     = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/walkIns`), where('status', '==', 'waiting')), [firestore, tenantId]);
 
@@ -644,6 +759,7 @@ export default function WalkInPage() {
   const { data: consentForms }     = useCollection<ConsentForm>(consentsQ);
   const { data: liveAppointments } = useCollection<Appointment>(liveAptsQ);
   const { data: events }           = useCollection<any>(eventsQ);
+  const { data: studioEvents }     = useCollection<any>(studioEventsQ);
   const { data: walkIns }          = useCollection<any>(walkInsQ);
 
   // Theme — entirely from kioskSettings
@@ -670,6 +786,37 @@ export default function WalkInPage() {
       return !blockedByEvent;
     });
   }, [staff, events]);
+
+  // ── Active studio event detection ──────────────────────────────────────────
+  // If today has an active studio event, kiosk switches to floor-service-only mode
+  const activeStudioEvent = useMemo(() => {
+    if (!studioEvents?.length) return null;
+    return studioEvents.find((ev: any) =>
+      ev.status === 'active' || ev.status === 'upcoming'
+    ) || null;
+  }, [studioEvents]);
+
+  const isEventMode = !!activeStudioEvent;
+
+  // Floor request handler — used in event mode kiosk
+  const handleFloorRequest = async (requestType: string, label: string) => {
+    if (!firestore || !tenantId) return;
+    const { nanoid: _nanoid } = await import('nanoid');
+    const id = _nanoid();
+    await import('firebase/firestore').then(({ setDoc, doc: _doc }) =>
+      setDoc(_doc(firestore, `tenants/${tenantId}/floorRequests`, id), {
+        id, tenantId,
+        eventId: activeStudioEvent?.id || null,
+        eventName: activeStudioEvent?.name || null,
+        requestType,
+        label,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        source: 'event_kiosk',
+      })
+    );
+    toast({ title: `${label} requested`, description: 'A staff member will be with you shortly.' });
+  };
 
   // Flow state
   const [entered, setEntered]             = useState(false);
@@ -1058,6 +1205,14 @@ export default function WalkInPage() {
                   )}
                   <motion.p animate={{ opacity: [0.4, 0.9, 0.4] }} transition={{ duration: 2.5, repeat: Infinity }} className={cn('text-sm font-black uppercase tracking-[0.35em]', t.muted)}>Tap to check in</motion.p>
                 </motion.div>
+              ) : isEventMode ? (
+                <EventModeScreen
+                  event={activeStudioEvent}
+                  tenant={tenant}
+                  t={t}
+                  onFloorRequest={handleFloorRequest}
+                  onExit={() => setEntered(false)}
+                />
               ) : (
                 <div className="w-full max-w-2xl mx-auto z-10">
                   <AnimatePresence mode="wait">
