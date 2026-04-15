@@ -74,7 +74,6 @@ const financialSuite = [
 // Owner: Events
 const eventsSection = [
   { href: '/events', icon: PartyPopper, label: 'Events' },
-  { href: '/events/manifest', icon: Layers, label: 'Event Manifest' },
 ];
 
 export function AppSidebar() {
