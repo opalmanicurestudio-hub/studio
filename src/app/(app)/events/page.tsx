@@ -27,7 +27,7 @@ export default function EventsPage() {
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
-    const q = query(collection(firestore, `tenants/${tenantId}/events`));
+    const q = query(collection(firestore, `tenants/${tenantId}/studioEvents`));
     const unsub = onSnapshot(q, snap => {
       setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
       setLoading(false);
@@ -38,7 +38,7 @@ export default function EventsPage() {
   const handleCreate = async () => {
     if (!firestore || !tenantId || !newEvent.name || !newEvent.date) return;
     setSaving(true);
-    const ref = await addDoc(collection(firestore, `tenants/${tenantId}/events`), {
+    const ref = await addDoc(collection(firestore, `tenants/${tenantId}/studioEvents`), {
       ...newEvent,
       tenantId,
       createdAt: new Date().toISOString(),
