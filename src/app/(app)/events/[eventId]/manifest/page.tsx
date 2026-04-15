@@ -82,7 +82,7 @@ export default function EventManifestPage() {
     if (!firestore || !tenantId || !eventId) return;
     const unsubs: (() => void)[] = [];
 
-    unsubs.push(onSnapshot(doc(firestore, `tenants/${tenantId}/events`, eventId), snap => {
+    unsubs.push(onSnapshot(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), snap => {
       if (snap.exists()) setEvent({ id: snap.id, ...snap.data() });
       setLoading(false);
     }));
@@ -373,7 +373,7 @@ export default function EventManifestPage() {
     batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
 
     // ALSO write into event.menuItems array so guest order page can read it
-    const eventRef = doc(firestore, `tenants/${tenantId}/events`, eventId);
+    const eventRef = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
     const eventSnap = await getDoc(eventRef);
     const existing = eventSnap.data()?.menuItems || [];
     batch.update(eventRef, { menuItems: [...existing, menuItem] });
