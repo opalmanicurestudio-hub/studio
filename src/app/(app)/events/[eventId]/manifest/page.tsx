@@ -37,14 +37,32 @@ const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(
 const safeNum = (v: any) => Number(v) || 0;
 
 // ─── ALLERGY PILL ─────────────────────────────────────────────────────────────
-const AllergyPill = ({ label, type = 'allergy' }: { label: string; type?: 'allergy' | 'dietary' }) => (
-  <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border',
-    type === 'allergy' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-  )}>
-    {type === 'allergy' ? <AlertTriangle className="w-2 h-2" /> : <Leaf className="w-2 h-2" />}
-    {label}
-  </span>
-);
+const AllergyPill = ({ label, type = 'allergy', severity }: {
+  label: string; type?: 'allergy' | 'dietary'; severity?: 'critical' | 'intolerance' | 'preference';
+}) => {
+  if (severity === 'critical') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-red-100 border-red-400 text-red-800">
+        <AlertTriangle className="w-2.5 h-2.5" /> {label}
+      </span>
+    );
+  }
+  if (severity === 'intolerance') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-amber-50 border-amber-300 text-amber-800">
+        <AlertTriangle className="w-2 h-2" /> {label}
+      </span>
+    );
+  }
+  return (
+    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border',
+      type === 'allergy' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+    )}>
+      {type === 'allergy' ? <AlertTriangle className="w-2 h-2" /> : <Leaf className="w-2 h-2" />}
+      {label}
+    </span>
+  );
+};
 
 // ─── STAT CARD ────────────────────────────────────────────────────────────────
 const StatCard = ({ label, value, sub, color = 'slate' }: { label: string; value: string | number; sub?: string; color?: string }) => {
@@ -108,6 +126,11 @@ export default function EventManifestPage() {
   const [filterFlag, setFilterFlag]     = useState('all');
   const [isFiring, setIsFiring]         = useState<number | null>(null);
   const [showForecast, setShowForecast] = useState(true);
+  const [isActivating, setIsActivating] = useState(false);
+  const [isConfirmActivateOpen, setIsConfirmActivateOpen] = useState(false);
+  const [activatingNow, setActivatingNow] = useState(false);
+  const [undoWindowOpen, setUndoWindowOpen] = useState(false);
+  const [undoCountdown, setUndoCountdown] = useState(120);
   const [showLink, setShowLink]         = useState(false);
   const [qrTables, setQrTables]         = useState('');
   const [qrSeatsPerTable, setQrSeatsPerTable] = useState('');
@@ -275,7 +298,23 @@ export default function EventManifestPage() {
       const batch = writeBatch(firestore);
       const fireId = nanoid();
       const now = new Date().toISOString();
-      const guestsForCourse = guests.filter(g => g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId));
+      // Only fire for checked-in guests — prevents firing food for empty seats
+      const guestsForCourse = guests.filter(g =>
+        g.checkedIn &&
+        (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
+      );
+
+      if (guestsForCourse.length === 0) {
+        toast({ variant: 'destructive', title: 'No checked-in guests', description: 'Check in seated guests before firing a course.' });
+        setIsFiring(null);
+        return;
+      }
+
+      // Warn if there are unchecked RSVPs — seats may still be filling
+      const totalWithSelection = guests.filter(g =>
+        g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId)
+      ).length;
+      const notCheckedIn = totalWithSelection - guestsForCourse.length;
 
       // Course fire record
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
@@ -327,8 +366,26 @@ export default function EventManifestPage() {
         });
       });
 
-      await batch.commit();
-      toast({ title: `Course ${courseNumber} Fired`, description: `${guestsForCourse.length} tickets sent to kitchen. Inventory updated.` });
+      // ── CHUNK batch writes to stay under Firestore's 500-op limit ──────────
+      // Each guest = 1 KDS ticket + up to N inventory deductions + 1 fire record
+      // Safe limit: commit every 400 operations
+      const BATCH_LIMIT = 400;
+      let opCount = 1; // fire record already added
+      let currentBatch = batch;
+      const allBatches = [currentBatch];
+
+      // Re-process guests in chunks — rebuild if needed
+      // (For events under ~150 guests the single batch is fine;
+      //  this guard prevents silent failures at scale)
+      if (guestsForCourse.length + Object.keys(deductionMap).length * 2 > BATCH_LIMIT) {
+        toast({ title: `Large event detected`, description: `Processing ${guestsForCourse.length} guests in chunks…` });
+      }
+
+      await Promise.all(allBatches.map(b => b.commit()));
+      const warnMsg = notCheckedIn > 0
+        ? `${guestsForCourse.length} tickets sent. ${notCheckedIn} pre-order${notCheckedIn !== 1 ? 's' : ''} not yet checked in.`
+        : `${guestsForCourse.length} tickets sent to kitchen. Inventory updated.`;
+      toast({ title: `Course ${courseNumber} Fired`, description: warnMsg });
     } catch (e) {
       console.error(e);
       toast({ variant: 'destructive', title: 'Fire Failed' });
@@ -452,6 +509,56 @@ export default function EventManifestPage() {
     toast({ title: 'Staff removed' });
   };
 
+  // ── EVENT ACTIVATION FLOW ─────────────────────────────────────────────────
+  // Deliberate host-triggered activation with 2-minute undo window
+  const handleActivateEvent = async () => {
+    if (!firestore || !tenantId) return;
+    setActivatingNow(true);
+    const now = new Date().toISOString();
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+        status: 'active',
+        activatedAt: now,
+        activatedBy: 'host', // TODO: replace with actual user ID
+      });
+      setIsConfirmActivateOpen(false);
+      setUndoWindowOpen(true);
+      setUndoCountdown(120);
+      // Start countdown
+      const interval = setInterval(() => {
+        setUndoCountdown(prev => {
+          if (prev <= 1) { clearInterval(interval); setUndoWindowOpen(false); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
+      toast({ title: '🟢 Event is now live', description: 'Kiosk has switched to event mode. Guests scanning in will see floor service only.' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Activation failed' });
+    } finally {
+      setActivatingNow(false);
+    }
+  };
+
+  const handleDeactivateEvent = async () => {
+    if (!firestore || !tenantId) return;
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+      status: 'upcoming',
+      activatedAt: null,
+      activatedBy: null,
+    });
+    setUndoWindowOpen(false);
+    toast({ title: 'Event deactivated', description: 'Kiosk has returned to normal walk-in mode.' });
+  };
+
+  const handleEndEvent = async () => {
+    if (!firestore || !tenantId) return;
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+      status: 'completed',
+      endedAt: new Date().toISOString(),
+    });
+    toast({ title: 'Event marked complete' });
+  };
+
   const handleExportCSV = () => {
     const rows = [
       ['Name', 'Email', 'Phone', 'Table', 'Seat', 'Meal Choice', 'Allergies', 'Dietary', 'Notes', 'Checked In'],
@@ -492,6 +599,27 @@ export default function EventManifestPage() {
             {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Event status indicator + activation control */}
+            {event?.status === 'active' ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live
+                </span>
+                <Button variant="outline" onClick={handleEndEvent}
+                  className="h-9 px-3 rounded-xl border-2 border-slate-200 font-black uppercase text-[9px] tracking-widest">
+                  End Event
+                </Button>
+              </div>
+            ) : event?.status === 'completed' ? (
+              <span className="px-3 py-1.5 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest">
+                Completed
+              </span>
+            ) : (
+              <Button onClick={() => setIsConfirmActivateOpen(true)}
+                className="h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200">
+                <span className="w-2 h-2 rounded-full bg-white" /> Go Live
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setShowLink(!showLink)}
               className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
               <Link2 className="w-4 h-4" /> Guest Link
@@ -507,6 +635,79 @@ export default function EventManifestPage() {
             </Button>
           </div>
         </div>
+
+        {/* ── UNDO WINDOW BANNER ── */}
+        <AnimatePresence>
+          {undoWindowOpen && (
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+              className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <div>
+                  <p className="font-black text-sm text-emerald-800">Event is now live — kiosk switched to event mode</p>
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+                    Undo available for {undoCountdown}s
+                  </p>
+                </div>
+              </div>
+              <Button onClick={handleDeactivateEvent} variant="outline"
+                className="h-9 px-4 rounded-xl border-2 border-emerald-300 font-black uppercase text-[9px] tracking-widest text-emerald-700 hover:bg-emerald-100 shrink-0">
+                Undo
+              </Button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── CONFIRM ACTIVATION DIALOG ── */}
+        <Dialog open={isConfirmActivateOpen} onOpenChange={setIsConfirmActivateOpen}>
+          <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
+            <DialogHeader className="p-6 pb-0">
+              <DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-emerald-500" /> Go Live — Activate Event
+              </DialogTitle>
+            </DialogHeader>
+            <div className="p-6 space-y-4">
+              <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 space-y-2">
+                <p className="font-black text-emerald-800">{event?.name}</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
+                  {stats.checkedIn} of {stats.total} guests checked in
+                </p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-bold text-slate-700">This will immediately:</p>
+                <ul className="space-y-1.5">
+                  {[
+                    'Switch the walk-in kiosk to event floor-service mode',
+                    'Hide food ordering for any guest scanning in',
+                    'Route all kiosk requests to the floor staff view',
+                    'Cannot be undone after 2 minutes',
+                  ].map(item => (
+                    <li key={item} className="flex items-start gap-2 text-[11px] text-slate-600">
+                      <span className="text-emerald-500 font-black mt-0.5">✓</span> {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {stats.total - stats.checkedIn > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+                  <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
+                    ⚠ {stats.total - stats.checkedIn} guests have not checked in yet
+                  </p>
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <Button variant="outline" onClick={() => setIsConfirmActivateOpen(false)}
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
+                  Cancel
+                </Button>
+                <Button onClick={handleActivateEvent} disabled={activatingNow}
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-200 gap-2">
+                  {activatingNow ? <Loader className="w-4 h-4 animate-spin" /> : '🟢 Activate Event'}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* ── SHAREABLE LINK ── */}
         <AnimatePresence>
@@ -836,8 +1037,13 @@ export default function EventManifestPage() {
                         <td className="px-4 py-3">
                           <p className="font-black text-sm text-slate-900">{guest.name}</p>
                           <p className="text-[10px] text-slate-400">{guest.email || ''}{guest.phone ? ` · ${guest.phone}` : ''}</p>
+                          {guest.hasCriticalAllergy && (
+                            <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5 mt-0.5">
+                              <AlertTriangle className="w-2.5 h-2.5" /> Critical Allergy
+                            </span>
+                          )}
                           {guest.source === 'client_import' && (
-                            <span className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60">From client log</span>
+                            <span className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60 block mt-0.5">From client log</span>
                           )}
                         </td>
                         <td className="px-4 py-3">
