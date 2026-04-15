@@ -1,4 +1,3 @@
-(
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -340,23 +339,19 @@ export type InventoryItem = {
   imageUrl?: string;
   primaryLocationId?: string;
   secondaryLocationIds?: string[];
-  
   costingMethod?: 'uses' | 'size'; 
   size?: number; 
   unit?: 'ml' | 'oz' | 'g' | 'unit';
   estimatedUses?: number; 
   useUnit?: string; 
-  
   partialContainerSize?: number; 
   partialContainerUses?: number; 
-
   isExperimentActive?: boolean;
   experimentUses?: number;
   batches: Batch[];
   maintenanceHistory?: MaintenanceRecord[];
-  
   msrp?: number;
-  price?: number; // Retail price for premium refreshments
+  price?: number;
   showInConcierge?: boolean;
   isMembersOnly?: boolean; 
   formula?: {
@@ -373,8 +368,6 @@ export type InventoryItem = {
   internalNotes?: string;
   sku?: string;
   restockingMarkup?: number;
-
-  // Manufacturing & Business Continuity Fields
   manufacturerName?: string;
   manufacturerContactName?: string;
   manufacturerEmail?: string;
@@ -382,7 +375,7 @@ export type InventoryItem = {
   manufacturingSop?: string;
   labelTemplateUrl?: string;
   labelImageUrl?: string;
-  moq?: number; // Minimum Order Quantity
+  moq?: number;
   leadTimeDays?: number;
 };
 
@@ -411,7 +404,7 @@ export type AppointmentCheckoutState = {
     concurrentServiceIds?: string[]; 
     tipAllocations: Record<string, number>;
     tipAmount: number;
-    additionalCharge: number; // Total adjustment value
+    additionalCharge: number;
     adjustments?: {
         rescheduleFee: number;
         timeOverage: number;
@@ -970,7 +963,8 @@ export const getServicePrice = (service: Service | undefined, staffMember: Staff
 };
 
 export { nanoid };
-// ─── STUDIO EVENT TYPE ───────────────────────────────────────────────────────
+
+// ─── STUDIO EVENT TYPE ────────────────────────────────────────────────────────
 // Separate from the planner Event type to avoid collection collision.
 // Stored in tenants/${tenantId}/studioEvents
 export type StudioEvent = {
@@ -984,8 +978,6 @@ export type StudioEvent = {
   capacity?: number;
   orderingDeadline?: string;
   menuNote?: string;
-  // Embedded menu items — synced from eventMenuItems subcollection
-  // so guest order page can read without an extra query
   menuItems?: {
     id: string;
     name: string;
@@ -996,11 +988,10 @@ export type StudioEvent = {
     isGlutenFree?: boolean;
     supplies?: { inventoryId: string; qty: number }[];
   }[];
-  // Multi-course support
   courses?: {
     courseNumber: number;
     name: string;
-    menuItems: string[]; // menu item IDs in this course
+    menuItems: string[];
   }[];
   createdAt: string;
   createdBy?: string;
