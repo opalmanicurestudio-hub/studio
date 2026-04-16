@@ -22,7 +22,7 @@ export default function EventsPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
-  const [newEvent, setNewEvent] = useState({ name: '', date: '', venue: '', description: '' });
+  const [newEvent, setNewEvent] = useState({ name: '', date: '', venue: '', description: '', accessPin: '' });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -143,6 +143,19 @@ export default function EventsPage() {
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Venue (optional)</Label>
               <Input value={newEvent.venue} onChange={e => setNewEvent(p => ({ ...p, venue: e.target.value }))}
                 placeholder="Studio, rooftop, etc." className="h-12 rounded-xl border-2" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Access PIN (optional — for private events)</Label>
+              <Input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={newEvent.accessPin}
+                onChange={e => setNewEvent(p => ({ ...p, accessPin: e.target.value.replace(/[^0-9]/g, '') }))}
+                placeholder="Leave blank for public"
+                className="h-12 rounded-xl border-2 tracking-widest text-center font-black"
+              />
+              <p className="text-[9px] text-muted-foreground font-bold">If set, guests must enter this PIN before seeing the order form.</p>
             </div>
             <div className="flex gap-3 pt-2">
               <Button onClick={() => setIsCreating(false)} variant="outline"
