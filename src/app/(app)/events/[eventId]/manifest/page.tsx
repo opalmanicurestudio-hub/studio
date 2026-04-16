@@ -137,6 +137,14 @@ export default function EventManifestPage() {
   const [qrCodes, setQrCodes]           = useState<{ label: string; dataUrl: string }[]>([]);
   const [activeTab, setActiveTab]       = useState('guests');
   const [staffToAdd, setStaffToAdd]     = useState('');
+  const [mealOverrideGuest, setMealOverrideGuest] = useState<any>(null);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const [quickAddName, setQuickAddName] = useState('');
+  const [quickAddTable, setQuickAddTable] = useState('');
+  const [quickAddMeal, setQuickAddMeal] = useState('');
+  const [savingQuickAdd, setSavingQuickAdd] = useState(false);
+  const [mealOverrideId, setMealOverrideId] = useState('');
+  const [savingOverride, setSavingOverride] = useState(false);
 
   // Staff from inventory context for assignment
   const { staff: staffFromContext } = useInventory();
@@ -261,6 +269,48 @@ export default function EventManifestPage() {
     });
   }, [guests, menuItems, inventory]);
 
+  // ── Cross-contamination warnings ────────────────────────────────────────────
+  // Groups guests by table, then checks if any guests have critical allergies
+  // that conflict with other guests' meal choices at the same table
+  const crossContaminationWarnings = useMemo(() => {
+    const warnings: { table: string; guests: string[]; reason: string }[] = [];
+    const byTable: Record<string, any[]> = {};
+    guests.filter(g => g.tableNumber).forEach(g => {
+      if (!byTable[g.tableNumber]) byTable[g.tableNumber] = [];
+      byTable[g.tableNumber].push(g);
+    });
+
+    Object.entries(byTable).forEach(([table, tableGuests]) => {
+      const criticalGuests = tableGuests.filter(g =>
+        (g.allergies || []).some((a: any) => typeof a === 'object' && a.severity === 'critical')
+      );
+      if (!criticalGuests.length) return;
+
+      // Check if any other guest at the table has a meal that might contain the allergen
+      criticalGuests.forEach(cGuest => {
+        const critAllergens = (cGuest.allergies || [])
+          .filter((a: any) => typeof a === 'object' && a.severity === 'critical')
+          .map((a: any) => a.id);
+
+        tableGuests.filter(g => g.id !== cGuest.id).forEach(other => {
+          const mealItem = menuItems.find(m => m.id === other.mealChoiceId);
+          if (!mealItem) return;
+          // Simple allergen name matching in meal name/description
+          const mealText = `${mealItem.name} ${mealItem.description || ''}`.toLowerCase();
+          const conflictAllergens = critAllergens.filter((a: string) => mealText.includes(a));
+          if (conflictAllergens.length > 0) {
+            warnings.push({
+              table,
+              guests: [cGuest.name, other.name],
+              reason: `${cGuest.name} has critical ${conflictAllergens.join(', ')} allergy — ${other.name} ordered "${mealItem.name}"`,
+            });
+          }
+        });
+      });
+    });
+    return warnings;
+  }, [guests, menuItems]);
+
   // ── Filtered guests ───────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     return guests.filter(g => {
@@ -293,6 +343,25 @@ export default function EventManifestPage() {
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleFireCourse = async (courseNumber: number) => {
     if (!firestore || !tenantId) return;
+
+    // ── SEQUENCING GUARD ─────────────────────────────────────────────────────
+    if (courseNumber > 1) {
+      const prevNums = courseNumbers.filter(n => n < courseNumber);
+      const unfiredPrev = prevNums.filter(n => !firedCourses.has(n));
+      if (unfiredPrev.length > 0) {
+        const ok = window.confirm(
+          'Course ' + unfiredPrev.join(', ') + ' has not been fired yet.
+
+' +
+          'Firing Course ' + courseNumber + ' out of sequence may confuse the kitchen.
+
+' +
+          'Continue anyway?'
+        );
+        if (!ok) return;
+      }
+    }
+
     setIsFiring(courseNumber);
     try {
       const batch = writeBatch(firestore);
@@ -489,6 +558,49 @@ export default function EventManifestPage() {
     toast({ title: 'Menu item added' });
   };
 
+  // ── WALK-IN QUICK-ADD — 3 fields, 10 seconds, done ──────────────────────────
+  const handleQuickAdd = async () => {
+    if (!quickAddName.trim() || !firestore || !tenantId) return;
+    setSavingQuickAdd(true);
+    const mealItem = menuItems.find(m => m.id === quickAddMeal);
+    const id = nanoid();
+    await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
+      id, eventId, tenantId,
+      name: quickAddName.trim(),
+      tableNumber: quickAddTable.trim() || '',
+      seatNumber: '',
+      email: '', phone: '',
+      mealChoiceId: quickAddMeal || null,
+      mealChoiceName: mealItem?.name || null,
+      allergies: [], dietaryRestrictions: [],
+      checkedIn: true, // walk-ins are already here
+      checkedInAt: new Date().toISOString(),
+      source: 'walk_in',
+      submittedAt: new Date().toISOString(),
+    });
+    setSavingQuickAdd(false);
+    setIsQuickAddOpen(false);
+    setQuickAddName(''); setQuickAddTable(''); setQuickAddMeal('');
+    toast({ title: `${quickAddName} added & checked in` });
+  };
+
+  // ── MEAL OVERRIDE — quick single-tap during check-in ──────────────────────
+  const handleMealOverride = async () => {
+    if (!mealOverrideGuest || !firestore || !tenantId) return;
+    setSavingOverride(true);
+    const mealItem = menuItems.find(m => m.id === mealOverrideId);
+    await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, mealOverrideGuest.id), {
+      mealChoiceId: mealOverrideId || null,
+      mealChoiceName: mealItem?.name || null,
+      mealOverriddenAt: new Date().toISOString(),
+      mealOverriddenBy: 'staff',
+    });
+    setSavingOverride(false);
+    setMealOverrideGuest(null);
+    setMealOverrideId('');
+    toast({ title: `Meal updated for ${mealOverrideGuest.name}` });
+  };
+
   const handleAddStaff = async () => {
     if (!staffToAdd || !firestore || !tenantId) return;
     const current = event?.assignedStaffIds || [];
@@ -658,6 +770,62 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
+        {/* ── MEAL OVERRIDE SHEET ── */}
+        <AnimatePresence>
+          {mealOverrideGuest && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm p-4"
+              onClick={() => setMealOverrideGuest(null)}
+            >
+              <motion.div
+                initial={{ y: 80, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 80, opacity: 0 }}
+                onClick={e => e.stopPropagation()}
+                className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-2xl overflow-hidden"
+              >
+                <div className="p-5 border-b border-slate-100">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Override Meal Choice</p>
+                  <p className="font-black text-lg text-slate-900 mt-0.5">{mealOverrideGuest.name}</p>
+                  <p className="text-[10px] text-slate-400 font-bold">
+                    Current: {mealOverrideGuest.mealChoiceName || 'No selection'}
+                    {mealOverrideGuest.tableNumber && ` · Table ${mealOverrideGuest.tableNumber}`}
+                  </p>
+                </div>
+                <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
+                  {menuItems.map(item => (
+                    <button key={item.id} onClick={() => setMealOverrideId(item.id)}
+                      className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left',
+                        mealOverrideId === item.id
+                          ? 'border-primary bg-primary/5'
+                          : 'border-slate-200 hover:border-slate-300'
+                      )}>
+                      <div>
+                        <p className="font-black text-sm text-slate-900">{item.name}</p>
+                        {item.description && <p className="text-[10px] text-slate-400">{item.description}</p>}
+                      </div>
+                      {mealOverrideId === item.id && <Check className="w-4 h-4 text-primary shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+                <div className="p-4 flex gap-3 border-t border-slate-100">
+                  <Button variant="outline" onClick={() => setMealOverrideGuest(null)}
+                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
+                    Cancel
+                  </Button>
+                  <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId}
+                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                    {savingOverride ? <Loader className="w-4 h-4 animate-spin" /> : 'Save Override →'}
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* ── CONFIRM ACTIVATION DIALOG ── */}
         <Dialog open={isConfirmActivateOpen} onOpenChange={setIsConfirmActivateOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
@@ -781,6 +949,29 @@ export default function EventManifestPage() {
               sub={`${Math.round(count / Math.max(stats.total, 1) * 100)}%`} color="emerald" />
           ))}
         </div>
+
+        {/* ── CROSS-CONTAMINATION WARNINGS ── */}
+        {crossContaminationWarnings.length > 0 && (
+          <div className="bg-red-50 rounded-2xl border-2 border-red-300 p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-red-800">
+                Cross-Contamination Risk — {crossContaminationWarnings.length} Table{crossContaminationWarnings.length !== 1 ? 's' : ''}
+              </h2>
+            </div>
+            <div className="space-y-2">
+              {crossContaminationWarnings.map((w, i) => (
+                <div key={i} className="flex items-start gap-2 p-3 rounded-xl bg-white border border-red-200">
+                  <span className="text-red-500 font-black text-sm shrink-0">T{w.table}</span>
+                  <p className="text-[11px] font-bold text-red-700">{w.reason}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-red-500">
+              Notify kitchen and consider separate plating or table reassignment
+            </p>
+          </div>
+        )}
 
         {/* ── INVENTORY FORECAST ── */}
         {forecast.length > 0 && (
@@ -1072,6 +1263,13 @@ export default function EventManifestPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
+                            {/* Quick meal override — single tap during live event */}
+                            <button
+                              onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || ''); }}
+                              title="Override meal choice"
+                              className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors">
+                              <Utensils className="w-3.5 h-3.5" />
+                            </button>
                             <button onClick={() => { setEditingGuest(guest); setIsAddingGuest(false); setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' }); }}
                               className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
                               <Pencil className="w-3.5 h-3.5" />
@@ -1310,6 +1508,79 @@ export default function EventManifestPage() {
 
         </Tabs>
       </main>
+
+      {/* ── FLOATING WALK-IN QUICK-ADD — only shown during live event ── */}
+      {event?.status === 'active' && (
+        <div className="fixed bottom-6 right-6 z-40">
+          <button onClick={() => setIsQuickAddOpen(true)}
+            className="w-14 h-14 rounded-full bg-primary shadow-2xl shadow-primary/40 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform">
+            <UserPlus className="w-6 h-6 text-white" />
+          </button>
+        </div>
+      )}
+
+      {/* ── WALK-IN QUICK-ADD SHEET ── */}
+      <AnimatePresence>
+        {isQuickAddOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm p-4"
+            onClick={() => setIsQuickAddOpen(false)}
+          >
+            <motion.div
+              initial={{ y: 80, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 80, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-2xl overflow-hidden"
+            >
+              <div className="p-5 border-b border-slate-100">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Walk-in Quick Add</p>
+                <p className="font-black text-lg text-slate-900 mt-0.5">Add Guest — They're Here Now</p>
+                <p className="text-[10px] text-slate-400 font-bold mt-0.5">Checked in automatically</p>
+              </div>
+              <div className="p-5 space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label>
+                  <Input value={quickAddName} onChange={e => setQuickAddName(e.target.value)}
+                    placeholder="Guest name" className="h-12 rounded-xl border-2 text-lg font-bold" autoFocus />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label>
+                    <Input value={quickAddTable} onChange={e => setQuickAddTable(e.target.value)}
+                      placeholder="e.g. 4" className="h-12 rounded-xl border-2 text-center text-lg font-bold" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
+                    <Select value={quickAddMeal} onValueChange={setQuickAddMeal}>
+                      <SelectTrigger className="h-12 rounded-xl border-2 font-bold text-sm">
+                        <SelectValue placeholder="Select…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">No selection</SelectItem>
+                        {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+              <div className="p-4 flex gap-3 border-t border-slate-100">
+                <Button variant="outline" onClick={() => setIsQuickAddOpen(false)}
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
+                  Cancel
+                </Button>
+                <Button onClick={handleQuickAdd} disabled={savingQuickAdd || !quickAddName.trim()}
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 gap-2">
+                  {savingQuickAdd ? <Loader className="w-4 h-4 animate-spin" /> : <><UserPlus className="w-4 h-4" /> Add & Check In</>}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
