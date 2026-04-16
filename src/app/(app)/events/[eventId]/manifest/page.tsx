@@ -7,7 +7,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import {
   doc, collection, query, where, writeBatch, onSnapshot,
-  updateDoc, deleteDoc, addDoc, getDoc,
+  updateDoc, deleteDoc, addDoc, getDoc, increment,
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
@@ -65,6 +65,9 @@ const AllergyPill = ({ label, type = 'allergy', severity }: {
 };
 
 // ─── STAT CARD ────────────────────────────────────────────────────────────────
+// ─── ALLERGY SEVERITY (mirrors definition in guest order page) ───────────────
+type AllergySeverity = 'preference' | 'intolerance' | 'critical';
+
 const StatCard = ({ label, value, sub, color = 'slate' }: { label: string; value: string | number; sub?: string; color?: string }) => {
   const colors: Record<string, string> = {
     slate: 'bg-white border-slate-200', amber: 'bg-amber-50 border-amber-200',
@@ -86,7 +89,7 @@ export default function EventManifestPage() {
   const { firestore } = useFirebase();
   const { toast } = useToast();
   const { selectedTenant } = useTenant();
-  const { inventory, clients } = useInventory();
+  const { inventory, clients, staff: staffFromContext } = useInventory();
   const tenantId = selectedTenant?.id ?? '';
   const eventId = params.eventId as string;
 
@@ -158,6 +161,9 @@ export default function EventManifestPage() {
   const [newMenuVegan, setNewMenuVegan]         = useState(false);
   const [newMenuGF, setNewMenuGF]               = useState(false);
   const [menuSupplies, setMenuSupplies]         = useState<{ inventoryId: string; qty: number }[]>([]);
+  const [newMenuInventoryItemId, setNewMenuInventoryItemId] = useState('');
+  const [newMenuPortionSize, setNewMenuPortionSize]         = useState(1);
+  const [newMenuPrice, setNewMenuPrice]                     = useState(0);
 
   // Guest add/edit
   const [isAddingGuest, setIsAddingGuest]       = useState(false);
@@ -417,7 +423,6 @@ export default function EventManifestPage() {
       Object.entries(deductionMap).forEach(([invId, qty]) => {
         const inv = (inventory || []).find((i: any) => i.id === invId);
         if (!inv) return;
-        const { increment } = require('firebase/firestore');
         batch.update(doc(firestore, `tenants/${tenantId}/inventory`, invId), {
           totalStock: increment(-qty),
         });
@@ -527,28 +532,68 @@ export default function EventManifestPage() {
     const id = nanoid();
     const batch = writeBatch(firestore);
 
+    // The linked refreshment inventory item IS the meal
+    const linkedRefreshment = newMenuInventoryItemId
+      ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId)
+      : null;
+
     const menuItem = {
       id, eventId, tenantId,
-      name: newMenuName.trim(),
-      description: newMenuDesc.trim() || null,
+      name: newMenuName.trim() || linkedRefreshment?.name || '',
+      description: newMenuDesc.trim() || linkedRefreshment?.description || null,
       category: newMenuCategory,
       courseNumber: newMenuCourse,
       isVegan: newMenuVegan,
       isGlutenFree: newMenuGF,
-      // Link to inventory supplies
-      supplies: menuSupplies.filter(s => s.inventoryId && s.qty > 0),
+      // The meal IS this inventory item — not a supply used to make it
+      inventoryItemId: newMenuInventoryItemId || null,
+      portionSize: newMenuPortionSize || 1,
+      pricePerGuest: newMenuPrice || 0,
+      imageUrl: linkedRefreshment?.imageUrl || null,
     };
 
     batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
 
-    // ALSO write into event.menuItems array so guest order page can read it
+    // Rebuild event.menuItems (flat) and event.courses (nested with options[])
+    // so the guest order page can read either structure
     const eventRef = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
     const eventSnap = await getDoc(eventRef);
-    const existing = eventSnap.data()?.menuItems || [];
-    batch.update(eventRef, { menuItems: [...existing, menuItem] });
+    const existingItems = eventSnap.data()?.menuItems || [];
+    const updatedItems = [...existingItems.filter((m: any) => m.id !== id), menuItem];
+
+    // Group items by courseNumber to build event.courses[]
+    const courseMap = new Map<number, any[]>();
+    updatedItems.forEach((item: any) => {
+      const n = item.courseNumber || 1;
+      if (!courseMap.has(n)) courseMap.set(n, []);
+      courseMap.get(n)!.push({ id: item.id, name: item.name, description: item.description, imageUrl: item.imageUrl });
+    });
+    const existingCourses = eventSnap.data()?.courses || [];
+    const updatedCourses = Array.from(courseMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([num, options]) => {
+        const existing = existingCourses.find((c: any) => c.courseNumber === num);
+        return {
+          id: existing?.id || `course-${num}`,
+          courseNumber: num,
+          name: existing?.name || (num === 1 ? 'Starters' : num === 2 ? 'Mains' : num === 3 ? 'Desserts' : `Course ${num}`),
+          note: existing?.note || null,
+          options,
+        };
+      });
+
+    batch.update(eventRef, {
+      menuItems: updatedItems,
+      courses: updatedCourses,
+    });
 
     await batch.commit();
-    setNewMenuName(''); setNewMenuDesc(''); setMenuSupplies([]); setIsAddingMenu(false);
+    setNewMenuName('');
+    setNewMenuDesc('');
+    setNewMenuInventoryItemId('');
+    setNewMenuPortionSize(1);
+    setNewMenuPrice(0);
+    setIsAddingMenu(false);
     toast({ title: 'Menu item added' });
   };
 
@@ -1348,45 +1393,50 @@ export default function EventManifestPage() {
                         </label>
                       </div>
 
-                      {/* ── INVENTORY SUPPLIES LINK ── */}
+                      {/* ── LINK TO REFRESHMENT INVENTORY ITEM ── */}
                       <div className="sm:col-span-2 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                            Inventory Supplies Used Per Guest
-                          </Label>
-                          <Button type="button" variant="outline" onClick={() => setMenuSupplies(p => [...p, { inventoryId: '', qty: 1 }])}
-                            className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1">
-                            <Plus className="w-3 h-3" /> Add Supply
-                          </Button>
-                        </div>
-                        {menuSupplies.length === 0 && (
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
-                            Link inventory items to auto-forecast and deduct stock when this course fires.
-                          </p>
-                        )}
-                        {menuSupplies.map((supply, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <Select value={supply.inventoryId} onValueChange={v => {
-                              const next = [...menuSupplies];
-                              next[i] = { ...next[i], inventoryId: v };
-                              setMenuSupplies(next);
-                            }}>
-                              <SelectTrigger className="flex-1 h-10 rounded-xl border-2 font-bold text-xs"><SelectValue placeholder="Select item from inventory…" /></SelectTrigger>
-                              <SelectContent>
-                                {(inventory || []).map((inv: any) => (
-                                  <SelectItem key={inv.id} value={inv.id}>{inv.name} ({inv.totalStock} {inv.unit} in stock)</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <Input type="number" min="0.01" step="0.01" value={supply.qty}
-                              onChange={e => { const next = [...menuSupplies]; next[i] = { ...next[i], qty: parseFloat(e.target.value) || 0 }; setMenuSupplies(next); }}
-                              placeholder="Qty" className="w-20 h-10 rounded-xl border-2 font-bold text-center" />
-                            <button onClick={() => setMenuSupplies(p => p.filter((_, j) => j !== i))}
-                              className="p-2 rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
-                              <X className="w-4 h-4" />
-                            </button>
+                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                          Link to Inventory Item (Refreshment)
+                        </Label>
+                        <p className="text-[9px] text-slate-400 font-bold">
+                          The meal choice IS the inventory item. Selecting it auto-fills the name and
+                          enables stock tracking when guests RSVP and courses fire.
+                        </p>
+                        <Select value={newMenuInventoryItemId} onValueChange={v => {
+                          setNewMenuInventoryItemId(v);
+                          const item = (inventory || []).find((i: any) => i.id === v);
+                          if (item && !newMenuName.trim()) setNewMenuName((item as any).name || '');
+                          if (item && !newMenuDesc.trim()) setNewMenuDesc((item as any).description || '');
+                          if (item) setNewMenuPrice((item as any).price || (item as any).msrp || 0);
+                        }}>
+                          <SelectTrigger className="h-12 rounded-xl border-2 font-bold text-sm">
+                            <SelectValue placeholder="Select from refreshment inventory…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">None / custom item</SelectItem>
+                            {(inventory || [])
+                              .filter((i: any) => i.type === 'refreshment' || i.showInConcierge)
+                              .map((inv: any) => (
+                                <SelectItem key={inv.id} value={inv.id}>
+                                  {inv.name} {inv.totalStock !== undefined ? `(${inv.totalStock} in stock)` : ''}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1.5">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Portions per guest</Label>
+                            <Input type="number" min="0.01" step="0.01" value={newMenuPortionSize}
+                              onChange={e => setNewMenuPortionSize(parseFloat(e.target.value) || 1)}
+                              className="h-10 rounded-xl border-2 font-bold text-center" />
                           </div>
-                        ))}
+                          <div className="space-y-1.5">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Price per guest ($)</Label>
+                            <Input type="number" min="0" step="0.01" value={newMenuPrice}
+                              onChange={e => setNewMenuPrice(parseFloat(e.target.value) || 0)}
+                              className="h-10 rounded-xl border-2 font-bold text-center" />
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-3">
