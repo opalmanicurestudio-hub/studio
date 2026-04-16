@@ -1,78 +1,128 @@
-// src/app/event/[tenantId]/[eventId]/page.tsx
-// ─────────────────────────────────────────────────────────────────────────────
+// app/event/[tenantId]/[eventId]/page.tsx
 // PUBLIC — no auth required
 // Guest RSVP + meal preference submission
-// Shareable link: /event/{tenantId}/{eventId}?seat=A4&table=3
-// ─────────────────────────────────────────────────────────────────────────────
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useFirebase, useDoc, useMemoFirebase, useCollection } from '@/firebase';
-import { doc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { useFirebase } from '@/firebase';
+import { doc, collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, ChevronRight, ChevronLeft, AlertTriangle, Utensils, User, Loader, Leaf, Wheat, Info } from 'lucide-react';
+import {
+  CheckCircle2, ChevronRight, ChevronLeft, AlertTriangle,
+  Utensils, Loader, Leaf, Check, FileText, MapPin, User,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
-import { ALLERGY_OPTIONS, DIETARY_OPTIONS, type EventMenuItem } from '@/lib/event-types';
+
+// ─── FIREBASE HOOKS ───────────────────────────────────────────────────────────
+// Inline lightweight hooks so this page has no dependency on @/lib/event-types
+function useFirestoreDoc<T>(path: string | null) {
+  const { firestore } = useFirebase();
+  const [data, setData] = useState<T | null>(null);
+  useEffect(() => {
+    if (!firestore || !path) return;
+    const { onSnapshot, doc: _doc } = require('firebase/firestore');
+    const unsub = onSnapshot(_doc(firestore, path), (snap: any) => {
+      setData(snap.exists() ? ({ id: snap.id, ...snap.data() } as T) : null);
+    });
+    return unsub;
+  }, [firestore, path]);
+  return data;
+}
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(v) : new Date(v));
+const safeDate = (v: any): Date => {
+  if (!v) return new Date();
+  if (v instanceof Date) return v;
+  if (typeof v === 'string') return parseISO(v);
+  if (v?.toDate) return v.toDate();
+  if (v?.seconds) return new Date(v.seconds * 1000);
+  return new Date(v);
+};
 
-// ─── ALLERGY BADGE ────────────────────────────────────────────────────────────
-const AllergyBadge = ({ label }: { label: string }) => (
-  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-black uppercase tracking-wide text-amber-700">
-    <AlertTriangle className="w-2.5 h-2.5" />{label}
-  </span>
+// ─── ALLERGY / DIETARY OPTIONS ────────────────────────────────────────────────
+export type AllergySeverity = 'preference' | 'intolerance' | 'critical';
+
+type AllergyOption = {
+  id: string;
+  label: string;
+  emoji: string;
+  severity: AllergySeverity;
+  hint?: string;
+};
+
+const ALLERGY_OPTIONS: AllergyOption[] = [
+  { id: 'peanuts',    label: 'Peanuts',      emoji: '🥜', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'nuts',       label: 'Tree Nuts',    emoji: '🌰', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'shellfish',  label: 'Shellfish',    emoji: '🦐', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'fish',       label: 'Fish',         emoji: '🐟', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'eggs',       label: 'Eggs',         emoji: '🥚', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'gluten',     label: 'Gluten',       emoji: '🌾', severity: 'intolerance', hint: 'Celiac or intolerance' },
+  { id: 'dairy',      label: 'Dairy',        emoji: '🥛', severity: 'intolerance', hint: 'Lactose intolerance' },
+  { id: 'soy',        label: 'Soy',          emoji: '🫘', severity: 'intolerance', hint: 'Soy intolerance' },
+  { id: 'vegan',      label: 'Vegan',        emoji: '🌿', severity: 'preference' },
+  { id: 'vegetarian', label: 'Vegetarian',   emoji: '🥦', severity: 'preference' },
+  { id: 'kosher',     label: 'Kosher',       emoji: '✡️',  severity: 'preference' },
+  { id: 'halal',      label: 'Halal',        emoji: '☪️',  severity: 'preference' },
+];
+
+const SEVERITY_CONFIG = {
+  critical:    { label: 'Critical Allergy',   bg: 'bg-red-50',    border: 'border-red-300',    text: 'text-red-800',    badge: 'bg-red-100 text-red-800 border-red-300' },
+  intolerance: { label: 'Intolerance',        bg: 'bg-amber-50',  border: 'border-amber-300',  text: 'text-amber-800',  badge: 'bg-amber-100 text-amber-800 border-amber-300' },
+  preference:  { label: 'Dietary Preference', bg: 'bg-slate-50',  border: 'border-slate-200',  text: 'text-slate-700',  badge: 'bg-slate-100 text-slate-700 border-slate-200' },
+};
+
+// ─── STEP DOTS ────────────────────────────────────────────────────────────────
+const StepDots = ({ total, current }: { total: number; current: number }) => (
+  <div className="flex items-center justify-center gap-2">
+    {Array.from({ length: total }).map((_, i) => (
+      <div key={i} className={cn(
+        'h-1.5 rounded-full transition-all duration-500',
+        i === current ? 'w-6 bg-slate-900' : i < current ? 'w-3 bg-slate-900 opacity-40' : 'w-3 bg-slate-200'
+      )} />
+    ))}
+  </div>
 );
 
-// ─── MENU ITEM CARD ───────────────────────────────────────────────────────────
-const MenuItemCard = ({
-  item, selected, onSelect,
-}: { item: EventMenuItem; selected: boolean; onSelect: () => void }) => (
-  <motion.button
-    whileTap={{ scale: 0.97 }}
-    onClick={onSelect}
+// ─── MEAL OPTION CARD ─────────────────────────────────────────────────────────
+const MealOptionCard = ({ option, selected, onSelect }: { option: any; selected: boolean; onSelect: () => void }) => (
+  <motion.button whileTap={{ scale: 0.97 }} onClick={onSelect}
     className={cn(
-      'w-full text-left p-5 rounded-2xl border-2 transition-all duration-200 space-y-2',
-      selected
-        ? 'border-slate-900 bg-slate-900 text-white shadow-xl'
-        : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
-    )}
-  >
-    <div className="flex items-start justify-between gap-3">
-      <p className={cn('font-black text-base tracking-tight leading-tight', selected ? 'text-white' : 'text-slate-900')}>
-        {item.name}
-      </p>
-      <div className={cn('w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all',
-        selected ? 'border-white bg-white' : 'border-slate-300')}>
-        {selected && <CheckCircle2 className="w-3.5 h-3.5 text-slate-900" />}
+      'relative w-full text-left p-5 rounded-2xl border-2 transition-all duration-200',
+      selected ? 'border-slate-900 bg-slate-900 text-white shadow-lg' : 'border-slate-200 bg-white hover:border-slate-300'
+    )}>
+    {selected && (
+      <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-white flex items-center justify-center">
+        <Check className="w-3.5 h-3.5 text-slate-900" />
       </div>
-    </div>
-    {item.description && (
-      <p className={cn('text-[11px] leading-relaxed', selected ? 'text-white/70' : 'text-slate-500')}>
-        {item.description}
+    )}
+    {option.imageUrl && (
+      <div className="relative w-full h-32 rounded-xl overflow-hidden mb-3">
+        <Image src={option.imageUrl} alt={option.name} fill className="object-cover" />
+      </div>
+    )}
+    <p className={cn('font-black uppercase tracking-tight text-base leading-tight', selected ? 'text-white' : 'text-slate-900')}>
+      {option.name}
+    </p>
+    {option.description && (
+      <p className={cn('text-[11px] mt-1.5 leading-relaxed', selected ? 'text-white/70' : 'text-slate-500')}>
+        {option.description}
       </p>
     )}
-    <div className="flex items-center gap-2 flex-wrap">
-      {item.isVegan && (
-        <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border',
-          selected ? 'border-white/30 text-white/80' : 'border-emerald-200 text-emerald-700 bg-emerald-50')}>
-          <Leaf className="w-2 h-2" />Vegan
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {option.isVegan && (
+        <span className={cn('text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full border',
+          selected ? 'bg-white/20 border-white/30 text-white' : 'bg-emerald-50 border-emerald-200 text-emerald-700')}>
+          🌿 Vegan
         </span>
       )}
-      {item.isGlutenFree && (
-        <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border',
-          selected ? 'border-white/30 text-white/80' : 'border-amber-200 text-amber-700 bg-amber-50')}>
-          <Wheat className="w-2 h-2" />GF
-        </span>
-      )}
-      {item.isDairyFree && (
-        <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border',
-          selected ? 'border-white/30 text-white/80' : 'border-blue-200 text-blue-700 bg-blue-50')}>
-          <Info className="w-2 h-2" />DF
+      {option.isGlutenFree && (
+        <span className={cn('text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full border',
+          selected ? 'bg-white/20 border-white/30 text-white' : 'bg-amber-50 border-amber-200 text-amber-700')}>
+          🌾 GF
         </span>
       )}
     </div>
@@ -80,408 +130,722 @@ const MenuItemCard = ({
 );
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
-export default function EventRSVPPage() {
+type Step = 'pin' | 'identity' | 'meal' | 'allergies' | 'confirm' | 'done';
+
+export default function EventGuestOrderPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const { firestore } = useFirebase();
+
   const tenantId = params.tenantId as string;
   const eventId  = params.eventId  as string;
 
-  // Pre-fill seat/table from URL params (QR codes carry these)
-  const prefillSeat  = searchParams.get('seat')  || '';
+  // Pre-fill from QR code URL params
   const prefillTable = searchParams.get('table') || '';
+  const prefillSeat  = searchParams.get('seat')  || '';
 
-  // ── Data ──
-  const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-  const eventRef  = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/studioEvents/${eventId}`), [firestore, tenantId, eventId]);
-  const menuQ     = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/eventMenuItems`), where('eventId', '==', eventId)), [firestore, tenantId, eventId]);
+  // ── Live data via onSnapshot ──────────────────────────────────────────────
+  const [event, setEvent]   = useState<any>(null);
+  const [tenant, setTenant] = useState<any>(null);
+  const [menuItems, setMenuItems] = useState<any[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
 
-  const { data: tenant } = useDoc<any>(tenantRef);
-  const { data: event }  = useDoc<any>(eventRef);
-  const { data: menuItems } = useCollection<EventMenuItem>(menuQ);
+  useEffect(() => {
+    if (!firestore || !tenantId || !eventId) return;
+    const { onSnapshot, doc: _doc, collection: _col, query: _q, where: _w } = require('firebase/firestore');
 
-  // ── Form state ──
-  type Step = 'identity' | 'menu' | 'allergies' | 'confirm' | 'done';
-  const [step, setStep]           = useState<Step>('identity');
-  const [name, setName]           = useState('');
-  const [email, setEmail]         = useState('');
-  const [seatNumber, setSeat]     = useState(prefillSeat);
-  const [tableNumber, setTable]   = useState(prefillTable);
+    const unsubs: (() => void)[] = [];
+
+    unsubs.push(onSnapshot(_doc(firestore, `tenants/${tenantId}`), (snap: any) => {
+      setTenant(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+    }));
+
+    unsubs.push(onSnapshot(_doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), (snap: any) => {
+      setEvent(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+      setDataLoading(false);
+    }));
+
+    unsubs.push(onSnapshot(
+      _q(_col(firestore, `tenants/${tenantId}/eventMenuItems`), _w('eventId', '==', eventId)),
+      (snap: any) => setMenuItems(snap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
+    ));
+
+    return () => unsubs.forEach(u => u());
+  }, [firestore, tenantId, eventId]);
+
+  // ── Form state ────────────────────────────────────────────────────────────
+  const [step, setStep]             = useState<Step>('pin');
+  const [pinEntry, setPinEntry]     = useState('');
+  const [pinError, setPinError]     = useState(false);
+  const [guestName, setGuestName]   = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [tableNumber, setTableNumber] = useState(prefillTable);
+  const [seatNumber, setSeatNumber]   = useState(prefillSeat);
+
+  // Single-course selection
+  const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
+  // Multi-course: keyed by course.id
+  const [selectedCourseSelections, setSelectedCourseSelections] = useState<Record<string, string>>({});
+  const [currentCourseIdx, setCurrentCourseIdx] = useState(0);
+
+  // Allergies stored as objects with severity
+  const [selectedAllergies, setSelectedAllergies] = useState<{ id: string; label: string; severity: AllergySeverity }[]>([]);
+  const [allergyNote, setAllergyNote]   = useState('');
+  const [guestNote, setGuestNote]       = useState('');
+  const [consentGiven, setConsentGiven] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError]         = useState('');
+  const [submitError, setSubmitError]   = useState('');
 
-  // Multi-course selections: courseNumber → menuItemId
-  const [courseSelections, setCourseSelections] = useState<Record<number, string>>({});
-  const [selectedAllergies, setSelectedAllergies]   = useState<string[]>([]);
-  const [selectedDietary, setSelectedDietary]       = useState<string[]>([]);
-  const [customAllergyNote, setCustomAllergyNote]   = useState('');
-  const [guestNotes, setGuestNotes]                 = useState('');
+  const [alreadyOrdered, setAlreadyOrdered]   = useState(false);
+  const [existingOrder, setExistingOrder]     = useState<any>(null);
 
-  // Group menu items by course number
-  const menuByCourse = useMemo(() => {
-    const grouped: Record<number, EventMenuItem[]> = {};
-    (menuItems || []).forEach(item => {
-      if (!grouped[item.courseNumber]) grouped[item.courseNumber] = [];
-      grouped[item.courseNumber].push(item);
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const requiresPin = !!(event?.accessPin);
+
+  const isEventOpen = useMemo(() => {
+    if (!event) return false;
+    if (event.orderingDeadline && new Date() > safeDate(event.orderingDeadline)) return false;
+    return ['open', 'published', 'upcoming', 'active'].includes(event.status);
+  }, [event]);
+
+  // Group menu items by courseNumber for multi-course display
+  const menuByCourseNumber = useMemo(() => {
+    const grouped: Record<number, any[]> = {};
+    menuItems.forEach(item => {
+      const n = item.courseNumber || 1;
+      if (!grouped[n]) grouped[n] = [];
+      grouped[n].push(item);
     });
     return grouped;
   }, [menuItems]);
 
-  const courseNumbers = useMemo(() => Object.keys(menuByCourse).map(Number).sort(), [menuByCourse]);
+  const courseNumbers = useMemo(() => Object.keys(menuByCourseNumber).map(Number).sort(), [menuByCourseNumber]);
+
+  // Multi-course uses event.courses structure; single-course uses menuItems directly
+  const courses: any[] = useMemo(() => event?.courses || [], [event]);
+  const hasCourses = courses.length > 0;
+
   const courseLabels: Record<number, string> = { 1: 'Starter', 2: 'Main Course', 3: 'Dessert' };
 
-  const allSelectionsMade = courseNumbers.every(c => !!courseSelections[c]);
+  // ── Auto-skip PIN step ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (event && step === 'pin' && !requiresPin) setStep('identity');
+  }, [event, requiresPin, step]);
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const handlePinSubmit = () => {
+    if (pinEntry === String(event?.accessPin)) {
+      setPinError(false);
+      setStep('identity');
+    } else {
+      setPinError(true);
+      setPinEntry('');
+    }
+  };
+
+  const checkDuplicate = async (): Promise<boolean> => {
+    if (!guestEmail.trim() || !firestore) return false;
+    const snap = await getDocs(query(
+      collection(firestore, `tenants/${tenantId}/eventGuests`),
+      where('email', '==', guestEmail.toLowerCase().trim()),
+      where('eventId', '==', eventId)
+    ));
+    if (!snap.empty) {
+      setExistingOrder({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      return true;
+    }
+    return false;
+  };
+
+  const handleIdentityNext = async () => {
+    if (!guestName.trim()) { setSubmitError('Please enter your name.'); return; }
+    if (!tableNumber.trim()) { setSubmitError('Please enter your table number.'); return; }
+    setSubmitError('');
+    if (guestEmail.trim()) {
+      const isDup = await checkDuplicate();
+      if (isDup) { setAlreadyOrdered(true); return; }
+    }
+    setStep('meal');
+  };
 
   const handleSubmit = async () => {
-    if (!name.trim()) { setError('Please enter your name.'); return; }
-    if (courseNumbers.length > 0 && !allSelectionsMade) { setError('Please make a selection for each course.'); return; }
+    if (isSubmitting || !firestore) return;
     setIsSubmitting(true);
-    setError('');
+    setSubmitError('');
+
     try {
-      const batch = writeBatch(firestore);
+      // Deadline re-check on submit
+      if (event?.orderingDeadline && new Date() > safeDate(event.orderingDeadline)) {
+        setSubmitError('Sorry — the order window for this event has closed.');
+        return;
+      }
+
+      // Determine primary meal choice
+      let mealChoiceId: string | null = null;
+      let mealChoiceName: string | null = null;
+
+      if (hasCourses) {
+        const missing = courses.filter((c: any) => !selectedCourseSelections[c.id]);
+        if (missing.length > 0) {
+          setSubmitError(`Please select all courses: ${missing.map((c: any) => c.name).join(', ')}`);
+          return;
+        }
+        // Primary = first course selection
+        const firstCourse = courses[0];
+        mealChoiceId = selectedCourseSelections[firstCourse?.id] || null;
+        const firstItem = mealChoiceId ? menuItems.find(m => m.id === mealChoiceId) : null;
+        mealChoiceName = firstItem?.name || null;
+      } else {
+        if (!selectedMealId) {
+          setSubmitError('Please select your meal.');
+          return;
+        }
+        mealChoiceId = selectedMealId;
+        mealChoiceName = menuItems.find(m => m.id === mealChoiceId)?.name || null;
+      }
+
       const guestId = nanoid();
-      const checkInToken = nanoid(16);
+      const hasCriticalAllergy = selectedAllergies.some(a => a.severity === 'critical');
 
-      // Build primary mealChoiceId from first course (for single-course events)
-      const primaryCourse = courseNumbers[0] || 1;
-      const mealChoiceId  = courseSelections[primaryCourse] || null;
-      const mealItem      = mealChoiceId ? (menuItems || []).find(m => m.id === mealChoiceId) : null;
-
-      // ── DEADLINE CHECK ────────────────────────────────────────────────────
-      if (event.orderingDeadline) {
-        const deadline = safeDate(event.orderingDeadline);
-        if (new Date() > deadline) {
-          setError('Sorry — the order window for this event has closed.');
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      // ── DUPLICATE CHECK by email ──────────────────────────────────────────
-      if (email.trim()) {
-        const { getDocs, query: fbQuery, where: fbWhere } = await import('firebase/firestore');
-        const dupSnap = await getDocs(fbQuery(
-          collection(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`),
-          fbWhere('email', '==', email.trim().toLowerCase())
-        ));
-        if (!dupSnap.empty) {
-          setError('A submission with this email already exists for this event.');
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      // ── WRITE to guestOrders subcollection (feeds EventManifest + Course Fire) ──
-      batch.set(doc(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`, guestId), {
+      await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
         id: guestId,
         eventId,
         tenantId,
-        name: name.trim(),
-        email: email.trim().toLowerCase() || null,
+        name: guestName.trim(),
+        email: guestEmail.toLowerCase().trim() || null,
+        phone: guestPhone.trim() || null,
+        tableNumber: tableNumber.trim(),
         seatNumber: seatNumber.trim() || null,
-        tableNumber: tableNumber.trim() || null,
         mealChoiceId,
-        mealChoiceName: mealItem?.name || null,
-        courseSelections,
+        mealChoiceName,
+        // Multi-course: keyed by course.id
+        courseSelections: hasCourses ? selectedCourseSelections : null,
+        // Allergies stored as objects with severity for cross-contamination detection
         allergies: selectedAllergies,
-        dietaryRestrictions: selectedDietary,
-        notes: [guestNotes, customAllergyNote].filter(Boolean).join(' | ') || null,
+        allergyNote: allergyNote.trim() || null,
+        hasCriticalAllergy,
+        guestNote: guestNote.trim() || null,
         submittedAt: new Date().toISOString(),
-        checkInToken,
         checkedIn: false,
-        firedAt: null,    // set by Course Fire in EventManifest
-        source: 'guest_rsvp',
+        source: 'self_register',
+        status: 'submitted',
       });
 
-      await batch.commit();
       setStep('done');
     } catch (e) {
       console.error(e);
-      setError('Something went wrong. Please try again.');
+      setSubmitError('Something went wrong. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ── Loading ──
-  if (!tenant || !event) return (
+  // ── Loading / not found ───────────────────────────────────────────────────
+  if (dataLoading || !event || !tenant) return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-      <Loader className="w-8 h-8 animate-spin text-slate-400" />
+      <Loader className="w-8 h-8 animate-spin text-slate-300" />
     </div>
   );
 
-  const eventDate = event.startTime ? format(safeDate(event.startTime), "EEEE, MMMM d 'at' h:mm a") : '';
+  const eventDisplayName = event.title || event.name || 'Event';
+  const logoUrl = tenant.kioskSettings?.logoUrl || tenant.bookingPageSettings?.logoUrl;
+  const primaryColor = tenant.kioskSettings?.primaryColor || tenant.bookingPageSettings?.primaryColor;
+  const btnStyle = primaryColor ? { backgroundColor: primaryColor, color: '#fff' } : undefined;
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      {/* Header */}
-      <div className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-lg mx-auto px-4 py-4 flex items-center gap-3">
-          {tenant.bookingPageSettings?.logoUrl && (
-            <div className="w-9 h-9 rounded-xl overflow-hidden border border-slate-200 shrink-0">
-              <Image src={tenant.bookingPageSettings.logoUrl} alt={tenant.name} width={36} height={36} className="object-cover w-full h-full" />
+  // ── Already ordered screen ────────────────────────────────────────────────
+  if (alreadyOrdered && existingOrder) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-xl p-8 text-center space-y-6">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-50 border-2 border-amber-200 flex items-center justify-center">
+            <AlertTriangle className="w-8 h-8 text-amber-500" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Already Submitted</h2>
+            <p className="text-slate-500 text-sm mt-2">
+              We already have your order for this event, {existingOrder.name?.split(' ')[0]}.
+            </p>
+          </div>
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left space-y-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your Selection</p>
+            <p className="font-black text-slate-900">{existingOrder.mealChoiceName || 'Multi-course selection'}</p>
+            {existingOrder.allergies?.length > 0 && (
+              <p className="text-xs text-amber-600">
+                ⚠ {existingOrder.allergies.map((a: any) => typeof a === 'object' ? a.label : a).join(', ')}
+              </p>
+            )}
+            <p className="text-[9px] text-slate-400">
+              Table {existingOrder.tableNumber}{existingOrder.seatNumber ? ` · Seat ${existingOrder.seatNumber}` : ''}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs text-slate-400">Need to make changes? Contact your host.</p>
+            <button
+              onClick={async () => {
+                if (!firestore || !existingOrder) return;
+                const confirmed = window.confirm('Cancel your order for this event? This cannot be undone.');
+                if (!confirmed) return;
+                const { deleteDoc, doc: _doc } = await import('firebase/firestore');
+                await deleteDoc(_doc(firestore, `tenants/${tenantId}/eventGuests`, existingOrder.id));
+                setAlreadyOrdered(false);
+                setExistingOrder(null);
+              }}
+              className="text-xs text-red-400 font-bold hover:text-red-600 transition-colors underline"
+            >
+              Cancel my order
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Event closed screen ───────────────────────────────────────────────────
+  if (!isEventOpen) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-xl p-8 text-center space-y-6">
+          {logoUrl && (
+            <div className="relative w-16 h-16 mx-auto rounded-2xl overflow-hidden">
+              <Image src={logoUrl} alt={tenant.name || ''} fill className="object-cover" />
             </div>
           )}
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{tenant.name}</p>
-            <h1 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{event.title}</h1>
+            <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{eventDisplayName}</h1>
+            <p className="text-slate-500 text-sm mt-2">Pre-orders for this event are now closed.</p>
+            {event.orderingDeadline && (
+              <p className="text-xs text-slate-400 mt-1">
+                Deadline was {format(safeDate(event.orderingDeadline), 'MMM d at h:mm a')}
+              </p>
+            )}
           </div>
-          {eventDate && <p className="ml-auto text-[10px] font-bold text-slate-400 text-right hidden sm:block">{eventDate}</p>}
         </div>
       </div>
+    );
+  }
 
-      <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-        <AnimatePresence mode="wait">
+  // ── Step count helpers ────────────────────────────────────────────────────
+  const totalSteps = 4;
+  const stepIndex: Record<Step, number> = {
+    pin: 0, identity: 0, meal: 1, allergies: 2, confirm: 3, done: 4,
+  };
 
-          {/* ── STEP: IDENTITY ── */}
-          {step === 'identity' && (
-            <motion.div key="identity" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Guest Details</h2>
-                <p className="text-sm text-slate-500 mt-1">Tell us a little about yourself before the event.</p>
-              </div>
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-lg">
 
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Full Name *</label>
-                  <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name"
-                    className="w-full h-14 rounded-2xl border-2 border-slate-200 bg-white px-4 text-lg font-bold outline-none focus:border-slate-400 transition-colors" />
+        {/* Header */}
+        <div className="text-center mb-6 space-y-2">
+          {logoUrl && (
+            <div className="relative w-14 h-14 mx-auto rounded-2xl overflow-hidden shadow-md">
+              <Image src={logoUrl} alt={tenant.name || ''} fill className="object-cover" />
+            </div>
+          )}
+          <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{eventDisplayName}</h1>
+          {/* FIX: use event.date (plain date string) + event.time separately — avoids format crash */}
+          {event.date && (
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+              {format(parseISO(event.date), 'EEEE, MMMM d')}
+              {event.time && ` · ${event.time}`}
+            </p>
+          )}
+        </div>
+
+        {/* Card */}
+        <div className="bg-white rounded-3xl border-2 border-slate-200 shadow-xl overflow-hidden">
+          {step !== 'pin' && step !== 'done' && (
+            <div className="p-6 border-b border-slate-100">
+              <StepDots total={totalSteps} current={stepIndex[step]} />
+            </div>
+          )}
+
+          <AnimatePresence mode="wait">
+
+            {/* ── PIN GATE ── */}
+            {step === 'pin' && requiresPin && (
+              <motion.div key="pin" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-6">
+                <div className="space-y-1 text-center">
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Private Event</p>
+                  <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Enter Access PIN</h2>
+                  <p className="text-sm text-slate-500">This event requires a PIN to access the order form.</p>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Email (optional)</label>
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="For your order confirmation"
-                    className="w-full h-12 rounded-2xl border-2 border-slate-200 bg-white px-4 font-bold outline-none focus:border-slate-400 transition-colors" />
+                <div className="space-y-3">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={pinEntry}
+                    onChange={e => { setPinEntry(e.target.value.replace(/\D/g, '')); setPinError(false); }}
+                    onKeyDown={e => e.key === 'Enter' && handlePinSubmit()}
+                    placeholder="Enter PIN"
+                    className={cn(
+                      'w-full h-14 rounded-2xl border-2 px-4 text-center text-2xl font-black tracking-[0.5em] outline-none transition-all',
+                      pinError ? 'border-red-400 bg-red-50 text-red-800' : 'border-slate-200 focus:border-slate-400'
+                    )}
+                    autoFocus
+                  />
+                  {pinError && <p className="text-center text-sm font-bold text-red-500">Incorrect PIN. Please try again.</p>}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <button onClick={handlePinSubmit} disabled={!pinEntry} style={pinEntry ? btnStyle : undefined}
+                  className={cn('w-full h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+                    pinEntry ? (!btnStyle && 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  )}>
+                  Continue <ChevronRight className="w-4 h-4" />
+                </button>
+              </motion.div>
+            )}
+
+            {/* ── STEP 1: Identity ── */}
+            {step === 'identity' && (
+              <motion.div key="identity" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Step 1 of 4</p>
+                  <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Info</h2>
+                  <p className="text-sm text-slate-500">So we can personalize your place setting.</p>
+                </div>
+                <div className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Table #</label>
-                    <input value={tableNumber} onChange={e => setTable(e.target.value)} placeholder="e.g. 3"
-                      className="w-full h-12 rounded-2xl border-2 border-slate-200 bg-white px-4 font-bold text-center outline-none focus:border-slate-400 transition-colors" />
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+                      <User className="w-3 h-3" /> Full Name *
+                    </label>
+                    <input value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Your full name"
+                      className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 outline-none focus:border-slate-400 transition-all" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+                        <MapPin className="w-3 h-3" /> Table *
+                      </label>
+                      <input value={tableNumber} onChange={e => setTableNumber(e.target.value)} placeholder="e.g. 4"
+                        className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 text-center outline-none focus:border-slate-400 transition-all" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat (optional)</label>
+                      <input value={seatNumber} onChange={e => setSeatNumber(e.target.value)} placeholder="e.g. A"
+                        className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 text-center outline-none focus:border-slate-400 transition-all" />
+                    </div>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Seat #</label>
-                    <input value={seatNumber} onChange={e => setSeat(e.target.value)} placeholder="e.g. A4"
-                      className="w-full h-12 rounded-2xl border-2 border-slate-200 bg-white px-4 font-bold text-center outline-none focus:border-slate-400 transition-colors" />
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email (optional, for confirmation)</label>
+                    <input type="email" value={guestEmail} onChange={e => setGuestEmail(e.target.value)} placeholder="your@email.com"
+                      className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 outline-none focus:border-slate-400 transition-all" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone (optional)</label>
+                    <input type="tel" value={guestPhone} onChange={e => setGuestPhone(e.target.value)} placeholder="(555) 000-0000"
+                      className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 font-bold text-slate-900 outline-none focus:border-slate-400 transition-all" />
                   </div>
                 </div>
-              </div>
+                {submitError && <p className="text-red-500 text-sm font-bold">{submitError}</p>}
+                <button onClick={handleIdentityNext} style={btnStyle}
+                  className={cn('w-full h-13 py-4 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2', !btnStyle && 'bg-slate-900 text-white')}>
+                  Continue <ChevronRight className="w-4 h-4" />
+                </button>
+              </motion.div>
+            )}
 
-              {error && <p className="text-red-500 text-sm font-bold">{error}</p>}
-
-              <button onClick={() => { if (!name.trim()) { setError('Please enter your name.'); return; } setError(''); setStep(courseNumbers.length > 0 ? 'menu' : 'allergies'); }}
-                className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
-                Continue <ChevronRight className="w-4 h-4" />
-              </button>
-            </motion.div>
-          )}
-
-          {/* ── STEP: MENU SELECTION ── */}
-          {step === 'menu' && (
-            <motion.div key="menu" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-8">
-              <div>
-                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Menu</h2>
-                <p className="text-sm text-slate-500 mt-1">Please select your preference for each course.</p>
-              </div>
-
-              {courseNumbers.map(courseNum => (
-                <div key={courseNum} className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Utensils className="w-4 h-4 text-slate-400" />
-                    <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">
-                      Course {courseNum} — {courseLabels[courseNum] || `Course ${courseNum}`}
-                    </p>
-                  </div>
-                  <div className="space-y-3">
-                    {menuByCourse[courseNum].map(item => (
-                      <MenuItemCard key={item.id} item={item}
-                        selected={courseSelections[courseNum] === item.id}
-                        onSelect={() => setCourseSelections(prev => ({ ...prev, [courseNum]: item.id }))} />
-                    ))}
-                  </div>
+            {/* ── STEP 2: Meal — single course ── */}
+            {step === 'meal' && !hasCourses && (
+              <motion.div key="meal-single" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Step 2 of 4</p>
+                  <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Meal</h2>
+                  {event.menuNote && <p className="text-sm text-slate-500">{event.menuNote}</p>}
                 </div>
-              ))}
-
-              {error && <p className="text-red-500 text-sm font-bold">{error}</p>}
-
-              <div className="flex gap-3">
-                <button onClick={() => setStep('identity')} className="h-14 px-5 rounded-2xl border-2 border-slate-200 font-black uppercase text-sm text-slate-500 hover:border-slate-300 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button onClick={() => { if (!allSelectionsMade) { setError('Please select an option for each course.'); return; } setError(''); setStep('allergies'); }}
-                  className="flex-1 h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
-                  Next <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ── STEP: ALLERGIES + DIETARY ── */}
-          {step === 'allergies' && (
-            <motion.div key="allergies" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Dietary Info</h2>
-                <p className="text-sm text-slate-500 mt-1">This goes directly to our kitchen. Select all that apply.</p>
-              </div>
-
-              {/* Allergies */}
-              <div className="space-y-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3 h-3 text-amber-500" />Allergies
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {ALLERGY_OPTIONS.map(opt => (
-                    <button key={opt} onClick={() => setSelectedAllergies(prev => prev.includes(opt) ? prev.filter(a => a !== opt) : [...prev, opt])}
-                      className={cn('px-3 py-2 rounded-xl border-2 text-[11px] font-black uppercase tracking-wide transition-all',
-                        selectedAllergies.includes(opt) ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300')}>
-                      {opt}
-                    </button>
+                <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+                  {menuItems.map(item => (
+                    <MealOptionCard key={item.id} option={item}
+                      selected={selectedMealId === item.id}
+                      onSelect={() => setSelectedMealId(item.id)} />
                   ))}
-                </div>
-              </div>
-
-              {/* Dietary preferences */}
-              <div className="space-y-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
-                  <Leaf className="w-3 h-3 text-emerald-500" />Dietary Requirements
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {DIETARY_OPTIONS.map(opt => (
-                    <button key={opt} onClick={() => setSelectedDietary(prev => prev.includes(opt) ? prev.filter(a => a !== opt) : [...prev, opt])}
-                      className={cn('px-3 py-2 rounded-xl border-2 text-[11px] font-black uppercase tracking-wide transition-all',
-                        selectedDietary.includes(opt) ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300')}>
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Custom note */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Additional allergy or dietary note</label>
-                <textarea value={customAllergyNote} onChange={e => setCustomAllergyNote(e.target.value)} rows={3}
-                  placeholder="e.g. severe tree nut allergy, separate prep required"
-                  className="w-full rounded-2xl border-2 border-slate-200 bg-white p-4 font-medium text-sm resize-none outline-none focus:border-slate-400 transition-colors" />
-              </div>
-
-              {/* Notes for kitchen */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Any other notes for the evening?</label>
-                <textarea value={guestNotes} onChange={e => setGuestNotes(e.target.value)} rows={2}
-                  placeholder="e.g. celebrating a birthday, accessibility needs"
-                  className="w-full rounded-2xl border-2 border-slate-200 bg-white p-4 font-medium text-sm resize-none outline-none focus:border-slate-400 transition-colors" />
-              </div>
-
-              <div className="flex gap-3">
-                <button onClick={() => setStep(courseNumbers.length > 0 ? 'menu' : 'identity')}
-                  className="h-14 px-5 rounded-2xl border-2 border-slate-200 font-black uppercase text-sm text-slate-500 hover:border-slate-300 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button onClick={() => setStep('confirm')}
-                  className="flex-1 h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
-                  Review Order <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ── STEP: CONFIRM ── */}
-          {step === 'confirm' && (
-            <motion.div key="confirm" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Confirm Order</h2>
-                <p className="text-sm text-slate-500 mt-1">Review your selections before submitting.</p>
-              </div>
-
-              <div className="rounded-2xl border-2 border-slate-200 bg-white overflow-hidden divide-y divide-slate-100">
-                <div className="p-4">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Guest</p>
-                  <p className="font-black text-slate-900">{name}</p>
-                  {(tableNumber || seatNumber) && (
-                    <p className="text-sm text-slate-500 mt-0.5">
-                      {tableNumber && `Table ${tableNumber}`}{tableNumber && seatNumber && ' · '}{seatNumber && `Seat ${seatNumber}`}
-                    </p>
+                  {menuItems.length === 0 && (
+                    <div className="p-8 text-center text-slate-400 border-2 border-dashed rounded-2xl">
+                      <Utensils className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm font-bold">Menu not yet configured</p>
+                    </div>
                   )}
                 </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setStep('identity')} className="h-12 px-5 rounded-2xl border-2 border-slate-200 font-black text-slate-500">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => { if (!selectedMealId) { setSubmitError('Please select a meal.'); return; } setSubmitError(''); setStep('allergies'); }}
+                    style={selectedMealId ? btnStyle : undefined}
+                    className={cn('flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+                      selectedMealId ? (!btnStyle && 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-400 cursor-not-allowed')}>
+                    Continue <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+                {submitError && <p className="text-red-500 text-sm font-bold">{submitError}</p>}
+              </motion.div>
+            )}
 
-                {courseNumbers.map(c => {
-                  const selectedId = courseSelections[c];
-                  const item = (menuItems || []).find(m => m.id === selectedId);
-                  if (!item) return null;
+            {/* ── STEP 2+: Multi-course (one course at a time) ── */}
+            {step === 'meal' && hasCourses && (() => {
+              const course = courses[currentCourseIdx];
+              if (!course) return null;
+              const isLast = currentCourseIdx === courses.length - 1;
+              const hasSelection = !!selectedCourseSelections[course.id];
+              return (
+                <motion.div key={`course-${course.id}`} initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">
+                      Course {currentCourseIdx + 1} of {courses.length}
+                    </p>
+                    <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{course.name}</h2>
+                    {course.note && <p className="text-sm text-slate-500">{course.note}</p>}
+                  </div>
+                  <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+                    {(course.options || []).map((option: any) => (
+                      <MealOptionCard key={option.id} option={option}
+                        selected={selectedCourseSelections[course.id] === option.id}
+                        onSelect={() => setSelectedCourseSelections(prev => ({ ...prev, [course.id]: option.id }))} />
+                    ))}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => currentCourseIdx === 0 ? setStep('identity') : setCurrentCourseIdx(i => i - 1)}
+                      className="h-12 px-5 rounded-2xl border-2 border-slate-200 font-black text-slate-500">
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!hasSelection) { setSubmitError(`Please select ${course.name}.`); return; }
+                        setSubmitError('');
+                        if (!isLast) setCurrentCourseIdx(i => i + 1);
+                        else setStep('allergies');
+                      }}
+                      style={hasSelection ? btnStyle : undefined}
+                      className={cn('flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+                        hasSelection ? (!btnStyle && 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-400 cursor-not-allowed')}>
+                      {isLast ? 'Continue' : `Next: ${courses[currentCourseIdx + 1]?.name || 'Course'}`} <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {submitError && <p className="text-red-500 text-sm font-bold">{submitError}</p>}
+                </motion.div>
+              );
+            })()}
+
+            {/* ── STEP 3: Allergies ── */}
+            {step === 'allergies' && (
+              <motion.div key="allergies" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Step 3 of 4</p>
+                  <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Allergies & Dietary</h2>
+                  <p className="text-sm text-slate-500">Select all that apply. Goes directly to the kitchen.</p>
+                </div>
+
+                {(['critical', 'intolerance', 'preference'] as AllergySeverity[]).map(severity => {
+                  const cfg = SEVERITY_CONFIG[severity];
+                  const opts = ALLERGY_OPTIONS.filter(o => o.severity === severity);
                   return (
-                    <div key={c} className="p-4">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
-                        {courseLabels[c] || `Course ${c}`}
-                      </p>
-                      <p className="font-black text-slate-900">{item.name}</p>
+                    <div key={severity} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className={cn('text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border', cfg.badge)}>
+                          {severity === 'critical' ? '⚠ ' : ''}{cfg.label}
+                        </span>
+                        {severity === 'critical' && (
+                          <span className="text-[9px] text-red-500 font-bold">Kitchen will be notified immediately</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {opts.map(opt => {
+                          const selected = selectedAllergies.some(a => a.id === opt.id);
+                          return (
+                            <button key={opt.id}
+                              onClick={() => setSelectedAllergies(prev => {
+                                if (prev.some(a => a.id === opt.id)) {
+                                  return prev.filter(a => a.id !== opt.id);
+                                }
+                                return [...prev, { id: opt.id, label: opt.label, severity: opt.severity }];
+                              })}
+                              className={cn('flex items-center gap-2 p-3 rounded-xl border-2 text-left transition-all',
+                                selected ? cn(cfg.bg, cfg.border) : 'border-slate-200 hover:border-slate-300'
+                              )}>
+                              <span className="text-lg">{opt.emoji}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className={cn('text-[10px] font-black uppercase tracking-tight', selected ? cfg.text : 'text-slate-700')}>
+                                  {opt.label}
+                                </p>
+                                {opt.hint && <p className="text-[8px] text-slate-400 font-bold truncate">{opt.hint}</p>}
+                              </div>
+                              {selected && <Check className={cn('w-3 h-3 ml-auto shrink-0', cfg.text)} />}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })}
 
-                {(selectedAllergies.length > 0 || selectedDietary.length > 0 || customAllergyNote) && (
-                  <div className="p-4 bg-amber-50">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-amber-600 mb-2 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />Dietary Flags
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedAllergies.map(a => <AllergyBadge key={a} label={a} />)}
-                      {selectedDietary.map(d => (
-                        <span key={d} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-black uppercase tracking-wide text-emerald-700">
-                          <Leaf className="w-2.5 h-2.5" />{d}
-                        </span>
-                      ))}
-                    </div>
-                    {customAllergyNote && <p className="text-xs text-amber-700 mt-2 font-medium">{customAllergyNote}</p>}
-                  </div>
-                )}
-
-                {guestNotes && (
-                  <div className="p-4">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Notes</p>
-                    <p className="text-sm text-slate-600">{guestNotes}</p>
-                  </div>
-                )}
-              </div>
-
-              {error && <p className="text-red-500 text-sm font-bold">{error}</p>}
-
-              <div className="flex gap-3">
-                <button onClick={() => setStep('allergies')}
-                  className="h-14 px-5 rounded-2xl border-2 border-slate-200 font-black uppercase text-sm text-slate-500 hover:border-slate-300 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button onClick={handleSubmit} disabled={isSubmitting}
-                  className="flex-1 h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors disabled:opacity-50">
-                  {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : <>Submit Order ✓</>}
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ── STEP: DONE ── */}
-          {step === 'done' && (
-            <motion.div key="done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="text-center space-y-8 py-12">
-              <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 12, stiffness: 130 }}
-                className="w-20 h-20 mx-auto rounded-3xl bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center">
-                <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-              </motion.div>
-              <div className="space-y-3">
-                <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">You're Set!</h2>
-                <p className="text-slate-500 font-medium leading-relaxed max-w-sm mx-auto">
-                  Your order has been submitted. See you at the event!
-                  {selectedAllergies.length > 0 && ' Your allergy flags are noted and the kitchen has been informed.'}
-                </p>
-              </div>
-              {event.title && (
-                <div className="inline-block px-6 py-3 rounded-2xl bg-slate-50 border-2 border-slate-200">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Event</p>
-                  <p className="font-black text-slate-900 mt-0.5">{event.title}</p>
-                  {eventDate && <p className="text-sm text-slate-500 mt-0.5">{eventDate}</p>}
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Additional notes (optional)</label>
+                  <textarea value={allergyNote} onChange={e => setAllergyNote(e.target.value)} rows={2}
+                    placeholder="e.g. Severe nut allergy — please ensure no cross-contamination"
+                    className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 transition-all resize-none" />
                 </div>
-              )}
-            </motion.div>
-          )}
 
-        </AnimatePresence>
+                <div className="flex gap-3">
+                  <button onClick={() => setStep('meal')} className="h-12 px-5 rounded-2xl border-2 border-slate-200 font-black text-slate-500">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setStep('confirm')} style={btnStyle}
+                    className={cn('flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2', !btnStyle && 'bg-slate-900 text-white')}>
+                    Review Order <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── STEP 4: Confirm ── */}
+            {step === 'confirm' && (
+              <motion.div key="confirm" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-5">
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Step 4 of 4</p>
+                  <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Confirm Order</h2>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Guest */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest</p>
+                    <p className="font-black text-slate-900">{guestName}</p>
+                    {guestPhone && <p className="text-xs text-slate-500">{guestPhone}</p>}
+                    <p className="text-xs text-slate-500">
+                      Table {tableNumber}{seatNumber ? ` · Seat ${seatNumber}` : ''}
+                    </p>
+                  </div>
+
+                  {/* Single-course meal */}
+                  {!hasCourses && selectedMealId && (
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal</p>
+                      <p className="font-black text-slate-900">
+                        {menuItems.find(m => m.id === selectedMealId)?.name}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Multi-course */}
+                  {hasCourses && (
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Courses</p>
+                      {courses.map((course: any) => {
+                        const selOption = (course.options || []).find((o: any) => o.id === selectedCourseSelections[course.id]);
+                        return (
+                          <div key={course.id} className="flex justify-between">
+                            <p className="text-xs font-bold text-slate-500 uppercase">{course.name}</p>
+                            <p className="text-xs font-black text-slate-900">{selOption?.name || '—'}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Allergies */}
+                  {(selectedAllergies.length > 0 || allergyNote) && (
+                    <div className={cn('p-4 rounded-2xl border space-y-2',
+                      selectedAllergies.some(a => a.severity === 'critical')
+                        ? 'bg-red-50 border-red-200'
+                        : 'bg-amber-50 border-amber-200'
+                    )}>
+                      {selectedAllergies.some(a => a.severity === 'critical') && (
+                        <p className="text-[9px] font-black uppercase tracking-widest text-red-600">
+                          ⚠ Critical Allergy — Kitchen Will Be Notified
+                        </p>
+                      )}
+                      {(['critical', 'intolerance', 'preference'] as AllergySeverity[]).map(severity => {
+                        const items = selectedAllergies.filter(a => a.severity === severity);
+                        if (!items.length) return null;
+                        const cfg = SEVERITY_CONFIG[severity];
+                        return (
+                          <div key={severity}>
+                            <p className={cn('text-[9px] font-black uppercase tracking-widest', cfg.text)}>{cfg.label}</p>
+                            <p className={cn('font-bold text-sm mt-0.5', cfg.text)}>
+                              {items.map(a => a.label).join(', ')}
+                            </p>
+                          </div>
+                        );
+                      })}
+                      {allergyNote && <p className="text-xs text-amber-700 italic">{allergyNote}</p>}
+                    </div>
+                  )}
+
+                  {/* Note */}
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+                      <FileText className="w-3 h-3" /> Note to host (optional)
+                    </label>
+                    <textarea value={guestNote} onChange={e => setGuestNote(e.target.value)} rows={2}
+                      placeholder="Anything else we should know?"
+                      className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 resize-none" />
+                  </div>
+                </div>
+
+                {/* Consent */}
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input type="checkbox" checked={consentGiven} onChange={e => setConsentGiven(e.target.checked)}
+                    className="mt-1 w-4 h-4 rounded border-2 border-slate-300 cursor-pointer shrink-0" />
+                  <span className="text-[10px] text-slate-500 font-bold leading-relaxed">
+                    I confirm the allergy and dietary information above is accurate. I understand this information will be shared with kitchen staff to ensure my safety.
+                  </span>
+                </label>
+
+                {submitError && <p className="text-red-500 text-sm font-bold">{submitError}</p>}
+
+                <div className="flex gap-3">
+                  <button onClick={() => setStep('allergies')} className="h-12 px-5 rounded-2xl border-2 border-slate-200 font-black text-slate-500">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button onClick={handleSubmit} disabled={isSubmitting || !consentGiven}
+                    style={consentGiven ? btnStyle : undefined}
+                    className={cn('flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 disabled:opacity-50',
+                      consentGiven ? (!btnStyle && 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-400 cursor-not-allowed')}>
+                    {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : 'Submit Order →'}
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── DONE ── */}
+            {step === 'done' && (
+              <motion.div key="done" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="p-8 text-center space-y-6">
+                <motion.div
+                  initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', damping: 12, stiffness: 140 }}
+                  className="w-16 h-16 mx-auto rounded-2xl bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                </motion.div>
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Order Received</h2>
+                  <p className="text-slate-500 text-sm">
+                    Thank you, {guestName.split(' ')[0]}! We have your selection for {eventDisplayName}.
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                    Table {tableNumber}{seatNumber ? ` · Seat ${seatNumber}` : ''}
+                  </p>
+                  {!hasCourses && selectedMealId && (
+                    <p className="font-black text-slate-900">
+                      {menuItems.find(m => m.id === selectedMealId)?.name}
+                    </p>
+                  )}
+                  {/* FIX: selectedAllergies is now typed objects, not strings — safe to map */}
+                  {selectedAllergies.length > 0 && (
+                    <p className="text-xs text-amber-600 font-bold">
+                      ⚠ {selectedAllergies.map(a => a.label).join(', ')}
+                    </p>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400">You're all set. See you at the event!</p>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );
