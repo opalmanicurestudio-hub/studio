@@ -149,9 +149,6 @@ export default function EventManifestPage() {
   const [mealOverrideId, setMealOverrideId] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
 
-  // Staff from inventory context for assignment
-  const { staff: staffFromContext } = useInventory();
-
   // Menu item form
   const [isAddingMenu, setIsAddingMenu]         = useState(false);
   const [newMenuName, setNewMenuName]           = useState('');
@@ -276,8 +273,6 @@ export default function EventManifestPage() {
   }, [guests, menuItems, inventory]);
 
   // ── Cross-contamination warnings ────────────────────────────────────────────
-  // Groups guests by table, then checks if any guests have critical allergies
-  // that conflict with other guests' meal choices at the same table
   const crossContaminationWarnings = useMemo(() => {
     const warnings: { table: string; guests: string[]; reason: string }[] = [];
     const byTable: Record<string, any[]> = {};
@@ -292,7 +287,6 @@ export default function EventManifestPage() {
       );
       if (!criticalGuests.length) return;
 
-      // Check if any other guest at the table has a meal that might contain the allergen
       criticalGuests.forEach(cGuest => {
         const critAllergens = (cGuest.allergies || [])
           .filter((a: any) => typeof a === 'object' && a.severity === 'critical')
@@ -301,7 +295,6 @@ export default function EventManifestPage() {
         tableGuests.filter(g => g.id !== cGuest.id).forEach(other => {
           const mealItem = menuItems.find(m => m.id === other.mealChoiceId);
           if (!mealItem) return;
-          // Simple allergen name matching in meal name/description
           const mealText = `${mealItem.name} ${mealItem.description || ''}`.toLowerCase();
           const conflictAllergens = critAllergens.filter((a: string) => mealText.includes(a));
           if (conflictAllergens.length > 0) {
@@ -350,7 +343,6 @@ export default function EventManifestPage() {
   const handleFireCourse = async (courseNumber: number) => {
     if (!firestore || !tenantId) return;
 
-    // ── SEQUENCING GUARD ─────────────────────────────────────────────────────
     if (courseNumber > 1) {
       const prevNums = courseNumbers.filter(n => n < courseNumber);
       const unfiredPrev = prevNums.filter(n => !firedCourses.has(n));
@@ -367,7 +359,6 @@ export default function EventManifestPage() {
       const batch = writeBatch(firestore);
       const fireId = nanoid();
       const now = new Date().toISOString();
-      // Only fire for checked-in guests — prevents firing food for empty seats
       const guestsForCourse = guests.filter(g =>
         g.checkedIn &&
         (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
@@ -379,13 +370,11 @@ export default function EventManifestPage() {
         return;
       }
 
-      // Warn if there are unchecked RSVPs — seats may still be filling
       const totalWithSelection = guests.filter(g =>
         g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId)
       ).length;
       const notCheckedIn = totalWithSelection - guestsForCourse.length;
 
-      // Course fire record
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
         id: fireId, eventId, tenantId, courseNumber,
         courseName: `Course ${courseNumber}`,
@@ -393,7 +382,6 @@ export default function EventManifestPage() {
         guestCount: guestsForCourse.length, status: 'fired',
       });
 
-      // KDS ticket per guest
       guestsForCourse.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
         const menuItem = menuItems.find(m => m.id === menuItemId);
@@ -409,7 +397,6 @@ export default function EventManifestPage() {
         });
       });
 
-      // ── DEDUCT INVENTORY for each menu item fired ──────────────────────
       const deductionMap: Record<string, number> = {};
       guestsForCourse.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
@@ -434,17 +421,11 @@ export default function EventManifestPage() {
         });
       });
 
-      // ── CHUNK batch writes to stay under Firestore's 500-op limit ──────────
-      // Each guest = 1 KDS ticket + up to N inventory deductions + 1 fire record
-      // Safe limit: commit every 400 operations
       const BATCH_LIMIT = 400;
-      let opCount = 1; // fire record already added
+      let opCount = 1;
       let currentBatch = batch;
       const allBatches = [currentBatch];
 
-      // Re-process guests in chunks — rebuild if needed
-      // (For events under ~150 guests the single batch is fine;
-      //  this guard prevents silent failures at scale)
       if (guestsForCourse.length + Object.keys(deductionMap).length * 2 > BATCH_LIMIT) {
         toast({ title: `Large event detected`, description: `Processing ${guestsForCourse.length} guests in chunks…` });
       }
@@ -510,7 +491,6 @@ export default function EventManifestPage() {
 
   const handleImportClient = async (client: any) => {
     if (!firestore || !tenantId) return;
-    // Check if already added
     if (guests.find(g => g.clientId === client.id)) {
       toast({ variant: 'destructive', title: 'Already on guest list' });
       return;
@@ -532,7 +512,6 @@ export default function EventManifestPage() {
     const id = nanoid();
     const batch = writeBatch(firestore);
 
-    // The linked refreshment inventory item IS the meal
     const linkedRefreshment = newMenuInventoryItemId
       ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId)
       : null;
@@ -545,7 +524,6 @@ export default function EventManifestPage() {
       courseNumber: newMenuCourse,
       isVegan: newMenuVegan,
       isGlutenFree: newMenuGF,
-      // The meal IS this inventory item — not a supply used to make it
       inventoryItemId: newMenuInventoryItemId || null,
       portionSize: newMenuPortionSize || 1,
       pricePerGuest: newMenuPrice || 0,
@@ -554,14 +532,11 @@ export default function EventManifestPage() {
 
     batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
 
-    // Rebuild event.menuItems (flat) and event.courses (nested with options[])
-    // so the guest order page can read either structure
     const eventRef = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
     const eventSnap = await getDoc(eventRef);
     const existingItems = eventSnap.data()?.menuItems || [];
     const updatedItems = [...existingItems.filter((m: any) => m.id !== id), menuItem];
 
-    // Group items by courseNumber to build event.courses[]
     const courseMap = new Map<number, any[]>();
     updatedItems.forEach((item: any) => {
       const n = item.courseNumber || 1;
@@ -597,7 +572,6 @@ export default function EventManifestPage() {
     toast({ title: 'Menu item added' });
   };
 
-  // ── WALK-IN QUICK-ADD — 3 fields, 10 seconds, done ──────────────────────────
   const handleQuickAdd = async () => {
     if (!quickAddName.trim() || !firestore || !tenantId) return;
     setSavingQuickAdd(true);
@@ -612,7 +586,7 @@ export default function EventManifestPage() {
       mealChoiceId: quickAddMeal || null,
       mealChoiceName: mealItem?.name || null,
       allergies: [], dietaryRestrictions: [],
-      checkedIn: true, // walk-ins are already here
+      checkedIn: true,
       checkedInAt: new Date().toISOString(),
       source: 'walk_in',
       submittedAt: new Date().toISOString(),
@@ -623,7 +597,6 @@ export default function EventManifestPage() {
     toast({ title: `${quickAddName} added & checked in` });
   };
 
-  // ── MEAL OVERRIDE — quick single-tap during check-in ──────────────────────
   const handleMealOverride = async () => {
     if (!mealOverrideGuest || !firestore || !tenantId) return;
     setSavingOverride(true);
@@ -660,8 +633,6 @@ export default function EventManifestPage() {
     toast({ title: 'Staff removed' });
   };
 
-  // ── EVENT ACTIVATION FLOW ─────────────────────────────────────────────────
-  // Deliberate host-triggered activation with 2-minute undo window
   const handleActivateEvent = async () => {
     if (!firestore || !tenantId) return;
     setActivatingNow(true);
@@ -670,12 +641,11 @@ export default function EventManifestPage() {
       await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
         status: 'active',
         activatedAt: now,
-        activatedBy: 'host', // TODO: replace with actual user ID
+        activatedBy: 'host',
       });
       setIsConfirmActivateOpen(false);
       setUndoWindowOpen(true);
       setUndoCountdown(120);
-      // Start countdown
       const interval = setInterval(() => {
         setUndoCountdown(prev => {
           if (prev <= 1) { clearInterval(interval); setUndoWindowOpen(false); return 0; }
@@ -750,7 +720,6 @@ export default function EventManifestPage() {
             {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Event status indicator + activation control */}
             {event?.status === 'active' ? (
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest">
@@ -934,7 +903,6 @@ export default function EventManifestPage() {
                 Guests open this link to submit meal choices and flag allergies before the event.
                 You can append ?table=3&seat=A1 to pre-fill their seat.
               </p>
-              {/* Per-seat QR generator */}
               <div className="mt-4 space-y-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Generate Per-Seat QR Codes</p>
                 <div className="flex items-center gap-3">
@@ -1129,7 +1097,6 @@ export default function EventManifestPage() {
 
           {/* ── GUESTS TAB ── */}
           <TabsContent value="guests" className="mt-4 space-y-4">
-            {/* Guest action bar */}
             <div className="flex items-center gap-2 flex-wrap">
               <Button onClick={() => { setIsAddingGuest(true); setEditingGuest(null); setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' }); }}
                 className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
@@ -1171,7 +1138,6 @@ export default function EventManifestPage() {
                       <h3 className="font-black uppercase tracking-tight text-slate-900">
                         {editingGuest ? 'Edit Guest' : 'Add Guest'}
                       </h3>
-                      {/* Import from client log */}
                       {!editingGuest && (
                         <div className="flex items-center gap-2">
                           <Input value={clientSearch} onChange={e => setClientSearch(e.target.value)}
@@ -1180,7 +1146,6 @@ export default function EventManifestPage() {
                       )}
                     </div>
 
-                    {/* Client search results */}
                     {!editingGuest && clientSearch && filteredClients.length > 0 && (
                       <div className="rounded-xl border-2 divide-y overflow-hidden">
                         {filteredClients.map((c: any) => (
@@ -1196,7 +1161,6 @@ export default function EventManifestPage() {
                       </div>
                     )}
 
-                    {/* Manual form */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label>
@@ -1302,7 +1266,6 @@ export default function EventManifestPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            {/* Quick meal override — single tap during live event */}
                             <button
                               onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || ''); }}
                               title="Override meal choice"
@@ -1393,7 +1356,6 @@ export default function EventManifestPage() {
                         </label>
                       </div>
 
-                      {/* ── LINK TO REFRESHMENT INVENTORY ITEM ── */}
                       <div className="sm:col-span-2 space-y-3">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">
                           Link to Inventory Item (Refreshment)
@@ -1452,7 +1414,6 @@ export default function EventManifestPage() {
               )}
             </AnimatePresence>
 
-            {/* Menu items list */}
             {menuItems.length === 0 ? (
               <div className="text-center py-16 border-2 border-dashed rounded-3xl">
                 <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" />
@@ -1553,7 +1514,7 @@ export default function EventManifestPage() {
         </Tabs>
       </main>
 
-      {/* ── FLOATING WALK-IN QUICK-ADD — only shown during live event ── */}
+      {/* ── FLOATING WALK-IN QUICK-ADD ── */}
       {event?.status === 'active' && (
         <div className="fixed bottom-6 right-6 z-40">
           <button onClick={() => setIsQuickAddOpen(true)}
