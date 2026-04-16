@@ -1289,154 +1289,274 @@ export default function EventManifestPage() {
           </TabsContent>
 
           {/* ── MENU TAB ── */}
-          <TabsContent value="menu" className="mt-4 space-y-4">
-            <Button onClick={() => setIsAddingMenu(true)}
-              className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
-              <Plus className="w-4 h-4" /> Add Menu Item
-            </Button>
+          <TabsContent value="menu" className="mt-4 space-y-5">
 
-            <AnimatePresence>
-              {isAddingMenu && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                  className="bg-white rounded-2xl border-2 border-primary/20 overflow-hidden">
-                  <div className="p-6 space-y-4">
-                    <h3 className="font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
-                      <Plus className="w-4 h-4 text-primary" /> New Menu Item
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5 sm:col-span-2">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Item Name *</Label>
-                        <Input value={newMenuName} onChange={e => setNewMenuName(e.target.value)}
-                          placeholder="e.g. Pan-Seared Salmon" className="h-12 rounded-xl border-2" />
-                      </div>
-                      <div className="space-y-1.5 sm:col-span-2">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Description</Label>
-                        <Input value={newMenuDesc} onChange={e => setNewMenuDesc(e.target.value)}
-                          placeholder="With lemon butter and asparagus" className="h-12 rounded-xl border-2" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Course #</Label>
-                        <Select value={String(newMenuCourse)} onValueChange={v => setNewMenuCourse(Number(v))}>
-                          <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="1">Course 1 — Starter</SelectItem>
-                            <SelectItem value="2">Course 2 — Main</SelectItem>
-                            <SelectItem value="3">Course 3 — Dessert</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Category</Label>
-                        <Select value={newMenuCategory} onValueChange={setNewMenuCategory}>
-                          <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="starter">Starter</SelectItem>
-                            <SelectItem value="main">Main</SelectItem>
-                            <SelectItem value="dessert">Dessert</SelectItem>
-                            <SelectItem value="beverage">Beverage</SelectItem>
-                            <SelectItem value="other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="flex items-center gap-4 sm:col-span-2">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={newMenuVegan} onChange={e => setNewMenuVegan(e.target.checked)} className="rounded" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Vegan</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={newMenuGF} onChange={e => setNewMenuGF(e.target.checked)} className="rounded" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Gluten-Free</span>
-                        </label>
-                      </div>
-
-                      <div className="sm:col-span-2 space-y-3">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                          Link to Inventory Item (Refreshment)
-                        </Label>
-                        {/* FIX: use NO_SELECTION sentinel */}
-                        <Select value={newMenuInventoryItemId || NO_SELECTION} onValueChange={v => {
-                          const val = v === NO_SELECTION ? '' : v;
-                          setNewMenuInventoryItemId(val);
-                          const item = (inventory || []).find((i: any) => i.id === val);
-                          if (item && !newMenuName.trim()) setNewMenuName((item as any).name || '');
-                          if (item && !newMenuDesc.trim()) setNewMenuDesc((item as any).description || '');
-                          if (item) setNewMenuPrice((item as any).price || (item as any).msrp || 0);
-                        }}>
-                          <SelectTrigger className="h-12 rounded-xl border-2 font-bold text-sm">
-                            <SelectValue placeholder="Select from refreshment inventory…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NO_SELECTION}>None / custom item</SelectItem>
-                            {(inventory || [])
-                              .filter((i: any) => i.type === 'refreshment' || i.showInConcierge)
-                              .map((inv: any) => (
-                                <SelectItem key={inv.id} value={inv.id}>
-                                  {inv.name} {inv.totalStock !== undefined ? `(${inv.totalStock} in stock)` : ''}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1.5">
-                            <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Portions per guest</Label>
-                            <Input type="number" min="0.01" step="0.01" value={newMenuPortionSize}
-                              onChange={e => setNewMenuPortionSize(parseFloat(e.target.value) || 1)}
-                              className="h-10 rounded-xl border-2 font-bold text-center" />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Price per guest ($)</Label>
-                            <Input type="number" min="0" step="0.01" value={newMenuPrice}
-                              onChange={e => setNewMenuPrice(parseFloat(e.target.value) || 0)}
-                              className="h-10 rounded-xl border-2 font-bold text-center" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-3">
-                      <Button onClick={() => { setIsAddingMenu(false); setMenuSupplies([]); }} variant="outline"
-                        className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                      <Button onClick={handleAddMenuItem} disabled={!newMenuName.trim()}
-                        className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
-                        Add to Menu →
-                      </Button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {menuItems.length === 0 ? (
-              <div className="text-center py-16 border-2 border-dashed rounded-3xl">
-                <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p>
-              </div>
-            ) : (
+            {/* ── CURRENT MENU ITEMS ── */}
+            {menuItems.length > 0 && (
               <div className="space-y-2">
                 {menuItems.map(item => (
                   <div key={item.id} className="bg-white rounded-2xl border-2 border-slate-200 p-4 flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-black text-slate-900">{item.name}</p>
-                        <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[8px]">
-                          Course {item.courseNumber}
-                        </Badge>
-                        {item.isVegan && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-black text-[8px]">Vegan</Badge>}
-                        {item.isGlutenFree && <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-black text-[8px]">GF</Badge>}
-                      </div>
-                      {item.description && <p className="text-[10px] text-slate-500 mt-0.5">{item.description}</p>}
-                      {item.supplies?.length > 0 && (
-                        <p className="text-[9px] text-primary font-bold uppercase tracking-widest mt-1">
-                          {item.supplies.length} supply item{item.supplies.length !== 1 ? 's' : ''} linked
-                        </p>
+                    <div className="flex items-start gap-3">
+                      {item.imageUrl && (
+                        <img src={item.imageUrl} alt={item.name} className="w-10 h-10 rounded-xl object-cover shrink-0 border border-slate-200" />
                       )}
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-black text-slate-900">{item.name}</p>
+                          <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[8px]">
+                            Course {item.courseNumber}
+                          </Badge>
+                          {item.isVegan && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-black text-[8px]">Vegan</Badge>}
+                          {item.isGlutenFree && <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-black text-[8px]">GF</Badge>}
+                        </div>
+                        {item.description && <p className="text-[10px] text-slate-500 mt-0.5">{item.description}</p>}
+                        {item.inventoryItemId && (
+                          <p className="text-[9px] text-primary font-bold uppercase tracking-widest mt-1">
+                            Linked to inventory · stock tracked
+                          </p>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <Badge className="bg-slate-50 text-slate-600 border-slate-200 font-black text-[9px]">
                         {guests.filter(g => g.mealChoiceId === item.id || Object.values(g.courseSelections || {}).includes(item.id)).length} selected
                       </Badge>
+                      <button
+                        onClick={async () => {
+                          if (!firestore || !tenantId) return;
+                          await deleteDoc(doc(firestore, `tenants/${tenantId}/eventMenuItems`, item.id));
+                          toast({ title: `${item.name} removed` });
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* ── ADD MENU ITEM PANEL ── */}
+            <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
+
+              {/* Header — always visible */}
+              <button
+                onClick={() => setIsAddingMenu(!isAddingMenu)}
+                className="w-full p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div className="flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-primary" />
+                  <span className="font-black uppercase text-sm tracking-tight text-slate-900">Add Menu Item</span>
+                  {menuItems.length === 0 && (
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">— start here</span>
+                  )}
+                </div>
+                {isAddingMenu
+                  ? <ChevronUp className="w-4 h-4 text-slate-400" />
+                  : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
+
+              <AnimatePresence>
+                {isAddingMenu && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden border-t border-slate-100">
+
+                    {/* ── PATH 1: FROM YOUR REFRESHMENTS ── */}
+                    {(() => {
+                      const refreshments = (inventory || []).filter(
+                        (i: any) => i.type === 'refreshment' || i.showInConcierge
+                      );
+                      const alreadyAdded = new Set(menuItems.map((m: any) => m.inventoryItemId).filter(Boolean));
+                      const available = refreshments.filter((r: any) => !alreadyAdded.has(r.id));
+
+                      return available.length > 0 ? (
+                        <div className="p-5 space-y-3">
+                          <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                              From Your Refreshments
+                            </p>
+                            <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                              Tap any item to add it to the menu instantly. Stock will be tracked automatically.
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {available.map((inv: any) => (
+                              <button
+                                key={inv.id}
+                                onClick={async () => {
+                                  if (!firestore || !tenantId) return;
+                                  const id = nanoid();
+                                  const batch = writeBatch(firestore);
+                                  const menuItem = {
+                                    id, eventId, tenantId,
+                                    name: inv.name,
+                                    description: inv.description || null,
+                                    category: inv.category || 'other',
+                                    courseNumber: newMenuCourse,
+                                    isVegan: inv.isVegan || false,
+                                    isGlutenFree: inv.isGlutenFree || false,
+                                    inventoryItemId: inv.id,
+                                    portionSize: 1,
+                                    pricePerGuest: inv.price || inv.msrp || 0,
+                                    imageUrl: inv.imageUrl || null,
+                                    supplies: [{ inventoryId: inv.id, qty: 1 }],
+                                  };
+                                  batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
+                                  const eventRef = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
+                                  const eventSnap = await getDoc(eventRef);
+                                  const existingItems = eventSnap.data()?.menuItems || [];
+                                  const updatedItems = [...existingItems, menuItem];
+                                  const courseMap = new Map<number, any[]>();
+                                  updatedItems.forEach((item: any) => {
+                                    const n = item.courseNumber || 1;
+                                    if (!courseMap.has(n)) courseMap.set(n, []);
+                                    courseMap.get(n)!.push({ id: item.id, name: item.name, description: item.description, imageUrl: item.imageUrl });
+                                  });
+                                  const existingCourses = eventSnap.data()?.courses || [];
+                                  const updatedCourses = Array.from(courseMap.entries()).sort(([a], [b]) => a - b).map(([num, options]) => {
+                                    const existing = existingCourses.find((c: any) => c.courseNumber === num);
+                                    return {
+                                      id: existing?.id || `course-${num}`,
+                                      courseNumber: num,
+                                      name: existing?.name || (num === 1 ? 'Starters' : num === 2 ? 'Mains' : num === 3 ? 'Desserts' : `Course ${num}`),
+                                      note: existing?.note || null,
+                                      options,
+                                    };
+                                  });
+                                  batch.update(eventRef, { menuItems: updatedItems, courses: updatedCourses });
+                                  await batch.commit();
+                                  toast({ title: `${inv.name} added to menu` });
+                                }}
+                                className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-primary/40 hover:bg-primary/5 transition-all text-left group"
+                              >
+                                {inv.imageUrl ? (
+                                  <img src={inv.imageUrl} alt={inv.name} className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200" />
+                                ) : (
+                                  <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                                    <Utensils className="w-4 h-4 text-slate-400" />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-black text-sm text-slate-900 truncate">{inv.name}</p>
+                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                                    {inv.totalStock !== undefined ? `${inv.totalStock} in stock` : 'Stock not tracked'}
+                                    {inv.price ? ` · $${inv.price}` : ''}
+                                  </p>
+                                </div>
+                                <div className="w-7 h-7 rounded-full border-2 border-slate-200 group-hover:border-primary group-hover:bg-primary flex items-center justify-center transition-all shrink-0">
+                                  <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-colors" />
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Course picker for refreshments */}
+                          <div className="flex items-center gap-3 pt-1">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">Add to course:</p>
+                            <div className="flex gap-2">
+                              {[1, 2, 3].map(n => (
+                                <button key={n} onClick={() => setNewMenuCourse(n)}
+                                  className={cn('h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all',
+                                    newMenuCourse === n
+                                      ? 'border-primary bg-primary/10 text-primary'
+                                      : 'border-slate-200 text-slate-500 hover:border-slate-300')}>
+                                  {n === 1 ? 'Starter' : n === 2 ? 'Main' : 'Dessert'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Divider before custom */}
+                          <div className="flex items-center gap-3 pt-2">
+                            <div className="flex-1 h-px bg-slate-100" />
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-300">or</p>
+                            <div className="flex-1 h-px bg-slate-100" />
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+
+                    {/* ── PATH 2: CUSTOM ITEM FORM ── */}
+                    <div className="p-5 pt-0 space-y-4">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Custom Item</p>
+                        <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                          For dishes not in your inventory — e.g. a special prepared meal.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Item Name *</Label>
+                          <Input value={newMenuName} onChange={e => setNewMenuName(e.target.value)}
+                            placeholder="e.g. Pan-Seared Salmon" className="h-12 rounded-xl border-2" />
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Description (shown to guests)</Label>
+                          <Input value={newMenuDesc} onChange={e => setNewMenuDesc(e.target.value)}
+                            placeholder="e.g. With lemon butter and asparagus" className="h-12 rounded-xl border-2" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Course</Label>
+                          <Select value={String(newMenuCourse)} onValueChange={v => setNewMenuCourse(Number(v))}>
+                            <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="1">Starter</SelectItem>
+                              <SelectItem value="2">Main</SelectItem>
+                              <SelectItem value="3">Dessert</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Price per guest ($)</Label>
+                          <Input type="number" min="0" step="0.01" value={newMenuPrice}
+                            onChange={e => setNewMenuPrice(parseFloat(e.target.value) || 0)}
+                            className="h-12 rounded-xl border-2 font-bold text-center" />
+                        </div>
+                        <div className="flex items-center gap-4 sm:col-span-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={newMenuVegan} onChange={e => setNewMenuVegan(e.target.checked)} className="rounded" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Vegan</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={newMenuGF} onChange={e => setNewMenuGF(e.target.checked)} className="rounded" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Gluten-Free</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={() => {
+                            setIsAddingMenu(false);
+                            setNewMenuName(''); setNewMenuDesc('');
+                            setNewMenuCourse(1); setNewMenuPrice(0);
+                            setNewMenuVegan(false); setNewMenuGF(false);
+                            setMenuSupplies([]);
+                          }}
+                          variant="outline"
+                          className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
+                          Cancel
+                        </Button>
+                        <Button onClick={handleAddMenuItem} disabled={!newMenuName.trim()}
+                          className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                          Add Custom Item →
+                        </Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Empty state */}
+            {menuItems.length === 0 && !isAddingMenu && (
+              <div className="text-center py-10 border-2 border-dashed rounded-3xl">
+                <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+                <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p>
+                <p className="text-[9px] text-slate-300 font-bold uppercase tracking-widest mt-1">
+                  Click "Add Menu Item" above to get started
+                </p>
               </div>
             )}
           </TabsContent>
