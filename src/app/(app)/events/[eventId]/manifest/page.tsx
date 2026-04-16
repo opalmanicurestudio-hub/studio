@@ -65,7 +65,6 @@ const AllergyPill = ({ label, type = 'allergy', severity }: {
 };
 
 // ─── STAT CARD ────────────────────────────────────────────────────────────────
-// ─── ALLERGY SEVERITY (mirrors definition in guest order page) ───────────────
 type AllergySeverity = 'preference' | 'intolerance' | 'critical';
 
 const StatCard = ({ label, value, sub, color = 'slate' }: { label: string; value: string | number; sub?: string; color?: string }) => {
@@ -83,6 +82,9 @@ const StatCard = ({ label, value, sub, color = 'slate' }: { label: string; value
   );
 };
 
+// ─── SENTINEL for empty Select values (Radix throws on value="") ──────────────
+const NO_SELECTION = '__none__';
+
 export default function EventManifestPage() {
   const params = useParams();
   const router = useRouter();
@@ -94,11 +96,11 @@ export default function EventManifestPage() {
   const eventId = params.eventId as string;
 
   // ── Live data ──────────────────────────────────────────────────────────────
-  const [event, setEvent]       = useState<any>(null);
-  const [guests, setGuests]     = useState<any[]>([]);
+  const [event, setEvent]         = useState<any>(null);
+  const [guests, setGuests]       = useState<any[]>([]);
   const [menuItems, setMenuItems] = useState<any[]>([]);
-  const [fires, setFires]       = useState<any[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [fires, setFires]         = useState<any[]>([]);
+  const [loading, setLoading]     = useState(true);
 
   useEffect(() => {
     if (!firestore || !tenantId || !eventId) return;
@@ -124,50 +126,51 @@ export default function EventManifestPage() {
   }, [firestore, tenantId, eventId]);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  const [search, setSearch]             = useState('');
-  const [filterMeal, setFilterMeal]     = useState('all');
-  const [filterFlag, setFilterFlag]     = useState('all');
-  const [isFiring, setIsFiring]         = useState<number | null>(null);
-  const [showForecast, setShowForecast] = useState(true);
-  const [isActivating, setIsActivating] = useState(false);
+  const [search, setSearch]               = useState('');
+  const [filterMeal, setFilterMeal]       = useState('all');
+  const [filterFlag, setFilterFlag]       = useState('all');
+  const [isFiring, setIsFiring]           = useState<number | null>(null);
+  const [showForecast, setShowForecast]   = useState(true);
+  const [isActivating, setIsActivating]   = useState(false);
   const [isConfirmActivateOpen, setIsConfirmActivateOpen] = useState(false);
   const [activatingNow, setActivatingNow] = useState(false);
   const [undoWindowOpen, setUndoWindowOpen] = useState(false);
   const [undoCountdown, setUndoCountdown] = useState(120);
-  const [showLink, setShowLink]         = useState(false);
-  const [qrTables, setQrTables]         = useState('');
+  const [showLink, setShowLink]           = useState(false);
+  const [qrTables, setQrTables]           = useState('');
   const [qrSeatsPerTable, setQrSeatsPerTable] = useState('');
-  const [qrCodes, setQrCodes]           = useState<{ label: string; dataUrl: string }[]>([]);
-  const [activeTab, setActiveTab]       = useState('guests');
-  const [staffToAdd, setStaffToAdd]     = useState('');
+  const [qrCodes, setQrCodes]             = useState<{ label: string; dataUrl: string }[]>([]);
+  const [activeTab, setActiveTab]         = useState('guests');
+  const [staffToAdd, setStaffToAdd]       = useState('');
   const [mealOverrideGuest, setMealOverrideGuest] = useState<any>(null);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const [quickAddName, setQuickAddName] = useState('');
+  const [quickAddName, setQuickAddName]   = useState('');
   const [quickAddTable, setQuickAddTable] = useState('');
-  const [quickAddMeal, setQuickAddMeal] = useState('');
+  const [quickAddMeal, setQuickAddMeal]   = useState('');
   const [savingQuickAdd, setSavingQuickAdd] = useState(false);
   const [mealOverrideId, setMealOverrideId] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
 
   // Menu item form
-  const [isAddingMenu, setIsAddingMenu]         = useState(false);
-  const [newMenuName, setNewMenuName]           = useState('');
-  const [newMenuDesc, setNewMenuDesc]           = useState('');
-  const [newMenuCourse, setNewMenuCourse]       = useState(1);
-  const [newMenuCategory, setNewMenuCategory]   = useState('main');
-  const [newMenuVegan, setNewMenuVegan]         = useState(false);
-  const [newMenuGF, setNewMenuGF]               = useState(false);
-  const [menuSupplies, setMenuSupplies]         = useState<{ inventoryId: string; qty: number }[]>([]);
+  const [isAddingMenu, setIsAddingMenu]           = useState(false);
+  const [newMenuName, setNewMenuName]             = useState('');
+  const [newMenuDesc, setNewMenuDesc]             = useState('');
+  const [newMenuCourse, setNewMenuCourse]         = useState(1);
+  const [newMenuCategory, setNewMenuCategory]     = useState('main');
+  const [newMenuVegan, setNewMenuVegan]           = useState(false);
+  const [newMenuGF, setNewMenuGF]                 = useState(false);
+  // FIX: menuSupplies is now properly wired into the saved menu item
+  const [menuSupplies, setMenuSupplies]           = useState<{ inventoryId: string; qty: number }[]>([]);
   const [newMenuInventoryItemId, setNewMenuInventoryItemId] = useState('');
   const [newMenuPortionSize, setNewMenuPortionSize]         = useState(1);
   const [newMenuPrice, setNewMenuPrice]                     = useState(0);
 
   // Guest add/edit
-  const [isAddingGuest, setIsAddingGuest]       = useState(false);
-  const [editingGuest, setEditingGuest]         = useState<any>(null);
-  const [guestForm, setGuestForm]               = useState({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
-  const [clientSearch, setClientSearch]         = useState('');
-  const [savingGuest, setSavingGuest]           = useState(false);
+  const [isAddingGuest, setIsAddingGuest]   = useState(false);
+  const [editingGuest, setEditingGuest]     = useState<any>(null);
+  const [guestForm, setGuestForm]           = useState({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
+  const [clientSearch, setClientSearch]     = useState('');
+  const [savingGuest, setSavingGuest]       = useState(false);
 
   // ── Shareable link ────────────────────────────────────────────────────────
   const shareableLink = typeof window !== 'undefined'
@@ -179,9 +182,8 @@ export default function EventManifestPage() {
     toast({ title: 'Link Copied', description: 'Share this with your guests.' });
   };
 
-  // ── QR code generator — uses canvas to produce per-seat data URLs ──────────
+  // ── QR code generator ─────────────────────────────────────────────────────
   const generateQRDataUrl = async (url: string): Promise<string> => {
-    // Use a public QR API so we don't need a package
     return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
   };
 
@@ -205,7 +207,7 @@ export default function EventManifestPage() {
     if (!area) return;
     const win = window.open('', '_blank');
     if (!win) return;
-    win.document.write(`<html><head><title>Seat QR Codes — ${event?.title}</title>
+    win.document.write(`<html><head><title>Seat QR Codes — ${event?.title || event?.name}</title>
       <style>body{font-family:sans-serif;} .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px;}
       .card{border:1px solid #ddd;border-radius:8px;padding:12px;text-align:center;}
       img{width:80px;height:80px;} p{font-size:10px;font-weight:900;text-transform:uppercase;margin-top:4px;}
@@ -243,10 +245,8 @@ export default function EventManifestPage() {
     const supplyNeeds: Record<string, { name: string; needed: number; inStock: number; unit: string; status: 'ok' | 'low' | 'critical' }> = {};
 
     guests.forEach(guest => {
-      // Single-course events
       const mealItem = menuItems.find(m => m.id === guest.mealChoiceId);
       const items = mealItem ? [mealItem] : [];
-      // Multi-course events
       if (guest.courseSelections) {
         Object.values(guest.courseSelections).forEach((mId: any) => {
           const item = menuItems.find(m => m.id === mId);
@@ -272,7 +272,7 @@ export default function EventManifestPage() {
     });
   }, [guests, menuItems, inventory]);
 
-  // ── Cross-contamination warnings ────────────────────────────────────────────
+  // ── Cross-contamination warnings ──────────────────────────────────────────
   const crossContaminationWarnings = useMemo(() => {
     const warnings: { table: string; guests: string[]; reason: string }[] = [];
     const byTable: Record<string, any[]> = {};
@@ -388,7 +388,7 @@ export default function EventManifestPage() {
         const kdsId = nanoid();
         batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), {
           id: kdsId, source: 'event', eventId,
-          eventTitle: event?.title || '', courseFireId: fireId, courseNumber,
+          eventTitle: event?.title || event?.name || '', courseFireId: fireId, courseNumber,
           guestId: guest.id, guestName: guest.name,
           seatNumber: guest.seatNumber || null, tableNumber: guest.tableNumber || null,
           menuItemId, menuItemName: menuItem?.name || 'Item',
@@ -416,21 +416,12 @@ export default function EventManifestPage() {
         batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), {
           id: nanoid(), productId: invId, productName: inv.name,
           date: now, change: -qty, unit: inv.unit || 'units',
-          reason: `Event: ${event?.title} — Course ${courseNumber} fired`,
+          reason: `Event: ${event?.title || event?.name} — Course ${courseNumber} fired`,
           source: 'event_course_fire', eventId,
         });
       });
 
-      const BATCH_LIMIT = 400;
-      let opCount = 1;
-      let currentBatch = batch;
-      const allBatches = [currentBatch];
-
-      if (guestsForCourse.length + Object.keys(deductionMap).length * 2 > BATCH_LIMIT) {
-        toast({ title: `Large event detected`, description: `Processing ${guestsForCourse.length} guests in chunks…` });
-      }
-
-      await Promise.all(allBatches.map(b => b.commit()));
+      await batch.commit();
       const warnMsg = notCheckedIn > 0
         ? `${guestsForCourse.length} tickets sent. ${notCheckedIn} pre-order${notCheckedIn !== 1 ? 's' : ''} not yet checked in.`
         : `${guestsForCourse.length} tickets sent to kitchen. Inventory updated.`;
@@ -466,6 +457,7 @@ export default function EventManifestPage() {
       if (editingGuest) {
         await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, editingGuest.id), {
           ...guestForm,
+          mealChoiceId: guestForm.mealChoiceId || null,
           mealChoiceName: mealItem?.name || null,
           updatedAt: new Date().toISOString(),
         });
@@ -474,6 +466,7 @@ export default function EventManifestPage() {
         const id = nanoid();
         await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
           id, eventId, tenantId, ...guestForm,
+          mealChoiceId: guestForm.mealChoiceId || null,
           mealChoiceName: mealItem?.name || null,
           allergies: [], dietaryRestrictions: [],
           checkedIn: false, source: 'manual',
@@ -499,7 +492,7 @@ export default function EventManifestPage() {
     await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
       id, eventId, tenantId,
       name: client.name, email: client.email || '', phone: client.phone || '',
-      tableNumber: '', seatNumber: '', mealChoiceId: '', mealChoiceName: null,
+      tableNumber: '', seatNumber: '', mealChoiceId: null, mealChoiceName: null,
       allergies: [], dietaryRestrictions: [],
       checkedIn: false, source: 'client_import', clientId: client.id,
       submittedAt: new Date().toISOString(),
@@ -516,10 +509,11 @@ export default function EventManifestPage() {
       ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId)
       : null;
 
+    // FIX: supplies is now included in the saved menu item
     const menuItem = {
       id, eventId, tenantId,
-      name: newMenuName.trim() || linkedRefreshment?.name || '',
-      description: newMenuDesc.trim() || linkedRefreshment?.description || null,
+      name: newMenuName.trim() || (linkedRefreshment as any)?.name || '',
+      description: newMenuDesc.trim() || (linkedRefreshment as any)?.description || null,
       category: newMenuCategory,
       courseNumber: newMenuCourse,
       isVegan: newMenuVegan,
@@ -527,7 +521,8 @@ export default function EventManifestPage() {
       inventoryItemId: newMenuInventoryItemId || null,
       portionSize: newMenuPortionSize || 1,
       pricePerGuest: newMenuPrice || 0,
-      imageUrl: linkedRefreshment?.imageUrl || null,
+      imageUrl: (linkedRefreshment as any)?.imageUrl || null,
+      supplies: menuSupplies.filter(s => s.inventoryId && s.qty > 0),
     };
 
     batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
@@ -563,11 +558,14 @@ export default function EventManifestPage() {
     });
 
     await batch.commit();
+
+    // Reset form
     setNewMenuName('');
     setNewMenuDesc('');
     setNewMenuInventoryItemId('');
     setNewMenuPortionSize(1);
     setNewMenuPrice(0);
+    setMenuSupplies([]);
     setIsAddingMenu(false);
     toast({ title: 'Menu item added' });
   };
@@ -600,9 +598,10 @@ export default function EventManifestPage() {
   const handleMealOverride = async () => {
     if (!mealOverrideGuest || !firestore || !tenantId) return;
     setSavingOverride(true);
-    const mealItem = menuItems.find(m => m.id === mealOverrideId);
+    const resolvedId = mealOverrideId === NO_SELECTION ? null : mealOverrideId;
+    const mealItem = menuItems.find(m => m.id === resolvedId);
     await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, mealOverrideGuest.id), {
-      mealChoiceId: mealOverrideId || null,
+      mealChoiceId: resolvedId,
       mealChoiceName: mealItem?.name || null,
       mealOverriddenAt: new Date().toISOString(),
       mealOverriddenBy: 'staff',
@@ -652,7 +651,7 @@ export default function EventManifestPage() {
           return prev - 1;
         });
       }, 1000);
-      toast({ title: '🟢 Event is now live', description: 'Kiosk has switched to event mode. Guests scanning in will see floor service only.' });
+      toast({ title: '🟢 Event is now live', description: 'Kiosk has switched to event mode.' });
     } catch (e) {
       toast({ variant: 'destructive', title: 'Activation failed' });
     } finally {
@@ -687,7 +686,7 @@ export default function EventManifestPage() {
         g.name, g.email || '', g.phone || '',
         g.tableNumber || '', g.seatNumber || '',
         g.mealChoiceName || '',
-        (g.allergies || []).join('; '),
+        (g.allergies || []).map((a: any) => typeof a === 'object' ? a.label : a).join('; '),
         (g.dietaryRestrictions || []).join('; '),
         g.notes || '',
         g.checkedIn ? 'Yes' : 'No',
@@ -697,25 +696,27 @@ export default function EventManifestPage() {
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${event?.title || 'event'}-manifest.csv`;
+    a.download = `${event?.title || event?.name || 'event'}-manifest.csv`;
     a.click();
   };
 
   if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin w-8 h-8 text-slate-400" /></div>;
   if (!event) return <div className="flex h-screen items-center justify-center text-slate-400 font-bold">Event not found</div>;
 
+  // FIX: derive display name from either title or name field
+  const eventDisplayName = event.title || event.name || 'Untitled Event';
   const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
   const firedCourses = new Set(fires.filter(f => f.status === 'fired').map(f => f.courseNumber));
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
-      <AppHeader title={`${event.title} — Manifest`} />
+      <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
 
         {/* ── HEADER ── */}
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{event.title}</h1>
+            <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{eventDisplayName}</h1>
             {event.date && <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), "EEEE, MMMM d, yyyy")}</p>}
             {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
           </div>
@@ -844,7 +845,7 @@ export default function EventManifestPage() {
             </DialogHeader>
             <div className="p-6 space-y-4">
               <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 space-y-2">
-                <p className="font-black text-emerald-800">{event?.name}</p>
+                <p className="font-black text-emerald-800">{eventDisplayName}</p>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
                   {stats.checkedIn} of {stats.total} guests checked in
                 </p>
@@ -901,34 +902,21 @@ export default function EventManifestPage() {
               </div>
               <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
                 Guests open this link to submit meal choices and flag allergies before the event.
-                You can append ?table=3&seat=A1 to pre-fill their seat.
               </p>
               <div className="mt-4 space-y-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Generate Per-Seat QR Codes</p>
                 <div className="flex items-center gap-3">
-                  <Input
-                    placeholder="Tables (e.g. 1,2,3)"
-                    value={qrTables}
-                    onChange={e => setQrTables(e.target.value)}
-                    className="h-10 rounded-xl border-2 flex-1"
-                  />
-                  <Input
-                    placeholder="Seats per table (e.g. 4)"
-                    value={qrSeatsPerTable}
-                    onChange={e => setQrSeatsPerTable(e.target.value)}
-                    className="h-10 rounded-xl border-2 w-48"
-                  />
-                  <Button onClick={handleGenerateQRs}
-                    className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shrink-0">
+                  <Input placeholder="Tables (e.g. 1,2,3)" value={qrTables} onChange={e => setQrTables(e.target.value)} className="h-10 rounded-xl border-2 flex-1" />
+                  <Input placeholder="Seats per table (e.g. 4)" value={qrSeatsPerTable} onChange={e => setQrSeatsPerTable(e.target.value)} className="h-10 rounded-xl border-2 w-48" />
+                  <Button onClick={handleGenerateQRs} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shrink-0">
                     <QrCode className="w-4 h-4" /> Generate
                   </Button>
                 </div>
                 {qrCodes.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{qrCodes.length} QR codes — right-click to save each</p>
-                      <Button onClick={handlePrintQRs} variant="outline"
-                        className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{qrCodes.length} QR codes</p>
+                      <Button onClick={handlePrintQRs} variant="outline" className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1">
                         <Printer className="w-3 h-3" /> Print All
                       </Button>
                     </div>
@@ -974,9 +962,6 @@ export default function EventManifestPage() {
                 </div>
               ))}
             </div>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-red-500">
-              Notify kitchen and consider separate plating or table reassignment
-            </p>
           </div>
         )}
 
@@ -1032,9 +1017,6 @@ export default function EventManifestPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="px-5 pb-4 text-[9px] text-slate-400 font-bold uppercase tracking-widest">
-                    Based on {stats.total} RSVPs. Updates live as guests submit orders. Deducted automatically when course fires.
-                  </p>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1048,9 +1030,6 @@ export default function EventManifestPage() {
               <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
                 <Utensils className="w-4 h-4 text-primary" /> Course Firing
               </h2>
-              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-0.5">
-                Pushes all orders to KDS simultaneously and deducts inventory
-              </p>
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
@@ -1081,7 +1060,7 @@ export default function EventManifestPage() {
           </div>
         )}
 
-        {/* ── MAIN TABS: Guests / Menu ── */}
+        {/* ── MAIN TABS ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="h-11 rounded-2xl border-2 bg-slate-100 p-1 gap-1">
             <TabsTrigger value="guests" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">
@@ -1098,7 +1077,11 @@ export default function EventManifestPage() {
           {/* ── GUESTS TAB ── */}
           <TabsContent value="guests" className="mt-4 space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
-              <Button onClick={() => { setIsAddingGuest(true); setEditingGuest(null); setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' }); }}
+              <Button onClick={() => {
+                setIsAddingGuest(true);
+                setEditingGuest(null);
+                setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
+              }}
                 className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
                 <UserPlus className="w-4 h-4" /> Add Guest
               </Button>
@@ -1107,6 +1090,7 @@ export default function EventManifestPage() {
                 <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search guests…"
                   className="pl-8 h-10 w-48 rounded-xl border-2 text-xs font-bold" />
               </div>
+              {/* FIX: use NO_SELECTION sentinel instead of value="" */}
               <Select value={filterMeal} onValueChange={setFilterMeal}>
                 <SelectTrigger className="h-10 w-36 rounded-xl border-2 font-bold uppercase text-[10px]">
                   <SelectValue placeholder="All meals" />
@@ -1139,10 +1123,8 @@ export default function EventManifestPage() {
                         {editingGuest ? 'Edit Guest' : 'Add Guest'}
                       </h3>
                       {!editingGuest && (
-                        <div className="flex items-center gap-2">
-                          <Input value={clientSearch} onChange={e => setClientSearch(e.target.value)}
-                            placeholder="Import from client log…" className="h-9 w-52 rounded-xl border-2 text-xs font-bold" />
-                        </div>
+                        <Input value={clientSearch} onChange={e => setClientSearch(e.target.value)}
+                          placeholder="Import from client log…" className="h-9 w-52 rounded-xl border-2 text-xs font-bold" />
                       )}
                     </div>
 
@@ -1179,10 +1161,13 @@ export default function EventManifestPage() {
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
-                        <Select value={guestForm.mealChoiceId} onValueChange={v => setGuestForm(p => ({ ...p, mealChoiceId: v }))}>
+                        {/* FIX: use NO_SELECTION sentinel to avoid Radix crash on value="" */}
+                        <Select
+                          value={guestForm.mealChoiceId || NO_SELECTION}
+                          onValueChange={v => setGuestForm(p => ({ ...p, mealChoiceId: v === NO_SELECTION ? '' : v }))}>
                           <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="Select meal…" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">No selection</SelectItem>
+                            <SelectItem value={NO_SELECTION}>No selection</SelectItem>
                             {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
@@ -1251,7 +1236,11 @@ export default function EventManifestPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-1">
-                            {(guest.allergies || []).map((a: string) => <AllergyPill key={a} label={a} type="allergy" />)}
+                            {(guest.allergies || []).map((a: any, i: number) => {
+                              const label = typeof a === 'object' ? a.label : a;
+                              const severity = typeof a === 'object' ? a.severity : undefined;
+                              return <AllergyPill key={i} label={label} type="allergy" severity={severity} />;
+                            })}
                             {(guest.dietaryRestrictions || []).map((d: string) => <AllergyPill key={d} label={d} type="dietary" />)}
                           </div>
                         </td>
@@ -1272,7 +1261,11 @@ export default function EventManifestPage() {
                               className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors">
                               <Utensils className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => { setEditingGuest(guest); setIsAddingGuest(false); setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' }); }}
+                            <button onClick={() => {
+                              setEditingGuest(guest);
+                              setIsAddingGuest(false);
+                              setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' });
+                            }}
                               className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -1360,13 +1353,11 @@ export default function EventManifestPage() {
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">
                           Link to Inventory Item (Refreshment)
                         </Label>
-                        <p className="text-[9px] text-slate-400 font-bold">
-                          The meal choice IS the inventory item. Selecting it auto-fills the name and
-                          enables stock tracking when guests RSVP and courses fire.
-                        </p>
-                        <Select value={newMenuInventoryItemId} onValueChange={v => {
-                          setNewMenuInventoryItemId(v);
-                          const item = (inventory || []).find((i: any) => i.id === v);
+                        {/* FIX: use NO_SELECTION sentinel */}
+                        <Select value={newMenuInventoryItemId || NO_SELECTION} onValueChange={v => {
+                          const val = v === NO_SELECTION ? '' : v;
+                          setNewMenuInventoryItemId(val);
+                          const item = (inventory || []).find((i: any) => i.id === val);
                           if (item && !newMenuName.trim()) setNewMenuName((item as any).name || '');
                           if (item && !newMenuDesc.trim()) setNewMenuDesc((item as any).description || '');
                           if (item) setNewMenuPrice((item as any).price || (item as any).msrp || 0);
@@ -1375,7 +1366,7 @@ export default function EventManifestPage() {
                             <SelectValue placeholder="Select from refreshment inventory…" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">None / custom item</SelectItem>
+                            <SelectItem value={NO_SELECTION}>None / custom item</SelectItem>
                             {(inventory || [])
                               .filter((i: any) => i.type === 'refreshment' || i.showInConcierge)
                               .map((inv: any) => (
@@ -1402,7 +1393,7 @@ export default function EventManifestPage() {
                       </div>
                     </div>
                     <div className="flex gap-3">
-                      <Button onClick={() => setIsAddingMenu(false)} variant="outline"
+                      <Button onClick={() => { setIsAddingMenu(false); setMenuSupplies([]); }} variant="outline"
                         className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
                       <Button onClick={handleAddMenuItem} disabled={!newMenuName.trim()}
                         className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
@@ -1418,7 +1409,6 @@ export default function EventManifestPage() {
               <div className="text-center py-16 border-2 border-dashed rounded-3xl">
                 <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" />
                 <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p>
-                <p className="text-[9px] text-slate-300 font-bold uppercase tracking-widest mt-1">Add items above — they'll appear on the guest order page automatically</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -1489,11 +1479,13 @@ export default function EventManifestPage() {
                 <div className="pt-2 space-y-2">
                   <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Add Staff Member</Label>
                   <div className="flex gap-2">
-                    <Select value={staffToAdd} onValueChange={setStaffToAdd}>
+                    {/* FIX: use NO_SELECTION sentinel */}
+                    <Select value={staffToAdd || NO_SELECTION} onValueChange={v => setStaffToAdd(v === NO_SELECTION ? '' : v)}>
                       <SelectTrigger className="flex-1 h-11 rounded-xl border-2 font-bold text-sm">
                         <SelectValue placeholder="Select staff member…" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value={NO_SELECTION}>Select staff member…</SelectItem>
                         {(staffFromContext || [])
                           .filter((s: any) => !(event?.assignedStaffIds || []).includes(s.id))
                           .map((s: any) => (
@@ -1501,7 +1493,7 @@ export default function EventManifestPage() {
                           ))}
                       </SelectContent>
                     </Select>
-                    <Button onClick={handleAddStaff} disabled={!staffToAdd}
+                    <Button onClick={handleAddStaff} disabled={!staffToAdd || staffToAdd === NO_SELECTION}
                       className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
                       <Plus className="w-4 h-4" /> Assign
                     </Button>
@@ -1510,7 +1502,6 @@ export default function EventManifestPage() {
               </div>
             </div>
           </TabsContent>
-
         </Tabs>
       </main>
 
@@ -1544,7 +1535,6 @@ export default function EventManifestPage() {
               <div className="p-5 border-b border-slate-100">
                 <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Walk-in Quick Add</p>
                 <p className="font-black text-lg text-slate-900 mt-0.5">Add Guest — They're Here Now</p>
-                <p className="text-[10px] text-slate-400 font-bold mt-0.5">Checked in automatically</p>
               </div>
               <div className="p-5 space-y-3">
                 <div className="space-y-1.5">
@@ -1560,12 +1550,13 @@ export default function EventManifestPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
-                    <Select value={quickAddMeal} onValueChange={setQuickAddMeal}>
+                    {/* FIX: use NO_SELECTION sentinel */}
+                    <Select value={quickAddMeal || NO_SELECTION} onValueChange={v => setQuickAddMeal(v === NO_SELECTION ? '' : v)}>
                       <SelectTrigger className="h-12 rounded-xl border-2 font-bold text-sm">
                         <SelectValue placeholder="Select…" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No selection</SelectItem>
+                        <SelectItem value={NO_SELECTION}>No selection</SelectItem>
                         {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -1574,9 +1565,7 @@ export default function EventManifestPage() {
               </div>
               <div className="p-4 flex gap-3 border-t border-slate-100">
                 <Button variant="outline" onClick={() => setIsQuickAddOpen(false)}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-                  Cancel
-                </Button>
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
                 <Button onClick={handleQuickAdd} disabled={savingQuickAdd || !quickAddName.trim()}
                   className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 gap-2">
                   {savingQuickAdd ? <Loader className="w-4 h-4 animate-spin" /> : <><UserPlus className="w-4 h-4" /> Add & Check In</>}
