@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Users, AlertTriangle, Leaf, Download, Play, CheckCircle2, Loader, QrCode, Printer, BarChart2,
-  Search, Plus, Utensils, Link2, Copy, QrCode, UserPlus, Pencil,
+  Search, Plus, Utensils, Link2, Copy, UserPlus, Pencil,
   Trash2, PackageCheck, PackageX, ChevronDown, ChevronUp, X,
   UserCheck, Box, Check,
 } from 'lucide-react';
