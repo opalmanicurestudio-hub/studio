@@ -350,13 +350,7 @@ export default function EventManifestPage() {
       const unfiredPrev = prevNums.filter(n => !firedCourses.has(n));
       if (unfiredPrev.length > 0) {
         const ok = window.confirm(
-          'Course ' + unfiredPrev.join(', ') + ' has not been fired yet.
-
-' +
-          'Firing Course ' + courseNumber + ' out of sequence may confuse the kitchen.
-
-' +
-          'Continue anyway?'
+          `Course ${unfiredPrev.join(', ')} has not been fired yet. Firing Course ${courseNumber} out of sequence may confuse the kitchen. Continue anyway?`
         );
         if (!ok) return;
       }
