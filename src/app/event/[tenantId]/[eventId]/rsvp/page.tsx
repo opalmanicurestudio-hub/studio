@@ -443,10 +443,10 @@ export default function EventGuestOrderPage() {
             </div>
           )}
           <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{eventDisplayName}</h1>
-          {/* FIX: use event.date (plain date string) + event.time separately — avoids format crash */}
+          {/* FIX: use safeDate instead of parseISO — handles Timestamps, plain strings, and numbers */}
           {event.date && (
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-              {format(parseISO(event.date), 'EEEE, MMMM d')}
+              {format(safeDate(event.date), 'EEEE, MMMM d')}
               {event.time && ` · ${event.time}`}
             </p>
           )}
@@ -833,7 +833,6 @@ export default function EventGuestOrderPage() {
                       {menuItems.find(m => m.id === selectedMealId)?.name}
                     </p>
                   )}
-                  {/* FIX: selectedAllergies is now typed objects, not strings — safe to map */}
                   {selectedAllergies.length > 0 && (
                     <p className="text-xs text-amber-600 font-bold">
                       ⚠ {selectedAllergies.map(a => a.label).join(', ')}
