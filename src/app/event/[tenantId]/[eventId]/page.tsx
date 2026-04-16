@@ -108,7 +108,7 @@ const MealOptionCard = ({ option, selected, onSelect }: { option: any; selected:
 );
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
-type Step = 'identity' | 'meal' | 'allergies' | 'confirm' | 'done';
+type Step = 'pin' | 'identity' | 'meal' | 'allergies' | 'confirm' | 'done';
 
 export default function EventGuestOrderPage() {
   const params = useParams();
@@ -127,7 +127,9 @@ export default function EventGuestOrderPage() {
   const { data: tenant } = useDoc<any>(tenantRef);
 
   // ── Form state ──
-  const [step, setStep]                 = useState<Step>('identity');
+  const [step, setStep]                 = useState<Step>('pin');
+  const [pinEntry, setPinEntry]         = useState('');
+  const [pinError, setPinError]         = useState(false);
   const [guestName, setGuestName]       = useState('');
   const [guestEmail, setGuestEmail]     = useState('');
   const [guestPhone, setGuestPhone]     = useState('');
@@ -147,8 +149,25 @@ export default function EventGuestOrderPage() {
   const isEventOpen = useMemo(() => {
     if (!event) return false;
     if (event.orderingDeadline) return new Date() < safeDate(event.orderingDeadline);
-    return event.status === 'open' || event.status === 'published';
+    return event.status === 'open' || event.status === 'published' || event.status === 'upcoming' || event.status === 'active';
   }, [event]);
+
+  const requiresPin = !!(event?.accessPin);
+
+  // Auto-skip PIN step if no PIN set
+  useEffect(() => {
+    if (event && step === 'pin' && !requiresPin) setStep('identity');
+  }, [event, requiresPin, step]);
+
+  const handlePinSubmit = () => {
+    if (pinEntry === event?.accessPin) {
+      setPinError(false);
+      setStep('identity');
+    } else {
+      setPinError(true);
+      setPinEntry('');
+    }
+  };
 
   // ── Courses (multi-course events have per-course choices) ──────────────────
   const courses = useMemo(() => event?.courses || [], [event]);
@@ -276,7 +295,24 @@ export default function EventGuestOrderPage() {
             )}
             <p className="text-[9px] text-slate-400">Table {existingOrder.tableNumber}{existingOrder.seatNumber ? ` · Seat ${existingOrder.seatNumber}` : ''}</p>
           </div>
-          <p className="text-xs text-slate-400">Need to make changes? Contact your host.</p>
+          <div className="space-y-2">
+            <p className="text-xs text-slate-400">Need to make changes? Contact your host.</p>
+            <button
+              onClick={async () => {
+                if (!firestore || !existingOrder) return;
+                const confirmed = window.confirm('Cancel your order for this event? This cannot be undone.');
+                if (!confirmed) return;
+                const { deleteDoc, doc: _doc } = await import('firebase/firestore');
+                await deleteDoc(_doc(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`, existingOrder.id));
+                setAlreadyOrdered(false);
+                setExistingOrder(null);
+                toast({ title: 'Order cancelled', description: 'Your pre-order has been removed.' });
+              }}
+              className="text-xs text-red-400 font-bold hover:text-red-600 transition-colors underline"
+            >
+              Cancel my order
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -320,6 +356,42 @@ export default function EventGuestOrderPage() {
           </div>
 
           <AnimatePresence mode="wait">
+
+            {/* ── PIN GATE ── */}
+            {step === 'pin' && requiresPin && (
+              <motion.div key="pin" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="p-6 space-y-6">
+                <div className="space-y-1 text-center">
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Private Event</p>
+                  <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Enter Access PIN</h2>
+                  <p className="text-sm text-slate-500">This event requires a PIN to access the order form.</p>
+                </div>
+                <div className="space-y-3">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={pinEntry}
+                    onChange={e => { setPinEntry(e.target.value.replace(/\D/g, '')); setPinError(false); }}
+                    onKeyDown={e => e.key === 'Enter' && handlePinSubmit()}
+                    placeholder="Enter PIN"
+                    className={cn(
+                      'w-full h-14 rounded-2xl border-2 px-4 text-center text-2xl font-black tracking-[0.5em] outline-none transition-all',
+                      pinError ? 'border-red-400 bg-red-50 text-red-800' : 'border-slate-200 focus:border-slate-400'
+                    )}
+                    autoFocus
+                  />
+                  {pinError && (
+                    <p className="text-center text-sm font-bold text-red-500">Incorrect PIN. Please try again.</p>
+                  )}
+                </div>
+                <button onClick={handlePinSubmit} disabled={!pinEntry} style={btnStyle}
+                  className={cn('w-full h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2',
+                    pinEntry ? (!btnStyle && 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  )}>
+                  Continue <ChevronRight className="w-4 h-4" />
+                </button>
+              </motion.div>
+            )}
 
             {/* ── STEP 1: Identity ── */}
             {step === 'identity' && (
