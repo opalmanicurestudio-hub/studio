@@ -3,35 +3,22 @@
 // Guest RSVP + meal preference submission
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useFirebase } from '@/firebase';
-import { doc, collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import {
+  doc, collection, query, where, getDocs, addDoc,
+  onSnapshot, deleteDoc,
+} from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2, ChevronRight, ChevronLeft, AlertTriangle,
-  Utensils, Loader, Leaf, Check, FileText, MapPin, User,
+  Utensils, Loader, Check, FileText, MapPin, User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
-
-// ─── FIREBASE HOOKS ───────────────────────────────────────────────────────────
-// Inline lightweight hooks so this page has no dependency on @/lib/event-types
-function useFirestoreDoc<T>(path: string | null) {
-  const { firestore } = useFirebase();
-  const [data, setData] = useState<T | null>(null);
-  useEffect(() => {
-    if (!firestore || !path) return;
-    const { onSnapshot, doc: _doc } = require('firebase/firestore');
-    const unsub = onSnapshot(_doc(firestore, path), (snap: any) => {
-      setData(snap.exists() ? ({ id: snap.id, ...snap.data() } as T) : null);
-    });
-    return unsub;
-  }, [firestore, path]);
-  return data;
-}
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const safeDate = (v: any): Date => {
@@ -55,24 +42,24 @@ type AllergyOption = {
 };
 
 const ALLERGY_OPTIONS: AllergyOption[] = [
-  { id: 'peanuts',    label: 'Peanuts',      emoji: '🥜', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'nuts',       label: 'Tree Nuts',    emoji: '🌰', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'shellfish',  label: 'Shellfish',    emoji: '🦐', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'fish',       label: 'Fish',         emoji: '🐟', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'eggs',       label: 'Eggs',         emoji: '🥚', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'gluten',     label: 'Gluten',       emoji: '🌾', severity: 'intolerance', hint: 'Celiac or intolerance' },
-  { id: 'dairy',      label: 'Dairy',        emoji: '🥛', severity: 'intolerance', hint: 'Lactose intolerance' },
-  { id: 'soy',        label: 'Soy',          emoji: '🫘', severity: 'intolerance', hint: 'Soy intolerance' },
-  { id: 'vegan',      label: 'Vegan',        emoji: '🌿', severity: 'preference' },
-  { id: 'vegetarian', label: 'Vegetarian',   emoji: '🥦', severity: 'preference' },
-  { id: 'kosher',     label: 'Kosher',       emoji: '✡️',  severity: 'preference' },
-  { id: 'halal',      label: 'Halal',        emoji: '☪️',  severity: 'preference' },
+  { id: 'peanuts',    label: 'Peanuts',    emoji: '🥜', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'nuts',       label: 'Tree Nuts',  emoji: '🌰', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'shellfish',  label: 'Shellfish',  emoji: '🦐', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'fish',       label: 'Fish',       emoji: '🐟', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'eggs',       label: 'Eggs',       emoji: '🥚', severity: 'critical',    hint: 'Anaphylaxis risk' },
+  { id: 'gluten',     label: 'Gluten',     emoji: '🌾', severity: 'intolerance', hint: 'Celiac or intolerance' },
+  { id: 'dairy',      label: 'Dairy',      emoji: '🥛', severity: 'intolerance', hint: 'Lactose intolerance' },
+  { id: 'soy',        label: 'Soy',        emoji: '🫘', severity: 'intolerance', hint: 'Soy intolerance' },
+  { id: 'vegan',      label: 'Vegan',      emoji: '🌿', severity: 'preference' },
+  { id: 'vegetarian', label: 'Vegetarian', emoji: '🥦', severity: 'preference' },
+  { id: 'kosher',     label: 'Kosher',     emoji: '✡️',  severity: 'preference' },
+  { id: 'halal',      label: 'Halal',      emoji: '☪️',  severity: 'preference' },
 ];
 
 const SEVERITY_CONFIG = {
-  critical:    { label: 'Critical Allergy',   bg: 'bg-red-50',    border: 'border-red-300',    text: 'text-red-800',    badge: 'bg-red-100 text-red-800 border-red-300' },
-  intolerance: { label: 'Intolerance',        bg: 'bg-amber-50',  border: 'border-amber-300',  text: 'text-amber-800',  badge: 'bg-amber-100 text-amber-800 border-amber-300' },
-  preference:  { label: 'Dietary Preference', bg: 'bg-slate-50',  border: 'border-slate-200',  text: 'text-slate-700',  badge: 'bg-slate-100 text-slate-700 border-slate-200' },
+  critical:    { label: 'Critical Allergy',   bg: 'bg-red-50',   border: 'border-red-300',   text: 'text-red-800',   badge: 'bg-red-100 text-red-800 border-red-300' },
+  intolerance: { label: 'Intolerance',        bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-800', badge: 'bg-amber-100 text-amber-800 border-amber-300' },
+  preference:  { label: 'Dietary Preference', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700', badge: 'bg-slate-100 text-slate-700 border-slate-200' },
 };
 
 // ─── STEP DOTS ────────────────────────────────────────────────────────────────
@@ -129,10 +116,17 @@ const MealOptionCard = ({ option, selected, onSelect }: { option: any; selected:
   </motion.button>
 );
 
-// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+// ─── LOADING FALLBACK ─────────────────────────────────────────────────────────
+const PageLoader = () => (
+  <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+    <Loader className="w-8 h-8 animate-spin text-slate-300" />
+  </div>
+);
+
+// ─── INNER PAGE (uses useSearchParams — must be inside Suspense) ──────────────
 type Step = 'pin' | 'identity' | 'meal' | 'allergies' | 'confirm' | 'done';
 
-export default function EventGuestOrderPage() {
+function EventGuestOrderPageInner() {
   const params = useParams();
   const searchParams = useSearchParams();
   const { firestore } = useFirebase();
@@ -145,51 +139,47 @@ export default function EventGuestOrderPage() {
   const prefillSeat  = searchParams.get('seat')  || '';
 
   // ── Live data via onSnapshot ──────────────────────────────────────────────
-  const [event, setEvent]   = useState<any>(null);
-  const [tenant, setTenant] = useState<any>(null);
+  const [event, setEvent]       = useState<any>(null);
+  const [tenant, setTenant]     = useState<any>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
     if (!firestore || !tenantId || !eventId) return;
-    const { onSnapshot, doc: _doc, collection: _col, query: _q, where: _w } = require('firebase/firestore');
 
     const unsubs: (() => void)[] = [];
 
-    unsubs.push(onSnapshot(_doc(firestore, `tenants/${tenantId}`), (snap: any) => {
+    unsubs.push(onSnapshot(doc(firestore, `tenants/${tenantId}`), (snap) => {
       setTenant(snap.exists() ? { id: snap.id, ...snap.data() } : null);
     }));
 
-    unsubs.push(onSnapshot(_doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), (snap: any) => {
+    unsubs.push(onSnapshot(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), (snap) => {
       setEvent(snap.exists() ? { id: snap.id, ...snap.data() } : null);
       setDataLoading(false);
     }));
 
     unsubs.push(onSnapshot(
-      _q(_col(firestore, `tenants/${tenantId}/eventMenuItems`), _w('eventId', '==', eventId)),
-      (snap: any) => setMenuItems(snap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
+      query(collection(firestore, `tenants/${tenantId}/eventMenuItems`), where('eventId', '==', eventId)),
+      (snap) => setMenuItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     ));
 
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, eventId]);
 
   // ── Form state ────────────────────────────────────────────────────────────
-  const [step, setStep]             = useState<Step>('pin');
-  const [pinEntry, setPinEntry]     = useState('');
-  const [pinError, setPinError]     = useState(false);
-  const [guestName, setGuestName]   = useState('');
-  const [guestEmail, setGuestEmail] = useState('');
-  const [guestPhone, setGuestPhone] = useState('');
+  const [step, setStep]               = useState<Step>('pin');
+  const [pinEntry, setPinEntry]       = useState('');
+  const [pinError, setPinError]       = useState(false);
+  const [guestName, setGuestName]     = useState('');
+  const [guestEmail, setGuestEmail]   = useState('');
+  const [guestPhone, setGuestPhone]   = useState('');
   const [tableNumber, setTableNumber] = useState(prefillTable);
   const [seatNumber, setSeatNumber]   = useState(prefillSeat);
 
-  // Single-course selection
   const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
-  // Multi-course: keyed by course.id
   const [selectedCourseSelections, setSelectedCourseSelections] = useState<Record<string, string>>({});
   const [currentCourseIdx, setCurrentCourseIdx] = useState(0);
 
-  // Allergies stored as objects with severity
   const [selectedAllergies, setSelectedAllergies] = useState<{ id: string; label: string; severity: AllergySeverity }[]>([]);
   const [allergyNote, setAllergyNote]   = useState('');
   const [guestNote, setGuestNote]       = useState('');
@@ -197,8 +187,8 @@ export default function EventGuestOrderPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError]   = useState('');
 
-  const [alreadyOrdered, setAlreadyOrdered]   = useState(false);
-  const [existingOrder, setExistingOrder]     = useState<any>(null);
+  const [alreadyOrdered, setAlreadyOrdered] = useState(false);
+  const [existingOrder, setExistingOrder]   = useState<any>(null);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const requiresPin = !!(event?.accessPin);
@@ -209,24 +199,8 @@ export default function EventGuestOrderPage() {
     return ['open', 'published', 'upcoming', 'active'].includes(event.status);
   }, [event]);
 
-  // Group menu items by courseNumber for multi-course display
-  const menuByCourseNumber = useMemo(() => {
-    const grouped: Record<number, any[]> = {};
-    menuItems.forEach(item => {
-      const n = item.courseNumber || 1;
-      if (!grouped[n]) grouped[n] = [];
-      grouped[n].push(item);
-    });
-    return grouped;
-  }, [menuItems]);
-
-  const courseNumbers = useMemo(() => Object.keys(menuByCourseNumber).map(Number).sort(), [menuByCourseNumber]);
-
-  // Multi-course uses event.courses structure; single-course uses menuItems directly
   const courses: any[] = useMemo(() => event?.courses || [], [event]);
   const hasCourses = courses.length > 0;
-
-  const courseLabels: Record<number, string> = { 1: 'Starter', 2: 'Main Course', 3: 'Dessert' };
 
   // ── Auto-skip PIN step ────────────────────────────────────────────────────
   useEffect(() => {
@@ -275,13 +249,11 @@ export default function EventGuestOrderPage() {
     setSubmitError('');
 
     try {
-      // Deadline re-check on submit
       if (event?.orderingDeadline && new Date() > safeDate(event.orderingDeadline)) {
         setSubmitError('Sorry — the order window for this event has closed.');
         return;
       }
 
-      // Determine primary meal choice
       let mealChoiceId: string | null = null;
       let mealChoiceName: string | null = null;
 
@@ -291,7 +263,6 @@ export default function EventGuestOrderPage() {
           setSubmitError(`Please select all courses: ${missing.map((c: any) => c.name).join(', ')}`);
           return;
         }
-        // Primary = first course selection
         const firstCourse = courses[0];
         mealChoiceId = selectedCourseSelections[firstCourse?.id] || null;
         const firstItem = mealChoiceId ? menuItems.find(m => m.id === mealChoiceId) : null;
@@ -319,9 +290,7 @@ export default function EventGuestOrderPage() {
         seatNumber: seatNumber.trim() || null,
         mealChoiceId,
         mealChoiceName,
-        // Multi-course: keyed by course.id
         courseSelections: hasCourses ? selectedCourseSelections : null,
-        // Allergies stored as objects with severity for cross-contamination detection
         allergies: selectedAllergies,
         allergyNote: allergyNote.trim() || null,
         hasCriticalAllergy,
@@ -342,11 +311,7 @@ export default function EventGuestOrderPage() {
   };
 
   // ── Loading / not found ───────────────────────────────────────────────────
-  if (dataLoading || !event || !tenant) return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-      <Loader className="w-8 h-8 animate-spin text-slate-300" />
-    </div>
-  );
+  if (dataLoading || !event || !tenant) return <PageLoader />;
 
   const eventDisplayName = event.title || event.name || 'Event';
   const logoUrl = tenant.kioskSettings?.logoUrl || tenant.bookingPageSettings?.logoUrl;
@@ -386,8 +351,7 @@ export default function EventGuestOrderPage() {
                 if (!firestore || !existingOrder) return;
                 const confirmed = window.confirm('Cancel your order for this event? This cannot be undone.');
                 if (!confirmed) return;
-                const { deleteDoc, doc: _doc } = await import('firebase/firestore');
-                await deleteDoc(_doc(firestore, `tenants/${tenantId}/eventGuests`, existingOrder.id));
+                await deleteDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, existingOrder.id));
                 setAlreadyOrdered(false);
                 setExistingOrder(null);
               }}
@@ -443,7 +407,6 @@ export default function EventGuestOrderPage() {
             </div>
           )}
           <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{eventDisplayName}</h1>
-          {/* FIX: use safeDate instead of parseISO — handles Timestamps, plain strings, and numbers */}
           {event.date && (
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
               {format(safeDate(event.date), 'EEEE, MMMM d')}
@@ -539,7 +502,7 @@ export default function EventGuestOrderPage() {
                 </div>
                 {submitError && <p className="text-red-500 text-sm font-bold">{submitError}</p>}
                 <button onClick={handleIdentityNext} style={btnStyle}
-                  className={cn('w-full h-13 py-4 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2', !btnStyle && 'bg-slate-900 text-white')}>
+                  className={cn('w-full py-4 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2', !btnStyle && 'bg-slate-900 text-white')}>
                   Continue <ChevronRight className="w-4 h-4" />
                 </button>
               </motion.div>
@@ -655,12 +618,11 @@ export default function EventGuestOrderPage() {
                           const selected = selectedAllergies.some(a => a.id === opt.id);
                           return (
                             <button key={opt.id}
-                              onClick={() => setSelectedAllergies(prev => {
-                                if (prev.some(a => a.id === opt.id)) {
-                                  return prev.filter(a => a.id !== opt.id);
-                                }
-                                return [...prev, { id: opt.id, label: opt.label, severity: opt.severity }];
-                              })}
+                              onClick={() => setSelectedAllergies(prev =>
+                                prev.some(a => a.id === opt.id)
+                                  ? prev.filter(a => a.id !== opt.id)
+                                  : [...prev, { id: opt.id, label: opt.label, severity: opt.severity }]
+                              )}
                               className={cn('flex items-center gap-2 p-3 rounded-xl border-2 text-left transition-all',
                                 selected ? cn(cfg.bg, cfg.border) : 'border-slate-200 hover:border-slate-300'
                               )}>
@@ -708,7 +670,6 @@ export default function EventGuestOrderPage() {
                 </div>
 
                 <div className="space-y-3">
-                  {/* Guest */}
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest</p>
                     <p className="font-black text-slate-900">{guestName}</p>
@@ -718,7 +679,6 @@ export default function EventGuestOrderPage() {
                     </p>
                   </div>
 
-                  {/* Single-course meal */}
                   {!hasCourses && selectedMealId && (
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal</p>
@@ -728,7 +688,6 @@ export default function EventGuestOrderPage() {
                     </div>
                   )}
 
-                  {/* Multi-course */}
                   {hasCourses && (
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Courses</p>
@@ -744,7 +703,6 @@ export default function EventGuestOrderPage() {
                     </div>
                   )}
 
-                  {/* Allergies */}
                   {(selectedAllergies.length > 0 || allergyNote) && (
                     <div className={cn('p-4 rounded-2xl border space-y-2',
                       selectedAllergies.some(a => a.severity === 'critical')
@@ -773,7 +731,6 @@ export default function EventGuestOrderPage() {
                     </div>
                   )}
 
-                  {/* Note */}
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
                       <FileText className="w-3 h-3" /> Note to host (optional)
@@ -784,7 +741,6 @@ export default function EventGuestOrderPage() {
                   </div>
                 </div>
 
-                {/* Consent */}
                 <label className="flex items-start gap-3 cursor-pointer">
                   <input type="checkbox" checked={consentGiven} onChange={e => setConsentGiven(e.target.checked)}
                     className="mt-1 w-4 h-4 rounded border-2 border-slate-300 cursor-pointer shrink-0" />
@@ -847,5 +803,14 @@ export default function EventGuestOrderPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── DEFAULT EXPORT — wraps inner page in Suspense for useSearchParams ────────
+export default function EventGuestOrderPage() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <EventGuestOrderPageInner />
+    </Suspense>
   );
 }
