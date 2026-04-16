@@ -1,9 +1,6 @@
-// app/event/[tenantId]/[eventId]/page.tsx
-// PUBLIC — no auth required
-// Guest RSVP + meal preference submission
 'use client';
 
-import React, { useState, useMemo, useEffect, Suspense } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useFirebase } from '@/firebase';
 import {
@@ -31,7 +28,8 @@ const safeDate = (v: any): Date => {
 };
 
 // ─── ALLERGY / DIETARY OPTIONS ────────────────────────────────────────────────
-export type AllergySeverity = 'preference' | 'intolerance' | 'critical';
+// Note: NOT exported — export type on a use client page confuses the Next.js bundler
+type AllergySeverity = 'preference' | 'intolerance' | 'critical';
 
 type AllergyOption = {
   id: string;
@@ -134,19 +132,17 @@ function EventGuestOrderPageInner() {
   const tenantId = params.tenantId as string;
   const eventId  = params.eventId  as string;
 
-  // Pre-fill from QR code URL params
   const prefillTable = searchParams.get('table') || '';
   const prefillSeat  = searchParams.get('seat')  || '';
 
-  // ── Live data via onSnapshot ──────────────────────────────────────────────
-  const [event, setEvent]       = useState<any>(null);
-  const [tenant, setTenant]     = useState<any>(null);
+  // ── Live data ─────────────────────────────────────────────────────────────
+  const [event, setEvent]         = useState<any>(null);
+  const [tenant, setTenant]       = useState<any>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
     if (!firestore || !tenantId || !eventId) return;
-
     const unsubs: (() => void)[] = [];
 
     unsubs.push(onSnapshot(doc(firestore, `tenants/${tenantId}`), (snap) => {
@@ -202,7 +198,7 @@ function EventGuestOrderPageInner() {
   const courses: any[] = useMemo(() => event?.courses || [], [event]);
   const hasCourses = courses.length > 0;
 
-  // ── Auto-skip PIN step ────────────────────────────────────────────────────
+  // ── Auto-skip PIN ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (event && step === 'pin' && !requiresPin) setStep('identity');
   }, [event, requiresPin, step]);
@@ -247,7 +243,6 @@ function EventGuestOrderPageInner() {
     if (isSubmitting || !firestore) return;
     setIsSubmitting(true);
     setSubmitError('');
-
     try {
       if (event?.orderingDeadline && new Date() > safeDate(event.orderingDeadline)) {
         setSubmitError('Sorry — the order window for this event has closed.');
@@ -268,19 +263,13 @@ function EventGuestOrderPageInner() {
         const firstItem = mealChoiceId ? menuItems.find(m => m.id === mealChoiceId) : null;
         mealChoiceName = firstItem?.name || null;
       } else {
-        if (!selectedMealId) {
-          setSubmitError('Please select your meal.');
-          return;
-        }
+        if (!selectedMealId) { setSubmitError('Please select your meal.'); return; }
         mealChoiceId = selectedMealId;
         mealChoiceName = menuItems.find(m => m.id === mealChoiceId)?.name || null;
       }
 
-      const guestId = nanoid();
-      const hasCriticalAllergy = selectedAllergies.some(a => a.severity === 'critical');
-
       await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
-        id: guestId,
+        id: nanoid(),
         eventId,
         tenantId,
         name: guestName.trim(),
@@ -293,7 +282,7 @@ function EventGuestOrderPageInner() {
         courseSelections: hasCourses ? selectedCourseSelections : null,
         allergies: selectedAllergies,
         allergyNote: allergyNote.trim() || null,
-        hasCriticalAllergy,
+        hasCriticalAllergy: selectedAllergies.some(a => a.severity === 'critical'),
         guestNote: guestNote.trim() || null,
         submittedAt: new Date().toISOString(),
         checkedIn: false,
@@ -310,7 +299,7 @@ function EventGuestOrderPageInner() {
     }
   };
 
-  // ── Loading / not found ───────────────────────────────────────────────────
+  // ── Loading ───────────────────────────────────────────────────────────────
   if (dataLoading || !event || !tenant) return <PageLoader />;
 
   const eventDisplayName = event.title || event.name || 'Event';
@@ -318,7 +307,7 @@ function EventGuestOrderPageInner() {
   const primaryColor = tenant.kioskSettings?.primaryColor || tenant.bookingPageSettings?.primaryColor;
   const btnStyle = primaryColor ? { backgroundColor: primaryColor, color: '#fff' } : undefined;
 
-  // ── Already ordered screen ────────────────────────────────────────────────
+  // ── Already ordered ───────────────────────────────────────────────────────
   if (alreadyOrdered && existingOrder) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -365,7 +354,7 @@ function EventGuestOrderPageInner() {
     );
   }
 
-  // ── Event closed screen ───────────────────────────────────────────────────
+  // ── Event closed ──────────────────────────────────────────────────────────
   if (!isEventOpen) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -389,7 +378,7 @@ function EventGuestOrderPageInner() {
     );
   }
 
-  // ── Step count helpers ────────────────────────────────────────────────────
+  // ── Step helpers ──────────────────────────────────────────────────────────
   const totalSteps = 4;
   const stepIndex: Record<Step, number> = {
     pin: 0, identity: 0, meal: 1, allergies: 2, confirm: 3, done: 4,
@@ -435,10 +424,7 @@ function EventGuestOrderPageInner() {
                 </div>
                 <div className="space-y-3">
                   <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={pinEntry}
+                    type="password" inputMode="numeric" maxLength={6} value={pinEntry}
                     onChange={e => { setPinEntry(e.target.value.replace(/\D/g, '')); setPinError(false); }}
                     onKeyDown={e => e.key === 'Enter' && handlePinSubmit()}
                     placeholder="Enter PIN"
@@ -452,8 +438,7 @@ function EventGuestOrderPageInner() {
                 </div>
                 <button onClick={handlePinSubmit} disabled={!pinEntry} style={pinEntry ? btnStyle : undefined}
                   className={cn('w-full h-12 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2',
-                    pinEntry ? (!btnStyle && 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  )}>
+                    pinEntry ? (!btnStyle && 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-400 cursor-not-allowed')}>
                   Continue <ChevronRight className="w-4 h-4" />
                 </button>
               </motion.div>
@@ -545,7 +530,7 @@ function EventGuestOrderPageInner() {
               </motion.div>
             )}
 
-            {/* ── STEP 2+: Multi-course (one course at a time) ── */}
+            {/* ── STEP 2+: Multi-course ── */}
             {step === 'meal' && hasCourses && (() => {
               const course = courses[currentCourseIdx];
               if (!course) return null;
@@ -682,9 +667,7 @@ function EventGuestOrderPageInner() {
                   {!hasCourses && selectedMealId && (
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal</p>
-                      <p className="font-black text-slate-900">
-                        {menuItems.find(m => m.id === selectedMealId)?.name}
-                      </p>
+                      <p className="font-black text-slate-900">{menuItems.find(m => m.id === selectedMealId)?.name}</p>
                     </div>
                   )}
 
@@ -705,14 +688,10 @@ function EventGuestOrderPageInner() {
 
                   {(selectedAllergies.length > 0 || allergyNote) && (
                     <div className={cn('p-4 rounded-2xl border space-y-2',
-                      selectedAllergies.some(a => a.severity === 'critical')
-                        ? 'bg-red-50 border-red-200'
-                        : 'bg-amber-50 border-amber-200'
+                      selectedAllergies.some(a => a.severity === 'critical') ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
                     )}>
                       {selectedAllergies.some(a => a.severity === 'critical') && (
-                        <p className="text-[9px] font-black uppercase tracking-widest text-red-600">
-                          ⚠ Critical Allergy — Kitchen Will Be Notified
-                        </p>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-red-600">⚠ Critical Allergy — Kitchen Will Be Notified</p>
                       )}
                       {(['critical', 'intolerance', 'preference'] as AllergySeverity[]).map(severity => {
                         const items = selectedAllergies.filter(a => a.severity === severity);
@@ -721,9 +700,7 @@ function EventGuestOrderPageInner() {
                         return (
                           <div key={severity}>
                             <p className={cn('text-[9px] font-black uppercase tracking-widest', cfg.text)}>{cfg.label}</p>
-                            <p className={cn('font-bold text-sm mt-0.5', cfg.text)}>
-                              {items.map(a => a.label).join(', ')}
-                            </p>
+                            <p className={cn('font-bold text-sm mt-0.5', cfg.text)}>{items.map(a => a.label).join(', ')}</p>
                           </div>
                         );
                       })}
@@ -785,14 +762,10 @@ function EventGuestOrderPageInner() {
                     Table {tableNumber}{seatNumber ? ` · Seat ${seatNumber}` : ''}
                   </p>
                   {!hasCourses && selectedMealId && (
-                    <p className="font-black text-slate-900">
-                      {menuItems.find(m => m.id === selectedMealId)?.name}
-                    </p>
+                    <p className="font-black text-slate-900">{menuItems.find(m => m.id === selectedMealId)?.name}</p>
                   )}
                   {selectedAllergies.length > 0 && (
-                    <p className="text-xs text-amber-600 font-bold">
-                      ⚠ {selectedAllergies.map(a => a.label).join(', ')}
-                    </p>
+                    <p className="text-xs text-amber-600 font-bold">⚠ {selectedAllergies.map(a => a.label).join(', ')}</p>
                   )}
                 </div>
                 <p className="text-xs text-slate-400">You're all set. See you at the event!</p>
@@ -806,7 +779,7 @@ function EventGuestOrderPageInner() {
   );
 }
 
-// ─── DEFAULT EXPORT — wraps inner page in Suspense for useSearchParams ────────
+// ─── DEFAULT EXPORT — Suspense required for useSearchParams in Next.js 15 ─────
 export default function EventGuestOrderPage() {
   return (
     <Suspense fallback={<PageLoader />}>
