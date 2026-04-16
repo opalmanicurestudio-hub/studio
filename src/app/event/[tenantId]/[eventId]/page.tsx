@@ -187,8 +187,9 @@ export default function EventGuestOrderPage() {
   const checkDuplicate = async (name: string, email: string) => {
     if (!firestore || !tenantId || !eventId) return false;
     const q = query(
-      collection(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`),
-      where('guestEmail', '==', email.toLowerCase().trim())
+      collection(firestore, `tenants/${tenantId}/eventGuests`),
+      where('email', '==', email.toLowerCase().trim()),
+      where('eventId', '==', eventId)
     );
     const snap = await getDocs(q);
     if (!snap.empty) {
@@ -226,31 +227,33 @@ export default function EventGuestOrderPage() {
 
     setIsSubmitting(true);
     try {
-      const orderId = nanoid();
+      const guestId = nanoid();
+      // Write to eventGuests — matches manifest reader collection
       await addDoc(
-        collection(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`),
+        collection(firestore, `tenants/${tenantId}/eventGuests`),
         {
-          id: orderId,
-          guestName: guestName.trim(),
-          guestEmail: guestEmail.toLowerCase().trim() || null,
-          guestPhone: guestPhone.trim() || null,
+          id: guestId,
+          // Name fields match manifest expectations
+          name: guestName.trim(),
+          email: guestEmail.toLowerCase().trim() || null,
+          phone: guestPhone.trim() || null,
           tableNumber: tableNumber.trim(),
           seatNumber: seatNumber.trim() || null,
           // Single-course events
-          mealId: selectedMealId || null,
-          mealName: event?.menuItems?.find((m: any) => m.id === selectedMealId)?.name || null,
-          // Multi-course events
+          mealChoiceId: selectedMealId || null,
+          mealChoiceName: event?.menuItems?.find((m: any) => m.id === selectedMealId)?.name || null,
+          // Multi-course events — keyed by course.id
           courseSelections: hasCourses ? selectedCourseSelections : null,
-          // Allergies
+          // Allergies with severity tiers
           allergies: selectedAllergies.map(a => typeof a === 'string' ? { id: a, label: a, severity: 'preference' } : a),
           allergyNote: allergyNote.trim() || null,
           hasCriticalAllergy: selectedAllergies.some(a => typeof a === 'object' && (a as any).severity === 'critical'),
           guestNote: guestNote.trim() || null,
           // Metadata
           submittedAt: new Date().toISOString(),
-          status: 'submitted',       // → confirmed → served
-          firedAt: null,             // set when course is fired
-          kdsTicketId: null,         // set when pushed to KDS
+          checkedIn: false,
+          source: 'self_register',
+          status: 'submitted',
           eventId,
           tenantId,
         }
@@ -285,11 +288,11 @@ export default function EventGuestOrderPage() {
           </div>
           <div>
             <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Already Submitted</h2>
-            <p className="text-slate-500 text-sm mt-2">We already have your order for this event, {existingOrder.guestName?.split(' ')[0]}.</p>
+            <p className="text-slate-500 text-sm mt-2">We already have your order for this event, {existingOrder.name?.split(' ')[0]}.</p>
           </div>
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left space-y-2">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your Selection</p>
-            <p className="font-black text-slate-900">{existingOrder.mealName || 'Multi-course selection'}</p>
+            <p className="font-black text-slate-900">{existingOrder.mealChoiceName || 'Multi-course selection'}</p>
             {existingOrder.allergies?.length > 0 && (
               <p className="text-xs text-amber-600">⚠ {existingOrder.allergies.join(', ')}</p>
             )}
@@ -303,7 +306,7 @@ export default function EventGuestOrderPage() {
                 const confirmed = window.confirm('Cancel your order for this event? This cannot be undone.');
                 if (!confirmed) return;
                 const { deleteDoc, doc: _doc } = await import('firebase/firestore');
-                await deleteDoc(_doc(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`, existingOrder.id));
+                await deleteDoc(_doc(firestore, `tenants/${tenantId}/eventGuests`, existingOrder.id));
                 setAlreadyOrdered(false);
                 setExistingOrder(null);
                 toast({ title: 'Order cancelled', description: 'Your pre-order has been removed.' });
@@ -677,7 +680,7 @@ export default function EventGuestOrderPage() {
                 </div>
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left space-y-1">
                   <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table {tableNumber}{seatNumber ? ` · Seat ${seatNumber}` : ''}</p>
-                  {!hasCourses && <p className="font-black text-slate-900">{event.menuItems?.find((m: any) => m.id === selectedMealId)?.name}</p>}
+                  {!hasCourses && <p className="font-black text-slate-900">{event?.menuItems?.find((m: any) => m.id === selectedMealId)?.name}</p>}
                   {selectedAllergies.length > 0 && <p className="text-xs text-amber-600 font-bold">⚠ {selectedAllergies.map(a => ALLERGY_OPTIONS.find(o => o.id === a)?.label).filter(Boolean).join(', ')}</p>}
                 </div>
                 <p className="text-xs text-slate-400">You're all set. See you at the event!</p>
