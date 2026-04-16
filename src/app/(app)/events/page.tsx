@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
 type EventFormData = {
-  name: string;
+  title: string;
   date: string;
   time: string;
   venue: string;
@@ -30,7 +30,7 @@ type EventFormData = {
 };
 
 const BLANK_FORM: EventFormData = {
-  name: '', date: '', time: '19:00', venue: '', description: '',
+  title: '', date: '', time: '19:00', venue: '', description: '',
   accessPin: '', orderingDeadlineDate: '', orderingDeadlineTime: '17:00',
   capacity: '', menuNote: '', eventType: 'dinner',
 };
@@ -89,7 +89,6 @@ export default function EventsPage() {
 
   const openEdit = (event: any) => {
     setEditingEvent(event);
-    // Parse existing deadline back into date + time fields
     let deadlineDate = '';
     let deadlineTime = '17:00';
     if (event.orderingDeadline) {
@@ -98,7 +97,7 @@ export default function EventsPage() {
       deadlineTime = format(d, 'HH:mm');
     }
     setForm({
-      name: event.name || '',
+      title: event.title || event.name || '',
       date: event.date || '',
       time: event.time || '19:00',
       venue: event.venue || '',
@@ -114,16 +113,17 @@ export default function EventsPage() {
   };
 
   const handleSave = async () => {
-    if (!firestore || !tenantId || !form.name || !form.date) return;
+    if (!firestore || !tenantId || !form.title || !form.date) return;
     setSaving(true);
 
-    // Build orderingDeadline ISO string
     const orderingDeadline = form.orderingDeadlineDate
       ? new Date(`${form.orderingDeadlineDate}T${form.orderingDeadlineTime}:00`).toISOString()
       : null;
 
     const data = {
-      name: form.name.trim(),
+      // FIX: save as 'title' so manifest page can read event.title correctly
+      title: form.title.trim(),
+      name: form.title.trim(), // keep name in sync for backwards compat
       date: form.date,
       time: form.time,
       venue: form.venue.trim() || null,
@@ -162,7 +162,7 @@ export default function EventsPage() {
 
   const handleDelete = async (event: any) => {
     if (!firestore || !tenantId) return;
-    const ok = window.confirm(`Delete "${event.name}"? This cannot be undone.`);
+    const ok = window.confirm(`Delete "${event.title || event.name}"? This cannot be undone.`);
     if (!ok) return;
     await deleteDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, event.id));
     toast({ title: 'Event deleted' });
@@ -205,6 +205,7 @@ export default function EventsPage() {
         <div className="space-y-3">
           {events.map((event: any) => {
             const statusCfg = STATUS_CONFIG[event.status] || STATUS_CONFIG.upcoming;
+            const displayName = event.title || event.name || 'Untitled Event';
             return (
               <div key={event.id}
                 className="flex items-center justify-between p-5 rounded-2xl border-2 border-border hover:border-primary/30 hover:bg-primary/5 transition-all cursor-pointer group"
@@ -215,7 +216,7 @@ export default function EventsPage() {
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-black uppercase tracking-tight text-slate-900">{event.name}</p>
+                      <p className="font-black uppercase tracking-tight text-slate-900">{displayName}</p>
                       <Badge className={cn('font-black text-[8px] border', statusCfg.color)}>
                         {statusCfg.label}
                       </Badge>
@@ -284,11 +285,11 @@ export default function EventsPage() {
           </DialogHeader>
           <div className="p-6 space-y-5">
 
-            {/* Name + type */}
+            {/* Title + type */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5 col-span-2">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Event Name *</Label>
-                <Input value={form.name} onChange={e => f('name', e.target.value)}
+                <Input value={form.title} onChange={e => f('title', e.target.value)}
                   placeholder="e.g. Spring Nail Night" className="h-12 rounded-xl border-2" />
               </div>
               <div className="space-y-1.5">
@@ -372,7 +373,7 @@ export default function EventsPage() {
                 className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={saving || !form.name || !form.date}
+              <Button onClick={handleSave} disabled={saving || !form.title || !form.date}
                 className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
                 {saving ? 'Saving…' : editingEvent ? 'Save Changes' : 'Create Event →'}
               </Button>
