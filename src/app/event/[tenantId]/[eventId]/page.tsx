@@ -8,7 +8,7 @@
  * Writes to: tenants/{tenantId}/events/{eventId}/guestOrders/{orderId}
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useDoc, useMemoFirebase } from '@/firebase';
 import { doc, collection, addDoc, getDocs, query, where } from 'firebase/firestore';
@@ -174,7 +174,7 @@ export default function EventGuestOrderPage() {
   const hasCourses = courses.length > 0;
 
   // ── Steps: identity → meal(s) → allergies → confirm ──────────────────────
-  const totalSteps = hasCourses ? courses.length + 3 : 4; // identity + each course + allergies + confirm
+  const totalSteps = hasCourses ? courses.length + 3 : 4;
   const currentStepNum = {
     identity: 0,
     meal: 1,
@@ -213,7 +213,6 @@ export default function EventGuestOrderPage() {
     if (isSubmitting) return;
     if (!firestore || !tenantId || !eventId) return;
 
-    // Validate all course selections if multi-course
     if (hasCourses) {
       const missing = courses.filter((c: any) => !selectedCourseSelections[c.id]);
       if (missing.length > 0) {
@@ -228,28 +227,22 @@ export default function EventGuestOrderPage() {
     setIsSubmitting(true);
     try {
       const guestId = nanoid();
-      // Write to eventGuests — matches manifest reader collection
       await addDoc(
         collection(firestore, `tenants/${tenantId}/eventGuests`),
         {
           id: guestId,
-          // Name fields match manifest expectations
           name: guestName.trim(),
           email: guestEmail.toLowerCase().trim() || null,
           phone: guestPhone.trim() || null,
           tableNumber: tableNumber.trim(),
           seatNumber: seatNumber.trim() || null,
-          // Single-course events
           mealChoiceId: selectedMealId || null,
           mealChoiceName: event?.menuItems?.find((m: any) => m.id === selectedMealId)?.name || null,
-          // Multi-course events — keyed by course.id
           courseSelections: hasCourses ? selectedCourseSelections : null,
-          // Allergies with severity tiers
           allergies: selectedAllergies.map(a => typeof a === 'string' ? { id: a, label: a, severity: 'preference' } : a),
           allergyNote: allergyNote.trim() || null,
           hasCriticalAllergy: selectedAllergies.some(a => typeof a === 'object' && (a as any).severity === 'critical'),
           guestNote: guestNote.trim() || null,
-          // Metadata
           submittedAt: new Date().toISOString(),
           checkedIn: false,
           source: 'self_register',
@@ -469,7 +462,7 @@ export default function EventGuestOrderPage() {
               </motion.div>
             )}
 
-            {/* ── STEP 2+: Course-by-course selection (paginated, one course at a time) ── */}
+            {/* ── STEP 2+: Course-by-course selection ── */}
             {step === 'meal' && hasCourses && (() => {
               const course = courses[currentCourseIdx];
               if (!course) return null;
@@ -520,7 +513,6 @@ export default function EventGuestOrderPage() {
                   <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Allergies & Dietary</h2>
                   <p className="text-sm text-slate-500">Select all that apply. This will be visible on your ticket.</p>
                 </div>
-                {/* Severity-grouped allergy selector */}
                 {(['critical', 'intolerance', 'preference'] as AllergySeverity[]).map(severity => {
                   const cfg = SEVERITY_CONFIG[severity];
                   const opts = ALLERGY_OPTIONS.filter(o => o.severity === severity);
@@ -542,7 +534,6 @@ export default function EventGuestOrderPage() {
                               onClick={() => setSelectedAllergies(prev => {
                                 const exists = prev.some(a => typeof a === 'string' ? a === opt.id : (a as any).id === opt.id);
                                 if (exists) return prev.filter(a => typeof a === 'string' ? a !== opt.id : (a as any).id !== opt.id);
-                                // Store as object with severity
                                 return [...prev, { id: opt.id, label: opt.label, severity: opt.severity } as any];
                               })}
                               className={cn('flex items-center gap-2 p-3 rounded-xl border-2 text-left transition-all',
@@ -584,14 +575,12 @@ export default function EventGuestOrderPage() {
                   <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Confirm Order</h2>
                 </div>
                 <div className="space-y-3">
-                  {/* Guest summary */}
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest</p>
                     <p className="font-black text-slate-900">{guestName}</p>
                     {guestPhone && <p className="text-xs text-slate-500">{guestPhone}</p>}
                     <p className="text-xs text-slate-500">Table {tableNumber}{seatNumber ? ` · Seat ${seatNumber}` : ''}</p>
                   </div>
-                  {/* Meal summary */}
                   {!hasCourses && selectedMealId && (
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal</p>
@@ -612,7 +601,6 @@ export default function EventGuestOrderPage() {
                       })}
                     </div>
                   )}
-                  {/* Allergy summary */}
                   {(selectedAllergies.length > 0 || allergyNote) && (
                     <div className={cn("p-4 rounded-2xl border space-y-2",
                       selectedAllergies.some(a => typeof a === 'object' && (a as any).severity === 'critical')
@@ -638,14 +626,12 @@ export default function EventGuestOrderPage() {
                       {allergyNote && <p className="text-xs text-amber-700 italic">{allergyNote}</p>}
                     </div>
                   )}
-                  {/* Optional note */}
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5"><FileText className="w-3 h-3" /> Note to host (optional)</label>
                     <textarea value={guestNote} onChange={e => setGuestNote(e.target.value)} rows={2} placeholder="Anything else we should know?"
                       className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 resize-none" />
                   </div>
                 </div>
-                {/* Consent checkbox — required before submit */}
                 <label className="flex items-start gap-3 cursor-pointer group">
                   <input type="checkbox" checked={consentGiven} onChange={e => setConsentGiven(e.target.checked)}
                     className="mt-1 w-4 h-4 rounded border-2 border-slate-300 cursor-pointer shrink-0" />
@@ -653,7 +639,6 @@ export default function EventGuestOrderPage() {
                     I confirm the allergy and dietary information above is accurate. I understand this information will be shared with kitchen staff to ensure my safety.
                   </span>
                 </label>
-
                 <div className="flex gap-3">
                   <button onClick={() => setStep('allergies')} className="h-12 px-5 rounded-2xl border-2 border-slate-200 font-black text-slate-500">←</button>
                   <button onClick={handleSubmit} disabled={isSubmitting || !consentGiven} style={consentGiven ? btnStyle : undefined}
@@ -681,7 +666,7 @@ export default function EventGuestOrderPage() {
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left space-y-1">
                   <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table {tableNumber}{seatNumber ? ` · Seat ${seatNumber}` : ''}</p>
                   {!hasCourses && <p className="font-black text-slate-900">{event?.menuItems?.find((m: any) => m.id === selectedMealId)?.name}</p>}
-                  {selectedAllergies.length > 0 && <p className="text-xs text-amber-600 font-bold">⚠ {selectedAllergies.map(a => ALLERGY_OPTIONS.find(o => o.id === a)?.label).filter(Boolean).join(', ')}</p>}
+                  {selectedAllergies.length > 0 && <p className="text-xs text-amber-600 font-bold">⚠ {selectedAllergies.map(a => ALLERGY_OPTIONS.find(o => o.id === (a as any).id || o.id === a)?.label).filter(Boolean).join(', ')}</p>}
                 </div>
                 <p className="text-xs text-slate-400">You're all set. See you at the event!</p>
               </motion.div>
