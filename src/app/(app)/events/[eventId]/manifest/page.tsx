@@ -23,7 +23,7 @@ import {
   Users, AlertTriangle, Leaf, Download, Play, CheckCircle2, Loader, QrCode, Printer, BarChart2,
   Search, Plus, Utensils, Link2, Copy, UserPlus, Pencil,
   Trash2, PackageCheck, PackageX, ChevronDown, ChevronUp, X,
-  UserCheck, Box, Check,
+  UserCheck, Box, Check, Bell, ExternalLink,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -34,12 +34,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(v) : new Date(v));
-const safeNum = (v: any) => Number(v) || 0;
+const safeNum  = (v: any) => Number(v) || 0;
 
 // ─── ALLERGY PILL ─────────────────────────────────────────────────────────────
-const AllergyPill = ({ label, type = 'allergy', severity }: {
-  label: string; type?: 'allergy' | 'dietary'; severity?: 'critical' | 'intolerance' | 'preference';
-}) => {
+// Handles both { id, label, severity } objects and plain strings
+const AllergyPill = ({ allergy }: { allergy: any }) => {
+  const label    = typeof allergy === 'object' ? allergy.label    : allergy;
+  const severity = typeof allergy === 'object' ? allergy.severity : 'preference';
+
   if (severity === 'critical') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-red-100 border-red-400 text-red-800">
@@ -55,11 +57,8 @@ const AllergyPill = ({ label, type = 'allergy', severity }: {
     );
   }
   return (
-    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border',
-      type === 'allergy' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-    )}>
-      {type === 'allergy' ? <AlertTriangle className="w-2 h-2" /> : <Leaf className="w-2 h-2" />}
-      {label}
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-slate-100 border-slate-200 text-slate-600">
+      <Leaf className="w-2 h-2" /> {label}
     </span>
   );
 };
@@ -82,25 +81,105 @@ const StatCard = ({ label, value, sub, color = 'slate' }: { label: string; value
   );
 };
 
-// ─── SENTINEL for empty Select values (Radix throws on value="") ──────────────
+// ─── FLOOR REQUEST PANEL ──────────────────────────────────────────────────────
+const FLOOR_REQUEST_ICONS: Record<string, string> = {
+  water: '💧', napkins: '🧻', condiments: '🧂', utensils: '🍴',
+  ice: '🧊', accessibility: '♿', temperature: '🌡️', cleaning: '🧹', other: '💬',
+};
+
+const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
+  requests: any[]; onResolve: (id: string) => void; tenantId: string;
+}) => {
+  const [resolving, setResolving] = useState<string | null>(null);
+  if (requests.length === 0) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-amber-50 border-2 border-amber-300 rounded-2xl overflow-hidden"
+      >
+        <div className="p-4 border-b border-amber-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
+            <p className="font-black text-sm text-amber-800 uppercase tracking-tight">
+              Floor Requests — {requests.length} Pending
+            </p>
+          </div>
+          <a
+            href={`/floor/${tenantId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-amber-600 hover:text-amber-800 transition-colors"
+          >
+            Full View <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+        <div className="divide-y divide-amber-200 max-h-64 overflow-y-auto">
+          {requests.map(r => {
+            const elapsedMins = Math.floor((Date.now() - safeDate(r.createdAt).getTime()) / 60000);
+            const isLate = elapsedMins >= 5;
+            return (
+              <div key={r.id} className="flex items-center gap-3 p-3">
+                <span className="text-xl shrink-0">{FLOOR_REQUEST_ICONS[r.requestType] || '💬'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-sm text-amber-900">{r.label || r.requestType}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {r.tableNumber && (
+                      <span className="text-[9px] font-bold text-amber-600 uppercase">Table {r.tableNumber}</span>
+                    )}
+                    {r.guestName && (
+                      <span className="text-[9px] font-bold text-amber-600 uppercase">{r.guestName}</span>
+                    )}
+                    <span className={cn('text-[9px] font-black uppercase tracking-widest',
+                      isLate ? 'text-red-500' : 'text-amber-500')}>
+                      {isLate ? `⚠ ${elapsedMins}m ago` : elapsedMins < 1 ? 'Just now' : `${elapsedMins}m ago`}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    setResolving(r.id);
+                    await onResolve(r.id);
+                    setResolving(null);
+                  }}
+                  disabled={resolving === r.id}
+                  className="shrink-0 w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center transition-all active:scale-95"
+                >
+                  {resolving === r.id
+                    ? <Loader className="w-4 h-4 animate-spin text-white" />
+                    : <Check className="w-4 h-4 text-white" />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
+// ─── SENTINEL for empty Select values ────────────────────────────────────────
 const NO_SELECTION = '__none__';
 
 export default function EventManifestPage() {
-  const params = useParams();
-  const router = useRouter();
+  const params   = useParams();
+  const router   = useRouter();
   const { firestore } = useFirebase();
-  const { toast } = useToast();
+  const { toast }     = useToast();
   const { selectedTenant } = useTenant();
   const { inventory, clients, staff: staffFromContext } = useInventory();
   const tenantId = selectedTenant?.id ?? '';
-  const eventId = params.eventId as string;
+  const eventId  = params.eventId as string;
 
   // ── Live data ──────────────────────────────────────────────────────────────
-  const [event, setEvent]         = useState<any>(null);
-  const [guests, setGuests]       = useState<any[]>([]);
-  const [menuItems, setMenuItems] = useState<any[]>([]);
-  const [fires, setFires]         = useState<any[]>([]);
-  const [loading, setLoading]     = useState(true);
+  const [event, setEvent]             = useState<any>(null);
+  const [guests, setGuests]           = useState<any[]>([]);
+  const [menuItems, setMenuItems]     = useState<any[]>([]);
+  const [fires, setFires]             = useState<any[]>([]);
+  const [floorRequests, setFloorRequests] = useState<any[]>([]);
+  const [loading, setLoading]         = useState(true);
 
   useEffect(() => {
     if (!firestore || !tenantId || !eventId) return;
@@ -122,45 +201,47 @@ export default function EventManifestPage() {
       query(collection(firestore, `tenants/${tenantId}/courseFires`), where('eventId', '==', eventId)),
       snap => setFires(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     ));
+    // Live floor requests for this event
+    unsubs.push(onSnapshot(
+      query(
+        collection(firestore, `tenants/${tenantId}/floorRequests`),
+        where('status', 'in', ['new', 'acknowledged'])
+      ),
+      snap => setFloorRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    ));
+
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, eventId]);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  const [search, setSearch]               = useState('');
-  const [filterMeal, setFilterMeal]       = useState('all');
-  const [filterFlag, setFilterFlag]       = useState('all');
-  const [isFiring, setIsFiring]           = useState<number | null>(null);
-  const [showForecast, setShowForecast]   = useState(true);
-  const [isActivating, setIsActivating]   = useState(false);
+  const [search, setSearch]                 = useState('');
+  const [filterMeal, setFilterMeal]         = useState('all');
+  const [filterFlag, setFilterFlag]         = useState('all');
+  const [isFiring, setIsFiring]             = useState<number | null>(null);
+  const [showForecast, setShowForecast]     = useState(true);
   const [isConfirmActivateOpen, setIsConfirmActivateOpen] = useState(false);
-  const [activatingNow, setActivatingNow] = useState(false);
+  const [activatingNow, setActivatingNow]   = useState(false);
   const [undoWindowOpen, setUndoWindowOpen] = useState(false);
-  const [undoCountdown, setUndoCountdown] = useState(120);
-  const [showLink, setShowLink]           = useState(false);
-  const [qrTables, setQrTables]           = useState('');
+  const [undoCountdown, setUndoCountdown]   = useState(120);
+  const [showLink, setShowLink]             = useState(false);
+  const [qrTables, setQrTables]             = useState('');
   const [qrSeatsPerTable, setQrSeatsPerTable] = useState('');
-  const [qrCodes, setQrCodes]             = useState<{ label: string; dataUrl: string }[]>([]);
-  const [activeTab, setActiveTab]         = useState('guests');
-  const [staffToAdd, setStaffToAdd]       = useState('');
+  const [qrCodes, setQrCodes]               = useState<{ label: string; dataUrl: string }[]>([]);
+  const [activeTab, setActiveTab]           = useState('guests');
+  const [staffToAdd, setStaffToAdd]         = useState('');
   const [mealOverrideGuest, setMealOverrideGuest] = useState<any>(null);
-  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const [quickAddName, setQuickAddName]   = useState('');
-  const [quickAddTable, setQuickAddTable] = useState('');
-  const [quickAddMeal, setQuickAddMeal]   = useState('');
-  const [savingQuickAdd, setSavingQuickAdd] = useState(false);
   const [mealOverrideId, setMealOverrideId] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
 
   // Menu item form
-  const [isAddingMenu, setIsAddingMenu]           = useState(false);
-  const [newMenuName, setNewMenuName]             = useState('');
-  const [newMenuDesc, setNewMenuDesc]             = useState('');
-  const [newMenuCourse, setNewMenuCourse]         = useState(1);
-  const [newMenuCategory, setNewMenuCategory]     = useState('main');
-  const [newMenuVegan, setNewMenuVegan]           = useState(false);
-  const [newMenuGF, setNewMenuGF]                 = useState(false);
-  // FIX: menuSupplies is now properly wired into the saved menu item
-  const [menuSupplies, setMenuSupplies]           = useState<{ inventoryId: string; qty: number }[]>([]);
+  const [isAddingMenu, setIsAddingMenu]     = useState(false);
+  const [newMenuName, setNewMenuName]       = useState('');
+  const [newMenuDesc, setNewMenuDesc]       = useState('');
+  const [newMenuCourse, setNewMenuCourse]   = useState(1);
+  const [newMenuCategory, setNewMenuCategory] = useState('main');
+  const [newMenuVegan, setNewMenuVegan]     = useState(false);
+  const [newMenuGF, setNewMenuGF]           = useState(false);
+  const [menuSupplies, setMenuSupplies]     = useState<{ inventoryId: string; qty: number }[]>([]);
   const [newMenuInventoryItemId, setNewMenuInventoryItemId] = useState('');
   const [newMenuPortionSize, setNewMenuPortionSize]         = useState(1);
   const [newMenuPrice, setNewMenuPrice]                     = useState(0);
@@ -182,10 +263,9 @@ export default function EventManifestPage() {
     toast({ title: 'Link Copied', description: 'Share this with your guests.' });
   };
 
-  // ── QR code generator ─────────────────────────────────────────────────────
-  const generateQRDataUrl = async (url: string): Promise<string> => {
-    return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
-  };
+  // ── QR codes ──────────────────────────────────────────────────────────────
+  const generateQRDataUrl = async (url: string): Promise<string> =>
+    `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
 
   const handleGenerateQRs = async () => {
     const tables = qrTables.split(',').map(t => t.trim()).filter(Boolean);
@@ -224,7 +304,9 @@ export default function EventManifestPage() {
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const allergyFlags = guests.flatMap(g => g.allergies || []);
+    // allergyFlags: handles both string[] and {id,label,severity}[] 
+    const allergyObjects = guests.flatMap(g => g.allergies || []);
+    const allergyLabels  = allergyObjects.map((a: any) => typeof a === 'object' ? a.label : a);
     const mealCounts: Record<string, number> = {};
     guests.forEach(g => {
       const name = menuItems.find(m => m.id === g.mealChoiceId)?.name || g.mealChoiceName || 'No selection';
@@ -233,8 +315,8 @@ export default function EventManifestPage() {
     return {
       total: guests.length,
       checkedIn: guests.filter(g => g.checkedIn).length,
-      allergyCount: allergyFlags.length,
-      uniqueAllergies: Array.from(new Set(allergyFlags)) as string[],
+      allergyCount: allergyLabels.length,
+      uniqueAllergies: Array.from(new Set(allergyLabels)) as string[],
       mealCounts,
     };
   }, [guests, menuItems]);
@@ -243,7 +325,6 @@ export default function EventManifestPage() {
   const forecast = useMemo(() => {
     if (!menuItems.length || !guests.length) return [];
     const supplyNeeds: Record<string, { name: string; needed: number; inStock: number; unit: string; status: 'ok' | 'low' | 'critical' }> = {};
-
     guests.forEach(guest => {
       const mealItem = menuItems.find(m => m.id === guest.mealChoiceId);
       const items = mealItem ? [mealItem] : [];
@@ -258,13 +339,12 @@ export default function EventManifestPage() {
           const inv = (inventory || []).find((i: any) => i.id === s.inventoryId);
           if (!inv) return;
           if (!supplyNeeds[s.inventoryId]) {
-            supplyNeeds[s.inventoryId] = { name: inv.name, needed: 0, inStock: safeNum(inv.totalStock), unit: inv.unit || 'units', status: 'ok' };
+            supplyNeeds[s.inventoryId] = { name: (inv as any).name, needed: 0, inStock: safeNum((inv as any).totalStock), unit: (inv as any).unit || 'units', status: 'ok' };
           }
           supplyNeeds[s.inventoryId].needed += safeNum(s.qty);
         });
       });
     });
-
     return Object.entries(supplyNeeds).map(([id, data]) => {
       const remaining = data.inStock - data.needed;
       const status = remaining < 0 ? 'critical' : remaining < data.needed * 0.2 ? 'low' : 'ok';
@@ -280,18 +360,15 @@ export default function EventManifestPage() {
       if (!byTable[g.tableNumber]) byTable[g.tableNumber] = [];
       byTable[g.tableNumber].push(g);
     });
-
     Object.entries(byTable).forEach(([table, tableGuests]) => {
       const criticalGuests = tableGuests.filter(g =>
         (g.allergies || []).some((a: any) => typeof a === 'object' && a.severity === 'critical')
       );
       if (!criticalGuests.length) return;
-
       criticalGuests.forEach(cGuest => {
         const critAllergens = (cGuest.allergies || [])
           .filter((a: any) => typeof a === 'object' && a.severity === 'critical')
           .map((a: any) => a.id);
-
         tableGuests.filter(g => g.id !== cGuest.id).forEach(other => {
           const mealItem = menuItems.find(m => m.id === other.mealChoiceId);
           if (!mealItem) return;
@@ -325,7 +402,6 @@ export default function EventManifestPage() {
     });
   }, [guests, search, filterMeal, filterFlag]);
 
-  // ── Filtered clients for import ───────────────────────────────────────────
   const filteredClients = useMemo(() => {
     if (!clientSearch.trim()) return (clients || []).slice(0, 10);
     const s = clientSearch.toLowerCase();
@@ -339,16 +415,29 @@ export default function EventManifestPage() {
     [menuItems]
   );
 
+  // ── Floor request resolve ─────────────────────────────────────────────────
+  const handleResolveFloorRequest = async (requestId: string) => {
+    if (!firestore || !tenantId) return;
+    await updateDoc(doc(firestore, `tenants/${tenantId}/floorRequests`, requestId), {
+      status: 'done',
+      resolvedAt: new Date().toISOString(),
+      resolvedBy: 'host_manifest',
+    });
+    toast({ title: 'Request resolved ✓' });
+  };
+
   // ── Actions ───────────────────────────────────────────────────────────────
+  const firedCourses = new Set(fires.filter(f => f.status === 'fired').map(f => f.courseNumber));
+
   const handleFireCourse = async (courseNumber: number) => {
     if (!firestore || !tenantId) return;
 
     if (courseNumber > 1) {
-      const prevNums = courseNumbers.filter(n => n < courseNumber);
+      const prevNums    = courseNumbers.filter(n => n < courseNumber);
       const unfiredPrev = prevNums.filter(n => !firedCourses.has(n));
       if (unfiredPrev.length > 0) {
         const ok = window.confirm(
-          `Course ${unfiredPrev.join(', ')} has not been fired yet. Firing Course ${courseNumber} out of sequence may confuse the kitchen. Continue anyway?`
+          `Course ${unfiredPrev.join(', ')} has not been fired yet. Fire Course ${courseNumber} out of sequence?`
         );
         if (!ok) return;
       }
@@ -360,8 +449,7 @@ export default function EventManifestPage() {
       const fireId = nanoid();
       const now = new Date().toISOString();
       const guestsForCourse = guests.filter(g =>
-        g.checkedIn &&
-        (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
+        g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
       );
 
       if (guestsForCourse.length === 0) {
@@ -377,30 +465,33 @@ export default function EventManifestPage() {
 
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
         id: fireId, eventId, tenantId, courseNumber,
-        courseName: `Course ${courseNumber}`,
-        firedAt: now, firedBy: 'host',
-        guestCount: guestsForCourse.length, status: 'fired',
+        courseName: `Course ${courseNumber}`, firedAt: now,
+        firedBy: 'host', guestCount: guestsForCourse.length, status: 'fired',
       });
 
       guestsForCourse.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
-        const menuItem = menuItems.find(m => m.id === menuItemId);
-        const kdsId = nanoid();
+        const menuItem   = menuItems.find(m => m.id === menuItemId);
+        const kdsId      = nanoid();
         batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), {
           id: kdsId, source: 'event', eventId,
-          eventTitle: event?.title || event?.name || '', courseFireId: fireId, courseNumber,
+          eventTitle: event?.title || event?.name || '',
+          courseFireId: fireId, courseNumber,
           guestId: guest.id, guestName: guest.name,
           seatNumber: guest.seatNumber || null, tableNumber: guest.tableNumber || null,
           menuItemId, menuItemName: menuItem?.name || 'Item',
-          allergies: guest.allergies || [], dietaryRestrictions: guest.dietaryRestrictions || [],
-          notes: guest.notes || null, status: 'pending', createdAt: now, tenantId,
+          allergies: guest.allergies || [],
+          allergyNote: guest.allergyNote || null,
+          hasCriticalAllergy: (guest.allergies || []).some((a: any) => typeof a === 'object' && a.severity === 'critical'),
+          notes: guest.guestNote || null,
+          status: 'pending', createdAt: now, tenantId,
         });
       });
 
       const deductionMap: Record<string, number> = {};
       guestsForCourse.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
-        const menuItem = menuItems.find(m => m.id === menuItemId);
+        const menuItem   = menuItems.find(m => m.id === menuItemId);
         if (!menuItem?.supplies) return;
         menuItem.supplies.forEach((s: any) => {
           deductionMap[s.inventoryId] = (deductionMap[s.inventoryId] || 0) + safeNum(s.qty);
@@ -410,12 +501,10 @@ export default function EventManifestPage() {
       Object.entries(deductionMap).forEach(([invId, qty]) => {
         const inv = (inventory || []).find((i: any) => i.id === invId);
         if (!inv) return;
-        batch.update(doc(firestore, `tenants/${tenantId}/inventory`, invId), {
-          totalStock: increment(-qty),
-        });
+        batch.update(doc(firestore, `tenants/${tenantId}/inventory`, invId), { totalStock: increment(-qty) });
         batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), {
-          id: nanoid(), productId: invId, productName: inv.name,
-          date: now, change: -qty, unit: inv.unit || 'units',
+          id: nanoid(), productId: invId, productName: (inv as any).name,
+          date: now, change: -qty, unit: (inv as any).unit || 'units',
           reason: `Event: ${event?.title || event?.name} — Course ${courseNumber} fired`,
           source: 'event_course_fire', eventId,
         });
@@ -485,8 +574,7 @@ export default function EventManifestPage() {
   const handleImportClient = async (client: any) => {
     if (!firestore || !tenantId) return;
     if (guests.find(g => g.clientId === client.id)) {
-      toast({ variant: 'destructive', title: 'Already on guest list' });
-      return;
+      toast({ variant: 'destructive', title: 'Already on guest list' }); return;
     }
     const id = nanoid();
     await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
@@ -504,42 +592,33 @@ export default function EventManifestPage() {
     if (!newMenuName.trim() || !firestore || !tenantId) return;
     const id = nanoid();
     const batch = writeBatch(firestore);
-
     const linkedRefreshment = newMenuInventoryItemId
       ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId)
       : null;
-
-    // FIX: supplies is now included in the saved menu item
     const menuItem = {
       id, eventId, tenantId,
       name: newMenuName.trim() || (linkedRefreshment as any)?.name || '',
       description: newMenuDesc.trim() || (linkedRefreshment as any)?.description || null,
-      category: newMenuCategory,
-      courseNumber: newMenuCourse,
-      isVegan: newMenuVegan,
-      isGlutenFree: newMenuGF,
+      category: newMenuCategory, courseNumber: newMenuCourse,
+      isVegan: newMenuVegan, isGlutenFree: newMenuGF,
       inventoryItemId: newMenuInventoryItemId || null,
-      portionSize: newMenuPortionSize || 1,
-      pricePerGuest: newMenuPrice || 0,
+      portionSize: newMenuPortionSize || 1, pricePerGuest: newMenuPrice || 0,
       imageUrl: (linkedRefreshment as any)?.imageUrl || null,
       supplies: menuSupplies.filter(s => s.inventoryId && s.qty > 0),
     };
-
     batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
-
-    const eventRef = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
+    const eventRef  = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
     const eventSnap = await getDoc(eventRef);
-    const existingItems = eventSnap.data()?.menuItems || [];
-    const updatedItems = [...existingItems.filter((m: any) => m.id !== id), menuItem];
-
-    const courseMap = new Map<number, any[]>();
+    const existingItems  = eventSnap.data()?.menuItems || [];
+    const updatedItems   = [...existingItems.filter((m: any) => m.id !== id), menuItem];
+    const courseMap      = new Map<number, any[]>();
     updatedItems.forEach((item: any) => {
       const n = item.courseNumber || 1;
       if (!courseMap.has(n)) courseMap.set(n, []);
       courseMap.get(n)!.push({ id: item.id, name: item.name, description: item.description, imageUrl: item.imageUrl });
     });
     const existingCourses = eventSnap.data()?.courses || [];
-    const updatedCourses = Array.from(courseMap.entries())
+    const updatedCourses  = Array.from(courseMap.entries())
       .sort(([a], [b]) => a - b)
       .map(([num, options]) => {
         const existing = existingCourses.find((c: any) => c.courseNumber === num);
@@ -551,60 +630,22 @@ export default function EventManifestPage() {
           options,
         };
       });
-
-    batch.update(eventRef, {
-      menuItems: updatedItems,
-      courses: updatedCourses,
-    });
-
+    batch.update(eventRef, { menuItems: updatedItems, courses: updatedCourses });
     await batch.commit();
-
-    // Reset form
-    setNewMenuName('');
-    setNewMenuDesc('');
-    setNewMenuInventoryItemId('');
-    setNewMenuPortionSize(1);
-    setNewMenuPrice(0);
-    setMenuSupplies([]);
+    setNewMenuName(''); setNewMenuDesc(''); setNewMenuInventoryItemId('');
+    setNewMenuPortionSize(1); setNewMenuPrice(0); setMenuSupplies([]);
     setIsAddingMenu(false);
     toast({ title: 'Menu item added' });
-  };
-
-  const handleQuickAdd = async () => {
-    if (!quickAddName.trim() || !firestore || !tenantId) return;
-    setSavingQuickAdd(true);
-    const mealItem = menuItems.find(m => m.id === quickAddMeal);
-    const id = nanoid();
-    await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
-      id, eventId, tenantId,
-      name: quickAddName.trim(),
-      tableNumber: quickAddTable.trim() || '',
-      seatNumber: '',
-      email: '', phone: '',
-      mealChoiceId: quickAddMeal || null,
-      mealChoiceName: mealItem?.name || null,
-      allergies: [], dietaryRestrictions: [],
-      checkedIn: true,
-      checkedInAt: new Date().toISOString(),
-      source: 'walk_in',
-      submittedAt: new Date().toISOString(),
-    });
-    setSavingQuickAdd(false);
-    setIsQuickAddOpen(false);
-    setQuickAddName(''); setQuickAddTable(''); setQuickAddMeal('');
-    toast({ title: `${quickAddName} added & checked in` });
   };
 
   const handleMealOverride = async () => {
     if (!mealOverrideGuest || !firestore || !tenantId) return;
     setSavingOverride(true);
     const resolvedId = mealOverrideId === NO_SELECTION ? null : mealOverrideId;
-    const mealItem = menuItems.find(m => m.id === resolvedId);
+    const mealItem   = menuItems.find(m => m.id === resolvedId);
     await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, mealOverrideGuest.id), {
-      mealChoiceId: resolvedId,
-      mealChoiceName: mealItem?.name || null,
-      mealOverriddenAt: new Date().toISOString(),
-      mealOverriddenBy: 'staff',
+      mealChoiceId: resolvedId, mealChoiceName: mealItem?.name || null,
+      mealOverriddenAt: new Date().toISOString(), mealOverriddenBy: 'staff',
     });
     setSavingOverride(false);
     setMealOverrideGuest(null);
@@ -638,9 +679,7 @@ export default function EventManifestPage() {
     const now = new Date().toISOString();
     try {
       await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-        status: 'active',
-        activatedAt: now,
-        activatedBy: 'host',
+        status: 'active', activatedAt: now, activatedBy: 'host',
       });
       setIsConfirmActivateOpen(false);
       setUndoWindowOpen(true);
@@ -662,19 +701,16 @@ export default function EventManifestPage() {
   const handleDeactivateEvent = async () => {
     if (!firestore || !tenantId) return;
     await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-      status: 'upcoming',
-      activatedAt: null,
-      activatedBy: null,
+      status: 'upcoming', activatedAt: null, activatedBy: null,
     });
     setUndoWindowOpen(false);
-    toast({ title: 'Event deactivated', description: 'Kiosk has returned to normal walk-in mode.' });
+    toast({ title: 'Event deactivated', description: 'Kiosk returned to normal mode.' });
   };
 
   const handleEndEvent = async () => {
     if (!firestore || !tenantId) return;
     await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-      status: 'completed',
-      endedAt: new Date().toISOString(),
+      status: 'completed', endedAt: new Date().toISOString(),
     });
     toast({ title: 'Event marked complete' });
   };
@@ -701,12 +737,10 @@ export default function EventManifestPage() {
   };
 
   if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin w-8 h-8 text-slate-400" /></div>;
-  if (!event) return <div className="flex h-screen items-center justify-center text-slate-400 font-bold">Event not found</div>;
+  if (!event)  return <div className="flex h-screen items-center justify-center text-slate-400 font-bold">Event not found</div>;
 
-  // FIX: derive display name from either title or name field
   const eventDisplayName = event.title || event.name || 'Untitled Event';
   const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
-  const firedCourses = new Set(fires.filter(f => f.status === 'fired').map(f => f.courseNumber));
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
@@ -732,9 +766,7 @@ export default function EventManifestPage() {
                 </Button>
               </div>
             ) : event?.status === 'completed' ? (
-              <span className="px-3 py-1.5 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest">
-                Completed
-              </span>
+              <span className="px-3 py-1.5 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest">Completed</span>
             ) : (
               <Button onClick={() => setIsConfirmActivateOpen(true)}
                 className="h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200">
@@ -749,15 +781,14 @@ export default function EventManifestPage() {
               className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
               <Download className="w-4 h-4" /> Export CSV
             </Button>
-            <Button variant="outline"
-              onClick={() => router.push(`/events/${eventId}/reconciliation`)}
+            <Button variant="outline" onClick={() => router.push(`/events/${eventId}/reconciliation`)}
               className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
               <BarChart2 className="w-4 h-4" /> Post-Event Report
             </Button>
           </div>
         </div>
 
-        {/* ── UNDO WINDOW BANNER ── */}
+        {/* ── UNDO WINDOW ── */}
         <AnimatePresence>
           {undoWindowOpen && (
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
@@ -766,9 +797,7 @@ export default function EventManifestPage() {
                 <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                 <div>
                   <p className="font-black text-sm text-emerald-800">Event is now live — kiosk switched to event mode</p>
-                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
-                    Undo available for {undoCountdown}s
-                  </p>
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Undo available for {undoCountdown}s</p>
                 </div>
               </div>
               <Button onClick={handleDeactivateEvent} variant="outline"
@@ -779,23 +808,22 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
+        {/* ── FLOOR REQUESTS PANEL (live) ── */}
+        <FloorRequestPanel
+          requests={floorRequests}
+          onResolve={handleResolveFloorRequest}
+          tenantId={tenantId}
+        />
+
         {/* ── MEAL OVERRIDE SHEET ── */}
         <AnimatePresence>
           {mealOverrideGuest && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm p-4"
-              onClick={() => setMealOverrideGuest(null)}
-            >
-              <motion.div
-                initial={{ y: 80, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 80, opacity: 0 }}
+              onClick={() => setMealOverrideGuest(null)}>
+              <motion.div initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
                 onClick={e => e.stopPropagation()}
-                className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-2xl overflow-hidden"
-              >
+                className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-2xl overflow-hidden">
                 <div className="p-5 border-b border-slate-100">
                   <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Override Meal Choice</p>
                   <p className="font-black text-lg text-slate-900 mt-0.5">{mealOverrideGuest.name}</p>
@@ -808,10 +836,7 @@ export default function EventManifestPage() {
                   {menuItems.map(item => (
                     <button key={item.id} onClick={() => setMealOverrideId(item.id)}
                       className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left',
-                        mealOverrideId === item.id
-                          ? 'border-primary bg-primary/5'
-                          : 'border-slate-200 hover:border-slate-300'
-                      )}>
+                        mealOverrideId === item.id ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300')}>
                       <div>
                         <p className="font-black text-sm text-slate-900">{item.name}</p>
                         {item.description && <p className="text-[10px] text-slate-400">{item.description}</p>}
@@ -822,9 +847,7 @@ export default function EventManifestPage() {
                 </div>
                 <div className="p-4 flex gap-3 border-t border-slate-100">
                   <Button variant="outline" onClick={() => setMealOverrideGuest(null)}
-                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-                    Cancel
-                  </Button>
+                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
                   <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId}
                     className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
                     {savingOverride ? <Loader className="w-4 h-4 animate-spin" /> : 'Save Override →'}
@@ -874,9 +897,7 @@ export default function EventManifestPage() {
               )}
               <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setIsConfirmActivateOpen(false)}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-                  Cancel
-                </Button>
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
                 <Button onClick={handleActivateEvent} disabled={activatingNow}
                   className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-200 gap-2">
                   {activatingNow ? <Loader className="w-4 h-4 animate-spin" /> : '🟢 Activate Event'}
@@ -938,7 +959,8 @@ export default function EventManifestPage() {
         {/* ── STATS ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Responses" value={stats.total} sub={`${stats.checkedIn} checked in`} />
-          <StatCard label="Allergy Flags" value={stats.allergyCount} sub={stats.uniqueAllergies.slice(0, 2).join(', ') || 'None'} color="amber" />
+          <StatCard label="Allergy Flags" value={stats.allergyCount}
+            sub={stats.uniqueAllergies.slice(0, 2).join(', ') || 'None'} color="amber" />
           {Object.entries(stats.mealCounts).slice(0, 2).map(([meal, count]) => (
             <StatCard key={meal} label={meal} value={count}
               sub={`${Math.round(count / Math.max(stats.total, 1) * 100)}%`} color="emerald" />
@@ -975,11 +997,10 @@ export default function EventManifestPage() {
                 <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Supply Forecast</h2>
                 <Badge className={cn('ml-1 font-black text-[9px]',
                   forecast.some(f => f.status === 'critical') ? 'bg-red-100 text-red-700 border-red-200' :
-                  forecast.some(f => f.status === 'low') ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                  'bg-emerald-100 text-emerald-700 border-emerald-200'
-                )}>
+                  forecast.some(f => f.status === 'low')      ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                  'bg-emerald-100 text-emerald-700 border-emerald-200')}>
                   {forecast.some(f => f.status === 'critical') ? '⚠ Shortage' :
-                   forecast.some(f => f.status === 'low') ? '⚠ Low Stock' : '✓ Covered'}
+                   forecast.some(f => f.status === 'low')      ? '⚠ Low Stock' : '✓ Covered'}
                 </Badge>
               </div>
               {showForecast ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
@@ -991,9 +1012,8 @@ export default function EventManifestPage() {
                     {forecast.map(item => (
                       <div key={item.id} className={cn('p-4 rounded-2xl border-2',
                         item.status === 'critical' ? 'border-red-200 bg-red-50' :
-                        item.status === 'low' ? 'border-amber-200 bg-amber-50' :
-                        'border-emerald-200 bg-emerald-50'
-                      )}>
+                        item.status === 'low'      ? 'border-amber-200 bg-amber-50' :
+                        'border-emerald-200 bg-emerald-50')}>
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="font-black text-sm text-slate-900">{item.name}</p>
@@ -1003,12 +1023,11 @@ export default function EventManifestPage() {
                           </div>
                           {item.status === 'ok'
                             ? <PackageCheck className="w-5 h-5 text-emerald-500 shrink-0" />
-                            : <PackageX className="w-5 h-5 text-red-500 shrink-0" />}
+                            : <PackageX   className="w-5 h-5 text-red-500 shrink-0" />}
                         </div>
                         {item.status !== 'ok' && (
                           <p className={cn('text-[10px] font-black uppercase tracking-widest mt-2',
-                            item.status === 'critical' ? 'text-red-600' : 'text-amber-600'
-                          )}>
+                            item.status === 'critical' ? 'text-red-600' : 'text-amber-600')}>
                             {item.status === 'critical'
                               ? `Short by ${Math.abs(item.remaining)} ${item.unit} — reorder needed`
                               : `Only ${item.remaining} ${item.unit} buffer — running low`}
@@ -1077,11 +1096,7 @@ export default function EventManifestPage() {
           {/* ── GUESTS TAB ── */}
           <TabsContent value="guests" className="mt-4 space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
-              <Button onClick={() => {
-                setIsAddingGuest(true);
-                setEditingGuest(null);
-                setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
-              }}
+              <Button onClick={() => { setIsAddingGuest(true); setEditingGuest(null); setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' }); }}
                 className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
                 <UserPlus className="w-4 h-4" /> Add Guest
               </Button>
@@ -1090,20 +1105,15 @@ export default function EventManifestPage() {
                 <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search guests…"
                   className="pl-8 h-10 w-48 rounded-xl border-2 text-xs font-bold" />
               </div>
-              {/* FIX: use NO_SELECTION sentinel instead of value="" */}
               <Select value={filterMeal} onValueChange={setFilterMeal}>
-                <SelectTrigger className="h-10 w-36 rounded-xl border-2 font-bold uppercase text-[10px]">
-                  <SelectValue placeholder="All meals" />
-                </SelectTrigger>
+                <SelectTrigger className="h-10 w-36 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="All meals" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Meals</SelectItem>
                   {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Select value={filterFlag} onValueChange={setFilterFlag}>
-                <SelectTrigger className="h-10 w-36 rounded-xl border-2 font-bold uppercase text-[10px]">
-                  <SelectValue placeholder="All flags" />
-                </SelectTrigger>
+                <SelectTrigger className="h-10 w-36 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="All flags" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Guests</SelectItem>
                   <SelectItem value="allergies">Has Allergy</SelectItem>
@@ -1127,7 +1137,6 @@ export default function EventManifestPage() {
                           placeholder="Import from client log…" className="h-9 w-52 rounded-xl border-2 text-xs font-bold" />
                       )}
                     </div>
-
                     {!editingGuest && clientSearch && filteredClients.length > 0 && (
                       <div className="rounded-xl border-2 divide-y overflow-hidden">
                         {filteredClients.map((c: any) => (
@@ -1142,7 +1151,6 @@ export default function EventManifestPage() {
                         ))}
                       </div>
                     )}
-
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label>
@@ -1161,9 +1169,7 @@ export default function EventManifestPage() {
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
-                        {/* FIX: use NO_SELECTION sentinel to avoid Radix crash on value="" */}
-                        <Select
-                          value={guestForm.mealChoiceId || NO_SELECTION}
+                        <Select value={guestForm.mealChoiceId || NO_SELECTION}
                           onValueChange={v => setGuestForm(p => ({ ...p, mealChoiceId: v === NO_SELECTION ? '' : v }))}>
                           <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="Select meal…" /></SelectTrigger>
                           <SelectContent>
@@ -1227,7 +1233,7 @@ export default function EventManifestPage() {
                         </td>
                         <td className="px-4 py-3">
                           {guest.tableNumber && <span className="text-[10px] font-black uppercase text-slate-500">T{guest.tableNumber}</span>}
-                          {guest.seatNumber && <span className="text-[10px] font-black uppercase text-slate-400"> · {guest.seatNumber}</span>}
+                          {guest.seatNumber   && <span className="text-[10px] font-black uppercase text-slate-400"> · {guest.seatNumber}</span>}
                         </td>
                         <td className="px-4 py-3">
                           <p className="text-sm font-bold text-slate-700">
@@ -1236,12 +1242,14 @@ export default function EventManifestPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-1">
-                            {(guest.allergies || []).map((a: any, i: number) => {
-                              const label = typeof a === 'object' ? a.label : a;
-                              const severity = typeof a === 'object' ? a.severity : undefined;
-                              return <AllergyPill key={i} label={label} type="allergy" severity={severity} />;
-                            })}
-                            {(guest.dietaryRestrictions || []).map((d: string) => <AllergyPill key={d} label={d} type="dietary" />)}
+                            {(guest.allergies || []).map((a: any, i: number) => (
+                              <AllergyPill key={i} allergy={a} />
+                            ))}
+                            {(guest.dietaryRestrictions || []).map((d: string) => (
+                              <span key={d} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-emerald-50 border-emerald-200 text-emerald-700">
+                                <Leaf className="w-2 h-2" /> {d}
+                              </span>
+                            ))}
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -1262,11 +1270,9 @@ export default function EventManifestPage() {
                               <Utensils className="w-3.5 h-3.5" />
                             </button>
                             <button onClick={() => {
-                              setEditingGuest(guest);
-                              setIsAddingGuest(false);
+                              setEditingGuest(guest); setIsAddingGuest(false);
                               setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' });
-                            }}
-                              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                            }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
                             <button onClick={() => handleDeleteGuest(guest.id)}
@@ -1290,44 +1296,31 @@ export default function EventManifestPage() {
 
           {/* ── MENU TAB ── */}
           <TabsContent value="menu" className="mt-4 space-y-5">
-
-            {/* ── CURRENT MENU ITEMS ── */}
             {menuItems.length > 0 && (
               <div className="space-y-2">
                 {menuItems.map(item => (
                   <div key={item.id} className="bg-white rounded-2xl border-2 border-slate-200 p-4 flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3">
-                      {item.imageUrl && (
-                        <img src={item.imageUrl} alt={item.name} className="w-10 h-10 rounded-xl object-cover shrink-0 border border-slate-200" />
-                      )}
+                      {item.imageUrl && <img src={item.imageUrl} alt={item.name} className="w-10 h-10 rounded-xl object-cover shrink-0 border border-slate-200" />}
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-black text-slate-900">{item.name}</p>
-                          <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[8px]">
-                            Course {item.courseNumber}
-                          </Badge>
-                          {item.isVegan && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-black text-[8px]">Vegan</Badge>}
+                          <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[8px]">Course {item.courseNumber}</Badge>
+                          {item.isVegan     && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-black text-[8px]">Vegan</Badge>}
                           {item.isGlutenFree && <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-black text-[8px]">GF</Badge>}
                         </div>
                         {item.description && <p className="text-[10px] text-slate-500 mt-0.5">{item.description}</p>}
-                        {item.inventoryItemId && (
-                          <p className="text-[9px] text-primary font-bold uppercase tracking-widest mt-1">
-                            Linked to inventory · stock tracked
-                          </p>
-                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <Badge className="bg-slate-50 text-slate-600 border-slate-200 font-black text-[9px]">
                         {guests.filter(g => g.mealChoiceId === item.id || Object.values(g.courseSelections || {}).includes(item.id)).length} selected
                       </Badge>
-                      <button
-                        onClick={async () => {
-                          if (!firestore || !tenantId) return;
-                          await deleteDoc(doc(firestore, `tenants/${tenantId}/eventMenuItems`, item.id));
-                          toast({ title: `${item.name} removed` });
-                        }}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+                      <button onClick={async () => {
+                        if (!firestore || !tenantId) return;
+                        await deleteDoc(doc(firestore, `tenants/${tenantId}/eventMenuItems`, item.id));
+                        toast({ title: `${item.name} removed` });
+                      }} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1336,156 +1329,21 @@ export default function EventManifestPage() {
               </div>
             )}
 
-            {/* ── ADD MENU ITEM PANEL ── */}
+            {/* Add menu item */}
             <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-
-              {/* Header — always visible */}
-              <button
-                onClick={() => setIsAddingMenu(!isAddingMenu)}
+              <button onClick={() => setIsAddingMenu(!isAddingMenu)}
                 className="w-full p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
                 <div className="flex items-center gap-2">
                   <Plus className="w-4 h-4 text-primary" />
                   <span className="font-black uppercase text-sm tracking-tight text-slate-900">Add Menu Item</span>
-                  {menuItems.length === 0 && (
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">— start here</span>
-                  )}
                 </div>
-                {isAddingMenu
-                  ? <ChevronUp className="w-4 h-4 text-slate-400" />
-                  : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                {isAddingMenu ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
               </button>
-
               <AnimatePresence>
                 {isAddingMenu && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden border-t border-slate-100">
-
-                    {/* ── PATH 1: FROM YOUR REFRESHMENTS ── */}
-                    {(() => {
-                      const refreshments = (inventory || []).filter(
-                        (i: any) => i.type === 'refreshment' || i.showInConcierge
-                      );
-                      const alreadyAdded = new Set(menuItems.map((m: any) => m.inventoryItemId).filter(Boolean));
-                      const available = refreshments.filter((r: any) => !alreadyAdded.has(r.id));
-
-                      return available.length > 0 ? (
-                        <div className="p-5 space-y-3">
-                          <div>
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                              From Your Refreshments
-                            </p>
-                            <p className="text-[10px] text-slate-400 font-bold mt-0.5">
-                              Tap any item to add it to the menu instantly. Stock will be tracked automatically.
-                            </p>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {available.map((inv: any) => (
-                              <button
-                                key={inv.id}
-                                onClick={async () => {
-                                  if (!firestore || !tenantId) return;
-                                  const id = nanoid();
-                                  const batch = writeBatch(firestore);
-                                  const menuItem = {
-                                    id, eventId, tenantId,
-                                    name: inv.name,
-                                    description: inv.description || null,
-                                    category: inv.category || 'other',
-                                    courseNumber: newMenuCourse,
-                                    isVegan: inv.isVegan || false,
-                                    isGlutenFree: inv.isGlutenFree || false,
-                                    inventoryItemId: inv.id,
-                                    portionSize: 1,
-                                    pricePerGuest: inv.price || inv.msrp || 0,
-                                    imageUrl: inv.imageUrl || null,
-                                    supplies: [{ inventoryId: inv.id, qty: 1 }],
-                                  };
-                                  batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
-                                  const eventRef = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
-                                  const eventSnap = await getDoc(eventRef);
-                                  const existingItems = eventSnap.data()?.menuItems || [];
-                                  const updatedItems = [...existingItems, menuItem];
-                                  const courseMap = new Map<number, any[]>();
-                                  updatedItems.forEach((item: any) => {
-                                    const n = item.courseNumber || 1;
-                                    if (!courseMap.has(n)) courseMap.set(n, []);
-                                    courseMap.get(n)!.push({ id: item.id, name: item.name, description: item.description, imageUrl: item.imageUrl });
-                                  });
-                                  const existingCourses = eventSnap.data()?.courses || [];
-                                  const updatedCourses = Array.from(courseMap.entries()).sort(([a], [b]) => a - b).map(([num, options]) => {
-                                    const existing = existingCourses.find((c: any) => c.courseNumber === num);
-                                    return {
-                                      id: existing?.id || `course-${num}`,
-                                      courseNumber: num,
-                                      name: existing?.name || (num === 1 ? 'Starters' : num === 2 ? 'Mains' : num === 3 ? 'Desserts' : `Course ${num}`),
-                                      note: existing?.note || null,
-                                      options,
-                                    };
-                                  });
-                                  batch.update(eventRef, { menuItems: updatedItems, courses: updatedCourses });
-                                  await batch.commit();
-                                  toast({ title: `${inv.name} added to menu` });
-                                }}
-                                className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-primary/40 hover:bg-primary/5 transition-all text-left group"
-                              >
-                                {inv.imageUrl ? (
-                                  <img src={inv.imageUrl} alt={inv.name} className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200" />
-                                ) : (
-                                  <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                                    <Utensils className="w-4 h-4 text-slate-400" />
-                                  </div>
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-black text-sm text-slate-900 truncate">{inv.name}</p>
-                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                                    {inv.totalStock !== undefined ? `${inv.totalStock} in stock` : 'Stock not tracked'}
-                                    {inv.price ? ` · $${inv.price}` : ''}
-                                  </p>
-                                </div>
-                                <div className="w-7 h-7 rounded-full border-2 border-slate-200 group-hover:border-primary group-hover:bg-primary flex items-center justify-center transition-all shrink-0">
-                                  <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-colors" />
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-
-                          {/* Course picker for refreshments */}
-                          <div className="flex items-center gap-3 pt-1">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">Add to course:</p>
-                            <div className="flex gap-2">
-                              {[1, 2, 3].map(n => (
-                                <button key={n} onClick={() => setNewMenuCourse(n)}
-                                  className={cn('h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all',
-                                    newMenuCourse === n
-                                      ? 'border-primary bg-primary/10 text-primary'
-                                      : 'border-slate-200 text-slate-500 hover:border-slate-300')}>
-                                  {n === 1 ? 'Starter' : n === 2 ? 'Main' : 'Dessert'}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Divider before custom */}
-                          <div className="flex items-center gap-3 pt-2">
-                            <div className="flex-1 h-px bg-slate-100" />
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-300">or</p>
-                            <div className="flex-1 h-px bg-slate-100" />
-                          </div>
-                        </div>
-                      ) : null;
-                    })()}
-
-                    {/* ── PATH 2: CUSTOM ITEM FORM ── */}
-                    <div className="p-5 pt-0 space-y-4">
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Custom Item</p>
-                        <p className="text-[10px] text-slate-400 font-bold mt-0.5">
-                          For dishes not in your inventory — e.g. a special prepared meal.
-                        </p>
-                      </div>
+                    <div className="p-5 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1.5 sm:col-span-2">
                           <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Item Name *</Label>
@@ -1526,21 +1384,11 @@ export default function EventManifestPage() {
                         </div>
                       </div>
                       <div className="flex gap-3">
-                        <Button
-                          onClick={() => {
-                            setIsAddingMenu(false);
-                            setNewMenuName(''); setNewMenuDesc('');
-                            setNewMenuCourse(1); setNewMenuPrice(0);
-                            setNewMenuVegan(false); setNewMenuGF(false);
-                            setMenuSupplies([]);
-                          }}
-                          variant="outline"
-                          className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-                          Cancel
-                        </Button>
+                        <Button onClick={() => { setIsAddingMenu(false); setNewMenuName(''); setNewMenuDesc(''); setNewMenuCourse(1); setNewMenuPrice(0); setNewMenuVegan(false); setNewMenuGF(false); setMenuSupplies([]); }}
+                          variant="outline" className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
                         <Button onClick={handleAddMenuItem} disabled={!newMenuName.trim()}
                           className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
-                          Add Custom Item →
+                          Add Item →
                         </Button>
                       </div>
                     </div>
@@ -1549,14 +1397,10 @@ export default function EventManifestPage() {
               </AnimatePresence>
             </div>
 
-            {/* Empty state */}
             {menuItems.length === 0 && !isAddingMenu && (
               <div className="text-center py-10 border-2 border-dashed rounded-3xl">
                 <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" />
                 <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p>
-                <p className="text-[9px] text-slate-300 font-bold uppercase tracking-widest mt-1">
-                  Click "Add Menu Item" above to get started
-                </p>
               </div>
             )}
           </TabsContent>
@@ -1599,18 +1443,13 @@ export default function EventManifestPage() {
                 <div className="pt-2 space-y-2">
                   <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Add Staff Member</Label>
                   <div className="flex gap-2">
-                    {/* FIX: use NO_SELECTION sentinel */}
                     <Select value={staffToAdd || NO_SELECTION} onValueChange={v => setStaffToAdd(v === NO_SELECTION ? '' : v)}>
-                      <SelectTrigger className="flex-1 h-11 rounded-xl border-2 font-bold text-sm">
-                        <SelectValue placeholder="Select staff member…" />
-                      </SelectTrigger>
+                      <SelectTrigger className="flex-1 h-11 rounded-xl border-2 font-bold text-sm"><SelectValue placeholder="Select staff member…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NO_SELECTION}>Select staff member…</SelectItem>
                         {(staffFromContext || [])
                           .filter((s: any) => !(event?.assignedStaffIds || []).includes(s.id))
-                          .map((s: any) => (
-                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                          ))}
+                          .map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <Button onClick={handleAddStaff} disabled={!staffToAdd || staffToAdd === NO_SELECTION}
@@ -1624,77 +1463,6 @@ export default function EventManifestPage() {
           </TabsContent>
         </Tabs>
       </main>
-
-      {/* ── FLOATING WALK-IN QUICK-ADD ── */}
-      {event?.status === 'active' && (
-        <div className="fixed bottom-6 right-6 z-40">
-          <button onClick={() => setIsQuickAddOpen(true)}
-            className="w-14 h-14 rounded-full bg-primary shadow-2xl shadow-primary/40 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform">
-            <UserPlus className="w-6 h-6 text-white" />
-          </button>
-        </div>
-      )}
-
-      {/* ── WALK-IN QUICK-ADD SHEET ── */}
-      <AnimatePresence>
-        {isQuickAddOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm p-4"
-            onClick={() => setIsQuickAddOpen(false)}
-          >
-            <motion.div
-              initial={{ y: 80, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 80, opacity: 0 }}
-              onClick={e => e.stopPropagation()}
-              className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-2xl overflow-hidden"
-            >
-              <div className="p-5 border-b border-slate-100">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Walk-in Quick Add</p>
-                <p className="font-black text-lg text-slate-900 mt-0.5">Add Guest — They're Here Now</p>
-              </div>
-              <div className="p-5 space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label>
-                  <Input value={quickAddName} onChange={e => setQuickAddName(e.target.value)}
-                    placeholder="Guest name" className="h-12 rounded-xl border-2 text-lg font-bold" autoFocus />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label>
-                    <Input value={quickAddTable} onChange={e => setQuickAddTable(e.target.value)}
-                      placeholder="e.g. 4" className="h-12 rounded-xl border-2 text-center text-lg font-bold" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
-                    {/* FIX: use NO_SELECTION sentinel */}
-                    <Select value={quickAddMeal || NO_SELECTION} onValueChange={v => setQuickAddMeal(v === NO_SELECTION ? '' : v)}>
-                      <SelectTrigger className="h-12 rounded-xl border-2 font-bold text-sm">
-                        <SelectValue placeholder="Select…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NO_SELECTION}>No selection</SelectItem>
-                        {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-              <div className="p-4 flex gap-3 border-t border-slate-100">
-                <Button variant="outline" onClick={() => setIsQuickAddOpen(false)}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                <Button onClick={handleQuickAdd} disabled={savingQuickAdd || !quickAddName.trim()}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 gap-2">
-                  {savingQuickAdd ? <Loader className="w-4 h-4 animate-spin" /> : <><UserPlus className="w-4 h-4" /> Add & Check In</>}
-                </Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
