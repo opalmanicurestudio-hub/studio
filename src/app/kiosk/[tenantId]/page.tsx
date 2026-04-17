@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, getDocs, getDoc, query, where, doc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, getDoc, query, where, doc, writeBatch, setDoc } from 'firebase/firestore';
 import {
   type Service, type Staff, type ConsentForm, type Tenant,
   type Client, type PartyMember, type PricingTier, type Appointment
@@ -28,14 +28,15 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { useForm, FormProvider } from 'react-hook-form';
 import Link from 'next/link';
+import { EventModeScreen } from '@/components/events/EventModeScreen';
 
 // ─── OFFLINE DETECTION HOOK ───────────────────────────────────────────────────
 const useOnlineStatus = () => {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   useEffect(() => {
-    const on = () => setIsOnline(true);
+    const on  = () => setIsOnline(true);
     const off = () => setIsOnline(false);
-    window.addEventListener('online', on);
+    window.addEventListener('online',  on);
     window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
@@ -52,53 +53,39 @@ const safeDate = (val: any): Date => {
   return new Date(val);
 };
 
-// FIX 1: check kiosk-specific hours first, then fall back to business schedule
 const isKioskOpen = (kioskSettings: any, scheduleProfiles: any[]): { open: boolean; hours?: string } => {
-  const now = new Date();
+  const now     = new Date();
   const dayName = format(now, 'eeee').toLowerCase();
-
-  // If kiosk has its own schedule enabled, use it
   if (kioskSettings?.useSpecificHours && kioskSettings?.kioskSchedule) {
     const dayHours = kioskSettings.kioskSchedule[dayName];
     if (!dayHours?.enabled) return { open: false };
     try {
       const parseTime = (t: string) => parse(t, t.length > 7 ? 'hh:mm a' : 'h:mm a', now);
-      return {
-        open: now >= parseTime(dayHours.start) && now <= parseTime(dayHours.end),
-        hours: `${dayHours.start} – ${dayHours.end}`
-      };
+      return { open: now >= parseTime(dayHours.start) && now <= parseTime(dayHours.end), hours: `${dayHours.start} – ${dayHours.end}` };
     } catch { return { open: true }; }
   }
-
-  // Fall back to business schedule
   const schedule = scheduleProfiles?.[0];
   if (!schedule?.week) return { open: true };
   const dayHours = schedule.week[dayName];
   if (!dayHours?.enabled) return { open: false };
   try {
     const parseTime = (t: string) => parse(t, t.length > 7 ? 'hh:mm a' : 'h:mm a', now);
-    return {
-      open: now >= parseTime(dayHours.start) && now <= parseTime(dayHours.end),
-      hours: `${dayHours.start} – ${dayHours.end}`
-    };
+    return { open: now >= parseTime(dayHours.start) && now <= parseTime(dayHours.end), hours: `${dayHours.start} – ${dayHours.end}` };
   } catch { return { open: true }; }
 };
 
-// FIX 6: accurate estimated duration including padding
 const calcEstimatedDuration = (memberServiceIds: string[], allServices: Service[]): number => {
   return memberServiceIds.reduce((total, sid) => {
     const svc = allServices.find(s => s.id === sid);
     if (!svc) return total;
-    // Primary service includes its own padding; add-ons typically share the main padding
-    // but we add their duration. padBefore/padAfter on the service object itself.
     return total + (svc.duration || 0) + (svc.padBefore || 0) + (svc.padAfter || 0);
   }, 0);
 };
 
-// ─── THEME SYSTEM (settings-driven, not user-facing in kiosk) ─────────────────
+// ─── THEME SYSTEM ─────────────────────────────────────────────────────────────
 type KioskTheme = 'light' | 'dark' | 'rose' | 'sage' | 'slate';
 
-interface T { // theme tokens
+interface T {
   bg: string; text: string; muted: string; card: string; cardBorder: string;
   btn: string; btnText: string; label: string; inputBg: string; inputBorder: string;
   surface: string;
@@ -117,7 +104,7 @@ const btnStyle = (primaryHex?: string, themeName?: KioskTheme): React.CSSPropert
   return { backgroundColor: primaryHex, color: '#fff' };
 };
 
-// ─── DARK MESH BACKGROUND ────────────────────────────────────────────────────
+// ─── DARK MESH BACKGROUND ─────────────────────────────────────────────────────
 const DarkMeshBg = ({ hex }: { hex?: string }) => (
   <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
     <div className="absolute -top-[30%] -left-[10%] w-[70%] h-[70%] rounded-full opacity-25 blur-[100px]"
@@ -127,20 +114,19 @@ const DarkMeshBg = ({ hex }: { hex?: string }) => (
   </div>
 );
 
-// ─── SURFACE CARD ─────────────────────────────────────────────────────────────
+// ─── SURFACE CARD ──────────────────────────────────────────────────────────────
 const SurfaceCard = ({ children, t }: { children: React.ReactNode; t: T }) => (
   <motion.div
     initial={{ opacity: 0, y: 10, scale: 0.98 }}
     animate={{ opacity: 1, y: 0, scale: 1 }}
     exit={{ opacity: 0, y: -8, scale: 0.98 }}
     transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-    className={cn('w-full max-w-2xl mx-auto overflow-hidden border rounded-3xl shadow-xl', t.card, t.cardBorder)}
-  >
+    className={cn('w-full max-w-2xl mx-auto overflow-hidden border rounded-3xl shadow-xl', t.card, t.cardBorder)}>
     {children}
   </motion.div>
 );
 
-// ─── STEP DOTS ────────────────────────────────────────────────────────────────
+// ─── STEP DOTS ─────────────────────────────────────────────────────────────────
 const StepDots = ({ total, current, t, hex }: { total: number; current: number; t: T; hex?: string }) => (
   <div className="flex items-center gap-1.5">
     {Array.from({ length: total }).map((_, i) => (
@@ -154,7 +140,7 @@ const StepDots = ({ total, current, t, hex }: { total: number; current: number; 
   </div>
 );
 
-// ─── CHOICE TILE ──────────────────────────────────────────────────────────────
+// ─── CHOICE TILE ───────────────────────────────────────────────────────────────
 const ChoiceTile = ({ onClick, icon: Icon, title, subtitle, t, hex }: any) => (
   <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} onClick={onClick}
     className={cn('flex flex-col items-center justify-center p-8 md:p-10 rounded-2xl border-2 transition-all cursor-pointer text-center', t.card, t.cardBorder, 'hover:shadow-lg')}>
@@ -166,8 +152,7 @@ const ChoiceTile = ({ onClick, icon: Icon, title, subtitle, t, hex }: any) => (
   </motion.button>
 );
 
-// ─── FIX 3: WAIT TIME PANEL (replaces full floor grid) ───────────────────────
-// Shows: estimated wait for this guest + optional floor toggle
+// ─── WAIT TIME PANEL ───────────────────────────────────────────────────────────
 const WaitTimePanel = ({ waitIns, staff, appointments, services, showFloor, onToggleFloor, t }: {
   waitIns: any[]; staff: Staff[] | null; appointments: Appointment[];
   services: Service[] | null; showFloor: boolean; onToggleFloor: () => void; t: T;
@@ -175,14 +160,10 @@ const WaitTimePanel = ({ waitIns, staff, appointments, services, showFloor, onTo
   const [now, setNow] = useState(new Date());
   useEffect(() => { const i = setInterval(() => setNow(new Date()), 30_000); return () => clearInterval(i); }, []);
 
-  // Build a slot-based wait estimate:
-  // Each provider has a "free at" time. We assign queue members to the earliest free slot.
   const { guestEstimate, positionInQueue } = useMemo(() => {
     const activeStaff = (staff || []).filter(s => s.active && !(s as any).onBreak);
-    
-    // When does each provider become free?
     const providerFreeTimes: number[] = activeStaff.map(s => {
-      if (s.status !== 'busy') return now.getTime(); // already free
+      if (s.status !== 'busy') return now.getTime();
       const apt = appointments.find(a => a.staffId === s.id && a.status === 'servicing');
       if (apt?.endTime) {
         const freeMs = safeDate(apt.endTime).getTime();
@@ -193,27 +174,21 @@ const WaitTimePanel = ({ waitIns, staff, appointments, services, showFloor, onTo
 
     if (providerFreeTimes.length === 0) return { guestEstimate: null, positionInQueue: 0 };
 
-    // Sort waiting queue by queueOrder
     const waiting = [...(waitIns || [])]
       .filter(w => w.status === 'waiting')
       .sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0));
 
-    const positionInQueue = waiting.length; // this guest is LAST (just checked in)
-
-    // Simulate assignment: assign each waiting guest to the earliest free provider
+    const positionInQueue = waiting.length;
     const slots = [...providerFreeTimes];
     waiting.forEach(guest => {
       const duration = (guest.estimatedDuration || 45) * 60 * 1000;
       slots.sort((a, b) => a - b);
-      slots[0] = slots[0] + duration; // earliest slot now occupied
+      slots[0] = slots[0] + duration;
     });
-
-    // This guest gets the next available slot after all current waiting
     slots.sort((a, b) => a - b);
     const mySlotMs = slots[0];
-    const waitMs = mySlotMs - now.getTime();
+    const waitMs   = mySlotMs - now.getTime();
     const waitMins = Math.max(0, Math.round(waitMs / 60000));
-
     return { guestEstimate: waitMins, positionInQueue };
   }, [staff, appointments, waitIns, now]);
 
@@ -223,7 +198,7 @@ const WaitTimePanel = ({ waitIns, staff, appointments, services, showFloor, onTo
         {guestEstimate === 0 ? (
           <>
             <p className={cn('text-[9px] font-black uppercase tracking-[0.25em]', t.muted)}>Estimated Wait</p>
-            <p className={cn('text-3xl font-black text-emerald-600')}>Ready Now</p>
+            <p className="text-3xl font-black text-emerald-600">Ready Now</p>
             <p className={cn('text-[10px] font-bold uppercase', t.muted)}>A provider is available for you</p>
           </>
         ) : guestEstimate !== null ? (
@@ -239,25 +214,21 @@ const WaitTimePanel = ({ waitIns, staff, appointments, services, showFloor, onTo
           </>
         )}
       </div>
-
-      {/* Toggle to show full floor */}
       <div className={cn('flex items-center justify-between px-5 py-3 border-t', t.cardBorder)}>
         <p className={cn('text-[9px] font-black uppercase tracking-widest', t.muted)}>Show Staff Status</p>
         <Switch checked={showFloor} onCheckedChange={onToggleFloor} className="scale-90" />
       </div>
-
-      {/* Optional floor grid */}
       <AnimatePresence>
         {showFloor && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
             <div className={cn('grid grid-cols-2 sm:grid-cols-3 gap-2 p-4 border-t', t.cardBorder)}>
               {(staff || []).filter(s => s.active).map(s => {
                 const isOnBreak = (s as any).onBreak;
-                const isBusy = s.status === 'busy';
+                const isBusy    = s.status === 'busy';
                 const apt = appointments.find(a => a.staffId === s.id && a.status === 'servicing');
-                const est = apt?.endTime ? Math.max(0, differenceInMinutes(safeDate(apt.endTime), now)) : null;
+                const est = apt?.endTime ? Math.max(0, differenceInMinutes(safeDate(apt.endTime), new Date())) : null;
                 const label = isOnBreak ? 'Break' : isBusy ? 'In Service' : 'Available';
-                const dot = isOnBreak ? 'bg-amber-400' : isBusy ? 'bg-blue-500' : 'bg-emerald-500';
+                const dot   = isOnBreak ? 'bg-amber-400' : isBusy ? 'bg-blue-500' : 'bg-emerald-500';
                 return (
                   <div key={s.id} className={cn('flex items-center gap-2 p-2.5 rounded-xl border', t.surface, t.cardBorder)}>
                     <div className="relative shrink-0">
@@ -269,9 +240,7 @@ const WaitTimePanel = ({ waitIns, staff, appointments, services, showFloor, onTo
                     </div>
                     <div className="min-w-0">
                       <p className={cn('text-[10px] font-black uppercase truncate', t.text)}>{s.name?.split(' ')[0]}</p>
-                      <p className={cn('text-[8px] font-bold uppercase', t.muted)}>
-                        {label}{est !== null && est > 0 ? ` ~${est}m` : ''}
-                      </p>
+                      <p className={cn('text-[8px] font-bold uppercase', t.muted)}>{label}{est !== null && est > 0 ? ` ~${est}m` : ''}</p>
                     </div>
                   </div>
                 );
@@ -284,9 +253,7 @@ const WaitTimePanel = ({ waitIns, staff, appointments, services, showFloor, onTo
   );
 };
 
-// ─── GUEST NAMES VIEW ─────────────────────────────────────────────────────────
-// Shown AFTER primary identity is resolved — names pre-filled if returning guest
-// FIX 5: comes after identity, no double entry
+// ─── GUEST NAMES VIEW ──────────────────────────────────────────────────────────
 const GuestNamesView = ({ members, onChangeName, onConfirm, onBack, t, hex }: {
   members: PartyMember[]; onChangeName: (idx: number, name: string) => void;
   onConfirm: () => void; onBack: () => void; t: T; hex?: string;
@@ -302,25 +269,19 @@ const GuestNamesView = ({ members, onChangeName, onConfirm, onBack, t, hex }: {
       <div className="space-y-3">
         {members.map((m, idx) => (
           <div key={m.id} className={cn('flex items-center gap-3 p-4 rounded-2xl border-2', t.card, t.cardBorder)}>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black shrink-0 text-white"
-              style={{ backgroundColor: idx === 0 ? (hex || '#0f172a') : undefined }}
-              className={cn('w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black shrink-0', idx === 0 ? '' : cn(t.surface, t.muted))}>
+            <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black shrink-0', idx === 0 ? 'text-white' : cn(t.surface, t.muted))}
+              style={idx === 0 ? { backgroundColor: hex || '#0f172a' } : undefined}>
               {idx + 1}
             </div>
             <div className="flex-1">
               <label className={cn('text-[8px] font-black uppercase tracking-widest', t.label)}>
                 {idx === 0 ? 'Primary Guest' : `Guest ${idx + 1}`}
               </label>
-              <input
-                value={m.name}
-                onChange={e => onChangeName(idx, e.target.value)}
+              <input value={m.name} onChange={e => onChangeName(idx, e.target.value)}
                 placeholder={idx === 0 ? 'Your name' : `Guest ${idx + 1} name`}
-                className={cn('w-full h-10 rounded-xl border-2 px-3 text-sm font-bold outline-none transition-all uppercase tracking-tight mt-0.5', t.inputBg, t.inputBorder, t.text, 'placeholder:opacity-30')}
-              />
+                className={cn('w-full h-10 rounded-xl border-2 px-3 text-sm font-bold outline-none transition-all uppercase tracking-tight mt-0.5', t.inputBg, t.inputBorder, t.text, 'placeholder:opacity-30')} />
             </div>
-            {idx === 0 && m.name && (
-              <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-            )}
+            {idx === 0 && m.name && <Check className="w-4 h-4 text-emerald-500 shrink-0" />}
           </div>
         ))}
       </div>
@@ -336,21 +297,19 @@ const GuestNamesView = ({ members, onChangeName, onConfirm, onBack, t, hex }: {
   );
 };
 
-// ─── MEMBER DETAILS STEP ──────────────────────────────────────────────────────
+// ─── STEP DETAILS ──────────────────────────────────────────────────────────────
 const StepDetails = ({ member, onUpdate, primaryMember, isGroup, bannedClient, existingClientWithBalance, isResolvingIdentity, isKnownClient, clientType, t }: any) => (
   <div className="space-y-4">
     <div className="space-y-2">
       <label className={cn('text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5', t.label)}><Phone className="w-3 h-3" /> Phone</label>
-      <PhoneInput key={`phone-key-${member.id}-${member.phone}`} name={`phone-${member.id}`} international defaultCountry="US" value={member.phone || ''} onChange={v => onUpdate({ phone: v || '' })} placeholder="(555) 000-0000"
+      <PhoneInput key={`phone-key-${member.id}-${member.phone}`} name={`phone-${member.id}`} international defaultCountry="US" value={member.phone || ''} onChange={(v: any) => onUpdate({ phone: v || '' })} placeholder="(555) 000-0000"
         className={cn('h-14 w-full rounded-2xl border-2 px-4 text-lg font-bold transition-all', t.inputBg, t.inputBorder, t.text, '[&_input]:border-none [&_input]:bg-transparent [&_input]:placeholder:opacity-30')} />
     </div>
-    {/* Name is already captured — show read-only unless they want to change it */}
     <div className="space-y-2">
       <label className={cn('text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5', t.label)}><User className="w-3 h-3" /> Full Name</label>
       <input value={member.name} onChange={e => onUpdate({ name: e.target.value })} placeholder="Your full name"
         className={cn('w-full h-14 rounded-2xl border-2 px-4 text-lg font-bold outline-none transition-all uppercase tracking-tight', t.inputBg, t.inputBorder, t.text, 'placeholder:opacity-30')} />
     </div>
-    {/* FIX 5b: Copy contact copies BOTH phone AND email */}
     {isGroup && !member.isPrimary && primaryMember && (
       <button onClick={() => onUpdate({ phone: primaryMember.phone || '', email: primaryMember.email || '' })}
         className={cn('w-full h-10 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all', t.card, t.cardBorder, t.muted, 'hover:opacity-70')}>
@@ -386,7 +345,7 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup, bannedClient, e
   </div>
 );
 
-// ─── SERVICE SELECTION ────────────────────────────────────────────────────────
+// ─── SERVICE SELECTION ─────────────────────────────────────────────────────────
 const ServiceTile = ({ service, isSelected, onToggle, t, hex }: any) => {
   const minPrice = useMemo(() => { if (!service.serviceTiers?.length) return service.price; return Math.min(...service.serviceTiers.map((st: any) => st.price)); }, [service]);
   return (
@@ -402,13 +361,13 @@ const ServiceTile = ({ service, isSelected, onToggle, t, hex }: any) => {
 };
 
 const StepServices = ({ member, onUpdate, services, t, hex }: any) => {
-  const mainServices = useMemo(() => (services || []).filter((s: Service) => s.type === 'service'), [services]);
+  const mainServices   = useMemo(() => (services || []).filter((s: Service) => s.type === 'service'), [services]);
   const selectedMainId = useMemo(() => member.serviceIds.find((id: string) => mainServices.some((s: Service) => s.id === id)), [member.serviceIds, mainServices]);
-  const selectedMain = useMemo(() => (services || []).find((s: Service) => s.id === selectedMainId), [services, selectedMainId]);
-  const categories = useMemo(() => Array.from(new Set(mainServices.map((s: Service) => s.category || 'Standard'))).sort() as string[], [mainServices]);
-  const addOns = useMemo(() => selectedMain ? (services || []).filter((s: Service) => s.type === 'addon' && (selectedMain.compatibleAddOnIds || []).includes(s.id)) : [], [services, selectedMain]);
+  const selectedMain   = useMemo(() => (services || []).find((s: Service) => s.id === selectedMainId), [services, selectedMainId]);
+  const categories     = useMemo(() => Array.from(new Set(mainServices.map((s: Service) => s.category || 'Standard'))).sort() as string[], [mainServices]);
+  const addOns         = useMemo(() => selectedMain ? (services || []).filter((s: Service) => s.type === 'addon' && (selectedMain.compatibleAddOnIds || []).includes(s.id)) : [], [services, selectedMain]);
   const [view, setView] = useState<'cat' | 'main' | 'addon'>(selectedMainId ? 'addon' : 'cat');
-  const [cat, setCat] = useState<string | null>(null);
+  const [cat, setCat]   = useState<string | null>(null);
   return (
     <AnimatePresence mode="wait">
       {view === 'cat' && <motion.div key="cat" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="space-y-3">
@@ -427,7 +386,7 @@ const StepServices = ({ member, onUpdate, services, t, hex }: any) => {
   );
 };
 
-// ─── STAFF PREFERENCE ─────────────────────────────────────────────────────────
+// ─── STAFF PREFERENCE ──────────────────────────────────────────────────────────
 const StepStaff = ({ member, onUpdate, staff, t, hex }: any) => (
   <div className="space-y-4">
     <p className={cn('text-[9px] font-black uppercase tracking-[0.2em]', t.label)}>Provider preference</p>
@@ -462,23 +421,23 @@ const StepConsents = ({ requiredForms, formAnswers, setFormAnswers, t }: any) =>
     {requiredForms.map((form: ConsentForm) => (
       <div key={form.id} className={cn('space-y-5 p-5 rounded-2xl border-2', t.card, t.cardBorder)}>
         <h3 className={cn('font-black uppercase tracking-tight flex items-center gap-2 text-sm', t.text)}><FileSignature className={cn('w-4 h-4', t.muted)} />{form.title}</h3>
-        {form.fields?.map((field: any) => <FormFieldRenderer key={field.id} field={field} value={formAnswers[form.id]?.[field.id]} onChange={val => setFormAnswers({ ...formAnswers, [form.id]: { ...(formAnswers[form.id] || {}), [field.id]: val } })} />)}
+        {form.fields?.map((field: any) => <FormFieldRenderer key={field.id} field={field} value={formAnswers[form.id]?.[field.id]} onChange={(val: any) => setFormAnswers({ ...formAnswers, [form.id]: { ...(formAnswers[form.id] || {}), [field.id]: val } })} />)}
       </div>
     ))}
   </div>
 );
 
-// ─── MEMBER SETUP ─────────────────────────────────────────────────────────────
+// ─── MEMBER SETUP ──────────────────────────────────────────────────────────────
 type MemberSubStep = 'details' | 'services' | 'consents' | 'staff';
 
 const MemberSetup = ({ member, onUpdate, partyMembers, memberSubStep, services, staff, consentForms, formAnswers, setFormAnswers, onNext, onBack, isGroup, isLastMember, onFinishedGuest, onSubmit, isSubmitting, bannedClient, existingClientWithBalance, isResolvingIdentity, matchedAppointment, onAppointmentCheckIn, dayAccessTier, isKnownClient, clientType, t, hex }: any) => {
   const primaryService = (services || []).find((s: Service) => s.id === member.serviceIds[0]);
-  const requiredForms = (consentForms || []).filter((f: ConsentForm) => primaryService?.requiredFormIds?.includes(f.id));
+  const requiredForms  = (consentForms || []).filter((f: ConsentForm) => primaryService?.requiredFormIds?.includes(f.id));
   const subSteps: MemberSubStep[] = ['details', 'services'];
   if (requiredForms.length > 0) subSteps.push('consents');
   subSteps.push('staff');
-  const idx = subSteps.indexOf(memberSubStep);
-  const hasNext = idx < subSteps.length - 1;
+  const idx      = subSteps.indexOf(memberSubStep);
+  const hasNext  = idx < subSteps.length - 1;
   const isBlocked = !!bannedClient || !!existingClientWithBalance || isResolvingIdentity || (isKnownClient && clientType === 'new');
   const stepLabel: Record<MemberSubStep, string> = { details: 'Your Info', services: 'Treatment', consents: 'Agreements', staff: 'Preference' };
   return (
@@ -504,21 +463,25 @@ const MemberSetup = ({ member, onUpdate, partyMembers, memberSubStep, services, 
       {memberSubStep === 'details' && dayAccessTier === 'members' && <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-4"><p className="text-[9px] font-black uppercase tracking-widest text-indigo-600 mb-1">Members Priority Day</p><p className="text-[9px] font-bold text-indigo-500 uppercase">Today is reserved for Club Members only.</p></div>}
       <AnimatePresence mode="wait">
         <motion.div key={memberSubStep} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>
-          {memberSubStep === 'details' && <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} bannedClient={bannedClient} existingClientWithBalance={existingClientWithBalance} isResolvingIdentity={isResolvingIdentity} isKnownClient={isKnownClient} clientType={clientType} t={t} />}
-          {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} t={t} hex={hex} />}
-          {memberSubStep === 'consents' && <StepConsents requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} t={t} />}
-          {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} t={t} hex={hex} />}
+          {memberSubStep === 'details'   && <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} bannedClient={bannedClient} existingClientWithBalance={existingClientWithBalance} isResolvingIdentity={isResolvingIdentity} isKnownClient={isKnownClient} clientType={clientType} t={t} />}
+          {memberSubStep === 'services'  && <StepServices member={member} onUpdate={onUpdate} services={services} t={t} hex={hex} />}
+          {memberSubStep === 'consents'  && <StepConsents requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} t={t} />}
+          {memberSubStep === 'staff'     && <StepStaff member={member} onUpdate={onUpdate} staff={staff} t={t} hex={hex} />}
         </motion.div>
       </AnimatePresence>
       <div className="flex gap-3 pt-2">
         <button onClick={onBack} disabled={isSubmitting} className={cn('h-14 px-5 rounded-2xl border-2 font-black uppercase text-sm', t.card, t.cardBorder, t.muted, 'hover:opacity-70')}>←</button>
         <div className="flex-1 flex gap-3">
           {hasNext ? (
-            <button onClick={() => onNext(subSteps[idx + 1])} disabled={isSubmitting || (memberSubStep === 'details' && isBlocked) || (memberSubStep === 'services' && member.serviceIds.length === 0)} className={cn('flex-1 h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-30', t.btn, t.btnText)} style={btnStyle(hex)}>Continue <ArrowRight className="w-4 h-4" /></button>
+            <button onClick={() => onNext(subSteps[idx + 1])} disabled={isSubmitting || (memberSubStep === 'details' && isBlocked) || (memberSubStep === 'services' && member.serviceIds.length === 0)}
+              className={cn('flex-1 h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-30', t.btn, t.btnText)} style={btnStyle(hex)}>
+              Continue <ArrowRight className="w-4 h-4" />
+            </button>
           ) : (
             <>
               {isGroup && !isLastMember && <button onClick={onFinishedGuest} disabled={isSubmitting || isBlocked || member.serviceIds.length === 0} className={cn('flex-1 h-14 rounded-2xl border-2 font-black uppercase text-sm disabled:opacity-30', t.card, t.cardBorder, t.text)}>Next Guest →</button>}
-              <button onClick={onSubmit} disabled={isSubmitting || (memberSubStep === 'details' && isBlocked) || (memberSubStep === 'services' && member.serviceIds.length === 0)} className={cn('flex-1 h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-30', t.btn, t.btnText)} style={btnStyle(hex)}>
+              <button onClick={onSubmit} disabled={isSubmitting || (memberSubStep === 'details' && isBlocked) || (memberSubStep === 'services' && member.serviceIds.length === 0)}
+                className={cn('flex-1 h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-30', t.btn, t.btnText)} style={btnStyle(hex)}>
                 {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : 'Complete ✓'}
               </button>
             </>
@@ -529,7 +492,7 @@ const MemberSetup = ({ member, onUpdate, partyMembers, memberSubStep, services, 
   );
 };
 
-// ─── CONFIRMATION ─────────────────────────────────────────────────────────────
+// ─── CONFIRMATION ──────────────────────────────────────────────────────────────
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone, staff, liveAppointments, services, walkIns, t, hex, studioName, studioLogoUrl }: any) => {
   const [showFloor, setShowFloor] = useState(false);
   return (
@@ -544,8 +507,6 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone, staff, liveAppoin
           {confirmedParty.length > 1 ? `${confirmedParty.length} tickets — print one per guest` : "We'll notify you when it's your turn"}
         </p>
       </div>
-
-      {/* Per-guest ticket cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {confirmedParty.map((ticket: WalkInTicketData, i: number) => (
           <motion.div key={ticket.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}
@@ -562,26 +523,19 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone, staff, liveAppoin
           </motion.div>
         ))}
       </div>
-
       {confirmedParty.length > 1 && (
         <button onClick={() => confirmedParty.forEach((ticket: WalkInTicketData) => onPrint({ ...ticket, studioName, studioLogoUrl }))}
           className={cn('w-full h-11 rounded-2xl border-2 font-black uppercase tracking-widest text-xs', t.card, t.cardBorder, t.text, 'hover:opacity-80')}>
           Print All {confirmedParty.length} Tickets
         </button>
       )}
-
-      {/* Wait time panel — FIX 3 */}
-      <WaitTimePanel
-        waitIns={walkIns || []} staff={staff} appointments={liveAppointments || []}
-        services={services} showFloor={showFloor} onToggleFloor={() => setShowFloor(p => !p)} t={t}
-      />
-
+      <WaitTimePanel waitIns={walkIns || []} staff={staff} appointments={liveAppointments || []} services={services} showFloor={showFloor} onToggleFloor={() => setShowFloor(p => !p)} t={t} />
       <button onClick={onDone} className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest', t.btn, t.btnText)} style={btnStyle(hex)}>Done</button>
     </div>
   );
 };
 
-// ─── BIRTHDAY ─────────────────────────────────────────────────────────────────
+// ─── BIRTHDAY ──────────────────────────────────────────────────────────────────
 const BirthdayView = ({ name, onDone, t, hex }: any) => (
   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={cn('fixed inset-0 z-[200] flex flex-col items-center justify-center p-6 text-center', t.bg)}>
     {Array.from({ length: 12 }).map((_, i) => (
@@ -597,7 +551,7 @@ const BirthdayView = ({ name, onDone, t, hex }: any) => (
   </motion.div>
 );
 
-// ─── CLOSED ───────────────────────────────────────────────────────────────────
+// ─── CLOSED ────────────────────────────────────────────────────────────────────
 const ClosedView = ({ hours, logoUrl, tenantName, t }: any) => (
   <div className={cn('text-center space-y-6 max-w-sm mx-auto p-10 rounded-3xl border-2', t.card, t.cardBorder)}>
     <div className={cn('w-20 h-20 mx-auto rounded-3xl border-2 flex items-center justify-center', t.card, t.cardBorder)}>
@@ -609,148 +563,28 @@ const ClosedView = ({ hours, logoUrl, tenantName, t }: any) => (
   </div>
 );
 
-// ─── STEP TYPE ────────────────────────────────────────────────────────────────
-// FIX 5: guestNames now comes AFTER identity is resolved (after welcomeBack/identityConfirm)
-// New flow: partyType → partySize → identityChoice → [phonePad → identityConfirm → welcomeBack] → guestNames → memberSetup×N → confirmation
+// ─── STEP TYPE ─────────────────────────────────────────────────────────────────
 type Step = 'partyType' | 'partySize' | 'identityChoice' | 'phonePad' | 'identityConfirm' | 'welcomeBack' | 'guestNames' | 'memberSetup' | 'confirmation';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════════════════════════════
-// ─── EVENT MODE SCREEN ────────────────────────────────────────────────────────
-// Shown when kiosk detects an active studio event today.
-// Replaces walk-in flow with floor-service-only requests.
-const FLOOR_REQUESTS = [
-  { type: 'napkins',     label: 'Napkins',       emoji: '🧻' },
-  { type: 'water',       label: 'Water Refill',  emoji: '💧' },
-  { type: 'condiments',  label: 'Condiments',    emoji: '🧂' },
-  { type: 'utensils',    label: 'Extra Utensils',emoji: '🍴' },
-  { type: 'ice',         label: 'Ice',           emoji: '🧊' },
-  { type: 'accessibility', label: 'Accessibility', emoji: '♿' },
-  { type: 'temperature', label: 'Temperature',   emoji: '🌡️' },
-  { type: 'cleaning',    label: 'Spill / Cleanup', emoji: '🧹' },
-  { type: 'other',       label: 'Other Request', emoji: '💬' },
-];
-
-function EventModeScreen({ event, tenant, t, onFloorRequest, onExit }: {
-  event: any; tenant: any; t: T;
-  onFloorRequest: (type: string, label: string) => Promise<void>;
-  onExit: () => void;
-}) {
-  const [requested, setRequested] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState<string | null>(null);
-
-  const logoUrl = tenant?.kioskSettings?.logoUrl || tenant?.bookingPageSettings?.logoUrl;
-
-  const handleRequest = async (type: string, label: string) => {
-    if (requested.includes(type)) return;
-    setSubmitting(type);
-    await onFloorRequest(type, label);
-    setRequested(prev => [...prev, type]);
-    setSubmitting(null);
-  };
-
-  return (
-    <motion.div
-      key="event-mode"
-      initial={{ opacity: 0, scale: 0.97 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.97 }}
-      className="w-full max-w-lg mx-auto z-10 space-y-6 p-4"
-    >
-      {/* Header */}
-      <div className={cn("rounded-3xl border-2 p-6 text-center space-y-3", t.card, t.cardBorder)}>
-        {logoUrl && (
-          <div className="relative w-14 h-14 mx-auto rounded-2xl overflow-hidden shadow-md">
-            <Image src={logoUrl} alt={tenant?.name || ''} fill className="object-cover" />
-          </div>
-        )}
-        <div>
-          <p className={cn("text-[9px] font-black uppercase tracking-[0.25em]", t.muted)}>Tonight's Event</p>
-          <h1 className={cn("text-2xl font-black uppercase tracking-tighter leading-none mt-1", t.text)}>{event?.name}</h1>
-          {event?.date && (
-            <p className={cn("text-[10px] font-bold uppercase tracking-widest mt-1", t.muted)}>
-              {format(new Date(event.date), 'EEEE, MMMM d')}
-            </p>
-          )}
-        </div>
-        <div className={cn("rounded-2xl border p-3", t.cardBorder)}>
-          <p className={cn("text-[9px] font-black uppercase tracking-widest", t.muted)}>Your meal is being prepared</p>
-          <p className={cn("text-sm font-black mt-0.5", t.text)}>Sit back and enjoy the evening ✨</p>
-        </div>
-      </div>
-
-      {/* Floor request grid */}
-      <div className={cn("rounded-3xl border-2 p-5 space-y-4", t.card, t.cardBorder)}>
-        <div className="text-center">
-          <p className={cn("text-[9px] font-black uppercase tracking-[0.25em]", t.muted)}>Need Something?</p>
-          <p className={cn("text-base font-black uppercase tracking-tight mt-0.5", t.text)}>Tap to request floor service</p>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          {FLOOR_REQUESTS.map(req => {
-            const done = requested.includes(req.type);
-            const loading = submitting === req.type;
-            return (
-              <motion.button
-                key={req.type}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleRequest(req.type, req.label)}
-                disabled={done || !!submitting}
-                className={cn(
-                  "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all",
-                  done
-                    ? "border-emerald-300 bg-emerald-50 opacity-70"
-                    : cn("border-2", t.cardBorder, t.card, "hover:opacity-80 active:opacity-60")
-                )}
-              >
-                {loading
-                  ? <Loader className="w-5 h-5 animate-spin text-slate-400" />
-                  : done
-                    ? <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                    : <span className="text-2xl">{req.emoji}</span>
-                }
-                <span className={cn("text-[9px] font-black uppercase tracking-tight text-center leading-tight",
-                  done ? "text-emerald-700" : t.text
-                )}>{req.label}</span>
-              </motion.button>
-            );
-          })}
-        </div>
-        <p className={cn("text-center text-[9px] font-bold uppercase tracking-widest", t.muted)}>
-          A staff member will be with you shortly
-        </p>
-      </div>
-
-      {/* Back button */}
-      <button onClick={onExit}
-        className={cn("w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest transition-all", t.card, t.cardBorder, t.muted)}>
-        ← Back
-      </button>
-    </motion.div>
-  );
-}
-
 export default function WalkInPage() {
   const { firestore } = useFirebase();
-  const { toast } = useToast();
-  const params = useParams();
-  const tenantId = params.tenantId as string;
-  const methods = useForm({ defaultValues: { name: '', email: '', phone: '' } });
+  const { toast }     = useToast();
+  const params        = useParams();
+  const tenantId      = params.tenantId as string;
+  const methods       = useForm({ defaultValues: { name: '', email: '', phone: '' } });
 
-  const tenantRef    = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-  const servicesQ    = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
-  const staffQ       = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
-  const schedulesQ   = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where('isActive', '==', true)), [firestore, tenantId]);
-  const consentsQ    = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
-  // No realtime clients listener — looked up lazily via getDocs only when needed
-  // Live appointments for floor view (servicing + confirmed)
-  const liveAptsQ    = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('status', 'in', ['confirmed', 'servicing'])), [firestore, tenantId]);
-  // Today's events — to filter out staff with event blocks (FIX 2)
-  const eventsQ      = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/events`), where('date', '==', format(new Date(), 'yyyy-MM-dd'))), [firestore, tenantId]);
-  // Studio events — detect active event for kiosk mode switch
+  const tenantRef     = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+  const servicesQ     = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
+  const staffQ        = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+  const schedulesQ    = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where('isActive', '==', true)), [firestore, tenantId]);
+  const consentsQ     = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
+  const liveAptsQ     = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('status', 'in', ['confirmed', 'servicing'])), [firestore, tenantId]);
+  const eventsQ       = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/events`), where('date', '==', format(new Date(), 'yyyy-MM-dd'))), [firestore, tenantId]);
   const studioEventsQ = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/studioEvents`), where('date', '==', format(new Date(), 'yyyy-MM-dd'))), [firestore, tenantId]);
-  // Live walk-in queue for wait estimate
-  const walkInsQ     = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/walkIns`), where('status', '==', 'waiting')), [firestore, tenantId]);
+  const walkInsQ      = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/walkIns`), where('status', '==', 'waiting')), [firestore, tenantId]);
 
   const { data: tenant }           = useDoc<Tenant>(tenantRef);
   const { data: services }         = useCollection<Service>(servicesQ);
@@ -762,7 +596,6 @@ export default function WalkInPage() {
   const { data: studioEvents }     = useCollection<any>(studioEventsQ);
   const { data: walkIns }          = useCollection<any>(walkInsQ);
 
-  // Theme — entirely from kioskSettings
   const kioskSettings = tenant?.kioskSettings;
   const logoUrl       = kioskSettings?.logoUrl;
   const wordmarkUrl   = kioskSettings?.wordmarkUrl;
@@ -771,12 +604,10 @@ export default function WalkInPage() {
   const themeName     = (kioskSettings?.theme as KioskTheme) || 'light';
   const t             = THEMES[themeName];
 
-  // FIX 2: filter out staff who have an event block RIGHT NOW
   const activeStaff = useMemo(() => {
     const now = new Date();
     return (staff || []).filter(s => {
       if (!s.active || (s as any).onBreak) return false;
-      // Check if this staff member has an event block covering now
       const blockedByEvent = (events || []).some(ev => {
         if (!(ev.staffIds || []).includes(s.id) && (ev.staffIds || []).length > 0) return false;
         const evStart = safeDate(ev.startTime || ev.start);
@@ -787,38 +618,33 @@ export default function WalkInPage() {
     });
   }, [staff, events]);
 
-  // ── Active studio event detection ──────────────────────────────────────────
-  // If today has an active studio event, kiosk switches to floor-service-only mode
   const activeStudioEvent = useMemo(() => {
     if (!studioEvents?.length) return null;
-    // Only activate kiosk event mode when host has deliberately set status to 'active'
-    // 'upcoming' events do NOT trigger event mode — host must press Go Live
     return studioEvents.find((ev: any) => ev.status === 'active') || null;
   }, [studioEvents]);
 
   const isEventMode = !!activeStudioEvent;
 
-  // Floor request handler — used in event mode kiosk
-  const handleFloorRequest = async (requestType: string, label: string) => {
+  // ── Floor request handler (now accepts tableNumber) ───────────────────────
+  const handleFloorRequest = async (requestType: string, label: string, tableNumber: string) => {
     if (!firestore || !tenantId) return;
-    const { nanoid: _nanoid } = await import('nanoid');
-    const id = _nanoid();
-    await import('firebase/firestore').then(({ setDoc, doc: _doc }) =>
-      setDoc(_doc(firestore, `tenants/${tenantId}/floorRequests`, id), {
-        id, tenantId,
-        eventId: activeStudioEvent?.id || null,
-        eventName: activeStudioEvent?.name || null,
-        requestType,
-        label,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        source: 'event_kiosk',
-      })
-    );
-    toast({ title: `${label} requested`, description: 'A staff member will be with you shortly.' });
+    const id = nanoid();
+    await setDoc(doc(firestore, `tenants/${tenantId}/floorRequests`, id), {
+      id,
+      tenantId,
+      eventId:   activeStudioEvent?.id   || null,
+      eventName: activeStudioEvent?.name || null,
+      requestType,
+      label,
+      tableNumber: tableNumber || null,
+      status:    'new',
+      createdAt: new Date().toISOString(),
+      source:    'event_kiosk',
+    });
+    // Toast is handled inside EventModeScreen — no double toast here
   };
 
-  // Flow state
+  // ── Walk-in flow state ────────────────────────────────────────────────────
   const [entered, setEntered]             = useState(false);
   const [step, setStep]                   = useState<Step>('partyType');
   const [isGroup, setIsGroup]             = useState(false);
@@ -832,7 +658,6 @@ export default function WalkInPage() {
   const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
   const [isPrintOpen, setIsPrintOpen]     = useState(false);
 
-  // Identity state
   const [existingBalance, setExistingBalance] = useState<Client | null>(null);
   const [bannedClient, setBannedClient]       = useState<Client | null>(null);
   const [isResolving, setIsResolving]         = useState(false);
@@ -849,12 +674,10 @@ export default function WalkInPage() {
     return scheduleProfiles?.[0]?.week?.[day] || null;
   }, [scheduleProfiles]);
 
-  const isOnline = useOnlineStatus();
+  const isOnline          = useOnlineStatus();
+  const kioskOpenStatus   = useMemo(() => isKioskOpen(kioskSettings, scheduleProfiles || []), [kioskSettings, scheduleProfiles]);
 
-  // FIX 1: use kiosk-specific hours
-  const kioskOpenStatus = useMemo(() => isKioskOpen(kioskSettings, scheduleProfiles || []), [kioskSettings, scheduleProfiles]);
-
-  // ── Identity resolution ────────────────────────────────────────────────────
+  // ── Identity resolution ───────────────────────────────────────────────────
   const resolveIdentity = useCallback(async (
     email?: string, phone?: string, callerType?: 'new' | 'returning' | null
   ): Promise<{ isBanned: boolean; hasBalance: boolean; isKnown: boolean; client: any }> => {
@@ -862,7 +685,7 @@ export default function WalkInPage() {
     if (!firestore || !tenantId || (!email && !phone)) return empty;
     setIsResolving(true);
     try {
-      const ref = collection(firestore, 'tenants', tenantId, 'clients');
+      const ref   = collection(firestore, 'tenants', tenantId, 'clients');
       const snaps = await Promise.all([
         ...(email ? [getDocs(query(ref, where('email', '==', email.toLowerCase().trim())))] : []),
         ...(phone ? [getDocs(query(ref, where('phone', '==', phone)))] : []),
@@ -896,8 +719,7 @@ export default function WalkInPage() {
     finally { setIsResolving(false); }
   }, [firestore, tenantId, clientType, step, toast]);
 
-  // ── Flow handlers ──────────────────────────────────────────────────────────
-
+  // ── Flow handlers ─────────────────────────────────────────────────────────
   const handlePartyType = (type: 'individual' | 'group') => {
     const group = type === 'group';
     setIsGroup(group);
@@ -913,7 +735,6 @@ export default function WalkInPage() {
 
   const handlePartySizeConfirm = (size: number) => {
     setPartySize(size);
-    // Create member slots — names will be filled on guestNames screen (after identity)
     setPartyMembers(Array.from({ length: size }, (_, i) => ({
       id: nanoid(5), name: '', serviceIds: [], isPrimary: i === 0, preferredStaffId: 'any', waitForPreferredStaff: false,
     })));
@@ -935,7 +756,6 @@ export default function WalkInPage() {
     if (result.client) setStep('identityConfirm');
   };
 
-  // FIX: pre-fill primary member without calling handleMemberUpdate (avoids clearing matchedClient)
   const handleIdentityConfirm = async () => {
     if (!matchedClient) return;
     setPartyMembers(prev => prev.map((m, i) =>
@@ -943,23 +763,21 @@ export default function WalkInPage() {
     ));
     if (matchedApt) { await handleAppointmentCheckIn(matchedApt); }
     else {
-      setMemberSubStep('services'); // primary already has details filled
-      if (isGroup) setStep('guestNames'); // collect other guest names
+      setMemberSubStep('services');
+      if (isGroup) setStep('guestNames');
       else setStep('welcomeBack');
     }
   };
 
   const handleGuestNamesConfirm = () => {
-    // All guest names collected — start service selection for guest 1
     setCurrentIdx(0);
-    setMemberSubStep('services'); // primary's details already filled; skip to services
+    setMemberSubStep('services');
     setStep('memberSetup');
   };
 
   const handleMemberUpdate = (updates: Partial<PartyMember>) => {
     if (updates.phone !== undefined || updates.email !== undefined) {
       setIsKnownClient(false); setBannedClient(null); setExistingBalance(null); setMatchedApt(null);
-      // NOT clearing matchedClient — preserves welcomeBack name display
     }
     setPartyMembers(prev => prev.map((m, i) => i === currentIdx ? { ...m, ...updates } : m));
   };
@@ -984,7 +802,6 @@ export default function WalkInPage() {
 
   const handleFinishedGuest = () => {
     setCurrentIdx(prev => prev + 1);
-    // Non-primary guests need to enter their contact details
     setMemberSubStep('details');
     setBannedClient(null); setExistingBalance(null); setMatchedApt(null); setIsKnownClient(false);
   };
@@ -995,9 +812,9 @@ export default function WalkInPage() {
       else if (isGroup) setStep('guestNames');
       else setStep('identityChoice');
     } else {
-      const member = partyMembers[currentIdx];
-      const primary = (services || []).find((s: Service) => s.id === member.serviceIds[0]);
-      const forms = (consentForms || []).filter((f: ConsentForm) => primary?.requiredFormIds?.includes(f.id));
+      const member   = partyMembers[currentIdx];
+      const primary  = (services || []).find((s: Service) => s.id === member.serviceIds[0]);
+      const forms    = (consentForms || []).filter((f: ConsentForm) => primary?.requiredFormIds?.includes(f.id));
       const steps: MemberSubStep[] = ['details', 'services'];
       if (forms.length > 0) steps.push('consents');
       steps.push('staff');
@@ -1013,11 +830,13 @@ export default function WalkInPage() {
     try {
       batch.update(doc(firestore, 'tenants', tenantId, 'appointments', apt.id), { checkInStatus: 'arrived' });
       if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { checkInStatus: 'arrived', tenantId });
-      if (apt.staffId) { const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`)); batch.set(nRef, { id: nanoid(), userId: apt.staffId, type: 'client_movement', message: `${apt.clientName || 'Your guest'} checked in.`, link: '/planner', createdAt: new Date().toISOString(), read: false }); }
+      if (apt.staffId) {
+        const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+        batch.set(nRef, { id: nanoid(), userId: apt.staffId, type: 'client_movement', message: `${apt.clientName || 'Your guest'} checked in.`, link: '/planner', createdAt: new Date().toISOString(), read: false });
+      }
       await batch.commit();
       const ticket: WalkInTicketData = { id: apt.id, name: apt.clientName || 'Guest', services: (services || []).filter(s => s.id === apt.serviceId), queuePosition: 0, checkInTime: new Date().toISOString(), studioName: tenant?.name, studioLogoUrl: logoUrl };
       setConfirmedParty([ticket]);
-      // Lazy single-doc lookup for birthday check (no full clients listener needed)
       let birthdayHit = false;
       if (apt.clientId) {
         try {
@@ -1036,41 +855,27 @@ export default function WalkInPage() {
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
-    
-    // ── VALIDATE ALL MEMBERS before submitting ────────────────────────────────
-    const incomplete = partyMembers.map((m, i) => ({
-      idx: i,
-      name: m.name?.trim(),
-      phone: m.phone,
-      email: m.email?.trim(),
-      services: m.serviceIds,
-    })).filter(m => !m.name || !m.phone || !m.email || m.services.length === 0);
-    
+    const incomplete = partyMembers.map((m, i) => ({ idx: i, name: m.name?.trim(), phone: m.phone, email: m.email?.trim(), services: m.serviceIds }))
+      .filter(m => !m.name || !m.phone || !m.email || m.services.length === 0);
     if (incomplete.length > 0) {
-      const first = incomplete[0];
+      const first  = incomplete[0];
       const issues = [];
-      if (!first.name) issues.push('name');
-      if (!first.phone) issues.push('phone');
-      if (!first.email) issues.push('email');
+      if (!first.name)     issues.push('name');
+      if (!first.phone)    issues.push('phone');
+      if (!first.email)    issues.push('email');
       if (!first.services.length) issues.push('service selection');
-      toast({
-        variant: 'destructive',
-        title: `Guest ${first.idx + 1} Incomplete`,
-        description: `Missing: ${issues.join(', ')}. Please go back and complete their info.`,
-      });
+      toast({ variant: 'destructive', title: `Guest ${first.idx + 1} Incomplete`, description: `Missing: ${issues.join(', ')}.` });
       return;
     }
-    
     setIsSubmitting(true);
-    const batch = writeBatch(firestore);
+    const batch  = writeBatch(firestore);
     const groupId = nanoid();
-    const now = new Date().toISOString();
+    const now    = new Date().toISOString();
     const tickets: WalkInTicketData[] = [];
     let birthdayName_ = '';
     try {
       const qSnap = await getDocs(query(collection(firestore, `tenants/${tenantId}/walkIns`), where('status', '==', 'waiting')));
       let pos = qSnap.size + 1;
-      // DUPLICATE GUARD: check each member isn't already in the active queue
       const duplicateChecks = await Promise.all(
         partyMembers.map(async m => {
           if (!m.phone && !m.email) return null;
@@ -1081,28 +886,16 @@ export default function WalkInPage() {
           ]);
           const clientId = snaps.flatMap(s => s.docs)[0]?.id;
           if (!clientId) return null;
-          const activeQ = query(
-            collection(firestore, `tenants/${tenantId}/walkIns`),
-            where('clientId', '==', clientId),
-            where('status', 'in', ['waiting', 'notified', 'arrived'])
-          );
-          const active = await getDocs(activeQ);
+          const active = await getDocs(query(collection(firestore, `tenants/${tenantId}/walkIns`), where('clientId', '==', clientId), where('status', 'in', ['waiting', 'notified', 'arrived'])));
           return active.empty ? null : { name: m.name || 'Guest', pos: active.docs[0].data().queueOrder };
         })
       );
       const duplicates = duplicateChecks.filter(Boolean);
       if (duplicates.length > 0) {
-        toast({
-          variant: 'destructive',
-          title: 'Already in Queue',
-          description: `${duplicates[0]!.name} is already waiting. Please check in with the front desk.`
-        });
-        setIsSubmitting(false);
-        return;
+        toast({ variant: 'destructive', title: 'Already in Queue', description: `${duplicates[0]!.name} is already waiting.` });
+        setIsSubmitting(false); return;
       }
-
       for (const member of partyMembers) {
-        // Lazy client lookup — reuse resolveIdentity's result if available, otherwise query
         const clientsRef = collection(firestore, 'tenants', tenantId, 'clients');
         const matchSnaps = await Promise.all([
           ...(member.email ? [getDocs(query(clientsRef, where('email', '==', member.email.toLowerCase().trim())))] : []),
@@ -1118,8 +911,7 @@ export default function WalkInPage() {
         } else {
           batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { name: member.name, email: member.email || '', phone: member.phone || '', lastAppointment: now }, { merge: true });
         }
-        const walkInId = nanoid();
-        // FIX 6: accurate estimated duration including padding
+        const walkInId   = nanoid();
         const estDuration = calcEstimatedDuration(member.serviceIds, services || []);
         batch.set(doc(firestore, `tenants/${tenantId}/walkIns`, walkInId), {
           id: walkInId, groupId, isPrimaryContact: !!member.isPrimary, clientId,
@@ -1133,8 +925,8 @@ export default function WalkInPage() {
         });
         const memberAnswers = formAnswers[member.id] || {};
         Object.entries(memberAnswers).forEach(([formId, data]) => {
-          const cRef = doc(collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`));
-          const form = (consentForms || []).find(f => f.id === formId);
+          const cRef  = doc(collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`));
+          const form  = (consentForms || []).find(f => f.id === formId);
           batch.set(cRef, { id: cRef.id, formId, formTitle: form?.title || 'Form', clientId, signedAt: now, formData: data });
         });
         tickets.push({
@@ -1142,7 +934,7 @@ export default function WalkInPage() {
           services: (services || []).filter(s => member.serviceIds.includes(s.id)),
           queuePosition: pos++, checkInTime: now,
           studioName: tenant?.name, studioLogoUrl: logoUrl,
-          groupName: isGroup ? `${partyMembers[0].name}'s Party` : undefined,
+          groupName:  isGroup ? `${partyMembers[0].name}'s Party` : undefined,
           groupTotal: isGroup ? partyMembers.length : undefined,
         });
       }
@@ -1167,13 +959,16 @@ export default function WalkInPage() {
     setBannedClient(null); setExistingBalance(null);
   };
 
-  if (!tenant || !services) return <div className={cn('h-screen flex items-center justify-center', t.bg)}><Loader className="w-8 h-8 animate-spin text-slate-400" /></div>;
+  if (!tenant || !services) return (
+    <div className={cn('h-screen flex items-center justify-center', t.bg)}>
+      <Loader className="w-8 h-8 animate-spin text-slate-400" />
+    </div>
+  );
 
   return (
     <div className={cn('min-h-screen flex flex-col overflow-x-hidden relative', t.bg)}>
       {(themeName === 'dark' || themeName === 'slate') && <DarkMeshBg hex={primaryHex} />}
       <FormProvider {...methods}>
-        {/* Offline banner */}
         {!isOnline && (
           <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-white text-center py-2 px-4">
             <p className="text-[10px] font-black uppercase tracking-widest">
@@ -1203,21 +998,27 @@ export default function WalkInPage() {
                         : <h1 className={cn('text-5xl md:text-6xl font-black uppercase tracking-tighter leading-none', t.text)}>{tenant.name}</h1>}
                     </div>
                   )}
-                  <motion.p animate={{ opacity: [0.4, 0.9, 0.4] }} transition={{ duration: 2.5, repeat: Infinity }} className={cn('text-sm font-black uppercase tracking-[0.35em]', t.muted)}>Tap to check in</motion.p>
+                  <motion.p animate={{ opacity: [0.4, 0.9, 0.4] }} transition={{ duration: 2.5, repeat: Infinity }}
+                    className={cn('text-sm font-black uppercase tracking-[0.35em]', t.muted)}>Tap to check in</motion.p>
                 </motion.div>
+
               ) : isEventMode ? (
+                // ── EVENT MODE — uses new extracted component ──────────────
                 <EventModeScreen
                   event={activeStudioEvent}
                   tenant={tenant}
                   t={t}
                   onFloorRequest={handleFloorRequest}
                   onExit={() => setEntered(false)}
+                  firestore={firestore}
+                  tenantId={tenantId}
                 />
+
               ) : (
+                // ── NORMAL WALK-IN FLOW ────────────────────────────────────
                 <div className="w-full max-w-2xl mx-auto z-10">
                   <AnimatePresence mode="wait">
 
-                    {/* PARTY TYPE */}
                     {step === 'partyType' && <motion.div key="pt"><SurfaceCard t={t}>
                       <div className="p-8 md:p-12 space-y-8">
                         <div className="text-center space-y-2">
@@ -1232,7 +1033,6 @@ export default function WalkInPage() {
                       </div>
                     </SurfaceCard></motion.div>}
 
-                    {/* PARTY SIZE */}
                     {step === 'partySize' && <motion.div key="ps"><SurfaceCard t={t}>
                       <div className="p-8 md:p-12 space-y-8">
                         <div className="text-center space-y-2">
@@ -1253,7 +1053,6 @@ export default function WalkInPage() {
                       </div>
                     </SurfaceCard></motion.div>}
 
-                    {/* IDENTITY CHOICE */}
                     {step === 'identityChoice' && <motion.div key="id"><SurfaceCard t={t}>
                       <div className="p-8 md:p-12 space-y-8">
                         <div className="text-center space-y-2">
@@ -1269,7 +1068,6 @@ export default function WalkInPage() {
                       </div>
                     </SurfaceCard></motion.div>}
 
-                    {/* PHONE PAD */}
                     {step === 'phonePad' && <motion.div key="pp"><SurfaceCard t={t}>
                       <div className="p-8 md:p-12 space-y-8">
                         <div className="text-center space-y-2">
@@ -1289,7 +1087,8 @@ export default function WalkInPage() {
                           })}
                         </div>
                         <div className="space-y-3 max-w-xs mx-auto">
-                          <button onClick={handlePhonePadConfirm} disabled={phoneVal.length < 10 || isResolving} className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-30', t.btn, t.btnText)} style={btnStyle(primaryHex)}>
+                          <button onClick={handlePhonePadConfirm} disabled={phoneVal.length < 10 || isResolving}
+                            className={cn('w-full h-14 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-30', t.btn, t.btnText)} style={btnStyle(primaryHex)}>
                             {isResolving ? <Loader className="w-5 h-5 animate-spin" /> : <>Find Profile <ArrowRight className="w-4 h-4" /></>}
                           </button>
                           <button onClick={() => setStep('identityChoice')} className={cn('w-full text-center text-[10px] font-black uppercase tracking-widest', t.muted)}>← Back</button>
@@ -1297,7 +1096,6 @@ export default function WalkInPage() {
                       </div>
                     </SurfaceCard></motion.div>}
 
-                    {/* IDENTITY CONFIRM */}
                     {step === 'identityConfirm' && <motion.div key="ic"><SurfaceCard t={t}>
                       {matchedClient ? (
                         <div className="p-8 md:p-12 space-y-8 text-center">
@@ -1319,10 +1117,10 @@ export default function WalkInPage() {
                       )}
                     </SurfaceCard></motion.div>}
 
-                    {/* WELCOME BACK */}
                     {step === 'welcomeBack' && <motion.div key="wb"><SurfaceCard t={t}>
                       <div className="p-12 md:p-16 text-center space-y-8">
-                        <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 14, stiffness: 140 }} className={cn('w-24 h-24 mx-auto rounded-3xl border-2 flex items-center justify-center', t.card, t.cardBorder)}>
+                        <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 14, stiffness: 140 }}
+                          className={cn('w-24 h-24 mx-auto rounded-3xl border-2 flex items-center justify-center', t.card, t.cardBorder)}>
                           <Sparkles className={cn('w-12 h-12', t.muted)} strokeWidth={1} />
                         </motion.div>
                         <div className="space-y-3">
@@ -1335,7 +1133,6 @@ export default function WalkInPage() {
                       </div>
                     </SurfaceCard></motion.div>}
 
-                    {/* GUEST NAMES — now after identity, FIX 5 */}
                     {step === 'guestNames' && <motion.div key="gn"><SurfaceCard t={t}>
                       <GuestNamesView
                         members={partyMembers}
@@ -1346,7 +1143,6 @@ export default function WalkInPage() {
                       />
                     </SurfaceCard></motion.div>}
 
-                    {/* MEMBER SETUP */}
                     {step === 'memberSetup' && partyMembers[currentIdx] && <motion.div key={`ms-${currentIdx}`}><SurfaceCard t={t}>
                       <MemberSetup
                         member={{ ...partyMembers[currentIdx], index: currentIdx }}
@@ -1377,7 +1173,6 @@ export default function WalkInPage() {
                       />
                     </SurfaceCard></motion.div>}
 
-                    {/* CONFIRMATION */}
                     {step === 'confirmation' && <motion.div key="conf"><SurfaceCard t={t}>
                       <ConfirmationScreen
                         confirmedParty={confirmedParty}
@@ -1401,16 +1196,25 @@ export default function WalkInPage() {
         )}
       </FormProvider>
 
-      <AnimatePresence>{showBirthday && <BirthdayView name={birthdayName} onDone={() => { setShowBirthday(false); setStep('confirmation'); }} t={t} hex={primaryHex} />}</AnimatePresence>
+      <AnimatePresence>
+        {showBirthday && (
+          <BirthdayView name={birthdayName} onDone={() => { setShowBirthday(false); setStep('confirmation'); }} t={t} hex={primaryHex} />
+        )}
+      </AnimatePresence>
 
       <Dialog open={isPrintOpen} onOpenChange={setIsPrintOpen}>
         <DialogContent className={cn('max-w-sm rounded-3xl border-2 p-0 overflow-hidden', t.card, t.cardBorder)}>
           <DialogHeader className={cn('p-5 border-b', t.cardBorder)}>
             <DialogTitle className={cn('text-center font-black uppercase tracking-tight text-sm', t.text)}>Ticket — {ticketToPrint?.name}</DialogTitle>
           </DialogHeader>
-          <div className="flex justify-center p-6 bg-white">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div>
+          <div className="flex justify-center p-6 bg-white">
+            {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+          </div>
           <DialogFooter className={cn('p-4 border-t', t.cardBorder)}>
-            <button onClick={() => { window.print(); setIsPrintOpen(false); }} className={cn('w-full h-12 rounded-2xl font-black uppercase tracking-widest', t.btn, t.btnText)} style={btnStyle(primaryHex)}>Print Ticket</button>
+            <button onClick={() => { window.print(); setIsPrintOpen(false); }}
+              className={cn('w-full h-12 rounded-2xl font-black uppercase tracking-widest', t.btn, t.btnText)} style={btnStyle(primaryHex)}>
+              Print Ticket
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
