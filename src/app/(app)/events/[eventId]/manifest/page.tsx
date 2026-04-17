@@ -1,16 +1,16 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import {
   doc, collection, query, where, writeBatch, onSnapshot,
-  updateDoc, deleteDoc, addDoc, getDoc, increment,
+  updateDoc, deleteDoc, addDoc, getDoc, increment, getDocs,
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
-import { format, parseISO, formatDistanceToNow } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
@@ -20,10 +20,11 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Users, AlertTriangle, Leaf, Download, Play, CheckCircle2, Loader, QrCode, Printer, BarChart2,
-  Search, Plus, Utensils, Link2, Copy, UserPlus, Pencil,
-  Trash2, PackageCheck, PackageX, ChevronDown, ChevronUp, X,
-  UserCheck, Box, Check, Bell, ExternalLink,
+  Users, AlertTriangle, Leaf, Download, Play, CheckCircle2, Loader,
+  QrCode, Printer, BarChart2, Search, Plus, Utensils, Link2, Copy,
+  UserPlus, Pencil, Trash2, PackageCheck, PackageX, ChevronDown,
+  ChevronUp, X, UserCheck, Box, Check, Bell, ExternalLink,
+  RefreshCw, ShieldAlert,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -37,25 +38,19 @@ const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(
 const safeNum  = (v: any) => Number(v) || 0;
 
 // ─── ALLERGY PILL ─────────────────────────────────────────────────────────────
-// Handles both { id, label, severity } objects and plain strings
 const AllergyPill = ({ allergy }: { allergy: any }) => {
   const label    = typeof allergy === 'object' ? allergy.label    : allergy;
   const severity = typeof allergy === 'object' ? allergy.severity : 'preference';
-
-  if (severity === 'critical') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-red-100 border-red-400 text-red-800">
-        <AlertTriangle className="w-2.5 h-2.5" /> {label}
-      </span>
-    );
-  }
-  if (severity === 'intolerance') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-amber-50 border-amber-300 text-amber-800">
-        <AlertTriangle className="w-2 h-2" /> {label}
-      </span>
-    );
-  }
+  if (severity === 'critical') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-red-100 border-red-400 text-red-800">
+      <AlertTriangle className="w-2.5 h-2.5" /> {label}
+    </span>
+  );
+  if (severity === 'intolerance') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-amber-50 border-amber-300 text-amber-800">
+      <AlertTriangle className="w-2 h-2" /> {label}
+    </span>
+  );
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-slate-100 border-slate-200 text-slate-600">
       <Leaf className="w-2 h-2" /> {label}
@@ -66,7 +61,9 @@ const AllergyPill = ({ allergy }: { allergy: any }) => {
 // ─── STAT CARD ────────────────────────────────────────────────────────────────
 type AllergySeverity = 'preference' | 'intolerance' | 'critical';
 
-const StatCard = ({ label, value, sub, color = 'slate' }: { label: string; value: string | number; sub?: string; color?: string }) => {
+const StatCard = ({ label, value, sub, color = 'slate' }: {
+  label: string; value: string | number; sub?: string; color?: string;
+}) => {
   const colors: Record<string, string> = {
     slate: 'bg-white border-slate-200', amber: 'bg-amber-50 border-amber-200',
     emerald: 'bg-emerald-50 border-emerald-200', blue: 'bg-blue-50 border-blue-200',
@@ -92,14 +89,10 @@ const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
 }) => {
   const [resolving, setResolving] = useState<string | null>(null);
   if (requests.length === 0) return null;
-
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-amber-50 border-2 border-amber-300 rounded-2xl overflow-hidden"
-      >
+      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+        className="bg-amber-50 border-2 border-amber-300 rounded-2xl overflow-hidden">
         <div className="p-4 border-b border-amber-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
@@ -107,12 +100,8 @@ const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
               Floor Requests — {requests.length} Pending
             </p>
           </div>
-          <a
-            href={`/floor/${tenantId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-amber-600 hover:text-amber-800 transition-colors"
-          >
+          <a href={`/floor/${tenantId}`} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-amber-600 hover:text-amber-800 transition-colors">
             Full View <ExternalLink className="w-3 h-3" />
           </a>
         </div>
@@ -126,27 +115,17 @@ const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
                 <div className="flex-1 min-w-0">
                   <p className="font-black text-sm text-amber-900">{r.label || r.requestType}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    {r.tableNumber && (
-                      <span className="text-[9px] font-bold text-amber-600 uppercase">Table {r.tableNumber}</span>
-                    )}
-                    {r.guestName && (
-                      <span className="text-[9px] font-bold text-amber-600 uppercase">{r.guestName}</span>
-                    )}
+                    {r.tableNumber && <span className="text-[9px] font-bold text-amber-600 uppercase">Table {r.tableNumber}</span>}
+                    {r.guestName   && <span className="text-[9px] font-bold text-amber-600 uppercase">{r.guestName}</span>}
                     <span className={cn('text-[9px] font-black uppercase tracking-widest',
                       isLate ? 'text-red-500' : 'text-amber-500')}>
                       {isLate ? `⚠ ${elapsedMins}m ago` : elapsedMins < 1 ? 'Just now' : `${elapsedMins}m ago`}
                     </span>
                   </div>
                 </div>
-                <button
-                  onClick={async () => {
-                    setResolving(r.id);
-                    await onResolve(r.id);
-                    setResolving(null);
-                  }}
+                <button onClick={async () => { setResolving(r.id); await onResolve(r.id); setResolving(null); }}
                   disabled={resolving === r.id}
-                  className="shrink-0 w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center transition-all active:scale-95"
-                >
+                  className="shrink-0 w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center transition-all active:scale-95">
                   {resolving === r.id
                     ? <Loader className="w-4 h-4 animate-spin text-white" />
                     : <Check className="w-4 h-4 text-white" />}
@@ -160,9 +139,52 @@ const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
   );
 };
 
-// ─── SENTINEL for empty Select values ────────────────────────────────────────
+// ─── GAP 9: DELTA RE-FIRE BANNER ─────────────────────────────────────────────
+// Shows when checked-in guests were added AFTER a course was already fired.
+// Compares guestIds in the most recent courseFire against currently checked-in guests.
+const DeltaRefireBanner = ({
+  courseNumber, courseName, deltaGuests, onRefire, isFiring,
+}: {
+  courseNumber: number;
+  courseName: string;
+  deltaGuests: any[];
+  onRefire: (courseNumber: number, deltaGuests: any[]) => Promise<void>;
+  isFiring: boolean;
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+    className="bg-indigo-50 border-2 border-indigo-300 rounded-2xl p-4 flex items-center justify-between gap-4">
+    <div className="flex items-center gap-3 min-w-0">
+      <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+        <RefreshCw className="w-4 h-4 text-indigo-600" />
+      </div>
+      <div className="min-w-0">
+        <p className="font-black text-sm text-indigo-900 leading-tight">
+          {deltaGuests.length} new guest{deltaGuests.length !== 1 ? 's' : ''} missed {courseName}
+        </p>
+        <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5 truncate">
+          {deltaGuests.map(g => g.name).join(', ')}
+        </p>
+      </div>
+    </div>
+    <Button
+      onClick={() => onRefire(courseNumber, deltaGuests)}
+      disabled={isFiring}
+      size="sm"
+      className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 shrink-0 gap-2">
+      {isFiring
+        ? <Loader className="w-3.5 h-3.5 animate-spin" />
+        : <><RefreshCw className="w-3.5 h-3.5" /> Re-fire for them</>}
+    </Button>
+  </motion.div>
+);
+
+// ─── SENTINEL ─────────────────────────────────────────────────────────────────
 const NO_SELECTION = '__none__';
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN PAGE
+// ═══════════════════════════════════════════════════════════════════════════════
 export default function EventManifestPage() {
   const params   = useParams();
   const router   = useRouter();
@@ -174,17 +196,16 @@ export default function EventManifestPage() {
   const eventId  = params.eventId as string;
 
   // ── Live data ──────────────────────────────────────────────────────────────
-  const [event, setEvent]             = useState<any>(null);
-  const [guests, setGuests]           = useState<any[]>([]);
-  const [menuItems, setMenuItems]     = useState<any[]>([]);
-  const [fires, setFires]             = useState<any[]>([]);
+  const [event, setEvent]                 = useState<any>(null);
+  const [guests, setGuests]               = useState<any[]>([]);
+  const [menuItems, setMenuItems]         = useState<any[]>([]);
+  const [fires, setFires]                 = useState<any[]>([]);
   const [floorRequests, setFloorRequests] = useState<any[]>([]);
-  const [loading, setLoading]         = useState(true);
+  const [loading, setLoading]             = useState(true);
 
   useEffect(() => {
     if (!firestore || !tenantId || !eventId) return;
     const unsubs: (() => void)[] = [];
-
     unsubs.push(onSnapshot(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), snap => {
       if (snap.exists()) setEvent({ id: snap.id, ...snap.data() });
       setLoading(false);
@@ -201,15 +222,10 @@ export default function EventManifestPage() {
       query(collection(firestore, `tenants/${tenantId}/courseFires`), where('eventId', '==', eventId)),
       snap => setFires(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     ));
-    // Live floor requests for this event
     unsubs.push(onSnapshot(
-      query(
-        collection(firestore, `tenants/${tenantId}/floorRequests`),
-        where('status', 'in', ['new', 'acknowledged'])
-      ),
+      query(collection(firestore, `tenants/${tenantId}/floorRequests`), where('status', 'in', ['new', 'acknowledged'])),
       snap => setFloorRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     ));
-
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, eventId]);
 
@@ -218,6 +234,7 @@ export default function EventManifestPage() {
   const [filterMeal, setFilterMeal]         = useState('all');
   const [filterFlag, setFilterFlag]         = useState('all');
   const [isFiring, setIsFiring]             = useState<number | null>(null);
+  const [isRefiring, setIsRefiring]         = useState<number | null>(null);
   const [showForecast, setShowForecast]     = useState(true);
   const [isConfirmActivateOpen, setIsConfirmActivateOpen] = useState(false);
   const [activatingNow, setActivatingNow]   = useState(false);
@@ -252,6 +269,62 @@ export default function EventManifestPage() {
   const [guestForm, setGuestForm]           = useState({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
   const [clientSearch, setClientSearch]     = useState('');
   const [savingGuest, setSavingGuest]       = useState(false);
+
+  // ── GAP 9: Delta detection ────────────────────────────────────────────────
+  // For each fired course, find checked-in guests who weren't in the original fire.
+  // We track which guestIds were included in each courseFireId by reading kdsTickets.
+  // To avoid a heavy read on every render, we cache the fired guest sets per courseNumber.
+  const [firedGuestIdsByCourse, setFiredGuestIdsByCourse] = useState<Record<number, Set<string>>>({});
+
+  useEffect(() => {
+    if (!firestore || !tenantId || fires.length === 0) return;
+    // For each fired course, load the kdsTickets to get which guestIds were sent
+    const firedCourseNums = fires.filter(f => f.status === 'fired').map(f => f.courseNumber);
+    if (firedCourseNums.length === 0) return;
+
+    Promise.all(
+      firedCourseNums.map(async (courseNumber: number) => {
+        const snap = await getDocs(query(
+          collection(firestore, `tenants/${tenantId}/kdsTickets`),
+          where('eventId', '==', eventId),
+          where('courseNumber', '==', courseNumber)
+        ));
+        const guestIds = new Set(snap.docs.map(d => d.data().guestId as string).filter(Boolean));
+        return { courseNumber, guestIds };
+      })
+    ).then(results => {
+      const map: Record<number, Set<string>> = {};
+      results.forEach(({ courseNumber, guestIds }) => { map[courseNumber] = guestIds; });
+      setFiredGuestIdsByCourse(map);
+    });
+  }, [fires, firestore, tenantId, eventId]);
+
+  // Delta guests per course: checked-in guests with a meal selection who were NOT in the original fire
+  const deltaGuestsByCourse = useMemo(() => {
+    const result: Record<number, any[]> = {};
+    const firedCourseNums = fires.filter(f => f.status === 'fired').map(f => f.courseNumber);
+    firedCourseNums.forEach((n: number) => {
+      const firedIds = firedGuestIdsByCourse[n];
+      if (!firedIds) return; // still loading
+      const eligible = guests.filter(g =>
+        g.checkedIn &&
+        (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)) &&
+        !firedIds.has(g.id)
+      );
+      if (eligible.length > 0) result[n] = eligible;
+    });
+    return result;
+  }, [guests, fires, firedGuestIdsByCourse]);
+
+  const courseNumbers = useMemo(() =>
+    Array.from(new Set(menuItems.map(m => m.courseNumber))).sort() as number[],
+    [menuItems]
+  );
+
+  const firedCourses = useMemo(
+    () => new Set(fires.filter(f => f.status === 'fired').map(f => f.courseNumber)),
+    [fires]
+  );
 
   // ── Shareable link ────────────────────────────────────────────────────────
   const shareableLink = typeof window !== 'undefined'
@@ -304,7 +377,6 @@ export default function EventManifestPage() {
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    // allergyFlags: handles both string[] and {id,label,severity}[] 
     const allergyObjects = guests.flatMap(g => g.allergies || []);
     const allergyLabels  = allergyObjects.map((a: any) => typeof a === 'object' ? a.label : a);
     const mealCounts: Record<string, number> = {};
@@ -315,6 +387,7 @@ export default function EventManifestPage() {
     return {
       total: guests.length,
       checkedIn: guests.filter(g => g.checkedIn).length,
+      notCheckedIn: guests.filter(g => !g.checkedIn).length,
       allergyCount: allergyLabels.length,
       uniqueAllergies: Array.from(new Set(allergyLabels)) as string[],
       mealCounts,
@@ -376,8 +449,7 @@ export default function EventManifestPage() {
           const conflictAllergens = critAllergens.filter((a: string) => mealText.includes(a));
           if (conflictAllergens.length > 0) {
             warnings.push({
-              table,
-              guests: [cGuest.name, other.name],
+              table, guests: [cGuest.name, other.name],
               reason: `${cGuest.name} has critical ${conflictAllergens.join(', ')} allergy — ${other.name} ordered "${mealItem.name}"`,
             });
           }
@@ -387,14 +459,16 @@ export default function EventManifestPage() {
     return warnings;
   }, [guests, menuItems]);
 
-  // ── Filtered guests ───────────────────────────────────────────────────────
+  // ── GAP 8: Filtered guests (adds 'not-checked-in' filter) ────────────────
   const filtered = useMemo(() => {
     return guests.filter(g => {
       if (search && !g.name?.toLowerCase().includes(search.toLowerCase()) &&
           !g.seatNumber?.includes(search) && !g.tableNumber?.includes(search)) return false;
       if (filterMeal !== 'all' && g.mealChoiceId !== filterMeal) return false;
-      if (filterFlag === 'allergies' && (!g.allergies || !g.allergies.length)) return false;
-      if (filterFlag === 'dietary' && (!g.dietaryRestrictions || !g.dietaryRestrictions.length)) return false;
+      if (filterFlag === 'allergies'      && (!g.allergies || !g.allergies.length)) return false;
+      if (filterFlag === 'dietary'        && (!g.dietaryRestrictions || !g.dietaryRestrictions.length)) return false;
+      if (filterFlag === 'not-checked-in' && g.checkedIn) return false;  // ← Gap 8
+      if (filterFlag === 'checked-in'     && !g.checkedIn) return false;
       return true;
     }).sort((a, b) => {
       if (a.tableNumber && b.tableNumber) return a.tableNumber.localeCompare(b.tableNumber);
@@ -410,27 +484,112 @@ export default function EventManifestPage() {
     ).slice(0, 10);
   }, [clients, clientSearch]);
 
-  const courseNumbers = useMemo(() =>
-    Array.from(new Set(menuItems.map(m => m.courseNumber))).sort() as number[],
-    [menuItems]
-  );
-
   // ── Floor request resolve ─────────────────────────────────────────────────
   const handleResolveFloorRequest = async (requestId: string) => {
     if (!firestore || !tenantId) return;
     await updateDoc(doc(firestore, `tenants/${tenantId}/floorRequests`, requestId), {
-      status: 'done',
-      resolvedAt: new Date().toISOString(),
-      resolvedBy: 'host_manifest',
+      status: 'done', resolvedAt: new Date().toISOString(), resolvedBy: 'host_manifest',
     });
     toast({ title: 'Request resolved ✓' });
   };
 
-  // ── Actions ───────────────────────────────────────────────────────────────
-  const firedCourses = new Set(fires.filter(f => f.status === 'fired').map(f => f.courseNumber));
+  // ── GAP 10: Idempotency ref ───────────────────────────────────────────────
+  // Track in-progress fires client-side to prevent double-tap race conditions.
+  const firingInProgress = useRef<Set<number>>(new Set());
 
+  // ── GAP 9: Delta re-fire ──────────────────────────────────────────────────
+  const handleRefireDelta = async (courseNumber: number, deltaGuests: any[]) => {
+    if (!firestore || !tenantId || deltaGuests.length === 0) return;
+    if (firingInProgress.current.has(courseNumber)) return;
+    firingInProgress.current.add(courseNumber);
+    setIsRefiring(courseNumber);
+
+    try {
+      const batch  = writeBatch(firestore);
+      const fireId = nanoid();
+      const now    = new Date().toISOString();
+      const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
+
+      // Write a new courseFire record for the delta
+      batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
+        id: fireId, eventId, tenantId, courseNumber,
+        courseName: courseLabels[courseNumber] || `Course ${courseNumber}`,
+        firedAt: now, firedBy: 'host_delta',
+        guestCount: deltaGuests.length, status: 'fired',
+        isDelta: true,
+      });
+
+      deltaGuests.forEach(guest => {
+        const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
+        const menuItem   = menuItems.find(m => m.id === menuItemId);
+        const kdsId      = nanoid();
+        batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), {
+          id: kdsId, source: 'event', eventId,
+          eventTitle: event?.title || event?.name || '',
+          courseFireId: fireId, courseNumber,
+          guestId: guest.id, guestName: guest.name,
+          seatNumber: guest.seatNumber || null, tableNumber: guest.tableNumber || null,
+          menuItemId, menuItemName: menuItem?.name || 'Item',
+          allergies: guest.allergies || [],
+          allergyNote: guest.allergyNote || null,
+          hasCriticalAllergy: (guest.allergies || []).some((a: any) => typeof a === 'object' && a.severity === 'critical'),
+          notes: guest.guestNote || null,
+          status: 'pending', createdAt: now, tenantId,
+          isDelta: true,
+        });
+      });
+
+      // Inventory deduction for delta guests only
+      const deductionMap: Record<string, number> = {};
+      deltaGuests.forEach(guest => {
+        const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
+        const menuItem   = menuItems.find(m => m.id === menuItemId);
+        if (!menuItem?.supplies) return;
+        menuItem.supplies.forEach((s: any) => {
+          deductionMap[s.inventoryId] = (deductionMap[s.inventoryId] || 0) + safeNum(s.qty);
+        });
+      });
+      Object.entries(deductionMap).forEach(([invId, qty]) => {
+        const inv = (inventory || []).find((i: any) => i.id === invId);
+        if (!inv) return;
+        batch.update(doc(firestore, `tenants/${tenantId}/inventory`, invId), { totalStock: increment(-qty) });
+        batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), {
+          id: nanoid(), productId: invId, productName: (inv as any).name,
+          date: now, change: -qty, unit: (inv as any).unit || 'units',
+          reason: `Event: ${event?.title || event?.name} — Course ${courseNumber} delta re-fire`,
+          source: 'event_course_refire', eventId,
+        });
+      });
+
+      await batch.commit();
+      toast({
+        title: `Course ${courseNumber} re-fired`,
+        description: `${deltaGuests.length} late arrival${deltaGuests.length !== 1 ? 's' : ''} sent to kitchen.`,
+      });
+    } catch (e) {
+      console.error(e);
+      toast({ variant: 'destructive', title: 'Re-fire failed' });
+    } finally {
+      setIsRefiring(null);
+      firingInProgress.current.delete(courseNumber);
+    }
+  };
+
+  // ── GAP 10: Course firing with idempotency guard ──────────────────────────
   const handleFireCourse = async (courseNumber: number) => {
     if (!firestore || !tenantId) return;
+
+    // GAP 10: Optimistic duplicate guard — prevent double-tap
+    if (firingInProgress.current.has(courseNumber)) {
+      toast({ variant: 'destructive', title: 'Already firing this course' });
+      return;
+    }
+
+    // GAP 10: Also check Firestore in case the button somehow wasn't disabled
+    if (firedCourses.has(courseNumber)) {
+      toast({ variant: 'destructive', title: `Course ${courseNumber} already fired` });
+      return;
+    }
 
     if (courseNumber > 1) {
       const prevNums    = courseNumbers.filter(n => n < courseNumber);
@@ -443,18 +602,43 @@ export default function EventManifestPage() {
       }
     }
 
+    // GAP 10: Mark in progress immediately before any async work
+    firingInProgress.current.add(courseNumber);
     setIsFiring(courseNumber);
+
     try {
+      // GAP 10: Double-check Firestore before committing (handles slow connections)
+      const existingFire = await getDocs(query(
+        collection(firestore, `tenants/${tenantId}/courseFires`),
+        where('eventId', '==', eventId),
+        where('courseNumber', '==', courseNumber),
+        where('status', '==', 'fired'),
+        where('isDelta', '==', false)
+      ));
+      // Also check without isDelta field (older records)
+      const existingFireAlt = await getDocs(query(
+        collection(firestore, `tenants/${tenantId}/courseFires`),
+        where('eventId', '==', eventId),
+        where('courseNumber', '==', courseNumber),
+        where('status', '==', 'fired')
+      ));
+      const hasNonDelta = existingFireAlt.docs.some(d => !d.data().isDelta);
+      if (hasNonDelta) {
+        toast({ variant: 'destructive', title: `Course ${courseNumber} was already fired`, description: 'Use the re-fire button if you need to send tickets for late arrivals.' });
+        return;
+      }
+
       const batch = writeBatch(firestore);
       const fireId = nanoid();
       const now = new Date().toISOString();
+      const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
+
       const guestsForCourse = guests.filter(g =>
         g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
       );
 
       if (guestsForCourse.length === 0) {
         toast({ variant: 'destructive', title: 'No checked-in guests', description: 'Check in seated guests before firing a course.' });
-        setIsFiring(null);
         return;
       }
 
@@ -465,8 +649,10 @@ export default function EventManifestPage() {
 
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
         id: fireId, eventId, tenantId, courseNumber,
-        courseName: `Course ${courseNumber}`, firedAt: now,
-        firedBy: 'host', guestCount: guestsForCourse.length, status: 'fired',
+        courseName: courseLabels[courseNumber] || `Course ${courseNumber}`,
+        firedAt: now, firedBy: 'host',
+        guestCount: guestsForCourse.length, status: 'fired',
+        isDelta: false,
       });
 
       guestsForCourse.forEach(guest => {
@@ -485,6 +671,7 @@ export default function EventManifestPage() {
           hasCriticalAllergy: (guest.allergies || []).some((a: any) => typeof a === 'object' && a.severity === 'critical'),
           notes: guest.guestNote || null,
           status: 'pending', createdAt: now, tenantId,
+          isDelta: false,
         });
       });
 
@@ -497,7 +684,6 @@ export default function EventManifestPage() {
           deductionMap[s.inventoryId] = (deductionMap[s.inventoryId] || 0) + safeNum(s.qty);
         });
       });
-
       Object.entries(deductionMap).forEach(([invId, qty]) => {
         const inv = (inventory || []).find((i: any) => i.id === invId);
         if (!inv) return;
@@ -520,6 +706,7 @@ export default function EventManifestPage() {
       toast({ variant: 'destructive', title: 'Fire Failed' });
     } finally {
       setIsFiring(null);
+      firingInProgress.current.delete(courseNumber);
     }
   };
 
@@ -638,6 +825,42 @@ export default function EventManifestPage() {
     toast({ title: 'Menu item added' });
   };
 
+  // ── GAP 3: Menu item deletion with protection ─────────────────────────────
+  const handleDeleteMenuItem = async (item: any) => {
+    if (!firestore || !tenantId) return;
+
+    // Count how many guests have selected this item
+    const selectCount = guests.filter(g =>
+      g.mealChoiceId === item.id ||
+      Object.values(g.courseSelections || {}).includes(item.id)
+    ).length;
+
+    if (selectCount > 0) {
+      const ok = window.confirm(
+        `${selectCount} guest${selectCount !== 1 ? 's have' : ' has'} selected "${item.name}". ` +
+        `Deleting it will leave their meal choice blank on the manifest and kitchen tickets. ` +
+        `Are you sure?`
+      );
+      if (!ok) return;
+
+      // Clear mealChoiceId for affected guests so manifest doesn't show a ghost reference
+      const batch = writeBatch(firestore);
+      guests
+        .filter(g => g.mealChoiceId === item.id)
+        .forEach(g => {
+          batch.update(doc(firestore, `tenants/${tenantId}/eventGuests`, g.id), {
+            mealChoiceId: null,
+            mealChoiceName: null,
+            mealClearedReason: `Menu item "${item.name}" was deleted`,
+          });
+        });
+      await batch.commit();
+    }
+
+    await deleteDoc(doc(firestore, `tenants/${tenantId}/eventMenuItems`, item.id));
+    toast({ title: `${item.name} removed${selectCount > 0 ? ` — ${selectCount} guest meal choice cleared` : ''}` });
+  };
+
   const handleMealOverride = async () => {
     if (!mealOverrideGuest || !firestore || !tenantId) return;
     setSavingOverride(true);
@@ -676,10 +899,9 @@ export default function EventManifestPage() {
   const handleActivateEvent = async () => {
     if (!firestore || !tenantId) return;
     setActivatingNow(true);
-    const now = new Date().toISOString();
     try {
       await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-        status: 'active', activatedAt: now, activatedBy: 'host',
+        status: 'active', activatedAt: new Date().toISOString(), activatedBy: 'host',
       });
       setIsConfirmActivateOpen(false);
       setUndoWindowOpen(true);
@@ -691,7 +913,7 @@ export default function EventManifestPage() {
         });
       }, 1000);
       toast({ title: '🟢 Event is now live', description: 'Kiosk has switched to event mode.' });
-    } catch (e) {
+    } catch {
       toast({ variant: 'destructive', title: 'Activation failed' });
     } finally {
       setActivatingNow(false);
@@ -724,8 +946,7 @@ export default function EventManifestPage() {
         g.mealChoiceName || '',
         (g.allergies || []).map((a: any) => typeof a === 'object' ? a.label : a).join('; '),
         (g.dietaryRestrictions || []).join('; '),
-        g.notes || '',
-        g.checkedIn ? 'Yes' : 'No',
+        g.notes || '', g.checkedIn ? 'Yes' : 'No',
       ])
     ];
     const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -808,12 +1029,25 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* ── FLOOR REQUESTS PANEL (live) ── */}
-        <FloorRequestPanel
-          requests={floorRequests}
-          onResolve={handleResolveFloorRequest}
-          tenantId={tenantId}
-        />
+        {/* ── FLOOR REQUESTS ── */}
+        <FloorRequestPanel requests={floorRequests} onResolve={handleResolveFloorRequest} tenantId={tenantId} />
+
+        {/* ── GAP 9: DELTA RE-FIRE BANNERS ── */}
+        <AnimatePresence>
+          {Object.entries(deltaGuestsByCourse).map(([courseNumStr, deltaGuests]) => {
+            const n = Number(courseNumStr);
+            return (
+              <DeltaRefireBanner
+                key={n}
+                courseNumber={n}
+                courseName={courseLabels[n] || `Course ${n}`}
+                deltaGuests={deltaGuests}
+                onRefire={handleRefireDelta}
+                isFiring={isRefiring === n}
+              />
+            );
+          })}
+        </AnimatePresence>
 
         {/* ── MEAL OVERRIDE SHEET ── */}
         <AnimatePresence>
@@ -876,22 +1110,18 @@ export default function EventManifestPage() {
               <div className="space-y-2">
                 <p className="text-sm font-bold text-slate-700">This will immediately:</p>
                 <ul className="space-y-1.5">
-                  {[
-                    'Switch the walk-in kiosk to event floor-service mode',
-                    'Hide food ordering for any guest scanning in',
-                    'Route all kiosk requests to the floor staff view',
-                    'Cannot be undone after 2 minutes',
-                  ].map(item => (
-                    <li key={item} className="flex items-start gap-2 text-[11px] text-slate-600">
-                      <span className="text-emerald-500 font-black mt-0.5">✓</span> {item}
-                    </li>
-                  ))}
+                  {['Switch the walk-in kiosk to event floor-service mode', 'Hide food ordering for any guest scanning in', 'Route all kiosk requests to the floor staff view', 'Cannot be undone after 2 minutes']
+                    .map(item => (
+                      <li key={item} className="flex items-start gap-2 text-[11px] text-slate-600">
+                        <span className="text-emerald-500 font-black mt-0.5">✓</span> {item}
+                      </li>
+                    ))}
                 </ul>
               </div>
-              {stats.total - stats.checkedIn > 0 && (
+              {stats.notCheckedIn > 0 && (
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
                   <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
-                    ⚠ {stats.total - stats.checkedIn} guests have not checked in yet
+                    ⚠ {stats.notCheckedIn} guest{stats.notCheckedIn !== 1 ? 's have' : ' has'} not checked in yet
                   </p>
                 </div>
               )}
@@ -1021,9 +1251,7 @@ export default function EventManifestPage() {
                               Need: {item.needed} {item.unit} · Have: {item.inStock} {item.unit}
                             </p>
                           </div>
-                          {item.status === 'ok'
-                            ? <PackageCheck className="w-5 h-5 text-emerald-500 shrink-0" />
-                            : <PackageX   className="w-5 h-5 text-red-500 shrink-0" />}
+                          {item.status === 'ok' ? <PackageCheck className="w-5 h-5 text-emerald-500 shrink-0" /> : <PackageX className="w-5 h-5 text-red-500 shrink-0" />}
                         </div>
                         {item.status !== 'ok' && (
                           <p className={cn('text-[10px] font-black uppercase tracking-widest mt-2',
@@ -1054,6 +1282,7 @@ export default function EventManifestPage() {
               {courseNumbers.map(n => {
                 const fired = firedCourses.has(n);
                 const count = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
+                const deltaCount = deltaGuestsByCourse[n]?.length || 0;
                 return (
                   <div key={n} className={cn('p-4 rounded-2xl border-2',
                     fired ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50')}>
@@ -1062,10 +1291,19 @@ export default function EventManifestPage() {
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Course {n}</p>
                         <p className="font-black text-slate-900 text-sm">{courseLabels[n] || `Course ${n}`}</p>
                         <p className="text-[10px] text-slate-500">{count} guests</p>
+                        {/* GAP 9: Show delta count inline */}
+                        {fired && deltaCount > 0 && (
+                          <p className="text-[9px] font-black text-indigo-600 mt-0.5">
+                            +{deltaCount} new arrival{deltaCount !== 1 ? 's' : ''}
+                          </p>
+                        )}
                       </div>
                       {fired && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
                     </div>
-                    <Button onClick={() => handleFireCourse(n)} disabled={!!isFiring || fired || count === 0}
+                    <Button
+                      onClick={() => handleFireCourse(n)}
+                      // GAP 10: disabled when fired OR when a fire is already in progress
+                      disabled={!!isFiring || fired || count === 0}
                       className={cn('w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2',
                         fired ? 'bg-emerald-500 hover:bg-emerald-500 opacity-60 cursor-not-allowed' : 'shadow-lg shadow-primary/20')}>
                       {isFiring === n ? <Loader className="w-4 h-4 animate-spin" />
@@ -1112,14 +1350,24 @@ export default function EventManifestPage() {
                   {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {/* GAP 8: expanded filter options */}
               <Select value={filterFlag} onValueChange={setFilterFlag}>
-                <SelectTrigger className="h-10 w-36 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="All flags" /></SelectTrigger>
+                <SelectTrigger className="h-10 w-40 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="All guests" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Guests</SelectItem>
+                  <SelectItem value="not-checked-in">Not Checked In</SelectItem>
+                  <SelectItem value="checked-in">Checked In</SelectItem>
                   <SelectItem value="allergies">Has Allergy</SelectItem>
                   <SelectItem value="dietary">Dietary Req.</SelectItem>
                 </SelectContent>
               </Select>
+              {/* GAP 8: quick-access not-checked-in badge */}
+              {stats.notCheckedIn > 0 && filterFlag !== 'not-checked-in' && (
+                <button onClick={() => setFilterFlag('not-checked-in')}
+                  className="flex items-center gap-1.5 h-10 px-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-700 font-black uppercase text-[9px] tracking-widest hover:bg-amber-100 transition-all">
+                  <AlertTriangle className="w-3 h-3" /> {stats.notCheckedIn} Not In
+                </button>
+              )}
             </div>
 
             {/* Add / edit guest form */}
@@ -1218,7 +1466,8 @@ export default function EventManifestPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {filtered.map(guest => (
-                      <tr key={guest.id} className="hover:bg-slate-50/50 transition-colors">
+                      <tr key={guest.id} className={cn('hover:bg-slate-50/50 transition-colors',
+                        !guest.checkedIn && filterFlag === 'not-checked-in' && 'bg-amber-50/30')}>
                         <td className="px-4 py-3">
                           <p className="font-black text-sm text-slate-900">{guest.name}</p>
                           <p className="text-[10px] text-slate-400">{guest.email || ''}{guest.phone ? ` · ${guest.phone}` : ''}</p>
@@ -1226,6 +1475,9 @@ export default function EventManifestPage() {
                             <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5 mt-0.5">
                               <AlertTriangle className="w-2.5 h-2.5" /> Critical Allergy
                             </span>
+                          )}
+                          {guest.mealClearedReason && (
+                            <span className="text-[8px] font-bold text-amber-600 block mt-0.5">⚠ Meal cleared — needs reselection</span>
                           )}
                           {guest.source === 'client_import' && (
                             <span className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60 block mt-0.5">From client log</span>
@@ -1263,8 +1515,7 @@ export default function EventManifestPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || ''); }}
+                            <button onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || ''); }}
                               title="Override meal choice"
                               className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors">
                               <Utensils className="w-3.5 h-3.5" />
@@ -1298,34 +1549,48 @@ export default function EventManifestPage() {
           <TabsContent value="menu" className="mt-4 space-y-5">
             {menuItems.length > 0 && (
               <div className="space-y-2">
-                {menuItems.map(item => (
-                  <div key={item.id} className="bg-white rounded-2xl border-2 border-slate-200 p-4 flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      {item.imageUrl && <img src={item.imageUrl} alt={item.name} className="w-10 h-10 rounded-xl object-cover shrink-0 border border-slate-200" />}
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-black text-slate-900">{item.name}</p>
-                          <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[8px]">Course {item.courseNumber}</Badge>
-                          {item.isVegan     && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-black text-[8px]">Vegan</Badge>}
-                          {item.isGlutenFree && <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-black text-[8px]">GF</Badge>}
+                {menuItems.map(item => {
+                  const selectionCount = guests.filter(g =>
+                    g.mealChoiceId === item.id ||
+                    Object.values(g.courseSelections || {}).includes(item.id)
+                  ).length;
+                  return (
+                    <div key={item.id} className="bg-white rounded-2xl border-2 border-slate-200 p-4 flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        {item.imageUrl && <img src={item.imageUrl} alt={item.name} className="w-10 h-10 rounded-xl object-cover shrink-0 border border-slate-200" />}
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-black text-slate-900">{item.name}</p>
+                            <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[8px]">Course {item.courseNumber}</Badge>
+                            {item.isVegan      && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-black text-[8px]">Vegan</Badge>}
+                            {item.isGlutenFree && <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-black text-[8px]">GF</Badge>}
+                          </div>
+                          {item.description && <p className="text-[10px] text-slate-500 mt-0.5">{item.description}</p>}
                         </div>
-                        {item.description && <p className="text-[10px] text-slate-500 mt-0.5">{item.description}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge className={cn('font-black text-[9px]',
+                          selectionCount > 0
+                            ? 'bg-primary/10 text-primary border-primary/20'
+                            : 'bg-slate-50 text-slate-400 border-slate-200')}>
+                          {selectionCount} selected
+                        </Badge>
+                        {/* GAP 3: protected delete button */}
+                        <button
+                          onClick={() => handleDeleteMenuItem(item)}
+                          className={cn('p-1.5 rounded-lg transition-colors',
+                            selectionCount > 0
+                              ? 'hover:bg-amber-50 text-amber-400 hover:text-amber-600'
+                              : 'hover:bg-red-50 text-slate-300 hover:text-red-400')}
+                          title={selectionCount > 0 ? `${selectionCount} guests selected this — tap to review` : 'Delete item'}>
+                          {selectionCount > 0
+                            ? <ShieldAlert className="w-3.5 h-3.5" />
+                            : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge className="bg-slate-50 text-slate-600 border-slate-200 font-black text-[9px]">
-                        {guests.filter(g => g.mealChoiceId === item.id || Object.values(g.courseSelections || {}).includes(item.id)).length} selected
-                      </Badge>
-                      <button onClick={async () => {
-                        if (!firestore || !tenantId) return;
-                        await deleteDoc(doc(firestore, `tenants/${tenantId}/eventMenuItems`, item.id));
-                        toast({ title: `${item.name} removed` });
-                      }} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
