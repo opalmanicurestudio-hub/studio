@@ -65,9 +65,11 @@ const StatCard = ({ label, value, sub, color = 'slate' }: {
   label: string; value: string | number; sub?: string; color?: string;
 }) => {
   const colors: Record<string, string> = {
-    slate: 'bg-white border-slate-200', amber: 'bg-amber-50 border-amber-200',
-    emerald: 'bg-emerald-50 border-emerald-200', blue: 'bg-blue-50 border-blue-200',
-    red: 'bg-red-50 border-red-200',
+    slate:   'bg-white border-slate-200',
+    amber:   'bg-amber-50 border-amber-200',
+    emerald: 'bg-emerald-50 border-emerald-200',
+    blue:    'bg-blue-50 border-blue-200',
+    red:     'bg-red-50 border-red-200',
   };
   return (
     <div className={cn('p-5 rounded-2xl border-2', colors[color] || colors.slate)}>
@@ -139,20 +141,14 @@ const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
   );
 };
 
-// ─── GAP 9: DELTA RE-FIRE BANNER ─────────────────────────────────────────────
-// Shows when checked-in guests were added AFTER a course was already fired.
-// Compares guestIds in the most recent courseFire against currently checked-in guests.
+// ─── DELTA RE-FIRE BANNER (Gap 9) ─────────────────────────────────────────────
 const DeltaRefireBanner = ({
   courseNumber, courseName, deltaGuests, onRefire, isFiring,
 }: {
-  courseNumber: number;
-  courseName: string;
-  deltaGuests: any[];
-  onRefire: (courseNumber: number, deltaGuests: any[]) => Promise<void>;
-  isFiring: boolean;
+  courseNumber: number; courseName: string; deltaGuests: any[];
+  onRefire: (courseNumber: number, deltaGuests: any[]) => Promise<void>; isFiring: boolean;
 }) => (
-  <motion.div
-    initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+  <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
     className="bg-indigo-50 border-2 border-indigo-300 rounded-2xl p-4 flex items-center justify-between gap-4">
     <div className="flex items-center gap-3 min-w-0">
       <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
@@ -167,14 +163,9 @@ const DeltaRefireBanner = ({
         </p>
       </div>
     </div>
-    <Button
-      onClick={() => onRefire(courseNumber, deltaGuests)}
-      disabled={isFiring}
-      size="sm"
+    <Button onClick={() => onRefire(courseNumber, deltaGuests)} disabled={isFiring} size="sm"
       className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 shrink-0 gap-2">
-      {isFiring
-        ? <Loader className="w-3.5 h-3.5 animate-spin" />
-        : <><RefreshCw className="w-3.5 h-3.5" /> Re-fire for them</>}
+      {isFiring ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><RefreshCw className="w-3.5 h-3.5" /> Re-fire for them</>}
     </Button>
   </motion.div>
 );
@@ -250,6 +241,9 @@ export default function EventManifestPage() {
   const [mealOverrideId, setMealOverrideId] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
 
+  // Gap 15 — End Event validation dialog
+  const [isEndEventOpen, setIsEndEventOpen] = useState(false);
+
   // Menu item form
   const [isAddingMenu, setIsAddingMenu]     = useState(false);
   const [newMenuName, setNewMenuName]       = useState('');
@@ -270,18 +264,13 @@ export default function EventManifestPage() {
   const [clientSearch, setClientSearch]     = useState('');
   const [savingGuest, setSavingGuest]       = useState(false);
 
-  // ── GAP 9: Delta detection ────────────────────────────────────────────────
-  // For each fired course, find checked-in guests who weren't in the original fire.
-  // We track which guestIds were included in each courseFireId by reading kdsTickets.
-  // To avoid a heavy read on every render, we cache the fired guest sets per courseNumber.
+  // ── Gap 9: Delta detection ────────────────────────────────────────────────
   const [firedGuestIdsByCourse, setFiredGuestIdsByCourse] = useState<Record<number, Set<string>>>({});
 
   useEffect(() => {
     if (!firestore || !tenantId || fires.length === 0) return;
-    // For each fired course, load the kdsTickets to get which guestIds were sent
     const firedCourseNums = fires.filter(f => f.status === 'fired').map(f => f.courseNumber);
     if (firedCourseNums.length === 0) return;
-
     Promise.all(
       firedCourseNums.map(async (courseNumber: number) => {
         const snap = await getDocs(query(
@@ -299,23 +288,6 @@ export default function EventManifestPage() {
     });
   }, [fires, firestore, tenantId, eventId]);
 
-  // Delta guests per course: checked-in guests with a meal selection who were NOT in the original fire
-  const deltaGuestsByCourse = useMemo(() => {
-    const result: Record<number, any[]> = {};
-    const firedCourseNums = fires.filter(f => f.status === 'fired').map(f => f.courseNumber);
-    firedCourseNums.forEach((n: number) => {
-      const firedIds = firedGuestIdsByCourse[n];
-      if (!firedIds) return; // still loading
-      const eligible = guests.filter(g =>
-        g.checkedIn &&
-        (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)) &&
-        !firedIds.has(g.id)
-      );
-      if (eligible.length > 0) result[n] = eligible;
-    });
-    return result;
-  }, [guests, fires, firedGuestIdsByCourse]);
-
   const courseNumbers = useMemo(() =>
     Array.from(new Set(menuItems.map(m => m.courseNumber))).sort() as number[],
     [menuItems]
@@ -325,6 +297,28 @@ export default function EventManifestPage() {
     () => new Set(fires.filter(f => f.status === 'fired').map(f => f.courseNumber)),
     [fires]
   );
+
+  // Gap 15 — unfired courses for End Event validation
+  const unfiredCourses = useMemo(
+    () => courseNumbers.filter(n => !firedCourses.has(n)),
+    [courseNumbers, firedCourses]
+  );
+
+  const deltaGuestsByCourse = useMemo(() => {
+    const result: Record<number, any[]> = {};
+    const firedCourseNums = fires.filter(f => f.status === 'fired').map(f => f.courseNumber);
+    firedCourseNums.forEach((n: number) => {
+      const firedIds = firedGuestIdsByCourse[n];
+      if (!firedIds) return;
+      const eligible = guests.filter(g =>
+        g.checkedIn &&
+        (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)) &&
+        !firedIds.has(g.id)
+      );
+      if (eligible.length > 0) result[n] = eligible;
+    });
+    return result;
+  }, [guests, fires, firedGuestIdsByCourse]);
 
   // ── Shareable link ────────────────────────────────────────────────────────
   const shareableLink = typeof window !== 'undefined'
@@ -347,8 +341,7 @@ export default function EventManifestPage() {
     for (const table of tables) {
       for (let seat = 1; seat <= seatsPerTable; seat++) {
         const url = `${shareableLink}?table=${table}&seat=${seat}`;
-        const dataUrl = await generateQRDataUrl(url);
-        codes.push({ label: `T${table} · S${seat}`, dataUrl });
+        codes.push({ label: `T${table} · S${seat}`, dataUrl: await generateQRDataUrl(url) });
       }
     }
     setQrCodes(codes);
@@ -366,7 +359,7 @@ export default function EventManifestPage() {
       img{width:80px;height:80px;} p{font-size:10px;font-weight:900;text-transform:uppercase;margin-top:4px;}
       @media print{@page{margin:0.5in;}}</style></head><body><div class="grid">`);
     area.querySelectorAll('.flex.flex-col').forEach(card => {
-      const img = card.querySelector('img') as HTMLImageElement;
+      const img   = card.querySelector('img') as HTMLImageElement;
       const label = card.querySelector('p')?.textContent || '';
       win.document.write(`<div class="card"><img src="${img?.src}" /><p>${label}</p></div>`);
     });
@@ -385,8 +378,8 @@ export default function EventManifestPage() {
       mealCounts[name] = (mealCounts[name] || 0) + 1;
     });
     return {
-      total: guests.length,
-      checkedIn: guests.filter(g => g.checkedIn).length,
+      total:        guests.length,
+      checkedIn:    guests.filter(g => g.checkedIn).length,
       notCheckedIn: guests.filter(g => !g.checkedIn).length,
       allergyCount: allergyLabels.length,
       uniqueAllergies: Array.from(new Set(allergyLabels)) as string[],
@@ -459,7 +452,7 @@ export default function EventManifestPage() {
     return warnings;
   }, [guests, menuItems]);
 
-  // ── GAP 8: Filtered guests (adds 'not-checked-in' filter) ────────────────
+  // ── Filtered guests (Gap 8) ───────────────────────────────────────────────
   const filtered = useMemo(() => {
     return guests.filter(g => {
       if (search && !g.name?.toLowerCase().includes(search.toLowerCase()) &&
@@ -467,7 +460,7 @@ export default function EventManifestPage() {
       if (filterMeal !== 'all' && g.mealChoiceId !== filterMeal) return false;
       if (filterFlag === 'allergies'      && (!g.allergies || !g.allergies.length)) return false;
       if (filterFlag === 'dietary'        && (!g.dietaryRestrictions || !g.dietaryRestrictions.length)) return false;
-      if (filterFlag === 'not-checked-in' && g.checkedIn) return false;  // ← Gap 8
+      if (filterFlag === 'not-checked-in' && g.checkedIn) return false;
       if (filterFlag === 'checked-in'     && !g.checkedIn) return false;
       return true;
     }).sort((a, b) => {
@@ -493,32 +486,26 @@ export default function EventManifestPage() {
     toast({ title: 'Request resolved ✓' });
   };
 
-  // ── GAP 10: Idempotency ref ───────────────────────────────────────────────
-  // Track in-progress fires client-side to prevent double-tap race conditions.
+  // ── Gap 10: Idempotency ref ───────────────────────────────────────────────
   const firingInProgress = useRef<Set<number>>(new Set());
 
-  // ── GAP 9: Delta re-fire ──────────────────────────────────────────────────
+  // ── Gap 9: Delta re-fire ──────────────────────────────────────────────────
   const handleRefireDelta = async (courseNumber: number, deltaGuests: any[]) => {
     if (!firestore || !tenantId || deltaGuests.length === 0) return;
     if (firingInProgress.current.has(courseNumber)) return;
     firingInProgress.current.add(courseNumber);
     setIsRefiring(courseNumber);
-
     try {
-      const batch  = writeBatch(firestore);
-      const fireId = nanoid();
-      const now    = new Date().toISOString();
+      const batch   = writeBatch(firestore);
+      const fireId  = nanoid();
+      const now     = new Date().toISOString();
       const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
-
-      // Write a new courseFire record for the delta
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
         id: fireId, eventId, tenantId, courseNumber,
         courseName: courseLabels[courseNumber] || `Course ${courseNumber}`,
         firedAt: now, firedBy: 'host_delta',
-        guestCount: deltaGuests.length, status: 'fired',
-        isDelta: true,
+        guestCount: deltaGuests.length, status: 'fired', isDelta: true,
       });
-
       deltaGuests.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
         const menuItem   = menuItems.find(m => m.id === menuItemId);
@@ -534,12 +521,9 @@ export default function EventManifestPage() {
           allergyNote: guest.allergyNote || null,
           hasCriticalAllergy: (guest.allergies || []).some((a: any) => typeof a === 'object' && a.severity === 'critical'),
           notes: guest.guestNote || null,
-          status: 'pending', createdAt: now, tenantId,
-          isDelta: true,
+          status: 'pending', createdAt: now, tenantId, isDelta: true,
         });
       });
-
-      // Inventory deduction for delta guests only
       const deductionMap: Record<string, number> = {};
       deltaGuests.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
@@ -560,7 +544,6 @@ export default function EventManifestPage() {
           source: 'event_course_refire', eventId,
         });
       });
-
       await batch.commit();
       toast({
         title: `Course ${courseNumber} re-fired`,
@@ -575,47 +558,26 @@ export default function EventManifestPage() {
     }
   };
 
-  // ── GAP 10: Course firing with idempotency guard ──────────────────────────
+  // ── Gap 10: Course firing with idempotency guard ──────────────────────────
   const handleFireCourse = async (courseNumber: number) => {
     if (!firestore || !tenantId) return;
-
-    // GAP 10: Optimistic duplicate guard — prevent double-tap
     if (firingInProgress.current.has(courseNumber)) {
-      toast({ variant: 'destructive', title: 'Already firing this course' });
-      return;
+      toast({ variant: 'destructive', title: 'Already firing this course' }); return;
     }
-
-    // GAP 10: Also check Firestore in case the button somehow wasn't disabled
     if (firedCourses.has(courseNumber)) {
-      toast({ variant: 'destructive', title: `Course ${courseNumber} already fired` });
-      return;
+      toast({ variant: 'destructive', title: `Course ${courseNumber} already fired` }); return;
     }
-
     if (courseNumber > 1) {
       const prevNums    = courseNumbers.filter(n => n < courseNumber);
       const unfiredPrev = prevNums.filter(n => !firedCourses.has(n));
       if (unfiredPrev.length > 0) {
-        const ok = window.confirm(
-          `Course ${unfiredPrev.join(', ')} has not been fired yet. Fire Course ${courseNumber} out of sequence?`
-        );
+        const ok = window.confirm(`Course ${unfiredPrev.join(', ')} has not been fired yet. Fire Course ${courseNumber} out of sequence?`);
         if (!ok) return;
       }
     }
-
-    // GAP 10: Mark in progress immediately before any async work
     firingInProgress.current.add(courseNumber);
     setIsFiring(courseNumber);
-
     try {
-      // GAP 10: Double-check Firestore before committing (handles slow connections)
-      const existingFire = await getDocs(query(
-        collection(firestore, `tenants/${tenantId}/courseFires`),
-        where('eventId', '==', eventId),
-        where('courseNumber', '==', courseNumber),
-        where('status', '==', 'fired'),
-        where('isDelta', '==', false)
-      ));
-      // Also check without isDelta field (older records)
       const existingFireAlt = await getDocs(query(
         collection(firestore, `tenants/${tenantId}/courseFires`),
         where('eventId', '==', eventId),
@@ -624,37 +586,30 @@ export default function EventManifestPage() {
       ));
       const hasNonDelta = existingFireAlt.docs.some(d => !d.data().isDelta);
       if (hasNonDelta) {
-        toast({ variant: 'destructive', title: `Course ${courseNumber} was already fired`, description: 'Use the re-fire button if you need to send tickets for late arrivals.' });
+        toast({ variant: 'destructive', title: `Course ${courseNumber} was already fired`, description: 'Use the re-fire button for late arrivals.' });
         return;
       }
-
-      const batch = writeBatch(firestore);
+      const batch  = writeBatch(firestore);
       const fireId = nanoid();
-      const now = new Date().toISOString();
+      const now    = new Date().toISOString();
       const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
-
       const guestsForCourse = guests.filter(g =>
         g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
       );
-
       if (guestsForCourse.length === 0) {
         toast({ variant: 'destructive', title: 'No checked-in guests', description: 'Check in seated guests before firing a course.' });
         return;
       }
-
       const totalWithSelection = guests.filter(g =>
         g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId)
       ).length;
       const notCheckedIn = totalWithSelection - guestsForCourse.length;
-
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
         id: fireId, eventId, tenantId, courseNumber,
         courseName: courseLabels[courseNumber] || `Course ${courseNumber}`,
         firedAt: now, firedBy: 'host',
-        guestCount: guestsForCourse.length, status: 'fired',
-        isDelta: false,
+        guestCount: guestsForCourse.length, status: 'fired', isDelta: false,
       });
-
       guestsForCourse.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
         const menuItem   = menuItems.find(m => m.id === menuItemId);
@@ -670,11 +625,9 @@ export default function EventManifestPage() {
           allergyNote: guest.allergyNote || null,
           hasCriticalAllergy: (guest.allergies || []).some((a: any) => typeof a === 'object' && a.severity === 'critical'),
           notes: guest.guestNote || null,
-          status: 'pending', createdAt: now, tenantId,
-          isDelta: false,
+          status: 'pending', createdAt: now, tenantId, isDelta: false,
         });
       });
-
       const deductionMap: Record<string, number> = {};
       guestsForCourse.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
@@ -695,7 +648,6 @@ export default function EventManifestPage() {
           source: 'event_course_fire', eventId,
         });
       });
-
       await batch.commit();
       const warnMsg = notCheckedIn > 0
         ? `${guestsForCourse.length} tickets sent. ${notCheckedIn} pre-order${notCheckedIn !== 1 ? 's' : ''} not yet checked in.`
@@ -733,16 +685,16 @@ export default function EventManifestPage() {
       if (editingGuest) {
         await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, editingGuest.id), {
           ...guestForm,
-          mealChoiceId: guestForm.mealChoiceId || null,
+          mealChoiceId:   guestForm.mealChoiceId || null,
           mealChoiceName: mealItem?.name || null,
-          updatedAt: new Date().toISOString(),
+          updatedAt:      new Date().toISOString(),
         });
         toast({ title: 'Guest Updated' });
       } else {
         const id = nanoid();
         await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
           id, eventId, tenantId, ...guestForm,
-          mealChoiceId: guestForm.mealChoiceId || null,
+          mealChoiceId:   guestForm.mealChoiceId || null,
           mealChoiceName: mealItem?.name || null,
           allergies: [], dietaryRestrictions: [],
           checkedIn: false, source: 'manual',
@@ -777,28 +729,31 @@ export default function EventManifestPage() {
 
   const handleAddMenuItem = async () => {
     if (!newMenuName.trim() || !firestore || !tenantId) return;
-    const id = nanoid();
+    const id    = nanoid();
     const batch = writeBatch(firestore);
     const linkedRefreshment = newMenuInventoryItemId
       ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId)
       : null;
     const menuItem = {
       id, eventId, tenantId,
-      name: newMenuName.trim() || (linkedRefreshment as any)?.name || '',
-      description: newMenuDesc.trim() || (linkedRefreshment as any)?.description || null,
-      category: newMenuCategory, courseNumber: newMenuCourse,
-      isVegan: newMenuVegan, isGlutenFree: newMenuGF,
+      name:            newMenuName.trim() || (linkedRefreshment as any)?.name || '',
+      description:     newMenuDesc.trim() || (linkedRefreshment as any)?.description || null,
+      category:        newMenuCategory,
+      courseNumber:    newMenuCourse,
+      isVegan:         newMenuVegan,
+      isGlutenFree:    newMenuGF,
       inventoryItemId: newMenuInventoryItemId || null,
-      portionSize: newMenuPortionSize || 1, pricePerGuest: newMenuPrice || 0,
-      imageUrl: (linkedRefreshment as any)?.imageUrl || null,
-      supplies: menuSupplies.filter(s => s.inventoryId && s.qty > 0),
+      portionSize:     newMenuPortionSize || 1,
+      pricePerGuest:   newMenuPrice || 0,
+      imageUrl:        (linkedRefreshment as any)?.imageUrl || null,
+      supplies:        menuSupplies.filter(s => s.inventoryId && s.qty > 0),
     };
     batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
-    const eventRef  = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
-    const eventSnap = await getDoc(eventRef);
-    const existingItems  = eventSnap.data()?.menuItems || [];
-    const updatedItems   = [...existingItems.filter((m: any) => m.id !== id), menuItem];
-    const courseMap      = new Map<number, any[]>();
+    const eventRef   = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
+    const eventSnap  = await getDoc(eventRef);
+    const existingItems = eventSnap.data()?.menuItems || [];
+    const updatedItems  = [...existingItems.filter((m: any) => m.id !== id), menuItem];
+    const courseMap     = new Map<number, any[]>();
     updatedItems.forEach((item: any) => {
       const n = item.courseNumber || 1;
       if (!courseMap.has(n)) courseMap.set(n, []);
@@ -810,10 +765,10 @@ export default function EventManifestPage() {
       .map(([num, options]) => {
         const existing = existingCourses.find((c: any) => c.courseNumber === num);
         return {
-          id: existing?.id || `course-${num}`,
+          id:           existing?.id || `course-${num}`,
           courseNumber: num,
-          name: existing?.name || (num === 1 ? 'Starters' : num === 2 ? 'Mains' : num === 3 ? 'Desserts' : `Course ${num}`),
-          note: existing?.note || null,
+          name:         existing?.name || (num === 1 ? 'Starters' : num === 2 ? 'Mains' : num === 3 ? 'Desserts' : `Course ${num}`),
+          note:         existing?.note || null,
           options,
         };
       });
@@ -825,38 +780,29 @@ export default function EventManifestPage() {
     toast({ title: 'Menu item added' });
   };
 
-  // ── GAP 3: Menu item deletion with protection ─────────────────────────────
+  // ── Gap 3: Menu item deletion with protection ─────────────────────────────
   const handleDeleteMenuItem = async (item: any) => {
     if (!firestore || !tenantId) return;
-
-    // Count how many guests have selected this item
     const selectCount = guests.filter(g =>
       g.mealChoiceId === item.id ||
       Object.values(g.courseSelections || {}).includes(item.id)
     ).length;
-
     if (selectCount > 0) {
       const ok = window.confirm(
         `${selectCount} guest${selectCount !== 1 ? 's have' : ' has'} selected "${item.name}". ` +
-        `Deleting it will leave their meal choice blank on the manifest and kitchen tickets. ` +
-        `Are you sure?`
+        `Deleting it will leave their meal choice blank. Are you sure?`
       );
       if (!ok) return;
-
-      // Clear mealChoiceId for affected guests so manifest doesn't show a ghost reference
       const batch = writeBatch(firestore);
-      guests
-        .filter(g => g.mealChoiceId === item.id)
-        .forEach(g => {
-          batch.update(doc(firestore, `tenants/${tenantId}/eventGuests`, g.id), {
-            mealChoiceId: null,
-            mealChoiceName: null,
-            mealClearedReason: `Menu item "${item.name}" was deleted`,
-          });
+      guests.filter(g => g.mealChoiceId === item.id).forEach(g => {
+        batch.update(doc(firestore, `tenants/${tenantId}/eventGuests`, g.id), {
+          mealChoiceId:       null,
+          mealChoiceName:     null,
+          mealClearedReason:  `Menu item "${item.name}" was deleted`,
         });
+      });
       await batch.commit();
     }
-
     await deleteDoc(doc(firestore, `tenants/${tenantId}/eventMenuItems`, item.id));
     toast({ title: `${item.name} removed${selectCount > 0 ? ` — ${selectCount} guest meal choice cleared` : ''}` });
   };
@@ -867,8 +813,10 @@ export default function EventManifestPage() {
     const resolvedId = mealOverrideId === NO_SELECTION ? null : mealOverrideId;
     const mealItem   = menuItems.find(m => m.id === resolvedId);
     await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, mealOverrideGuest.id), {
-      mealChoiceId: resolvedId, mealChoiceName: mealItem?.name || null,
-      mealOverriddenAt: new Date().toISOString(), mealOverriddenBy: 'staff',
+      mealChoiceId:       resolvedId,
+      mealChoiceName:     mealItem?.name || null,
+      mealOverriddenAt:   new Date().toISOString(),
+      mealOverriddenBy:   'staff',
     });
     setSavingOverride(false);
     setMealOverrideGuest(null);
@@ -929,11 +877,15 @@ export default function EventManifestPage() {
     toast({ title: 'Event deactivated', description: 'Kiosk returned to normal mode.' });
   };
 
-  const handleEndEvent = async () => {
+  // Gap 15 — opens validation dialog instead of immediately ending
+  const handleEndEvent = () => setIsEndEventOpen(true);
+
+  const handleConfirmEndEvent = async () => {
     if (!firestore || !tenantId) return;
     await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
       status: 'completed', endedAt: new Date().toISOString(),
     });
+    setIsEndEventOpen(false);
     toast({ title: 'Event marked complete' });
   };
 
@@ -972,7 +924,7 @@ export default function EventManifestPage() {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{eventDisplayName}</h1>
-            {event.date && <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), "EEEE, MMMM d, yyyy")}</p>}
+            {event.date  && <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
             {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1032,19 +984,16 @@ export default function EventManifestPage() {
         {/* ── FLOOR REQUESTS ── */}
         <FloorRequestPanel requests={floorRequests} onResolve={handleResolveFloorRequest} tenantId={tenantId} />
 
-        {/* ── GAP 9: DELTA RE-FIRE BANNERS ── */}
+        {/* ── DELTA RE-FIRE BANNERS (Gap 9) ── */}
         <AnimatePresence>
           {Object.entries(deltaGuestsByCourse).map(([courseNumStr, deltaGuests]) => {
             const n = Number(courseNumStr);
             return (
-              <DeltaRefireBanner
-                key={n}
-                courseNumber={n}
+              <DeltaRefireBanner key={n} courseNumber={n}
                 courseName={courseLabels[n] || `Course ${n}`}
                 deltaGuests={deltaGuests}
                 onRefire={handleRefireDelta}
-                isFiring={isRefiring === n}
-              />
+                isFiring={isRefiring === n} />
             );
           })}
         </AnimatePresence>
@@ -1131,6 +1080,89 @@ export default function EventManifestPage() {
                 <Button onClick={handleActivateEvent} disabled={activatingNow}
                   className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-200 gap-2">
                   {activatingNow ? <Loader className="w-4 h-4 animate-spin" /> : '🟢 Activate Event'}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── GAP 15: END EVENT VALIDATION DIALOG ── */}
+        <Dialog open={isEndEventOpen} onOpenChange={setIsEndEventOpen}>
+          <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
+            <DialogHeader className="p-6 pb-0">
+              <DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-slate-400" /> End Event
+              </DialogTitle>
+            </DialogHeader>
+            <div className="p-6 space-y-4">
+
+              {/* Warnings — only shown if issues exist */}
+              {(unfiredCourses.length > 0 || floorRequests.length > 0) && (
+                <div className="space-y-2">
+                  <p className="text-sm font-bold text-slate-700">Before you end the event:</p>
+
+                  {unfiredCourses.length > 0 && (
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+                          {unfiredCourses.length} Course{unfiredCourses.length !== 1 ? 's' : ''} Not Fired
+                        </p>
+                        <p className="text-[10px] font-bold text-amber-600 mt-0.5">
+                          {unfiredCourses.map(n => courseLabels[n] || `Course ${n}`).join(', ')} — kitchen has not received tickets
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {floorRequests.length > 0 && (
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                      <Bell className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+                          {floorRequests.length} Unresolved Floor Request{floorRequests.length !== 1 ? 's' : ''}
+                        </p>
+                        <p className="text-[10px] font-bold text-amber-600 mt-0.5">
+                          Guests are still waiting on pending requests
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* All clear */}
+              {unfiredCourses.length === 0 && floorRequests.length === 0 && (
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">All Clear</p>
+                    <p className="text-[10px] font-bold text-emerald-600 mt-0.5">
+                      All courses fired, no pending requests
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Event summary */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Event Summary</p>
+                <p className="font-black text-slate-900">{eventDisplayName}</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  {stats.checkedIn} of {stats.total} guests attended · {fires.filter(f => f.status === 'fired' && !f.isDelta).length} of {courseNumbers.length} courses fired
+                </p>
+              </div>
+
+              <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
+                Ending the event marks it complete and reverts the kiosk to normal walk-in mode. You can still view the post-event report afterwards.
+              </p>
+
+              <div className="flex gap-3 pt-2">
+                <Button variant="outline" onClick={() => setIsEndEventOpen(false)}
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+                <Button onClick={handleConfirmEndEvent}
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-slate-800 hover:bg-slate-900 gap-2">
+                  End Event →
                 </Button>
               </div>
             </div>
@@ -1280,8 +1312,8 @@ export default function EventManifestPage() {
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
-                const fired = firedCourses.has(n);
-                const count = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
+                const fired      = firedCourses.has(n);
+                const count      = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
                 const deltaCount = deltaGuestsByCourse[n]?.length || 0;
                 return (
                   <div key={n} className={cn('p-4 rounded-2xl border-2',
@@ -1291,18 +1323,13 @@ export default function EventManifestPage() {
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Course {n}</p>
                         <p className="font-black text-slate-900 text-sm">{courseLabels[n] || `Course ${n}`}</p>
                         <p className="text-[10px] text-slate-500">{count} guests</p>
-                        {/* GAP 9: Show delta count inline */}
                         {fired && deltaCount > 0 && (
-                          <p className="text-[9px] font-black text-indigo-600 mt-0.5">
-                            +{deltaCount} new arrival{deltaCount !== 1 ? 's' : ''}
-                          </p>
+                          <p className="text-[9px] font-black text-indigo-600 mt-0.5">+{deltaCount} new arrival{deltaCount !== 1 ? 's' : ''}</p>
                         )}
                       </div>
                       {fired && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
                     </div>
-                    <Button
-                      onClick={() => handleFireCourse(n)}
-                      // GAP 10: disabled when fired OR when a fire is already in progress
+                    <Button onClick={() => handleFireCourse(n)}
                       disabled={!!isFiring || fired || count === 0}
                       className={cn('w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2',
                         fired ? 'bg-emerald-500 hover:bg-emerald-500 opacity-60 cursor-not-allowed' : 'shadow-lg shadow-primary/20')}>
@@ -1350,7 +1377,7 @@ export default function EventManifestPage() {
                   {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {/* GAP 8: expanded filter options */}
+              {/* Gap 8 — expanded filter */}
               <Select value={filterFlag} onValueChange={setFilterFlag}>
                 <SelectTrigger className="h-10 w-40 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="All guests" /></SelectTrigger>
                 <SelectContent>
@@ -1361,7 +1388,7 @@ export default function EventManifestPage() {
                   <SelectItem value="dietary">Dietary Req.</SelectItem>
                 </SelectContent>
               </Select>
-              {/* GAP 8: quick-access not-checked-in badge */}
+              {/* Gap 8 — quick badge */}
               {stats.notCheckedIn > 0 && filterFlag !== 'not-checked-in' && (
                 <button onClick={() => setFilterFlag('not-checked-in')}
                   className="flex items-center gap-1.5 h-10 px-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-700 font-black uppercase text-[9px] tracking-widest hover:bg-amber-100 transition-all">
@@ -1575,17 +1602,14 @@ export default function EventManifestPage() {
                             : 'bg-slate-50 text-slate-400 border-slate-200')}>
                           {selectionCount} selected
                         </Badge>
-                        {/* GAP 3: protected delete button */}
-                        <button
-                          onClick={() => handleDeleteMenuItem(item)}
+                        {/* Gap 3: protected delete */}
+                        <button onClick={() => handleDeleteMenuItem(item)}
                           className={cn('p-1.5 rounded-lg transition-colors',
                             selectionCount > 0
                               ? 'hover:bg-amber-50 text-amber-400 hover:text-amber-600'
                               : 'hover:bg-red-50 text-slate-300 hover:text-red-400')}
-                          title={selectionCount > 0 ? `${selectionCount} guests selected this — tap to review` : 'Delete item'}>
-                          {selectionCount > 0
-                            ? <ShieldAlert className="w-3.5 h-3.5" />
-                            : <Trash2 className="w-3.5 h-3.5" />}
+                          title={selectionCount > 0 ? `${selectionCount} guests selected this` : 'Delete item'}>
+                          {selectionCount > 0 ? <ShieldAlert className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
