@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useDoc, useMemoFirebase, useCollection } from '@/firebase';
-import { doc, collection, query, where, updateDoc, getDocs, onSnapshot } from 'firebase/firestore';
+import { doc, collection, query, where, updateDoc, onSnapshot } from 'firebase/firestore';
 import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   CheckCircle2, Bell, AlertTriangle, Loader, Droplets, Utensils,
   Package, Accessibility, MessageSquare, WifiOff, UserCheck,
-  LogOut, ChefHat, MapPin, Calendar, Users, Delete,
+  LogOut, ChefHat, MapPin, Calendar, Users, Delete, Megaphone, X,
 } from 'lucide-react';
 
 const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(v) : new Date(v));
@@ -80,15 +80,11 @@ function getInitials(name?: string | null): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// ─── GAP 5: PIN LOGIN ─────────────────────────────────────────────────────────
+// ─── PIN LOGIN ────────────────────────────────────────────────────────────────
 const PIN_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
 
-const PinLogin = ({
-  staff, tenantName, onLogin,
-}: {
-  staff: StaffMember[];
-  tenantName: string;
-  onLogin: (member: StaffMember) => void;
+const PinLogin = ({ staff, tenantName, onLogin }: {
+  staff: StaffMember[]; tenantName: string; onLogin: (member: StaffMember) => void;
 }) => {
   const [pin, setPin]         = useState('');
   const [shake, setShake]     = useState(false);
@@ -101,24 +97,15 @@ const PinLogin = ({
     setPin(next);
     if (next.length === 4) {
       const found = staff.find(s => s.pin === next);
-      if (found) {
-        setWelcome(found);
-        setTimeout(() => onLogin(found), 600);
-      } else {
-        setShake(true);
-        setTimeout(() => { setShake(false); setPin(''); }, 600);
-      }
+      if (found) { setWelcome(found); setTimeout(() => onLogin(found), 600); }
+      else { setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
     }
   };
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-      <motion.div
-        animate={shake ? { x: [0, -12, 12, -8, 8, 0] } : {}}
-        transition={{ duration: 0.5 }}
-        className="flex flex-col items-center gap-8 w-full max-w-xs"
-      >
-        {/* Header */}
+      <motion.div animate={shake ? { x: [0, -12, 12, -8, 8, 0] } : {}} transition={{ duration: 0.5 }}
+        className="flex flex-col items-center gap-8 w-full max-w-xs">
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center">
             <ChefHat className="w-7 h-7 text-primary" />
@@ -129,63 +116,38 @@ const PinLogin = ({
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Enter your PIN to continue</p>
           </div>
         </div>
-
-        {/* PIN dots */}
         <div className="flex gap-4">
           {[0,1,2,3].map(i => (
-            <motion.div key={i}
-              animate={{ scale: pin.length > i ? 1.25 : 1 }}
-              className={cn(
-                'w-4 h-4 rounded-full border-2 transition-colors duration-150',
-                pin.length > i
-                  ? shake ? 'bg-red-500 border-red-500' : 'bg-primary border-primary'
-                  : 'bg-transparent border-slate-600'
-              )} />
+            <motion.div key={i} animate={{ scale: pin.length > i ? 1.25 : 1 }}
+              className={cn('w-4 h-4 rounded-full border-2 transition-colors duration-150',
+                pin.length > i ? shake ? 'bg-red-500 border-red-500' : 'bg-primary border-primary' : 'bg-transparent border-slate-600')} />
           ))}
         </div>
-
-        {/* Numpad */}
         <div className="grid grid-cols-3 gap-3 w-full">
           {PIN_KEYS.map((key, i) => (
             <button key={i} onClick={() => key && press(key)} disabled={!key}
-              className={cn(
-                'h-16 rounded-2xl font-black text-2xl transition-all active:scale-95 select-none',
-                key === '⌫'
-                  ? 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                  : key
-                  ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-lg shadow-black/30'
-                  : 'opacity-0 pointer-events-none'
-              )}>
+              className={cn('h-16 rounded-2xl font-black text-2xl transition-all active:scale-95 select-none',
+                key === '⌫' ? 'text-slate-400 hover:bg-slate-800 hover:text-white' :
+                key ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-lg shadow-black/30' : 'opacity-0 pointer-events-none')}>
               {key === '⌫' ? <Delete className="w-5 h-5 mx-auto" /> : key}
             </button>
           ))}
         </div>
-
-        {/* Welcome flash */}
         <AnimatePresence>
           {welcome && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-2 text-emerald-400">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center font-black text-sm">
-                {getInitials(welcome.name)}
-              </div>
-              <p className="text-[11px] font-black uppercase tracking-widest">
-                Welcome, {welcome.name.split(' ')[0]} ✓
-              </p>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 text-emerald-400">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center font-black text-sm">{getInitials(welcome.name)}</div>
+              <p className="text-[11px] font-black uppercase tracking-widest">Welcome, {welcome.name.split(' ')[0]} ✓</p>
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* No PIN set — fallback list */}
         {staff.filter(s => !s.pin).length > 0 && (
           <div className="w-full space-y-2">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 text-center">Or select your name</p>
             {staff.filter(s => !s.pin).map(s => (
               <button key={s.id} onClick={() => onLogin(s)}
                 className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800 hover:bg-slate-700 transition-all">
-                <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center font-black text-primary text-sm shrink-0">
-                  {getInitials(s.name)}
-                </div>
+                <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center font-black text-primary text-sm shrink-0">{getInitials(s.name)}</div>
                 <div className="text-left">
                   <p className="font-black text-sm text-white">{s.name}</p>
                   {s.role && <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">{s.role}</p>}
@@ -199,28 +161,19 @@ const PinLogin = ({
   );
 };
 
-// ─── GAP 4: EVENT CONTEXT PANEL ───────────────────────────────────────────────
-const EventContextPanel = ({
-  event, myTables, assignedTables, menuItems, checkedInCount, totalCount,
-}: {
-  event: any;
-  myTables: string[];
-  assignedTables: string[];
-  menuItems: any[];
-  checkedInCount: number;
-  totalCount: number;
+// ─── EVENT CONTEXT PANEL ──────────────────────────────────────────────────────
+const EventContextPanel = ({ event, myTables, assignedTables, menuItems, checkedInCount, totalCount }: {
+  event: any; myTables: string[]; assignedTables: string[];
+  menuItems: any[]; checkedInCount: number; totalCount: number;
 }) => {
   const [expanded, setExpanded] = useState(false);
   if (!event) return null;
-
   const displayName = event.title || event.name || 'Tonight\'s Event';
   const effectiveTables = myTables.length > 0 ? myTables : assignedTables;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-      {/* Summary row — always visible */}
-      <button onClick={() => setExpanded(p => !p)}
-        className="w-full flex items-center gap-3 p-4 hover:bg-slate-800/50 transition-all text-left">
+      <button onClick={() => setExpanded(p => !p)} className="w-full flex items-center gap-3 p-4 hover:bg-slate-800/50 transition-all text-left">
         <div className="w-9 h-9 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
           <Calendar className="w-4 h-4 text-primary" />
         </div>
@@ -229,29 +182,21 @@ const EventContextPanel = ({
           <div className="flex items-center gap-3 mt-0.5">
             {effectiveTables.length > 0 && (
               <span className="text-[9px] font-bold uppercase tracking-widest text-primary">
-                <MapPin className="w-2.5 h-2.5 inline mr-0.5" />
-                Tables {effectiveTables.join(', ')}
+                <MapPin className="w-2.5 h-2.5 inline mr-0.5" />Tables {effectiveTables.join(', ')}
               </span>
             )}
             <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-              <Users className="w-2.5 h-2.5 inline mr-0.5" />
-              {checkedInCount}/{totalCount} in
+              <Users className="w-2.5 h-2.5 inline mr-0.5" />{checkedInCount}/{totalCount} in
             </span>
           </div>
         </div>
-        <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest shrink-0">
-          {expanded ? '▲' : '▼'}
-        </span>
+        <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest shrink-0">{expanded ? '▲' : '▼'}</span>
       </button>
-
-      {/* Expanded menu + details */}
       <AnimatePresence>
         {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden border-t border-slate-800">
             <div className="p-4 space-y-4">
-              {/* Event details */}
               {event.date && (
                 <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                   <Calendar className="w-3 h-3" />
@@ -260,8 +205,6 @@ const EventContextPanel = ({
                   {event.venue && ` · ${event.venue}`}
                 </div>
               )}
-
-              {/* Menu items — grouped by course */}
               {menuItems.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-500">Tonight's Menu</p>
@@ -288,8 +231,6 @@ const EventContextPanel = ({
                   })}
                 </div>
               )}
-
-              {/* Assigned tables reminder */}
               {effectiveTables.length > 0 && (
                 <div className="p-3 rounded-xl bg-primary/10 border border-primary/20">
                   <p className="text-[8px] font-black uppercase tracking-[0.3em] text-primary/70 mb-1">Your Tables Tonight</p>
@@ -304,6 +245,37 @@ const EventContextPanel = ({
   );
 };
 
+// ─── GAP 6: BROADCAST BANNER ──────────────────────────────────────────────────
+// Shown to floor staff when the host sends a broadcast from the manifest.
+// Staff can dismiss it locally (doesn't affect Firestore — dismissal is per-device).
+const BroadcastBanner = ({ message, sentAt, onDismiss }: {
+  message: string; sentAt?: string; onDismiss: () => void;
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: -12, scale: 0.97 }}
+    animate={{ opacity: 1, y: 0, scale: 1 }}
+    exit={{ opacity: 0, y: -8, scale: 0.97 }}
+    className="bg-violet-900 border border-violet-600 rounded-2xl overflow-hidden shadow-lg shadow-violet-900/40">
+    <div className="p-4 flex items-start gap-3">
+      <div className="w-9 h-9 rounded-xl bg-violet-700 flex items-center justify-center shrink-0 mt-0.5">
+        <Megaphone className="w-4 h-4 text-violet-200" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[9px] font-black uppercase tracking-[0.25em] text-violet-400 mb-1">Host Message</p>
+        <p className="font-black text-white text-sm leading-snug">{message}</p>
+        {sentAt && (
+          <p className="text-[9px] font-bold text-violet-400 uppercase tracking-widest mt-1.5">
+            {Math.floor((Date.now() - safeDate(sentAt).getTime()) / 60000) < 1 ? 'Just now' : `${Math.floor((Date.now() - safeDate(sentAt).getTime()) / 60000)}m ago`}
+          </p>
+        )}
+      </div>
+      <button onClick={onDismiss} className="shrink-0 w-7 h-7 rounded-lg bg-violet-700 hover:bg-violet-600 flex items-center justify-center transition-all" title="Dismiss">
+        <X className="w-3.5 h-3.5 text-violet-200" />
+      </button>
+    </div>
+  </motion.div>
+);
+
 // ─── LIVE ELAPSED TIMER ───────────────────────────────────────────────────────
 const ElapsedTimer = ({ createdAt }: { createdAt: string }) => {
   const [elapsed, setElapsed] = useState(0);
@@ -316,24 +288,18 @@ const ElapsedTimer = ({ createdAt }: { createdAt: string }) => {
   const mins = Math.floor(elapsed / 60);
   const isWarning = mins >= 5;
   return (
-    <span className={cn('text-[10px] font-black uppercase tracking-widest',
-      isWarning ? 'text-amber-500' : 'text-slate-400')}>
+    <span className={cn('text-[10px] font-black uppercase tracking-widest', isWarning ? 'text-amber-500' : 'text-slate-400')}>
       {isWarning && '⚠ '}{mins < 1 ? 'Just now' : `${mins}m ago`}
     </span>
   );
 };
 
 // ─── REQUEST CARD ─────────────────────────────────────────────────────────────
-const RequestCard = ({
-  request, onResolve, onAcknowledge, myTables, isPending,
-}: {
-  request: FloorRequest;
-  onResolve: (id: string) => Promise<void>;
-  onAcknowledge: (id: string) => Promise<void>;
-  myTables: string[];
-  isPending?: boolean;
+const RequestCard = ({ request, onResolve, onAcknowledge, myTables, isPending }: {
+  request: FloorRequest; onResolve: (id: string) => Promise<void>;
+  onAcknowledge: (id: string) => Promise<void>; myTables: string[]; isPending?: boolean;
 }) => {
-  const [resolving, setResolving]       = useState(false);
+  const [resolving, setResolving]         = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
 
   const type           = getType(request);
@@ -354,60 +320,42 @@ const RequestCard = ({
       initial={{ opacity: 0, y: -12, scale: 0.97 }}
       animate={{ opacity: isPending ? 0.7 : 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-      className={cn(
-        'rounded-2xl border-2 overflow-hidden transition-all',
+      className={cn('rounded-2xl border-2 overflow-hidden transition-all',
         !isMyTable && 'opacity-40',
         isActive && isUrgent  ? 'border-red-300 bg-red-50 shadow-lg shadow-red-100' :
         isActive && isLate    ? 'border-amber-300 bg-amber-50 shadow-md shadow-amber-100' :
         isAcknowledged        ? 'border-amber-200 bg-amber-50/60 shadow-sm' :
         isNew                 ? 'border-slate-200 bg-white shadow-md shadow-slate-100' :
-        'border-slate-100 bg-slate-50 opacity-60'
-      )}>
+        'border-slate-100 bg-slate-50 opacity-60')}>
       <div className="p-4 flex items-start gap-4">
         <div className={cn('p-3 rounded-xl shrink-0',
-          isUrgent       ? 'bg-red-100 text-red-600' :
-          isLate         ? 'bg-amber-100 text-amber-700' :
-          isAcknowledged ? 'bg-amber-50 text-amber-600' :
-          isNew          ? 'bg-slate-100 text-slate-600' :
-          'bg-slate-100 text-slate-400')}>
+          isUrgent ? 'bg-red-100 text-red-600' : isLate ? 'bg-amber-100 text-amber-700' :
+          isAcknowledged ? 'bg-amber-50 text-amber-600' : isNew ? 'bg-slate-100 text-slate-600' : 'bg-slate-100 text-slate-400')}>
           {typeIcon(type)}
         </div>
-
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <p className="font-black text-base text-slate-900 uppercase tracking-tight">
               {FLOOR_REQUEST_TYPES.find(t => t.type === type)?.label || request.label || type}
             </p>
-            {isPending && (
-              <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-black uppercase tracking-wide">Syncing…</span>
-            )}
-            {isAcknowledged && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wide">🏃 En Route</span>
-            )}
-            {isActive && isUrgent && (
-              <span className="px-2 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-black uppercase tracking-wide">Urgent</span>
-            )}
-            {isActive && isLate && !isUrgent && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-black uppercase tracking-wide">Waiting {elapsedMins}m</span>
-            )}
+            {isPending    && <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-black uppercase tracking-wide">Syncing…</span>}
+            {isAcknowledged && <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wide">🏃 En Route</span>}
+            {isActive && isUrgent && <span className="px-2 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-black uppercase tracking-wide">Urgent</span>}
+            {isActive && isLate && !isUrgent && <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-black uppercase tracking-wide">Waiting {elapsedMins}m</span>}
           </div>
-
           <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1 flex-wrap">
             {request.tableNumber && <span>Table {request.tableNumber}</span>}
             {request.tableNumber && request.seatNumber && <span>·</span>}
             {request.seatNumber  && <span>Seat {request.seatNumber}</span>}
             {request.guestName   && <><span>·</span><span className="text-slate-700">{request.guestName}</span></>}
           </div>
-
           {hasCritical && (
             <div className="flex flex-wrap gap-1 my-1.5">
-              {(request.guestAllergies || [])
-                .filter((a: any) => typeof a === 'object' && a.severity === 'critical')
-                .map((a: any) => (
-                  <span key={a.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 border border-red-300 text-[9px] font-black uppercase tracking-wide text-red-800">
-                    <AlertTriangle className="w-2.5 h-2.5" /> {a.label}
-                  </span>
-                ))}
+              {(request.guestAllergies || []).filter((a: any) => typeof a === 'object' && a.severity === 'critical').map((a: any) => (
+                <span key={a.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 border border-red-300 text-[9px] font-black uppercase tracking-wide text-red-800">
+                  <AlertTriangle className="w-2.5 h-2.5" /> {a.label}
+                </span>
+              ))}
             </div>
           )}
           {!hasCritical && (request.guestAllergies || []).length > 0 && (
@@ -420,11 +368,9 @@ const RequestCard = ({
               ))}
             </div>
           )}
-
           {request.requestText && <p className="text-sm text-slate-600 mt-1 leading-relaxed">{request.requestText}</p>}
           <div className="mt-2"><ElapsedTimer createdAt={request.createdAt} /></div>
         </div>
-
         {isActive && (
           <div className="flex flex-col gap-2 shrink-0">
             {isNew && (
@@ -462,9 +408,8 @@ export default function FloorStaffPage() {
   const { toast }     = useToast();
   const tenantId      = params.tenantId as string;
 
-  // ── GAP 5: Staff session ──────────────────────────────────────────────────
+  // ── Staff session ─────────────────────────────────────────────────────────
   const [currentStaff, setCurrentStaff] = useState<StaffMember | null>(() => {
-    // Persist across page refreshes for the session
     if (typeof window === 'undefined') return null;
     try {
       const stored = sessionStorage.getItem(`opal_floor_staff_${tenantId}`);
@@ -472,26 +417,22 @@ export default function FloorStaffPage() {
     } catch { return null; }
   });
 
-  const handleLogin = (member: StaffMember) => {
-    sessionStorage.setItem(`opal_floor_staff_${tenantId}`, JSON.stringify(member));
-    setCurrentStaff(member);
-  };
+  const handleLogin  = (member: StaffMember) => { sessionStorage.setItem(`opal_floor_staff_${tenantId}`, JSON.stringify(member)); setCurrentStaff(member); };
+  const handleLogout = () => { sessionStorage.removeItem(`opal_floor_staff_${tenantId}`); setCurrentStaff(null); };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem(`opal_floor_staff_${tenantId}`);
-    setCurrentStaff(null);
-  };
-
-  const [showDone, setShowDone]             = useState(false);
-  const [isOnline, setIsOnline]             = useState(true);
-  const [myTables, setMyTables]             = useState<string[]>([]);
-  const [tableInput, setTableInput]         = useState('');
-  const [showTableSetup, setShowTableSetup] = useState(false);
+  const [showDone, setShowDone]               = useState(false);
+  const [isOnline, setIsOnline]               = useState(true);
+  const [myTables, setMyTables]               = useState<string[]>([]);
+  const [tableInput, setTableInput]           = useState('');
+  const [showTableSetup, setShowTableSetup]   = useState(false);
   const [pendingResolves, setPendingResolves] = useState<Set<string>>(new Set());
 
-  // ── GAP 4: Active event + menu items ──────────────────────────────────────
-  const [activeEvent, setActiveEvent]   = useState<any>(null);
-  const [eventGuests, setEventGuests]   = useState<any[]>([]);
+  // ── Gap 6: broadcast dismiss state (per device, not persisted) ────────────
+  const [dismissedBroadcastSentAt, setDismissedBroadcastSentAt] = useState<string | null>(null);
+
+  // ── Active event + menu items ─────────────────────────────────────────────
+  const [activeEvent, setActiveEvent]       = useState<any>(null);
+  const [eventGuests, setEventGuests]       = useState<any[]>([]);
   const [eventMenuItems, setEventMenuItems] = useState<any[]>([]);
 
   // ── Online / offline ───────────────────────────────────────────────────────
@@ -510,48 +451,30 @@ export default function FloorStaffPage() {
     where('status', 'in', ['new', 'acknowledged', 'done'])
   ), [firestore, tenantId]);
 
-  const tenantRef = useMemoFirebase(
-    () => doc(firestore, `tenants/${tenantId}`),
-    [firestore, tenantId]
-  );
-
-  const staffQ = useMemoFirebase(
-    () => collection(firestore, `tenants/${tenantId}/staff`),
-    [firestore, tenantId]
-  );
+  const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+  const staffQ    = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
 
   const { data: allRequests, isLoading } = useCollection<FloorRequest>(floorQ);
   const { data: tenant }                 = useDoc<any>(tenantRef);
   const { data: staffList }              = useCollection<StaffMember>(staffQ);
 
-  // ── GAP 4: Listen for active event today ──────────────────────────────────
+  // ── Active event listener ─────────────────────────────────────────────────
   useEffect(() => {
     if (!firestore || !tenantId) return;
     const today = new Date().toISOString().slice(0, 10);
     const unsub = onSnapshot(
-      query(
-        collection(firestore, `tenants/${tenantId}/studioEvents`),
-        where('date', '==', today),
-        where('status', '==', 'active')
-      ),
+      query(collection(firestore, `tenants/${tenantId}/studioEvents`), where('date', '==', today), where('status', '==', 'active')),
       snap => {
-        if (!snap.empty) {
-          setActiveEvent({ id: snap.docs[0].id, ...snap.docs[0].data() });
-        } else {
-          setActiveEvent(null);
-          setEventGuests([]);
-          setEventMenuItems([]);
-        }
+        if (!snap.empty) setActiveEvent({ id: snap.docs[0].id, ...snap.docs[0].data() });
+        else { setActiveEvent(null); setEventGuests([]); setEventMenuItems([]); }
       }
     );
     return unsub;
   }, [firestore, tenantId]);
 
-  // When we have an active event, load its guests and menu items
   useEffect(() => {
     if (!firestore || !tenantId || !activeEvent?.id) return;
     const unsubs: (() => void)[] = [];
-
     unsubs.push(onSnapshot(
       query(collection(firestore, `tenants/${tenantId}/eventGuests`), where('eventId', '==', activeEvent.id)),
       snap => setEventGuests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -560,54 +483,41 @@ export default function FloorStaffPage() {
       query(collection(firestore, `tenants/${tenantId}/eventMenuItems`), where('eventId', '==', activeEvent.id)),
       snap => setEventMenuItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     ));
-
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, activeEvent?.id]);
 
-  // ── GAP 4: Derive assigned tables for this staff member ───────────────────
-  // The manifest assigns staffIds to the event — use that to auto-filter tables
   const assignedTables = useMemo(() => {
     if (!currentStaff || !activeEvent) return [];
-    // assignedStaffIds on the event — if this staff member is assigned, show all tables
-    // In a future improvement you could assign specific tables per staff, but for now
-    // we show all tables when the staff member is on the event's assigned list
     const isAssigned = (activeEvent.assignedStaffIds || []).includes(currentStaff.id);
     if (!isAssigned) return [];
-    // Return all unique table numbers from checked-in guests
-    const tables = Array.from(new Set(
-      eventGuests.filter(g => g.tableNumber).map(g => g.tableNumber as string)
-    )).sort();
-    return tables;
+    return Array.from(new Set(eventGuests.filter(g => g.tableNumber).map(g => g.tableNumber as string))).sort();
   }, [currentStaff, activeEvent, eventGuests]);
 
-  // Auto-set my tables from assigned tables when staff logs in and event is active
   useEffect(() => {
-    if (assignedTables.length > 0 && myTables.length === 0) {
-      setMyTables(assignedTables);
-    }
+    if (assignedTables.length > 0 && myTables.length === 0) setMyTables(assignedTables);
   }, [assignedTables]);
 
-  // Counts for event context panel
   const checkedInCount = useMemo(() => eventGuests.filter(g => g.checkedIn).length, [eventGuests]);
   const totalCount     = eventGuests.length;
+
+  // ── Gap 6: Broadcast visibility ───────────────────────────────────────────
+  const broadcastMessage = activeEvent?.broadcastMessage && !activeEvent?.broadcastDismissed ? activeEvent.broadcastMessage : null;
+  const broadcastSentAt  = activeEvent?.broadcastSentAt || null;
+  const showBroadcast    = !!broadcastMessage && dismissedBroadcastSentAt !== broadcastSentAt;
 
   // ── Requests ──────────────────────────────────────────────────────────────
   const { newRequests, doneRequests } = useMemo(() => ({
     newRequests: (allRequests || [])
       .filter(r => r.status === 'new' || r.status === 'acknowledged')
       .sort((a, b) => {
-        const aType = getType(a);
-        const bType = getType(b);
+        const aType = getType(a); const bType = getType(b);
         if (aType === 'accessibility' && bType !== 'accessibility') return -1;
         if (bType === 'accessibility' && aType !== 'accessibility') return 1;
         return safeDate(a.createdAt).getTime() - safeDate(b.createdAt).getTime();
       }),
     doneRequests: (allRequests || [])
       .filter(r => r.status === 'done')
-      .sort((a, b) =>
-        safeDate(b.resolvedAt || b.createdAt).getTime() -
-        safeDate(a.resolvedAt || a.createdAt).getTime()
-      )
+      .sort((a, b) => safeDate(b.resolvedAt || b.createdAt).getTime() - safeDate(a.resolvedAt || a.createdAt).getTime())
       .slice(0, 20),
   }), [allRequests]);
 
@@ -626,9 +536,7 @@ export default function FloorStaffPage() {
     setPendingResolves(prev => new Set([...prev, requestId]));
     try {
       await updateDoc(doc(firestore, `tenants/${tenantId}/floorRequests`, requestId), {
-        status: 'done',
-        resolvedAt: new Date().toISOString(),
-        resolvedBy: currentStaff?.name || 'floor_staff',
+        status: 'done', resolvedAt: new Date().toISOString(), resolvedBy: currentStaff?.name || 'floor_staff',
       });
     } catch {
       setPendingResolves(prev => { const next = new Set(prev); next.delete(requestId); return next; });
@@ -642,9 +550,7 @@ export default function FloorStaffPage() {
     setPendingResolves(prev => new Set([...prev, requestId]));
     try {
       await updateDoc(doc(firestore, `tenants/${tenantId}/floorRequests`, requestId), {
-        status: 'acknowledged',
-        acknowledgedAt: new Date().toISOString(),
-        acknowledgedBy: currentStaff?.name || 'floor_staff',
+        status: 'acknowledged', acknowledgedAt: new Date().toISOString(), acknowledgedBy: currentStaff?.name || 'floor_staff',
       });
       toast({ title: 'On my way ✓', description: 'Guest has been notified.' });
     } catch {
@@ -657,36 +563,25 @@ export default function FloorStaffPage() {
 
   const handleSetTables = () => {
     const tables = tableInput.split(',').map(t => t.trim()).filter(Boolean);
-    setMyTables(tables);
-    setShowTableSetup(false);
+    setMyTables(tables); setShowTableSetup(false);
     toast({ title: `Watching ${tables.length} table${tables.length !== 1 ? 's' : ''}`, description: tables.join(', ') });
   };
 
-  // ── GAP 5: Show PIN login if no staff session ──────────────────────────────
+  // ── PIN login guard ────────────────────────────────────────────────────────
   if (!currentStaff) {
-    return (
-      <PinLogin
-        staff={staffList || []}
-        tenantName={tenant?.name || 'Studio'}
-        onLogin={handleLogin}
-      />
-    );
+    return <PinLogin staff={staffList || []} tenantName={tenant?.name || 'Studio'} onLogin={handleLogin} />;
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-950 text-white">
 
       {/* Offline banner */}
       <AnimatePresence>
         {!isOnline && (
-          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}
-            className="bg-amber-500 text-slate-900 overflow-hidden">
+          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="bg-amber-500 text-slate-900 overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-2 max-w-md mx-auto">
               <WifiOff className="w-4 h-4 shrink-0" />
-              <p className="text-[10px] font-black uppercase tracking-widest">
-                Offline — requests queued, will sync when reconnected
-              </p>
+              <p className="text-[10px] font-black uppercase tracking-widest">Offline — requests queued, will sync when reconnected</p>
             </div>
           </motion.div>
         )}
@@ -700,31 +595,19 @@ export default function FloorStaffPage() {
               <Bell className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">
-                {tenant?.name || 'Studio'}
-              </p>
+              <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">{tenant?.name || 'Studio'}</p>
               <h1 className="text-sm font-black uppercase tracking-tight leading-none">Floor Requests</h1>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
-            {/* GAP 5: Logged-in staff chip */}
+            {/* Staff chip */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700">
-              <div className="w-6 h-6 rounded-lg bg-primary/20 flex items-center justify-center font-black text-primary text-[10px] shrink-0">
-                {getInitials(currentStaff.name)}
-              </div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">
-                {currentStaff.name.split(' ')[0]}
-              </span>
-              <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 transition-colors ml-1" title="Log out">
-                <LogOut className="w-3 h-3" />
-              </button>
+              <div className="w-6 h-6 rounded-lg bg-primary/20 flex items-center justify-center font-black text-primary text-[10px] shrink-0">{getInitials(currentStaff.name)}</div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">{currentStaff.name.split(' ')[0]}</span>
+              <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 transition-colors ml-1" title="Log out"><LogOut className="w-3 h-3" /></button>
             </div>
-
             {myTables.length > 0 && (
-              <span className="text-[9px] font-black uppercase tracking-widest text-primary bg-primary/10 px-2 py-1 rounded-lg">
-                T{myTables.join(', T')}
-              </span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-primary bg-primary/10 px-2 py-1 rounded-lg">T{myTables.join(', T')}</span>
             )}
             <button onClick={() => setShowTableSetup(s => !s)}
               className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-slate-800 text-slate-400 hover:text-slate-200 transition-all">
@@ -736,8 +619,7 @@ export default function FloorStaffPage() {
               </div>
             )}
             <button onClick={() => setShowDone(s => !s)}
-              className={cn('px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',
-                showDone ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200')}>
+              className={cn('px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all', showDone ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200')}>
               {showDone ? 'Hide Done' : 'Done'}
             </button>
           </div>
@@ -746,27 +628,17 @@ export default function FloorStaffPage() {
         {/* Table setup */}
         <AnimatePresence>
           {showTableSetup && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-              className="max-w-md mx-auto overflow-hidden">
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="max-w-md mx-auto overflow-hidden">
               <div className="pt-3 flex items-center gap-2">
-                <input value={tableInput} onChange={e => setTableInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSetTables()}
+                <input value={tableInput} onChange={e => setTableInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSetTables()}
                   placeholder="My tables: 1, 2, 3 (comma separated)"
                   className="flex-1 h-10 rounded-xl bg-slate-800 border border-slate-700 px-3 text-sm font-bold text-white placeholder:text-slate-500 outline-none focus:border-primary" />
-                <button onClick={handleSetTables}
-                  className="h-10 px-4 rounded-xl bg-primary font-black uppercase text-[10px] tracking-widest text-white shrink-0">
-                  Set
-                </button>
+                <button onClick={handleSetTables} className="h-10 px-4 rounded-xl bg-primary font-black uppercase text-[10px] tracking-widest text-white shrink-0">Set</button>
                 {myTables.length > 0 && (
-                  <button onClick={() => { setMyTables([]); setTableInput(''); setShowTableSetup(false); }}
-                    className="h-10 px-3 rounded-xl bg-slate-800 font-black uppercase text-[10px] tracking-widest text-slate-400">
-                    Clear
-                  </button>
+                  <button onClick={() => { setMyTables([]); setTableInput(''); setShowTableSetup(false); }} className="h-10 px-3 rounded-xl bg-slate-800 font-black uppercase text-[10px] tracking-widest text-slate-400">Clear</button>
                 )}
               </div>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mt-1.5">
-                Only your tables will be highlighted. Other tables are dimmed.
-              </p>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mt-1.5">Only your tables will be highlighted. Other tables are dimmed.</p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -775,17 +647,22 @@ export default function FloorStaffPage() {
       {/* Content */}
       <div className="max-w-md mx-auto px-4 py-6 space-y-4">
 
-        {/* GAP 4: Event context panel */}
+        {/* Event context */}
         {activeEvent && (
-          <EventContextPanel
-            event={activeEvent}
-            myTables={myTables}
-            assignedTables={assignedTables}
-            menuItems={eventMenuItems}
-            checkedInCount={checkedInCount}
-            totalCount={totalCount}
-          />
+          <EventContextPanel event={activeEvent} myTables={myTables} assignedTables={assignedTables}
+            menuItems={eventMenuItems} checkedInCount={checkedInCount} totalCount={totalCount} />
         )}
+
+        {/* Gap 6: Broadcast banner */}
+        <AnimatePresence>
+          {showBroadcast && (
+            <BroadcastBanner
+              message={broadcastMessage!}
+              sentAt={broadcastSentAt}
+              onDismiss={() => setDismissedBroadcastSentAt(broadcastSentAt)}
+            />
+          )}
+        </AnimatePresence>
 
         {isLoading && (
           <div className="flex items-center justify-center py-12">
@@ -804,33 +681,22 @@ export default function FloorStaffPage() {
             ) : (
               <div className="space-y-3">
                 {myTables.length > 0 && myNewRequests.length > 0 && (
-                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-primary">
-                    Your Tables · {myNewRequests.length} request{myNewRequests.length !== 1 ? 's' : ''}
-                  </p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-primary">Your Tables · {myNewRequests.length} request{myNewRequests.length !== 1 ? 's' : ''}</p>
                 )}
                 {myTables.length === 0 && newRequests.length > 0 && (
-                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">
-                    Pending · {newRequests.length} request{newRequests.length !== 1 ? 's' : ''}
-                  </p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Pending · {newRequests.length} request{newRequests.length !== 1 ? 's' : ''}</p>
                 )}
                 <AnimatePresence initial={false}>
                   {myNewRequests.map(r => (
-                    <RequestCard key={r.id} request={r}
-                      onResolve={handleResolve} onAcknowledge={handleAcknowledge}
-                      myTables={myTables} isPending={pendingResolves.has(r.id)} />
+                    <RequestCard key={r.id} request={r} onResolve={handleResolve} onAcknowledge={handleAcknowledge} myTables={myTables} isPending={pendingResolves.has(r.id)} />
                   ))}
                 </AnimatePresence>
-
                 {otherRequests.length > 0 && (
                   <>
-                    <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-600 mt-4">
-                      Other Tables · {otherRequests.length}
-                    </p>
+                    <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-600 mt-4">Other Tables · {otherRequests.length}</p>
                     <AnimatePresence initial={false}>
                       {otherRequests.map(r => (
-                        <RequestCard key={r.id} request={r}
-                          onResolve={handleResolve} onAcknowledge={handleAcknowledge}
-                          myTables={[]} isPending={pendingResolves.has(r.id)} />
+                        <RequestCard key={r.id} request={r} onResolve={handleResolve} onAcknowledge={handleAcknowledge} myTables={[]} isPending={pendingResolves.has(r.id)} />
                       ))}
                     </AnimatePresence>
                   </>
@@ -840,15 +706,10 @@ export default function FloorStaffPage() {
 
             <AnimatePresence>
               {showDone && doneRequests.length > 0 && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                  className="space-y-3 overflow-hidden">
-                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-600">
-                    Resolved · {doneRequests.length}
-                  </p>
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-3 overflow-hidden">
+                  <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-600">Resolved · {doneRequests.length}</p>
                   {doneRequests.map(r => (
-                    <RequestCard key={r.id} request={r}
-                      onResolve={handleResolve} onAcknowledge={handleAcknowledge}
-                      myTables={[]} />
+                    <RequestCard key={r.id} request={r} onResolve={handleResolve} onAcknowledge={handleAcknowledge} myTables={[]} />
                   ))}
                 </motion.div>
               )}
