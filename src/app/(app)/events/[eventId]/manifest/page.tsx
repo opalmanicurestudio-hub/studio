@@ -7,7 +7,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import {
   doc, collection, query, where, writeBatch, onSnapshot,
-  updateDoc, deleteDoc, addDoc, getDoc, increment, getDocs,
+  updateDoc, deleteDoc, addDoc, getDoc, increment, getDocs, setDoc,
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { format, parseISO } from 'date-fns';
@@ -24,7 +24,7 @@ import {
   QrCode, Printer, BarChart2, Search, Plus, Utensils, Link2, Copy,
   UserPlus, Pencil, Trash2, PackageCheck, PackageX, ChevronDown,
   ChevronUp, X, UserCheck, Box, Check, Bell, ExternalLink,
-  RefreshCw, ShieldAlert,
+  RefreshCw, ShieldAlert, Megaphone, Send,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -59,8 +59,6 @@ const AllergyPill = ({ allergy }: { allergy: any }) => {
 };
 
 // ─── STAT CARD ────────────────────────────────────────────────────────────────
-type AllergySeverity = 'preference' | 'intolerance' | 'critical';
-
 const StatCard = ({ label, value, sub, color = 'slate' }: {
   label: string; value: string | number; sub?: string; color?: string;
 }) => {
@@ -170,6 +168,113 @@ const DeltaRefireBanner = ({
   </motion.div>
 );
 
+// ─── GAP 6: BROADCAST PANEL ───────────────────────────────────────────────────
+// Writes to tenants/{tenantId}/studioEvents/{eventId}/broadcast field.
+// Floor page reads this and shows it as a dismissable banner.
+const BroadcastPanel = ({
+  eventId, tenantId, firestore, assignedStaffCount, currentBroadcast,
+}: {
+  eventId: string;
+  tenantId: string;
+  firestore: any;
+  assignedStaffCount: number;
+  currentBroadcast: string | null;
+}) => {
+  const [message, setMessage]   = useState('');
+  const [sending, setSending]   = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const { toast } = useToast();
+
+  const handleSend = async () => {
+    if (!message.trim() || !firestore) return;
+    setSending(true);
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+        broadcastMessage:   message.trim(),
+        broadcastSentAt:    new Date().toISOString(),
+        broadcastSentBy:    'host',
+        broadcastDismissed: false,
+      });
+      setMessage('');
+      toast({ title: 'Broadcast sent', description: `All ${assignedStaffCount} floor staff will see this.` });
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to send' });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (!firestore) return;
+    setClearing(true);
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+        broadcastMessage:   null,
+        broadcastSentAt:    null,
+        broadcastDismissed: true,
+      });
+      toast({ title: 'Broadcast cleared' });
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <div className="bg-violet-50 border-2 border-violet-200 rounded-2xl overflow-hidden">
+      <div className="p-4 border-b border-violet-200 flex items-center gap-2">
+        <Megaphone className="w-4 h-4 text-violet-600" />
+        <p className="font-black text-sm text-violet-800 uppercase tracking-tight">Broadcast to Floor Staff</p>
+        {assignedStaffCount > 0 && (
+          <span className="ml-auto text-[9px] font-black uppercase tracking-widest text-violet-500">
+            {assignedStaffCount} staff assigned
+          </span>
+        )}
+      </div>
+
+      {/* Active broadcast */}
+      {currentBroadcast && (
+        <div className="p-4 border-b border-violet-200 flex items-start gap-3">
+          <div className="flex-1">
+            <p className="text-[9px] font-black uppercase tracking-widest text-violet-500 mb-1">Active Message</p>
+            <p className="text-sm font-bold text-violet-900">"{currentBroadcast}"</p>
+          </div>
+          <button onClick={handleClear} disabled={clearing}
+            className="shrink-0 w-8 h-8 rounded-xl bg-violet-100 hover:bg-violet-200 flex items-center justify-center transition-all">
+            {clearing ? <Loader className="w-3.5 h-3.5 animate-spin text-violet-400" /> : <X className="w-3.5 h-3.5 text-violet-500" />}
+          </button>
+        </div>
+      )}
+
+      {/* Compose */}
+      <div className="p-4 space-y-3">
+        <div className="flex gap-2">
+          <input
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            placeholder="e.g. Mains going out in 5 minutes…"
+            maxLength={200}
+            className="flex-1 h-11 rounded-xl border-2 border-violet-200 bg-white px-3 text-sm font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-400 transition-colors"
+          />
+          <button onClick={handleSend} disabled={sending || !message.trim()}
+            className="h-11 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-black uppercase text-[10px] tracking-widest flex items-center gap-1.5 disabled:opacity-40 transition-all shrink-0">
+            {sending ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            Send
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {['Mains going out in 5 min', 'Desserts ready shortly', 'Please clear table 3', 'All hands to main floor'].map(preset => (
+            <button key={preset} onClick={() => setMessage(preset)}
+              className="text-[9px] font-black uppercase tracking-widest text-violet-600 bg-violet-100 hover:bg-violet-200 px-2.5 py-1.5 rounded-lg transition-colors">
+              {preset}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── SENTINEL ─────────────────────────────────────────────────────────────────
 const NO_SELECTION = '__none__';
 
@@ -240,29 +345,10 @@ export default function EventManifestPage() {
   const [mealOverrideGuest, setMealOverrideGuest] = useState<any>(null);
   const [mealOverrideId, setMealOverrideId] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
-
-  // Gap 15 — End Event validation dialog
   const [isEndEventOpen, setIsEndEventOpen] = useState(false);
 
-  // Menu item form
-  const [isAddingMenu, setIsAddingMenu]     = useState(false);
-  const [newMenuName, setNewMenuName]       = useState('');
-  const [newMenuDesc, setNewMenuDesc]       = useState('');
-  const [newMenuCourse, setNewMenuCourse]   = useState(1);
-  const [newMenuCategory, setNewMenuCategory] = useState('main');
-  const [newMenuVegan, setNewMenuVegan]     = useState(false);
-  const [newMenuGF, setNewMenuGF]           = useState(false);
-  const [menuSupplies, setMenuSupplies]     = useState<{ inventoryId: string; qty: number }[]>([]);
-  const [newMenuInventoryItemId, setNewMenuInventoryItemId] = useState('');
-  const [newMenuPortionSize, setNewMenuPortionSize]         = useState(1);
-  const [newMenuPrice, setNewMenuPrice]                     = useState(0);
-
-  // Guest add/edit
-  const [isAddingGuest, setIsAddingGuest]   = useState(false);
-  const [editingGuest, setEditingGuest]     = useState<any>(null);
-  const [guestForm, setGuestForm]           = useState({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
-  const [clientSearch, setClientSearch]     = useState('');
-  const [savingGuest, setSavingGuest]       = useState(false);
+  // Gap 6 — broadcast panel visibility
+  const [showBroadcast, setShowBroadcast] = useState(false);
 
   // ── Gap 9: Delta detection ────────────────────────────────────────────────
   const [firedGuestIdsByCourse, setFiredGuestIdsByCourse] = useState<Record<number, Set<string>>>({});
@@ -298,7 +384,6 @@ export default function EventManifestPage() {
     [fires]
   );
 
-  // Gap 15 — unfired courses for End Event validation
   const unfiredCourses = useMemo(
     () => courseNumbers.filter(n => !firedCourses.has(n)),
     [courseNumbers, firedCourses]
@@ -452,7 +537,7 @@ export default function EventManifestPage() {
     return warnings;
   }, [guests, menuItems]);
 
-  // ── Filtered guests (Gap 8) ───────────────────────────────────────────────
+  // ── Filtered guests ───────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     return guests.filter(g => {
       if (search && !g.name?.toLowerCase().includes(search.toLowerCase()) &&
@@ -476,6 +561,26 @@ export default function EventManifestPage() {
       c.name?.toLowerCase().includes(s) || c.email?.toLowerCase().includes(s) || c.phone?.includes(s)
     ).slice(0, 10);
   }, [clients, clientSearch]);
+
+  // Guest add/edit — declare here to fix forward reference
+  const [isAddingGuest, setIsAddingGuest]   = useState(false);
+  const [editingGuest, setEditingGuest]     = useState<any>(null);
+  const [guestForm, setGuestForm]           = useState({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
+  const [clientSearch, setClientSearch]     = useState('');
+  const [savingGuest, setSavingGuest]       = useState(false);
+
+  // Menu item form
+  const [isAddingMenu, setIsAddingMenu]     = useState(false);
+  const [newMenuName, setNewMenuName]       = useState('');
+  const [newMenuDesc, setNewMenuDesc]       = useState('');
+  const [newMenuCourse, setNewMenuCourse]   = useState(1);
+  const [newMenuCategory, setNewMenuCategory] = useState('main');
+  const [newMenuVegan, setNewMenuVegan]     = useState(false);
+  const [newMenuGF, setNewMenuGF]           = useState(false);
+  const [menuSupplies, setMenuSupplies]     = useState<{ inventoryId: string; qty: number }[]>([]);
+  const [newMenuInventoryItemId, setNewMenuInventoryItemId] = useState('');
+  const [newMenuPortionSize, setNewMenuPortionSize]         = useState(1);
+  const [newMenuPrice, setNewMenuPrice]                     = useState(0);
 
   // ── Floor request resolve ─────────────────────────────────────────────────
   const handleResolveFloorRequest = async (requestId: string) => {
@@ -545,10 +650,7 @@ export default function EventManifestPage() {
         });
       });
       await batch.commit();
-      toast({
-        title: `Course ${courseNumber} re-fired`,
-        description: `${deltaGuests.length} late arrival${deltaGuests.length !== 1 ? 's' : ''} sent to kitchen.`,
-      });
+      toast({ title: `Course ${courseNumber} re-fired`, description: `${deltaGuests.length} late arrival${deltaGuests.length !== 1 ? 's' : ''} sent to kitchen.` });
     } catch (e) {
       console.error(e);
       toast({ variant: 'destructive', title: 'Re-fire failed' });
@@ -561,15 +663,10 @@ export default function EventManifestPage() {
   // ── Gap 10: Course firing with idempotency guard ──────────────────────────
   const handleFireCourse = async (courseNumber: number) => {
     if (!firestore || !tenantId) return;
-    if (firingInProgress.current.has(courseNumber)) {
-      toast({ variant: 'destructive', title: 'Already firing this course' }); return;
-    }
-    if (firedCourses.has(courseNumber)) {
-      toast({ variant: 'destructive', title: `Course ${courseNumber} already fired` }); return;
-    }
+    if (firingInProgress.current.has(courseNumber)) { toast({ variant: 'destructive', title: 'Already firing this course' }); return; }
+    if (firedCourses.has(courseNumber)) { toast({ variant: 'destructive', title: `Course ${courseNumber} already fired` }); return; }
     if (courseNumber > 1) {
-      const prevNums    = courseNumbers.filter(n => n < courseNumber);
-      const unfiredPrev = prevNums.filter(n => !firedCourses.has(n));
+      const unfiredPrev = courseNumbers.filter(n => n < courseNumber && !firedCourses.has(n));
       if (unfiredPrev.length > 0) {
         const ok = window.confirm(`Course ${unfiredPrev.join(', ')} has not been fired yet. Fire Course ${courseNumber} out of sequence?`);
         if (!ok) return;
@@ -580,52 +677,33 @@ export default function EventManifestPage() {
     try {
       const existingFireAlt = await getDocs(query(
         collection(firestore, `tenants/${tenantId}/courseFires`),
-        where('eventId', '==', eventId),
-        where('courseNumber', '==', courseNumber),
-        where('status', '==', 'fired')
+        where('eventId', '==', eventId), where('courseNumber', '==', courseNumber), where('status', '==', 'fired')
       ));
       const hasNonDelta = existingFireAlt.docs.some(d => !d.data().isDelta);
-      if (hasNonDelta) {
-        toast({ variant: 'destructive', title: `Course ${courseNumber} was already fired`, description: 'Use the re-fire button for late arrivals.' });
-        return;
-      }
+      if (hasNonDelta) { toast({ variant: 'destructive', title: `Course ${courseNumber} was already fired`, description: 'Use the re-fire button for late arrivals.' }); return; }
       const batch  = writeBatch(firestore);
       const fireId = nanoid();
       const now    = new Date().toISOString();
       const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
-      const guestsForCourse = guests.filter(g =>
-        g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
-      );
-      if (guestsForCourse.length === 0) {
-        toast({ variant: 'destructive', title: 'No checked-in guests', description: 'Check in seated guests before firing a course.' });
-        return;
-      }
-      const totalWithSelection = guests.filter(g =>
-        g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId)
-      ).length;
-      const notCheckedIn = totalWithSelection - guestsForCourse.length;
+      const guestsForCourse = guests.filter(g => g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId)));
+      if (guestsForCourse.length === 0) { toast({ variant: 'destructive', title: 'No checked-in guests', description: 'Check in seated guests before firing a course.' }); return; }
+      const notCheckedIn = guests.filter(g => g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId)).length - guestsForCourse.length;
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
-        id: fireId, eventId, tenantId, courseNumber,
-        courseName: courseLabels[courseNumber] || `Course ${courseNumber}`,
-        firedAt: now, firedBy: 'host',
-        guestCount: guestsForCourse.length, status: 'fired', isDelta: false,
+        id: fireId, eventId, tenantId, courseNumber, courseName: courseLabels[courseNumber] || `Course ${courseNumber}`,
+        firedAt: now, firedBy: 'host', guestCount: guestsForCourse.length, status: 'fired', isDelta: false,
       });
       guestsForCourse.forEach(guest => {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
         const menuItem   = menuItems.find(m => m.id === menuItemId);
         const kdsId      = nanoid();
         batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), {
-          id: kdsId, source: 'event', eventId,
-          eventTitle: event?.title || event?.name || '',
-          courseFireId: fireId, courseNumber,
-          guestId: guest.id, guestName: guest.name,
+          id: kdsId, source: 'event', eventId, eventTitle: event?.title || event?.name || '',
+          courseFireId: fireId, courseNumber, guestId: guest.id, guestName: guest.name,
           seatNumber: guest.seatNumber || null, tableNumber: guest.tableNumber || null,
           menuItemId, menuItemName: menuItem?.name || 'Item',
-          allergies: guest.allergies || [],
-          allergyNote: guest.allergyNote || null,
+          allergies: guest.allergies || [], allergyNote: guest.allergyNote || null,
           hasCriticalAllergy: (guest.allergies || []).some((a: any) => typeof a === 'object' && a.severity === 'critical'),
-          notes: guest.guestNote || null,
-          status: 'pending', createdAt: now, tenantId, isDelta: false,
+          notes: guest.guestNote || null, status: 'pending', createdAt: now, tenantId, isDelta: false,
         });
       });
       const deductionMap: Record<string, number> = {};
@@ -633,40 +711,28 @@ export default function EventManifestPage() {
         const menuItemId = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
         const menuItem   = menuItems.find(m => m.id === menuItemId);
         if (!menuItem?.supplies) return;
-        menuItem.supplies.forEach((s: any) => {
-          deductionMap[s.inventoryId] = (deductionMap[s.inventoryId] || 0) + safeNum(s.qty);
-        });
+        menuItem.supplies.forEach((s: any) => { deductionMap[s.inventoryId] = (deductionMap[s.inventoryId] || 0) + safeNum(s.qty); });
       });
       Object.entries(deductionMap).forEach(([invId, qty]) => {
         const inv = (inventory || []).find((i: any) => i.id === invId);
         if (!inv) return;
         batch.update(doc(firestore, `tenants/${tenantId}/inventory`, invId), { totalStock: increment(-qty) });
         batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), {
-          id: nanoid(), productId: invId, productName: (inv as any).name,
-          date: now, change: -qty, unit: (inv as any).unit || 'units',
-          reason: `Event: ${event?.title || event?.name} — Course ${courseNumber} fired`,
+          id: nanoid(), productId: invId, productName: (inv as any).name, date: now, change: -qty,
+          unit: (inv as any).unit || 'units', reason: `Event: ${event?.title || event?.name} — Course ${courseNumber} fired`,
           source: 'event_course_fire', eventId,
         });
       });
       await batch.commit();
-      const warnMsg = notCheckedIn > 0
-        ? `${guestsForCourse.length} tickets sent. ${notCheckedIn} pre-order${notCheckedIn !== 1 ? 's' : ''} not yet checked in.`
-        : `${guestsForCourse.length} tickets sent to kitchen. Inventory updated.`;
-      toast({ title: `Course ${courseNumber} Fired`, description: warnMsg });
-    } catch (e) {
-      console.error(e);
-      toast({ variant: 'destructive', title: 'Fire Failed' });
-    } finally {
-      setIsFiring(null);
-      firingInProgress.current.delete(courseNumber);
-    }
+      toast({ title: `Course ${courseNumber} Fired`, description: notCheckedIn > 0 ? `${guestsForCourse.length} tickets sent. ${notCheckedIn} pre-order${notCheckedIn !== 1 ? 's' : ''} not yet checked in.` : `${guestsForCourse.length} tickets sent to kitchen. Inventory updated.` });
+    } catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Fire Failed' }); }
+    finally { setIsFiring(null); firingInProgress.current.delete(courseNumber); }
   };
 
   const handleCheckInGuest = async (guestId: string, currentValue: boolean) => {
     if (!firestore || !tenantId) return;
     await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId), {
-      checkedIn: !currentValue,
-      checkedInAt: !currentValue ? new Date().toISOString() : null,
+      checkedIn: !currentValue, checkedInAt: !currentValue ? new Date().toISOString() : null,
     });
     toast({ title: !currentValue ? 'Checked In ✓' : 'Check-in Removed' });
   };
@@ -684,44 +750,31 @@ export default function EventManifestPage() {
     try {
       if (editingGuest) {
         await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, editingGuest.id), {
-          ...guestForm,
-          mealChoiceId:   guestForm.mealChoiceId || null,
-          mealChoiceName: mealItem?.name || null,
-          updatedAt:      new Date().toISOString(),
+          ...guestForm, mealChoiceId: guestForm.mealChoiceId || null, mealChoiceName: mealItem?.name || null, updatedAt: new Date().toISOString(),
         });
         toast({ title: 'Guest Updated' });
       } else {
         const id = nanoid();
         await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
-          id, eventId, tenantId, ...guestForm,
-          mealChoiceId:   guestForm.mealChoiceId || null,
-          mealChoiceName: mealItem?.name || null,
-          allergies: [], dietaryRestrictions: [],
-          checkedIn: false, source: 'manual',
-          submittedAt: new Date().toISOString(),
+          id, eventId, tenantId, ...guestForm, mealChoiceId: guestForm.mealChoiceId || null, mealChoiceName: mealItem?.name || null,
+          allergies: [], dietaryRestrictions: [], checkedIn: false, source: 'manual', submittedAt: new Date().toISOString(),
         });
         toast({ title: 'Guest Added' });
       }
     } finally {
-      setSavingGuest(false);
-      setIsAddingGuest(false);
-      setEditingGuest(null);
+      setSavingGuest(false); setIsAddingGuest(false); setEditingGuest(null);
       setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
     }
   };
 
   const handleImportClient = async (client: any) => {
     if (!firestore || !tenantId) return;
-    if (guests.find(g => g.clientId === client.id)) {
-      toast({ variant: 'destructive', title: 'Already on guest list' }); return;
-    }
+    if (guests.find(g => g.clientId === client.id)) { toast({ variant: 'destructive', title: 'Already on guest list' }); return; }
     const id = nanoid();
     await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
-      id, eventId, tenantId,
-      name: client.name, email: client.email || '', phone: client.phone || '',
+      id, eventId, tenantId, name: client.name, email: client.email || '', phone: client.phone || '',
       tableNumber: '', seatNumber: '', mealChoiceId: null, mealChoiceName: null,
-      allergies: [], dietaryRestrictions: [],
-      checkedIn: false, source: 'client_import', clientId: client.id,
+      allergies: [], dietaryRestrictions: [], checkedIn: false, source: 'client_import', clientId: client.id,
       submittedAt: new Date().toISOString(),
     });
     toast({ title: `${client.name} added to guest list` });
@@ -729,77 +782,47 @@ export default function EventManifestPage() {
 
   const handleAddMenuItem = async () => {
     if (!newMenuName.trim() || !firestore || !tenantId) return;
-    const id    = nanoid();
-    const batch = writeBatch(firestore);
-    const linkedRefreshment = newMenuInventoryItemId
-      ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId)
-      : null;
+    const id = nanoid(); const batch = writeBatch(firestore);
+    const linkedRefreshment = newMenuInventoryItemId ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId) : null;
     const menuItem = {
-      id, eventId, tenantId,
-      name:            newMenuName.trim() || (linkedRefreshment as any)?.name || '',
-      description:     newMenuDesc.trim() || (linkedRefreshment as any)?.description || null,
-      category:        newMenuCategory,
-      courseNumber:    newMenuCourse,
-      isVegan:         newMenuVegan,
-      isGlutenFree:    newMenuGF,
-      inventoryItemId: newMenuInventoryItemId || null,
-      portionSize:     newMenuPortionSize || 1,
-      pricePerGuest:   newMenuPrice || 0,
-      imageUrl:        (linkedRefreshment as any)?.imageUrl || null,
-      supplies:        menuSupplies.filter(s => s.inventoryId && s.qty > 0),
+      id, eventId, tenantId, name: newMenuName.trim() || (linkedRefreshment as any)?.name || '',
+      description: newMenuDesc.trim() || (linkedRefreshment as any)?.description || null,
+      category: newMenuCategory, courseNumber: newMenuCourse, isVegan: newMenuVegan, isGlutenFree: newMenuGF,
+      inventoryItemId: newMenuInventoryItemId || null, portionSize: newMenuPortionSize || 1, pricePerGuest: newMenuPrice || 0,
+      imageUrl: (linkedRefreshment as any)?.imageUrl || null, supplies: menuSupplies.filter(s => s.inventoryId && s.qty > 0),
     };
     batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
-    const eventRef   = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
-    const eventSnap  = await getDoc(eventRef);
+    const eventRef = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
+    const eventSnap = await getDoc(eventRef);
     const existingItems = eventSnap.data()?.menuItems || [];
-    const updatedItems  = [...existingItems.filter((m: any) => m.id !== id), menuItem];
-    const courseMap     = new Map<number, any[]>();
+    const updatedItems = [...existingItems.filter((m: any) => m.id !== id), menuItem];
+    const courseMap = new Map<number, any[]>();
     updatedItems.forEach((item: any) => {
       const n = item.courseNumber || 1;
       if (!courseMap.has(n)) courseMap.set(n, []);
       courseMap.get(n)!.push({ id: item.id, name: item.name, description: item.description, imageUrl: item.imageUrl });
     });
     const existingCourses = eventSnap.data()?.courses || [];
-    const updatedCourses  = Array.from(courseMap.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([num, options]) => {
-        const existing = existingCourses.find((c: any) => c.courseNumber === num);
-        return {
-          id:           existing?.id || `course-${num}`,
-          courseNumber: num,
-          name:         existing?.name || (num === 1 ? 'Starters' : num === 2 ? 'Mains' : num === 3 ? 'Desserts' : `Course ${num}`),
-          note:         existing?.note || null,
-          options,
-        };
-      });
+    const updatedCourses = Array.from(courseMap.entries()).sort(([a], [b]) => a - b).map(([num, options]) => {
+      const existing = existingCourses.find((c: any) => c.courseNumber === num);
+      return { id: existing?.id || `course-${num}`, courseNumber: num, name: existing?.name || (num === 1 ? 'Starters' : num === 2 ? 'Mains' : num === 3 ? 'Desserts' : `Course ${num}`), note: existing?.note || null, options };
+    });
     batch.update(eventRef, { menuItems: updatedItems, courses: updatedCourses });
     await batch.commit();
     setNewMenuName(''); setNewMenuDesc(''); setNewMenuInventoryItemId('');
-    setNewMenuPortionSize(1); setNewMenuPrice(0); setMenuSupplies([]);
-    setIsAddingMenu(false);
+    setNewMenuPortionSize(1); setNewMenuPrice(0); setMenuSupplies([]); setIsAddingMenu(false);
     toast({ title: 'Menu item added' });
   };
 
-  // ── Gap 3: Menu item deletion with protection ─────────────────────────────
   const handleDeleteMenuItem = async (item: any) => {
     if (!firestore || !tenantId) return;
-    const selectCount = guests.filter(g =>
-      g.mealChoiceId === item.id ||
-      Object.values(g.courseSelections || {}).includes(item.id)
-    ).length;
+    const selectCount = guests.filter(g => g.mealChoiceId === item.id || Object.values(g.courseSelections || {}).includes(item.id)).length;
     if (selectCount > 0) {
-      const ok = window.confirm(
-        `${selectCount} guest${selectCount !== 1 ? 's have' : ' has'} selected "${item.name}". ` +
-        `Deleting it will leave their meal choice blank. Are you sure?`
-      );
+      const ok = window.confirm(`${selectCount} guest${selectCount !== 1 ? 's have' : ' has'} selected "${item.name}". Deleting it will leave their meal choice blank. Are you sure?`);
       if (!ok) return;
       const batch = writeBatch(firestore);
       guests.filter(g => g.mealChoiceId === item.id).forEach(g => {
-        batch.update(doc(firestore, `tenants/${tenantId}/eventGuests`, g.id), {
-          mealChoiceId:       null,
-          mealChoiceName:     null,
-          mealClearedReason:  `Menu item "${item.name}" was deleted`,
-        });
+        batch.update(doc(firestore, `tenants/${tenantId}/eventGuests`, g.id), { mealChoiceId: null, mealChoiceName: null, mealClearedReason: `Menu item "${item.name}" was deleted` });
       });
       await batch.commit();
     }
@@ -811,16 +834,12 @@ export default function EventManifestPage() {
     if (!mealOverrideGuest || !firestore || !tenantId) return;
     setSavingOverride(true);
     const resolvedId = mealOverrideId === NO_SELECTION ? null : mealOverrideId;
-    const mealItem   = menuItems.find(m => m.id === resolvedId);
+    const mealItem = menuItems.find(m => m.id === resolvedId);
     await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, mealOverrideGuest.id), {
-      mealChoiceId:       resolvedId,
-      mealChoiceName:     mealItem?.name || null,
-      mealOverriddenAt:   new Date().toISOString(),
-      mealOverriddenBy:   'staff',
+      mealChoiceId: resolvedId, mealChoiceName: mealItem?.name || null,
+      mealOverriddenAt: new Date().toISOString(), mealOverriddenBy: 'staff',
     });
-    setSavingOverride(false);
-    setMealOverrideGuest(null);
-    setMealOverrideId('');
+    setSavingOverride(false); setMealOverrideGuest(null); setMealOverrideId('');
     toast({ title: `Meal updated for ${mealOverrideGuest.name}` });
   };
 
@@ -828,19 +847,14 @@ export default function EventManifestPage() {
     if (!staffToAdd || !firestore || !tenantId) return;
     const current = event?.assignedStaffIds || [];
     if (current.includes(staffToAdd)) return;
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-      assignedStaffIds: [...current, staffToAdd],
-    });
-    setStaffToAdd('');
-    toast({ title: 'Staff assigned' });
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: [...current, staffToAdd] });
+    setStaffToAdd(''); toast({ title: 'Staff assigned' });
   };
 
   const handleRemoveStaff = async (staffId: string) => {
     if (!firestore || !tenantId) return;
     const current = event?.assignedStaffIds || [];
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-      assignedStaffIds: current.filter((id: string) => id !== staffId),
-    });
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: current.filter((id: string) => id !== staffId) });
     toast({ title: 'Staff removed' });
   };
 
@@ -848,65 +862,68 @@ export default function EventManifestPage() {
     if (!firestore || !tenantId) return;
     setActivatingNow(true);
     try {
-      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-        status: 'active', activatedAt: new Date().toISOString(), activatedBy: 'host',
-      });
-      setIsConfirmActivateOpen(false);
-      setUndoWindowOpen(true);
-      setUndoCountdown(120);
-      const interval = setInterval(() => {
-        setUndoCountdown(prev => {
-          if (prev <= 1) { clearInterval(interval); setUndoWindowOpen(false); return 0; }
-          return prev - 1;
-        });
-      }, 1000);
+      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { status: 'active', activatedAt: new Date().toISOString(), activatedBy: 'host' });
+      setIsConfirmActivateOpen(false); setUndoWindowOpen(true); setUndoCountdown(120);
+      const interval = setInterval(() => { setUndoCountdown(prev => { if (prev <= 1) { clearInterval(interval); setUndoWindowOpen(false); return 0; } return prev - 1; }); }, 1000);
       toast({ title: '🟢 Event is now live', description: 'Kiosk has switched to event mode.' });
-    } catch {
-      toast({ variant: 'destructive', title: 'Activation failed' });
-    } finally {
-      setActivatingNow(false);
-    }
+    } catch { toast({ variant: 'destructive', title: 'Activation failed' }); }
+    finally { setActivatingNow(false); }
   };
 
   const handleDeactivateEvent = async () => {
     if (!firestore || !tenantId) return;
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-      status: 'upcoming', activatedAt: null, activatedBy: null,
-    });
-    setUndoWindowOpen(false);
-    toast({ title: 'Event deactivated', description: 'Kiosk returned to normal mode.' });
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { status: 'upcoming', activatedAt: null, activatedBy: null });
+    setUndoWindowOpen(false); toast({ title: 'Event deactivated', description: 'Kiosk returned to normal mode.' });
   };
 
-  // Gap 15 — opens validation dialog instead of immediately ending
   const handleEndEvent = () => setIsEndEventOpen(true);
 
+  // ── Gap 16: Post-event notifications ─────────────────────────────────────
+  // Sends an in-app notification to every assigned staff member when event ends.
   const handleConfirmEndEvent = async () => {
     if (!firestore || !tenantId) return;
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-      status: 'completed', endedAt: new Date().toISOString(),
+    const now = new Date().toISOString();
+    const batch = writeBatch(firestore);
+
+    batch.update(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+      status: 'completed', endedAt: now,
     });
+
+    // Write a notification for each assigned staff member
+    const assignedStaffIds: string[] = event?.assignedStaffIds || [];
+    assignedStaffIds.forEach(staffId => {
+      const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+      batch.set(nRef, {
+        id:        nRef.id,
+        userId:    staffId,
+        type:      'event_ended',
+        message:   `${eventDisplayName} has ended. Thank you for your service tonight!`,
+        link:      `/events/${eventId}/reconciliation`,
+        eventId,
+        eventName: eventDisplayName,
+        createdAt: now,
+        read:      false,
+      });
+    });
+
+    await batch.commit();
     setIsEndEventOpen(false);
-    toast({ title: 'Event marked complete' });
+    toast({ title: 'Event complete', description: assignedStaffIds.length > 0 ? `${assignedStaffIds.length} staff member${assignedStaffIds.length !== 1 ? 's' : ''} notified.` : undefined });
   };
 
   const handleExportCSV = () => {
     const rows = [
       ['Name', 'Email', 'Phone', 'Table', 'Seat', 'Meal Choice', 'Allergies', 'Dietary', 'Notes', 'Checked In'],
       ...guests.map(g => [
-        g.name, g.email || '', g.phone || '',
-        g.tableNumber || '', g.seatNumber || '',
-        g.mealChoiceName || '',
+        g.name, g.email || '', g.phone || '', g.tableNumber || '', g.seatNumber || '', g.mealChoiceName || '',
         (g.allergies || []).map((a: any) => typeof a === 'object' ? a.label : a).join('; '),
-        (g.dietaryRestrictions || []).join('; '),
-        g.notes || '', g.checkedIn ? 'Yes' : 'No',
+        (g.dietaryRestrictions || []).join('; '), g.notes || '', g.checkedIn ? 'Yes' : 'No',
       ])
     ];
     const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${event?.title || event?.name || 'event'}-manifest.csv`;
-    a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `${event?.title || event?.name || 'event'}-manifest.csv`; a.click();
   };
 
   if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin w-8 h-8 text-slate-400" /></div>;
@@ -914,6 +931,8 @@ export default function EventManifestPage() {
 
   const eventDisplayName = event.title || event.name || 'Untitled Event';
   const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
+  const assignedStaffCount = (event?.assignedStaffIds || []).length;
+  const currentBroadcast = event?.broadcastMessage && !event?.broadcastDismissed ? event.broadcastMessage : null;
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
@@ -946,6 +965,15 @@ export default function EventManifestPage() {
                 <span className="w-2 h-2 rounded-full bg-white" /> Go Live
               </Button>
             )}
+            {/* Gap 6: Broadcast button — only when event is active */}
+            {event?.status === 'active' && (
+              <Button variant="outline" onClick={() => setShowBroadcast(s => !s)}
+                className={cn('h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2',
+                  currentBroadcast ? 'border-violet-300 bg-violet-50 text-violet-700' : '')}>
+                <Megaphone className="w-4 h-4" />
+                {currentBroadcast ? 'Broadcasting' : 'Broadcast'}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setShowLink(!showLink)}
               className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
               <Link2 className="w-4 h-4" /> Guest Link
@@ -960,6 +988,21 @@ export default function EventManifestPage() {
             </Button>
           </div>
         </div>
+
+        {/* ── GAP 6: BROADCAST PANEL ── */}
+        <AnimatePresence>
+          {showBroadcast && event?.status === 'active' && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+              <BroadcastPanel
+                eventId={eventId}
+                tenantId={tenantId}
+                firestore={firestore}
+                assignedStaffCount={assignedStaffCount}
+                currentBroadcast={currentBroadcast}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── UNDO WINDOW ── */}
         <AnimatePresence>
@@ -984,17 +1027,11 @@ export default function EventManifestPage() {
         {/* ── FLOOR REQUESTS ── */}
         <FloorRequestPanel requests={floorRequests} onResolve={handleResolveFloorRequest} tenantId={tenantId} />
 
-        {/* ── DELTA RE-FIRE BANNERS (Gap 9) ── */}
+        {/* ── DELTA RE-FIRE BANNERS ── */}
         <AnimatePresence>
           {Object.entries(deltaGuestsByCourse).map(([courseNumStr, deltaGuests]) => {
             const n = Number(courseNumStr);
-            return (
-              <DeltaRefireBanner key={n} courseNumber={n}
-                courseName={courseLabels[n] || `Course ${n}`}
-                deltaGuests={deltaGuests}
-                onRefire={handleRefireDelta}
-                isFiring={isRefiring === n} />
-            );
+            return <DeltaRefireBanner key={n} courseNumber={n} courseName={courseLabels[n] || `Course ${n}`} deltaGuests={deltaGuests} onRefire={handleRefireDelta} isFiring={isRefiring === n} />;
           })}
         </AnimatePresence>
 
@@ -1010,29 +1047,20 @@ export default function EventManifestPage() {
                 <div className="p-5 border-b border-slate-100">
                   <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Override Meal Choice</p>
                   <p className="font-black text-lg text-slate-900 mt-0.5">{mealOverrideGuest.name}</p>
-                  <p className="text-[10px] text-slate-400 font-bold">
-                    Current: {mealOverrideGuest.mealChoiceName || 'No selection'}
-                    {mealOverrideGuest.tableNumber && ` · Table ${mealOverrideGuest.tableNumber}`}
-                  </p>
+                  <p className="text-[10px] text-slate-400 font-bold">Current: {mealOverrideGuest.mealChoiceName || 'No selection'}{mealOverrideGuest.tableNumber && ` · Table ${mealOverrideGuest.tableNumber}`}</p>
                 </div>
                 <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
                   {menuItems.map(item => (
                     <button key={item.id} onClick={() => setMealOverrideId(item.id)}
-                      className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left',
-                        mealOverrideId === item.id ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300')}>
-                      <div>
-                        <p className="font-black text-sm text-slate-900">{item.name}</p>
-                        {item.description && <p className="text-[10px] text-slate-400">{item.description}</p>}
-                      </div>
+                      className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left', mealOverrideId === item.id ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300')}>
+                      <div><p className="font-black text-sm text-slate-900">{item.name}</p>{item.description && <p className="text-[10px] text-slate-400">{item.description}</p>}</div>
                       {mealOverrideId === item.id && <Check className="w-4 h-4 text-primary shrink-0" />}
                     </button>
                   ))}
                 </div>
                 <div className="p-4 flex gap-3 border-t border-slate-100">
-                  <Button variant="outline" onClick={() => setMealOverrideGuest(null)}
-                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                  <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId}
-                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                  <Button variant="outline" onClick={() => setMealOverrideGuest(null)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+                  <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
                     {savingOverride ? <Loader className="w-4 h-4 animate-spin" /> : 'Save Override →'}
                   </Button>
                 </div>
@@ -1052,33 +1080,24 @@ export default function EventManifestPage() {
             <div className="p-6 space-y-4">
               <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 space-y-2">
                 <p className="font-black text-emerald-800">{eventDisplayName}</p>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
-                  {stats.checkedIn} of {stats.total} guests checked in
-                </p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">{stats.checkedIn} of {stats.total} guests checked in</p>
               </div>
               <div className="space-y-2">
                 <p className="text-sm font-bold text-slate-700">This will immediately:</p>
                 <ul className="space-y-1.5">
-                  {['Switch the walk-in kiosk to event floor-service mode', 'Hide food ordering for any guest scanning in', 'Route all kiosk requests to the floor staff view', 'Cannot be undone after 2 minutes']
-                    .map(item => (
-                      <li key={item} className="flex items-start gap-2 text-[11px] text-slate-600">
-                        <span className="text-emerald-500 font-black mt-0.5">✓</span> {item}
-                      </li>
-                    ))}
+                  {['Switch the walk-in kiosk to event floor-service mode', 'Hide food ordering for any guest scanning in', 'Route all kiosk requests to the floor staff view', 'Cannot be undone after 2 minutes'].map(item => (
+                    <li key={item} className="flex items-start gap-2 text-[11px] text-slate-600"><span className="text-emerald-500 font-black mt-0.5">✓</span> {item}</li>
+                  ))}
                 </ul>
               </div>
               {stats.notCheckedIn > 0 && (
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
-                  <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
-                    ⚠ {stats.notCheckedIn} guest{stats.notCheckedIn !== 1 ? 's have' : ' has'} not checked in yet
-                  </p>
+                  <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">⚠ {stats.notCheckedIn} guest{stats.notCheckedIn !== 1 ? 's have' : ' has'} not checked in yet</p>
                 </div>
               )}
               <div className="flex gap-3 pt-2">
-                <Button variant="outline" onClick={() => setIsConfirmActivateOpen(false)}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                <Button onClick={handleActivateEvent} disabled={activatingNow}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-200 gap-2">
+                <Button variant="outline" onClick={() => setIsConfirmActivateOpen(false)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+                <Button onClick={handleActivateEvent} disabled={activatingNow} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-200 gap-2">
                   {activatingNow ? <Loader className="w-4 h-4 animate-spin" /> : '🟢 Activate Event'}
                 </Button>
               </div>
@@ -1086,7 +1105,7 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* ── GAP 15: END EVENT VALIDATION DIALOG ── */}
+        {/* ── END EVENT VALIDATION DIALOG (Gap 15 + Gap 16) ── */}
         <Dialog open={isEndEventOpen} onOpenChange={setIsEndEventOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0">
@@ -1095,56 +1114,38 @@ export default function EventManifestPage() {
               </DialogTitle>
             </DialogHeader>
             <div className="p-6 space-y-4">
-
-              {/* Warnings — only shown if issues exist */}
               {(unfiredCourses.length > 0 || floorRequests.length > 0) && (
                 <div className="space-y-2">
                   <p className="text-sm font-bold text-slate-700">Before you end the event:</p>
-
                   {unfiredCourses.length > 0 && (
                     <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
                       <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
-                          {unfiredCourses.length} Course{unfiredCourses.length !== 1 ? 's' : ''} Not Fired
-                        </p>
-                        <p className="text-[10px] font-bold text-amber-600 mt-0.5">
-                          {unfiredCourses.map(n => courseLabels[n] || `Course ${n}`).join(', ')} — kitchen has not received tickets
-                        </p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">{unfiredCourses.length} Course{unfiredCourses.length !== 1 ? 's' : ''} Not Fired</p>
+                        <p className="text-[10px] font-bold text-amber-600 mt-0.5">{unfiredCourses.map(n => courseLabels[n] || `Course ${n}`).join(', ')} — kitchen has not received tickets</p>
                       </div>
                     </div>
                   )}
-
                   {floorRequests.length > 0 && (
                     <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
                       <Bell className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
-                          {floorRequests.length} Unresolved Floor Request{floorRequests.length !== 1 ? 's' : ''}
-                        </p>
-                        <p className="text-[10px] font-bold text-amber-600 mt-0.5">
-                          Guests are still waiting on pending requests
-                        </p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">{floorRequests.length} Unresolved Floor Request{floorRequests.length !== 1 ? 's' : ''}</p>
+                        <p className="text-[10px] font-bold text-amber-600 mt-0.5">Guests are still waiting on pending requests</p>
                       </div>
                     </div>
                   )}
                 </div>
               )}
-
-              {/* All clear */}
               {unfiredCourses.length === 0 && floorRequests.length === 0 && (
                 <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
                   <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">All Clear</p>
-                    <p className="text-[10px] font-bold text-emerald-600 mt-0.5">
-                      All courses fired, no pending requests
-                    </p>
+                    <p className="text-[10px] font-bold text-emerald-600 mt-0.5">All courses fired, no pending requests</p>
                   </div>
                 </div>
               )}
-
-              {/* Event summary */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                 <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Event Summary</p>
                 <p className="font-black text-slate-900">{eventDisplayName}</p>
@@ -1152,18 +1153,21 @@ export default function EventManifestPage() {
                   {stats.checkedIn} of {stats.total} guests attended · {fires.filter(f => f.status === 'fired' && !f.isDelta).length} of {courseNumbers.length} courses fired
                 </p>
               </div>
-
+              {/* Gap 16 — notification preview */}
+              {assignedStaffCount > 0 && (
+                <div className="flex items-start gap-3 p-3 rounded-xl bg-violet-50 border border-violet-200">
+                  <Bell className="w-4 h-4 text-violet-500 shrink-0 mt-0.5" />
+                  <p className="text-[10px] font-bold text-violet-700">
+                    {assignedStaffCount} staff member{assignedStaffCount !== 1 ? 's' : ''} will receive an in-app notification that the event has ended.
+                  </p>
+                </div>
+              )}
               <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
-                Ending the event marks it complete and reverts the kiosk to normal walk-in mode. You can still view the post-event report afterwards.
+                Ending the event marks it complete and reverts the kiosk to normal walk-in mode.
               </p>
-
               <div className="flex gap-3 pt-2">
-                <Button variant="outline" onClick={() => setIsEndEventOpen(false)}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                <Button onClick={handleConfirmEndEvent}
-                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-slate-800 hover:bg-slate-900 gap-2">
-                  End Event →
-                </Button>
+                <Button variant="outline" onClick={() => setIsEndEventOpen(false)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+                <Button onClick={handleConfirmEndEvent} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-slate-800 hover:bg-slate-900 gap-2">End Event →</Button>
               </div>
             </div>
           </DialogContent>
@@ -1176,32 +1180,22 @@ export default function EventManifestPage() {
               className="bg-white rounded-2xl border-2 border-primary/20 p-5 space-y-3">
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest Order Link — Share this before the event</p>
               <div className="flex items-center gap-3">
-                <code className="flex-1 text-xs font-bold bg-slate-50 rounded-xl px-4 py-3 border-2 border-slate-200 truncate text-slate-700">
-                  {shareableLink}
-                </code>
-                <Button onClick={copyLink} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shrink-0">
-                  <Copy className="w-4 h-4" /> Copy
-                </Button>
+                <code className="flex-1 text-xs font-bold bg-slate-50 rounded-xl px-4 py-3 border-2 border-slate-200 truncate text-slate-700">{shareableLink}</code>
+                <Button onClick={copyLink} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shrink-0"><Copy className="w-4 h-4" /> Copy</Button>
               </div>
-              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
-                Guests open this link to submit meal choices and flag allergies before the event.
-              </p>
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Guests open this link to submit meal choices and flag allergies before the event.</p>
               <div className="mt-4 space-y-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Generate Per-Seat QR Codes</p>
                 <div className="flex items-center gap-3">
                   <Input placeholder="Tables (e.g. 1,2,3)" value={qrTables} onChange={e => setQrTables(e.target.value)} className="h-10 rounded-xl border-2 flex-1" />
                   <Input placeholder="Seats per table (e.g. 4)" value={qrSeatsPerTable} onChange={e => setQrSeatsPerTable(e.target.value)} className="h-10 rounded-xl border-2 w-48" />
-                  <Button onClick={handleGenerateQRs} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shrink-0">
-                    <QrCode className="w-4 h-4" /> Generate
-                  </Button>
+                  <Button onClick={handleGenerateQRs} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shrink-0"><QrCode className="w-4 h-4" /> Generate</Button>
                 </div>
                 {qrCodes.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{qrCodes.length} QR codes</p>
-                      <Button onClick={handlePrintQRs} variant="outline" className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1">
-                        <Printer className="w-3 h-3" /> Print All
-                      </Button>
+                      <Button onClick={handlePrintQRs} variant="outline" className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1"><Printer className="w-3 h-3" /> Print All</Button>
                     </div>
                     <div className="grid grid-cols-4 gap-3 max-h-64 overflow-y-auto" id="qr-print-area">
                       {qrCodes.map(qr => (
@@ -1221,11 +1215,9 @@ export default function EventManifestPage() {
         {/* ── STATS ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Responses" value={stats.total} sub={`${stats.checkedIn} checked in`} />
-          <StatCard label="Allergy Flags" value={stats.allergyCount}
-            sub={stats.uniqueAllergies.slice(0, 2).join(', ') || 'None'} color="amber" />
+          <StatCard label="Allergy Flags" value={stats.allergyCount} sub={stats.uniqueAllergies.slice(0, 2).join(', ') || 'None'} color="amber" />
           {Object.entries(stats.mealCounts).slice(0, 2).map(([meal, count]) => (
-            <StatCard key={meal} label={meal} value={count}
-              sub={`${Math.round(count / Math.max(stats.total, 1) * 100)}%`} color="emerald" />
+            <StatCard key={meal} label={meal} value={count} sub={`${Math.round(count / Math.max(stats.total, 1) * 100)}%`} color="emerald" />
           ))}
         </div>
 
@@ -1234,9 +1226,7 @@ export default function EventManifestPage() {
           <div className="bg-red-50 rounded-2xl border-2 border-red-300 p-5 space-y-3">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
-              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-red-800">
-                Cross-Contamination Risk — {crossContaminationWarnings.length} Table{crossContaminationWarnings.length !== 1 ? 's' : ''}
-              </h2>
+              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-red-800">Cross-Contamination Risk — {crossContaminationWarnings.length} Table{crossContaminationWarnings.length !== 1 ? 's' : ''}</h2>
             </div>
             <div className="space-y-2">
               {crossContaminationWarnings.map((w, i) => (
@@ -1252,17 +1242,12 @@ export default function EventManifestPage() {
         {/* ── INVENTORY FORECAST ── */}
         {forecast.length > 0 && (
           <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-            <button onClick={() => setShowForecast(!showForecast)}
-              className="w-full p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
+            <button onClick={() => setShowForecast(!showForecast)} className="w-full p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
               <div className="flex items-center gap-2">
                 <Box className="w-4 h-4 text-primary" />
                 <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Supply Forecast</h2>
-                <Badge className={cn('ml-1 font-black text-[9px]',
-                  forecast.some(f => f.status === 'critical') ? 'bg-red-100 text-red-700 border-red-200' :
-                  forecast.some(f => f.status === 'low')      ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                  'bg-emerald-100 text-emerald-700 border-emerald-200')}>
-                  {forecast.some(f => f.status === 'critical') ? '⚠ Shortage' :
-                   forecast.some(f => f.status === 'low')      ? '⚠ Low Stock' : '✓ Covered'}
+                <Badge className={cn('ml-1 font-black text-[9px]', forecast.some(f => f.status === 'critical') ? 'bg-red-100 text-red-700 border-red-200' : forecast.some(f => f.status === 'low') ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200')}>
+                  {forecast.some(f => f.status === 'critical') ? '⚠ Shortage' : forecast.some(f => f.status === 'low') ? '⚠ Low Stock' : '✓ Covered'}
                 </Badge>
               </div>
               {showForecast ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
@@ -1272,27 +1257,15 @@ export default function EventManifestPage() {
                 <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
                   <div className="p-5 pt-0 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {forecast.map(item => (
-                      <div key={item.id} className={cn('p-4 rounded-2xl border-2',
-                        item.status === 'critical' ? 'border-red-200 bg-red-50' :
-                        item.status === 'low'      ? 'border-amber-200 bg-amber-50' :
-                        'border-emerald-200 bg-emerald-50')}>
+                      <div key={item.id} className={cn('p-4 rounded-2xl border-2', item.status === 'critical' ? 'border-red-200 bg-red-50' : item.status === 'low' ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50')}>
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="font-black text-sm text-slate-900">{item.name}</p>
-                            <p className="text-[10px] font-bold text-slate-500 mt-0.5 uppercase">
-                              Need: {item.needed} {item.unit} · Have: {item.inStock} {item.unit}
-                            </p>
+                            <p className="text-[10px] font-bold text-slate-500 mt-0.5 uppercase">Need: {item.needed} {item.unit} · Have: {item.inStock} {item.unit}</p>
                           </div>
                           {item.status === 'ok' ? <PackageCheck className="w-5 h-5 text-emerald-500 shrink-0" /> : <PackageX className="w-5 h-5 text-red-500 shrink-0" />}
                         </div>
-                        {item.status !== 'ok' && (
-                          <p className={cn('text-[10px] font-black uppercase tracking-widest mt-2',
-                            item.status === 'critical' ? 'text-red-600' : 'text-amber-600')}>
-                            {item.status === 'critical'
-                              ? `Short by ${Math.abs(item.remaining)} ${item.unit} — reorder needed`
-                              : `Only ${item.remaining} ${item.unit} buffer — running low`}
-                          </p>
-                        )}
+                        {item.status !== 'ok' && <p className={cn('text-[10px] font-black uppercase tracking-widest mt-2', item.status === 'critical' ? 'text-red-600' : 'text-amber-600')}>{item.status === 'critical' ? `Short by ${Math.abs(item.remaining)} ${item.unit} — reorder needed` : `Only ${item.remaining} ${item.unit} buffer — running low`}</p>}
                       </div>
                     ))}
                   </div>
@@ -1312,30 +1285,23 @@ export default function EventManifestPage() {
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
-                const fired      = firedCourses.has(n);
-                const count      = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
+                const fired = firedCourses.has(n);
+                const count = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
                 const deltaCount = deltaGuestsByCourse[n]?.length || 0;
                 return (
-                  <div key={n} className={cn('p-4 rounded-2xl border-2',
-                    fired ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50')}>
+                  <div key={n} className={cn('p-4 rounded-2xl border-2', fired ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50')}>
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Course {n}</p>
                         <p className="font-black text-slate-900 text-sm">{courseLabels[n] || `Course ${n}`}</p>
                         <p className="text-[10px] text-slate-500">{count} guests</p>
-                        {fired && deltaCount > 0 && (
-                          <p className="text-[9px] font-black text-indigo-600 mt-0.5">+{deltaCount} new arrival{deltaCount !== 1 ? 's' : ''}</p>
-                        )}
+                        {fired && deltaCount > 0 && <p className="text-[9px] font-black text-indigo-600 mt-0.5">+{deltaCount} new arrival{deltaCount !== 1 ? 's' : ''}</p>}
                       </div>
                       {fired && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
                     </div>
-                    <Button onClick={() => handleFireCourse(n)}
-                      disabled={!!isFiring || fired || count === 0}
-                      className={cn('w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2',
-                        fired ? 'bg-emerald-500 hover:bg-emerald-500 opacity-60 cursor-not-allowed' : 'shadow-lg shadow-primary/20')}>
-                      {isFiring === n ? <Loader className="w-4 h-4 animate-spin" />
-                        : fired ? <><CheckCircle2 className="w-4 h-4" /> Fired</>
-                        : <><Play className="w-4 h-4" /> Fire Course</>}
+                    <Button onClick={() => handleFireCourse(n)} disabled={!!isFiring || fired || count === 0}
+                      className={cn('w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2', fired ? 'bg-emerald-500 hover:bg-emerald-500 opacity-60 cursor-not-allowed' : 'shadow-lg shadow-primary/20')}>
+                      {isFiring === n ? <Loader className="w-4 h-4 animate-spin" /> : fired ? <><CheckCircle2 className="w-4 h-4" /> Fired</> : <><Play className="w-4 h-4" /> Fire Course</>}
                     </Button>
                   </div>
                 );
@@ -1347,15 +1313,9 @@ export default function EventManifestPage() {
         {/* ── MAIN TABS ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="h-11 rounded-2xl border-2 bg-slate-100 p-1 gap-1">
-            <TabsTrigger value="guests" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">
-              Guests ({guests.length})
-            </TabsTrigger>
-            <TabsTrigger value="menu" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">
-              Menu ({menuItems.length})
-            </TabsTrigger>
-            <TabsTrigger value="staff" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">
-              Staff
-            </TabsTrigger>
+            <TabsTrigger value="guests" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">Guests ({guests.length})</TabsTrigger>
+            <TabsTrigger value="menu"   className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">Menu ({menuItems.length})</TabsTrigger>
+            <TabsTrigger value="staff"  className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">Staff</TabsTrigger>
           </TabsList>
 
           {/* ── GUESTS TAB ── */}
@@ -1367,8 +1327,7 @@ export default function EventManifestPage() {
               </Button>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search guests…"
-                  className="pl-8 h-10 w-48 rounded-xl border-2 text-xs font-bold" />
+                <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search guests…" className="pl-8 h-10 w-48 rounded-xl border-2 text-xs font-bold" />
               </div>
               <Select value={filterMeal} onValueChange={setFilterMeal}>
                 <SelectTrigger className="h-10 w-36 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="All meals" /></SelectTrigger>
@@ -1377,7 +1336,6 @@ export default function EventManifestPage() {
                   {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {/* Gap 8 — expanded filter */}
               <Select value={filterFlag} onValueChange={setFilterFlag}>
                 <SelectTrigger className="h-10 w-40 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="All guests" /></SelectTrigger>
                 <SelectContent>
@@ -1388,7 +1346,6 @@ export default function EventManifestPage() {
                   <SelectItem value="dietary">Dietary Req.</SelectItem>
                 </SelectContent>
               </Select>
-              {/* Gap 8 — quick badge */}
               {stats.notCheckedIn > 0 && filterFlag !== 'not-checked-in' && (
                 <button onClick={() => setFilterFlag('not-checked-in')}
                   className="flex items-center gap-1.5 h-10 px-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-700 font-black uppercase text-[9px] tracking-widest hover:bg-amber-100 transition-all">
@@ -1397,78 +1354,43 @@ export default function EventManifestPage() {
               )}
             </div>
 
-            {/* Add / edit guest form */}
             <AnimatePresence>
               {(isAddingGuest || editingGuest) && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
                   className="bg-white rounded-2xl border-2 border-primary/20 overflow-hidden">
                   <div className="p-6 space-y-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-black uppercase tracking-tight text-slate-900">
-                        {editingGuest ? 'Edit Guest' : 'Add Guest'}
-                      </h3>
-                      {!editingGuest && (
-                        <Input value={clientSearch} onChange={e => setClientSearch(e.target.value)}
-                          placeholder="Import from client log…" className="h-9 w-52 rounded-xl border-2 text-xs font-bold" />
-                      )}
+                      <h3 className="font-black uppercase tracking-tight text-slate-900">{editingGuest ? 'Edit Guest' : 'Add Guest'}</h3>
+                      {!editingGuest && <Input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Import from client log…" className="h-9 w-52 rounded-xl border-2 text-xs font-bold" />}
                     </div>
                     {!editingGuest && clientSearch && filteredClients.length > 0 && (
                       <div className="rounded-xl border-2 divide-y overflow-hidden">
                         {filteredClients.map((c: any) => (
                           <button key={c.id} onClick={() => { handleImportClient(c); setClientSearch(''); }}
                             className="w-full flex items-center justify-between p-3 hover:bg-primary/5 transition-colors text-left gap-3">
-                            <div>
-                              <p className="font-black text-sm text-slate-900">{c.name}</p>
-                              <p className="text-[10px] text-slate-400">{c.email} · {c.phone}</p>
-                            </div>
+                            <div><p className="font-black text-sm text-slate-900">{c.name}</p><p className="text-[10px] text-slate-400">{c.email} · {c.phone}</p></div>
                             <Badge className="bg-primary/10 text-primary border-primary/20 font-black text-[9px] shrink-0">Import</Badge>
                           </button>
                         ))}
                       </div>
                     )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label>
-                        <Input value={guestForm.name} onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))}
-                          placeholder="Full name" className="h-11 rounded-xl border-2" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email</Label>
-                        <Input value={guestForm.email} onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))}
-                          placeholder="email@example.com" className="h-11 rounded-xl border-2" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone</Label>
-                        <Input value={guestForm.phone} onChange={e => setGuestForm(p => ({ ...p, phone: e.target.value }))}
-                          placeholder="(555) 000-0000" className="h-11 rounded-xl border-2" />
-                      </div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label><Input value={guestForm.name} onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email</Label><Input value={guestForm.email} onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone</Label><Input value={guestForm.phone} onChange={e => setGuestForm(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 000-0000" className="h-11 rounded-xl border-2" /></div>
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
-                        <Select value={guestForm.mealChoiceId || NO_SELECTION}
-                          onValueChange={v => setGuestForm(p => ({ ...p, mealChoiceId: v === NO_SELECTION ? '' : v }))}>
+                        <Select value={guestForm.mealChoiceId || NO_SELECTION} onValueChange={v => setGuestForm(p => ({ ...p, mealChoiceId: v === NO_SELECTION ? '' : v }))}>
                           <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="Select meal…" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NO_SELECTION}>No selection</SelectItem>
-                            {menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
-                          </SelectContent>
+                          <SelectContent><SelectItem value={NO_SELECTION}>No selection</SelectItem>{menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label>
-                        <Input value={guestForm.tableNumber} onChange={e => setGuestForm(p => ({ ...p, tableNumber: e.target.value }))}
-                          placeholder="Table #" className="h-11 rounded-xl border-2" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</Label>
-                        <Input value={guestForm.seatNumber} onChange={e => setGuestForm(p => ({ ...p, seatNumber: e.target.value }))}
-                          placeholder="Seat #" className="h-11 rounded-xl border-2" />
-                      </div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label><Input value={guestForm.tableNumber} onChange={e => setGuestForm(p => ({ ...p, tableNumber: e.target.value }))} placeholder="Table #" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</Label><Input value={guestForm.seatNumber} onChange={e => setGuestForm(p => ({ ...p, seatNumber: e.target.value }))} placeholder="Seat #" className="h-11 rounded-xl border-2" /></div>
                     </div>
                     <div className="flex gap-3">
-                      <Button onClick={() => { setIsAddingGuest(false); setEditingGuest(null); }} variant="outline"
-                        className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                      <Button onClick={handleSaveGuest} disabled={savingGuest || !guestForm.name.trim()}
-                        className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                      <Button onClick={() => { setIsAddingGuest(false); setEditingGuest(null); }} variant="outline" className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+                      <Button onClick={handleSaveGuest} disabled={savingGuest || !guestForm.name.trim()} className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
                         {savingGuest ? <Loader className="w-4 h-4 animate-spin" /> : editingGuest ? 'Save Changes' : 'Add Guest →'}
                       </Button>
                     </div>
@@ -1477,95 +1399,51 @@ export default function EventManifestPage() {
               )}
             </AnimatePresence>
 
-            {/* Guest table */}
             <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/50">
-                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Guest</th>
-                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</th>
-                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Meal</th>
-                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Flags</th>
-                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Status</th>
-                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400"></th>
+                      {['Guest','Seat','Meal','Flags','Status',''].map(h => <th key={h} className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">{h}</th>)}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {filtered.map(guest => (
-                      <tr key={guest.id} className={cn('hover:bg-slate-50/50 transition-colors',
-                        !guest.checkedIn && filterFlag === 'not-checked-in' && 'bg-amber-50/30')}>
+                      <tr key={guest.id} className={cn('hover:bg-slate-50/50 transition-colors', !guest.checkedIn && filterFlag === 'not-checked-in' && 'bg-amber-50/30')}>
                         <td className="px-4 py-3">
                           <p className="font-black text-sm text-slate-900">{guest.name}</p>
                           <p className="text-[10px] text-slate-400">{guest.email || ''}{guest.phone ? ` · ${guest.phone}` : ''}</p>
-                          {guest.hasCriticalAllergy && (
-                            <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5 mt-0.5">
-                              <AlertTriangle className="w-2.5 h-2.5" /> Critical Allergy
-                            </span>
-                          )}
-                          {guest.mealClearedReason && (
-                            <span className="text-[8px] font-bold text-amber-600 block mt-0.5">⚠ Meal cleared — needs reselection</span>
-                          )}
-                          {guest.source === 'client_import' && (
-                            <span className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60 block mt-0.5">From client log</span>
-                          )}
+                          {guest.hasCriticalAllergy && <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5 mt-0.5"><AlertTriangle className="w-2.5 h-2.5" /> Critical Allergy</span>}
+                          {guest.mealClearedReason && <span className="text-[8px] font-bold text-amber-600 block mt-0.5">⚠ Meal cleared — needs reselection</span>}
+                          {guest.source === 'client_import' && <span className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60 block mt-0.5">From client log</span>}
                         </td>
                         <td className="px-4 py-3">
                           {guest.tableNumber && <span className="text-[10px] font-black uppercase text-slate-500">T{guest.tableNumber}</span>}
-                          {guest.seatNumber   && <span className="text-[10px] font-black uppercase text-slate-400"> · {guest.seatNumber}</span>}
+                          {guest.seatNumber && <span className="text-[10px] font-black uppercase text-slate-400"> · {guest.seatNumber}</span>}
                         </td>
-                        <td className="px-4 py-3">
-                          <p className="text-sm font-bold text-slate-700">
-                            {guest.mealChoiceName || <span className="text-slate-300 italic text-xs">—</span>}
-                          </p>
-                        </td>
+                        <td className="px-4 py-3"><p className="text-sm font-bold text-slate-700">{guest.mealChoiceName || <span className="text-slate-300 italic text-xs">—</span>}</p></td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-1">
-                            {(guest.allergies || []).map((a: any, i: number) => (
-                              <AllergyPill key={i} allergy={a} />
-                            ))}
-                            {(guest.dietaryRestrictions || []).map((d: string) => (
-                              <span key={d} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-emerald-50 border-emerald-200 text-emerald-700">
-                                <Leaf className="w-2 h-2" /> {d}
-                              </span>
-                            ))}
+                            {(guest.allergies || []).map((a: any, i: number) => <AllergyPill key={i} allergy={a} />)}
+                            {(guest.dietaryRestrictions || []).map((d: string) => <span key={d} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-emerald-50 border-emerald-200 text-emerald-700"><Leaf className="w-2 h-2" /> {d}</span>)}
                           </div>
                         </td>
                         <td className="px-4 py-3">
                           <button onClick={() => handleCheckInGuest(guest.id, guest.checkedIn)}
-                            className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all',
-                              guest.checkedIn
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-primary/30 hover:text-primary')}>
+                            className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all', guest.checkedIn ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-primary/30 hover:text-primary')}>
                             {guest.checkedIn ? <><UserCheck className="w-3 h-3" /> In</> : <><UserPlus className="w-3 h-3" /> Check In</>}
                           </button>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            <button onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || ''); }}
-                              title="Override meal choice"
-                              className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors">
-                              <Utensils className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => {
-                              setEditingGuest(guest); setIsAddingGuest(false);
-                              setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' });
-                            }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleDeleteGuest(guest.id)}
-                              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <button onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || ''); }} title="Override meal choice" className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors"><Utensils className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => { setEditingGuest(guest); setIsAddingGuest(false); setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' }); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleDeleteGuest(guest.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>
                         </td>
                       </tr>
                     ))}
-                    {filtered.length === 0 && (
-                      <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400 font-bold uppercase tracking-widest">
-                        {guests.length === 0 ? 'No guests yet — add manually or share the guest link' : 'No guests match your filters'}
-                      </td></tr>
-                    )}
+                    {filtered.length === 0 && <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400 font-bold uppercase tracking-widest">{guests.length === 0 ? 'No guests yet — add manually or share the guest link' : 'No guests match your filters'}</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -1577,10 +1455,7 @@ export default function EventManifestPage() {
             {menuItems.length > 0 && (
               <div className="space-y-2">
                 {menuItems.map(item => {
-                  const selectionCount = guests.filter(g =>
-                    g.mealChoiceId === item.id ||
-                    Object.values(g.courseSelections || {}).includes(item.id)
-                  ).length;
+                  const selectionCount = guests.filter(g => g.mealChoiceId === item.id || Object.values(g.courseSelections || {}).includes(item.id)).length;
                   return (
                     <div key={item.id} className="bg-white rounded-2xl border-2 border-slate-200 p-4 flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3">
@@ -1596,18 +1471,9 @@ export default function EventManifestPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <Badge className={cn('font-black text-[9px]',
-                          selectionCount > 0
-                            ? 'bg-primary/10 text-primary border-primary/20'
-                            : 'bg-slate-50 text-slate-400 border-slate-200')}>
-                          {selectionCount} selected
-                        </Badge>
-                        {/* Gap 3: protected delete */}
+                        <Badge className={cn('font-black text-[9px]', selectionCount > 0 ? 'bg-primary/10 text-primary border-primary/20' : 'bg-slate-50 text-slate-400 border-slate-200')}>{selectionCount} selected</Badge>
                         <button onClick={() => handleDeleteMenuItem(item)}
-                          className={cn('p-1.5 rounded-lg transition-colors',
-                            selectionCount > 0
-                              ? 'hover:bg-amber-50 text-amber-400 hover:text-amber-600'
-                              : 'hover:bg-red-50 text-slate-300 hover:text-red-400')}
+                          className={cn('p-1.5 rounded-lg transition-colors', selectionCount > 0 ? 'hover:bg-amber-50 text-amber-400 hover:text-amber-600' : 'hover:bg-red-50 text-slate-300 hover:text-red-400')}
                           title={selectionCount > 0 ? `${selectionCount} guests selected this` : 'Delete item'}>
                           {selectionCount > 0 ? <ShieldAlert className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
@@ -1617,80 +1483,42 @@ export default function EventManifestPage() {
                 })}
               </div>
             )}
-
-            {/* Add menu item */}
             <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-              <button onClick={() => setIsAddingMenu(!isAddingMenu)}
-                className="w-full p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-primary" />
-                  <span className="font-black uppercase text-sm tracking-tight text-slate-900">Add Menu Item</span>
-                </div>
+              <button onClick={() => setIsAddingMenu(!isAddingMenu)} className="w-full p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div className="flex items-center gap-2"><Plus className="w-4 h-4 text-primary" /><span className="font-black uppercase text-sm tracking-tight text-slate-900">Add Menu Item</span></div>
                 {isAddingMenu ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
               </button>
               <AnimatePresence>
                 {isAddingMenu && (
-                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden border-t border-slate-100">
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-slate-100">
                     <div className="p-5 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="space-y-1.5 sm:col-span-2">
-                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Item Name *</Label>
-                          <Input value={newMenuName} onChange={e => setNewMenuName(e.target.value)}
-                            placeholder="e.g. Pan-Seared Salmon" className="h-12 rounded-xl border-2" />
-                        </div>
-                        <div className="space-y-1.5 sm:col-span-2">
-                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Description (shown to guests)</Label>
-                          <Input value={newMenuDesc} onChange={e => setNewMenuDesc(e.target.value)}
-                            placeholder="e.g. With lemon butter and asparagus" className="h-12 rounded-xl border-2" />
-                        </div>
+                        <div className="space-y-1.5 sm:col-span-2"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Item Name *</Label><Input value={newMenuName} onChange={e => setNewMenuName(e.target.value)} placeholder="e.g. Pan-Seared Salmon" className="h-12 rounded-xl border-2" /></div>
+                        <div className="space-y-1.5 sm:col-span-2"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Description (shown to guests)</Label><Input value={newMenuDesc} onChange={e => setNewMenuDesc(e.target.value)} placeholder="e.g. With lemon butter and asparagus" className="h-12 rounded-xl border-2" /></div>
                         <div className="space-y-1.5">
                           <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Course</Label>
                           <Select value={String(newMenuCourse)} onValueChange={v => setNewMenuCourse(Number(v))}>
                             <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="1">Starter</SelectItem>
-                              <SelectItem value="2">Main</SelectItem>
-                              <SelectItem value="3">Dessert</SelectItem>
-                            </SelectContent>
+                            <SelectContent><SelectItem value="1">Starter</SelectItem><SelectItem value="2">Main</SelectItem><SelectItem value="3">Dessert</SelectItem></SelectContent>
                           </Select>
                         </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Price per guest ($)</Label>
-                          <Input type="number" min="0" step="0.01" value={newMenuPrice}
-                            onChange={e => setNewMenuPrice(parseFloat(e.target.value) || 0)}
-                            className="h-12 rounded-xl border-2 font-bold text-center" />
-                        </div>
+                        <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Price per guest ($)</Label><Input type="number" min="0" step="0.01" value={newMenuPrice} onChange={e => setNewMenuPrice(parseFloat(e.target.value) || 0)} className="h-12 rounded-xl border-2 font-bold text-center" /></div>
                         <div className="flex items-center gap-4 sm:col-span-2">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={newMenuVegan} onChange={e => setNewMenuVegan(e.target.checked)} className="rounded" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Vegan</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={newMenuGF} onChange={e => setNewMenuGF(e.target.checked)} className="rounded" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Gluten-Free</span>
-                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={newMenuVegan} onChange={e => setNewMenuVegan(e.target.checked)} className="rounded" /><span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Vegan</span></label>
+                          <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={newMenuGF} onChange={e => setNewMenuGF(e.target.checked)} className="rounded" /><span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Gluten-Free</span></label>
                         </div>
                       </div>
                       <div className="flex gap-3">
-                        <Button onClick={() => { setIsAddingMenu(false); setNewMenuName(''); setNewMenuDesc(''); setNewMenuCourse(1); setNewMenuPrice(0); setNewMenuVegan(false); setNewMenuGF(false); setMenuSupplies([]); }}
-                          variant="outline" className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                        <Button onClick={handleAddMenuItem} disabled={!newMenuName.trim()}
-                          className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
-                          Add Item →
-                        </Button>
+                        <Button onClick={() => { setIsAddingMenu(false); setNewMenuName(''); setNewMenuDesc(''); setNewMenuCourse(1); setNewMenuPrice(0); setNewMenuVegan(false); setNewMenuGF(false); setMenuSupplies([]); }} variant="outline" className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+                        <Button onClick={handleAddMenuItem} disabled={!newMenuName.trim()} className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">Add Item →</Button>
                       </div>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
-
             {menuItems.length === 0 && !isAddingMenu && (
-              <div className="text-center py-10 border-2 border-dashed rounded-3xl">
-                <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p>
-              </div>
+              <div className="text-center py-10 border-2 border-dashed rounded-3xl"><Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" /><p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p></div>
             )}
           </TabsContent>
 
@@ -1698,34 +1526,20 @@ export default function EventManifestPage() {
           <TabsContent value="staff" className="mt-4 space-y-4">
             <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
               <div className="p-5 border-b border-slate-100">
-                <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" /> Assigned Staff
-                </h2>
+                <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2"><Users className="w-4 h-4 text-primary" /> Assigned Staff</h2>
               </div>
               <div className="p-5 space-y-3">
-                {(event?.assignedStaffIds || []).length === 0 && (
-                  <div className="text-center py-8 border-2 border-dashed rounded-2xl">
-                    <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No staff assigned yet</p>
-                  </div>
-                )}
+                {(event?.assignedStaffIds || []).length === 0 && <div className="text-center py-8 border-2 border-dashed rounded-2xl"><p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No staff assigned yet</p></div>}
                 {(event?.assignedStaffIds || []).map((staffId: string) => {
                   const member = (staffFromContext || []).find((s: any) => s.id === staffId);
                   if (!member) return null;
                   return (
                     <div key={staffId} className="flex items-center justify-between p-3 rounded-2xl border-2 border-slate-200">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center font-black text-primary text-sm">
-                          {(member as any).name?.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="font-black text-sm text-slate-900">{(member as any).name}</p>
-                          <p className="text-[9px] font-bold uppercase text-slate-400">{(member as any).role}</p>
-                        </div>
+                        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center font-black text-primary text-sm">{(member as any).name?.charAt(0)}</div>
+                        <div><p className="font-black text-sm text-slate-900">{(member as any).name}</p><p className="text-[9px] font-bold uppercase text-slate-400">{(member as any).role}</p></div>
                       </div>
-                      <button onClick={() => handleRemoveStaff(staffId)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                      <button onClick={() => handleRemoveStaff(staffId)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><X className="w-3.5 h-3.5" /></button>
                     </div>
                   );
                 })}
@@ -1736,15 +1550,10 @@ export default function EventManifestPage() {
                       <SelectTrigger className="flex-1 h-11 rounded-xl border-2 font-bold text-sm"><SelectValue placeholder="Select staff member…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NO_SELECTION}>Select staff member…</SelectItem>
-                        {(staffFromContext || [])
-                          .filter((s: any) => !(event?.assignedStaffIds || []).includes(s.id))
-                          .map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                        {(staffFromContext || []).filter((s: any) => !(event?.assignedStaffIds || []).includes(s.id)).map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Button onClick={handleAddStaff} disabled={!staffToAdd || staffToAdd === NO_SELECTION}
-                      className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
-                      <Plus className="w-4 h-4" /> Assign
-                    </Button>
+                    <Button onClick={handleAddStaff} disabled={!staffToAdd || staffToAdd === NO_SELECTION} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Assign</Button>
                   </div>
                 </div>
               </div>
