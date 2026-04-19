@@ -4,12 +4,13 @@ import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import {
-  Plus, Trash2, Users, QrCode, Printer, ChevronDown, ChevronRight,
-  GripVertical, Check, X, Download, Pencil, User, UserCheck,
-  LayoutGrid, List, Move,
+  Plus, Trash2, QrCode, Printer, Check, X, Download,
+  UserCheck, LayoutGrid, Move, Loader,
 } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import QRCode from 'qrcode';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { useToast } from '@/hooks/use-toast';
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 export type Seat = {
@@ -20,7 +21,7 @@ export type Seat = {
 export type SeatingTable = {
   id:             string;
   name:           string;
-  x:              number | null; // 0-100% of canvas, null = unpositioned
+  x:              number | null;
   y:              number | null;
   color:          string;
   seatCount:      number;
@@ -29,15 +30,14 @@ export type SeatingTable = {
   staffIds:       string[];
 };
 
+// Props that the manifest page actually passes
 type Props = {
-  tenantId:    string;
-  eventId:     string;
-  tables:      SeatingTable[];
-  onSave:      (tables: SeatingTable[]) => Promise<void>;
-  guests:      { id: string; name: string; tableNumber?: string; seatNumber?: string }[];
-  onAssignGuest: (guestId: string, tableId: string, seatId: string) => Promise<void>;
-  staff:       { id: string; name: string; avatarUrl?: string }[];
-  baseUrl:     string; // e.g. https://app.opalstudio.com
+  tenantId:  string;
+  eventId:   string;
+  firestore: any;
+  guests:    { id: string; name: string; tableNumber?: string; seatNumber?: string }[];
+  staff:     { id: string; name: string; avatarUrl?: string }[];
+  event:     any;
 };
 
 const TABLE_COLORS = [
@@ -57,7 +57,7 @@ const genSeats = (count: number, style: 'letters' | 'numbers'): Seat[] =>
 
 const getInitials = (name: string) => {
   const p = name.trim().split(/\s+/);
-  return p.length === 1 ? p[0].slice(0,2).toUpperCase() : (p[0][0]+p[p.length-1][0]).toUpperCase();
+  return p.length === 1 ? p[0].slice(0, 2).toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase();
 };
 
 // ─── CANVAS TABLE CARD ────────────────────────────────────────────────────────
@@ -69,9 +69,9 @@ const CanvasTableCard = ({
   assignedGuests: { seatId: string; guest: any }[];
   staffList: { id: string; name: string }[];
 }) => {
-  const color = TABLE_COLORS.find(c => c.id === table.color) || TABLE_COLORS[0];
+  const color     = TABLE_COLORS.find(c => c.id === table.color) || TABLE_COLORS[0];
   const filledSeats = assignedGuests.length;
-  const pct = table.seatCount > 0 ? (filledSeats / table.seatCount) * 100 : 0;
+  const pct       = table.seatCount > 0 ? (filledSeats / table.seatCount) * 100 : 0;
 
   return (
     <div
@@ -81,12 +81,7 @@ const CanvasTableCard = ({
         'absolute cursor-grab active:cursor-grabbing select-none transition-shadow',
         isDragging ? 'shadow-2xl z-50 scale-105' : isSelected ? 'shadow-xl z-10' : 'shadow-md z-0',
       )}
-      style={{
-        left:      `${table.x ?? 20}%`,
-        top:       `${table.y ?? 20}%`,
-        transform: 'translate(-50%, -50%)',
-        width:     '120px',
-      }}
+      style={{ left: `${table.x ?? 20}%`, top: `${table.y ?? 20}%`, transform: 'translate(-50%, -50%)', width: '120px' }}
     >
       <div className={cn('rounded-xl border-2 overflow-hidden', color.border, isSelected ? 'ring-2 ring-white ring-offset-1' : '')}>
         <div className={cn('px-3 py-2', color.bg)}>
@@ -103,7 +98,7 @@ const CanvasTableCard = ({
           </div>
           {table.staffIds.length > 0 && (
             <div className="flex flex-wrap gap-0.5 mt-1">
-              {table.staffIds.slice(0,3).map(sid => {
+              {table.staffIds.slice(0, 3).map(sid => {
                 const s = staffList.find(st => st.id === sid);
                 return s ? (
                   <div key={sid} className="w-4 h-4 rounded-full bg-violet-100 flex items-center justify-center text-[6px] font-black text-violet-700">
@@ -111,7 +106,7 @@ const CanvasTableCard = ({
                   </div>
                 ) : null;
               })}
-              {table.staffIds.length > 3 && <span className="text-[7px] font-black text-slate-400">+{table.staffIds.length-3}</span>}
+              {table.staffIds.length > 3 && <span className="text-[7px] font-black text-slate-400">+{table.staffIds.length - 3}</span>}
             </div>
           )}
         </div>
@@ -130,28 +125,22 @@ const TableConfigPanel = ({
   staff: { id: string; name: string; avatarUrl?: string }[];
   tenantId: string; eventId: string; baseUrl: string;
 }) => {
-  const [qrUrls, setQrUrls]   = useState<Record<string, string>>({});
-  const [showQr, setShowQr]   = useState(false);
+  const [qrUrls,    setQrUrls]    = useState<Record<string, string>>({});
+  const [showQr,    setShowQr]    = useState(false);
   const [assigning, setAssigning] = useState<string | null>(null);
 
-  const unassignedGuests = useMemo(() =>
-    guests.filter(g => !g.tableNumber || (g.tableNumber === table.id && g.seatNumber && !assignedGuests.find(a => a.guestId === g.id))),
-  [guests, table.id, assignedGuests]);
-
   const handleSeatCountChange = (count: number) => {
-    const newSeats = genSeats(count, table.seatLabelStyle);
-    onUpdate({ ...table, seatCount: count, seats: newSeats });
+    onUpdate({ ...table, seatCount: count, seats: genSeats(count, table.seatLabelStyle) });
   };
 
   const handleLabelStyleChange = (style: 'letters' | 'numbers') => {
-    const newSeats = genSeats(table.seatCount, style);
-    onUpdate({ ...table, seatLabelStyle: style, seats: newSeats });
+    onUpdate({ ...table, seatLabelStyle: style, seats: genSeats(table.seatCount, style) });
   };
 
   const generateQrCodes = async () => {
     const urls: Record<string, string> = {};
     for (const seat of table.seats) {
-      const url  = `${baseUrl}/request/${tenantId}/${eventId}/${table.id}/${seat.id}`;
+      const url = `${baseUrl}/request/${tenantId}/${eventId}/${table.id}/${seat.id}`;
       urls[seat.id] = await QRCode.toDataURL(url, { width: 200, margin: 1 });
     }
     setQrUrls(urls);
@@ -187,10 +176,10 @@ const TableConfigPanel = ({
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Seat Count</label>
         <div className="flex items-center gap-3">
-          <button onClick={() => handleSeatCountChange(Math.max(1, table.seatCount-1))}
+          <button onClick={() => handleSeatCountChange(Math.max(1, table.seatCount - 1))}
             className="w-9 h-9 rounded-xl border-2 border-slate-100 flex items-center justify-center font-black text-slate-500 hover:border-slate-300">−</button>
           <span className="text-2xl font-black text-slate-800 w-8 text-center">{table.seatCount}</span>
-          <button onClick={() => handleSeatCountChange(Math.min(20, table.seatCount+1))}
+          <button onClick={() => handleSeatCountChange(Math.min(20, table.seatCount + 1))}
             className="w-9 h-9 rounded-xl border-2 border-slate-100 flex items-center justify-center font-black text-slate-500 hover:border-slate-300">+</button>
         </div>
       </div>
@@ -199,7 +188,7 @@ const TableConfigPanel = ({
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Seat Labels</label>
         <div className="flex gap-2">
-          {(['letters','numbers'] as const).map(s => (
+          {(['letters', 'numbers'] as const).map(s => (
             <button key={s} onClick={() => handleLabelStyleChange(s)}
               className={cn('flex-1 h-9 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest transition-all',
                 table.seatLabelStyle === s ? 'bg-slate-900 border-slate-900 text-white' : 'border-slate-100 text-slate-500 hover:border-slate-300')}>
@@ -222,7 +211,8 @@ const TableConfigPanel = ({
         <div className="flex gap-2">
           {TABLE_COLORS.map(c => (
             <button key={c.id} onClick={() => onUpdate({ ...table, color: c.id })}
-              className={cn('w-8 h-8 rounded-lg transition-all', c.bg, table.color === c.id ? 'ring-2 ring-offset-1 ring-slate-900 scale-110' : 'opacity-60 hover:opacity-100')} />
+              className={cn('w-8 h-8 rounded-lg transition-all', c.bg,
+                table.color === c.id ? 'ring-2 ring-offset-1 ring-slate-900 scale-110' : 'opacity-60 hover:opacity-100')} />
           ))}
         </div>
       </div>
@@ -239,13 +229,16 @@ const TableConfigPanel = ({
                 table.staffIds.includes(s.id) ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500')}>
                 {getInitials(s.name)}
               </div>
-              <span className={cn('text-sm font-black flex-1 text-left', table.staffIds.includes(s.id) ? 'text-violet-700' : 'text-slate-600')}>
+              <span className={cn('text-sm font-black flex-1 text-left',
+                table.staffIds.includes(s.id) ? 'text-violet-700' : 'text-slate-600')}>
                 {s.name}
               </span>
               {table.staffIds.includes(s.id) && <Check className="w-3.5 h-3.5 text-violet-500 shrink-0" />}
             </button>
           ))}
-          {staff.length === 0 && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">No staff added to this event</p>}
+          {staff.length === 0 && (
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">No staff assigned to this event</p>
+          )}
         </div>
       </div>
 
@@ -273,9 +266,10 @@ const TableConfigPanel = ({
                     className="flex-1 h-9 rounded-xl border-2 border-slate-100 bg-white px-2 text-sm font-bold text-slate-500 outline-none"
                   >
                     <option value="">Assign guest…</option>
-                    {guests.filter(g => !g.tableNumber || g.tableNumber === table.id).map(g => (
-                      <option key={g.id} value={g.id}>{g.name}</option>
-                    ))}
+                    {guests
+                      .filter(g => !g.tableNumber || g.tableNumber === table.id)
+                      .map(g => <option key={g.id} value={g.id}>{g.name}</option>)
+                    }
                   </select>
                 )}
               </div>
@@ -292,8 +286,7 @@ const TableConfigPanel = ({
         </button>
         <AnimatePresence>
           {showQr && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden">
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
               <div className="grid grid-cols-3 gap-2 pt-2">
                 {table.seats.map(seat => (
                   <div key={seat.id} className="text-center space-y-1">
@@ -306,7 +299,9 @@ const TableConfigPanel = ({
                 table.seats.forEach(seat => {
                   if (qrUrls[seat.id]) {
                     const a = document.createElement('a');
-                    a.href = qrUrls[seat.id]; a.download = `${table.name}-seat-${seat.label}.png`; a.click();
+                    a.href = qrUrls[seat.id];
+                    a.download = `${table.name}-seat-${seat.label}.png`;
+                    a.click();
                   }
                 });
               }} className="w-full mt-2 h-9 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5">
@@ -326,21 +321,33 @@ const TableConfigPanel = ({
   );
 };
 
-// ─── MAIN SEATING CHART TAB ───────────────────────────────────────────────────
-export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSave, guests, onAssignGuest, staff, baseUrl }: Props) {
-  const [tables,      setTables]      = useState<SeatingTable[]>(initialTables);
-  const [selectedId,  setSelectedId]  = useState<string | null>(null);
-  const [draggingId,  setDraggingId]  = useState<string | null>(null);
-  const [isSaving,    setIsSaving]    = useState(false);
-  const [saved,       setSaved]       = useState(false);
-  const canvasRef = useRef<HTMLDivElement>(null);
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, event }: Props) {
+  const { toast } = useToast();
+
+  // Derive baseUrl safely on client
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+
+  // Load persisted tables from event doc
+  const [tables,     setTables]     = useState<SeatingTable[]>(() => event?.seatingTables || []);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [isSaving,   setIsSaving]   = useState(false);
+  const [saved,      setSaved]      = useState(false);
+
+  const canvasRef  = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+
+  // Keep tables in sync if event doc updates externally
+  useEffect(() => {
+    if (event?.seatingTables) setTables(event.seatingTables);
+  }, [event?.seatingTables]);
 
   const selectedTable = tables.find(t => t.id === selectedId) || null;
 
   const guestAssignments = useMemo(() => {
     const map: Record<string, { seatId: string; guestId: string; guestName: string }[]> = {};
-    for (const t of tables) { map[t.id] = []; }
+    for (const t of tables) map[t.id] = [];
     for (const g of guests) {
       if (g.tableNumber && g.seatNumber && map[g.tableNumber]) {
         map[g.tableNumber].push({ seatId: g.seatNumber, guestId: g.id, guestName: g.name });
@@ -352,27 +359,29 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
   const addTable = () => {
     const id = nanoid();
     const newTable: SeatingTable = {
-      id, name: `Table ${tables.length + 1}`,
-      x: 20 + (tables.length % 4) * 20, y: 20 + Math.floor(tables.length / 4) * 30,
-      color: TABLE_COLORS[tables.length % TABLE_COLORS.length].id,
-      seatCount: 4, seatLabelStyle: 'letters',
-      seats: genSeats(4, 'letters'),
-      staffIds: [],
+      id,
+      name:           `Table ${tables.length + 1}`,
+      x:              20 + (tables.length % 4) * 20,
+      y:              20 + Math.floor(tables.length / 4) * 30,
+      color:          TABLE_COLORS[tables.length % TABLE_COLORS.length].id,
+      seatCount:      4,
+      seatLabelStyle: 'letters',
+      seats:          genSeats(4, 'letters'),
+      staffIds:       [],
     };
     setTables(prev => [...prev, newTable]);
     setSelectedId(id);
   };
 
-  const updateTable = (updated: SeatingTable) => {
+  const updateTable = (updated: SeatingTable) =>
     setTables(prev => prev.map(t => t.id === updated.id ? updated : t));
-  };
 
   const deleteTable = (id: string) => {
     setTables(prev => prev.filter(t => t.id !== id));
     if (selectedId === id) setSelectedId(null);
   };
 
-  // ── Drag to reposition ────────────────────────────────────────────────────
+  // ── Drag to reposition ─────────────────────────────────────────────────────
   const handleDragStart = useCallback((e: React.MouseEvent, tableId: string) => {
     e.preventDefault();
     const canvas = canvasRef.current;
@@ -387,9 +396,9 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
     setSelectedId(tableId);
 
     const onMove = (me: MouseEvent) => {
-      const cr    = canvas.getBoundingClientRect();
-      const newX  = Math.max(5, Math.min(95, ((me.clientX - cr.left - dragOffset.current.x) / cr.width)  * 100));
-      const newY  = Math.max(5, Math.min(95, ((me.clientY - cr.top  - dragOffset.current.y) / cr.height) * 100));
+      const cr   = canvas.getBoundingClientRect();
+      const newX = Math.max(5, Math.min(95, ((me.clientX - cr.left - dragOffset.current.x) / cr.width)  * 100));
+      const newY = Math.max(5, Math.min(95, ((me.clientY - cr.top  - dragOffset.current.y) / cr.height) * 100));
       setTables(prev => prev.map(t => t.id === tableId ? { ...t, x: newX, y: newY } : t));
     };
     const onUp = () => {
@@ -401,12 +410,40 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
     window.addEventListener('mouseup', onUp);
   }, [tables]);
 
+  // ── Save layout to Firestore ───────────────────────────────────────────────
   const handleSave = async () => {
+    if (!firestore || !tenantId || !eventId) return;
     setIsSaving(true);
-    try { await onSave(tables); setSaved(true); setTimeout(() => setSaved(false), 2000); }
-    finally { setIsSaving(false); }
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+        seatingTables: tables,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      toast({ title: 'Seating layout saved' });
+    } catch (e) {
+      console.error(e);
+      toast({ variant: 'destructive', title: 'Failed to save layout' });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
+  // ── Assign guest to seat (updates guest doc) ───────────────────────────────
+  const handleAssignGuest = async (guestId: string, tableId: string, seatId: string) => {
+    if (!firestore || !tenantId) return;
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId), {
+        tableNumber: tableId,
+        seatNumber:  seatId,
+      });
+      toast({ title: 'Guest assigned to seat' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Failed to assign guest' });
+    }
+  };
+
+  // ── Print all QR codes ─────────────────────────────────────────────────────
   const printAllQrCodes = async () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -424,11 +461,12 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
 
     for (const table of tables) {
       for (const seat of table.seats) {
-        const url     = `${baseUrl}/request/${tenantId}/${eventId}/${table.id}/${seat.id}`;
-        const qrData  = await QRCode.toDataURL(url, { width: 200, margin: 1 });
+        const url    = `${baseUrl}/request/${tenantId}/${eventId}/${table.id}/${seat.id}`;
+        const qrData = await QRCode.toDataURL(url, { width: 200, margin: 1 });
         html += `<div class="card"><div class="table-name">${table.name}</div><img src="${qrData}" /><div class="seat-label">Seat ${seat.label}</div></div>`;
       }
     }
+
     html += `</div></body></html>`;
     printWindow.document.write(html);
     printWindow.document.close();
@@ -441,7 +479,7 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
         <div>
           <h3 className="font-black text-slate-900 text-sm uppercase tracking-tight">Room Layout</h3>
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
-            {tables.length} table{tables.length !== 1 ? 's' : ''} · {tables.reduce((n,t) => n + t.seatCount, 0)} seats
+            {tables.length} table{tables.length !== 1 ? 's' : ''} · {tables.reduce((n, t) => n + t.seatCount, 0)} seats
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -456,7 +494,12 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
           <button onClick={handleSave} disabled={isSaving}
             className={cn('h-8 px-3 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all',
               saved ? 'bg-emerald-500 text-white' : 'bg-violet-600 text-white hover:bg-violet-700')}>
-            {isSaving ? <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" /> : saved ? <><Check className="w-3.5 h-3.5" /> Saved</> : 'Save Layout'}
+            {isSaving
+              ? <Loader className="w-3 h-3 animate-spin" />
+              : saved
+                ? <><Check className="w-3.5 h-3.5" /> Saved</>
+                : 'Save Layout'
+            }
           </button>
         </div>
       </div>
@@ -477,7 +520,6 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
                 backgroundSize: '10% 10%',
               }} />
 
-            {/* Room label */}
             <div className="absolute top-3 left-3 px-2 py-1 rounded-lg bg-white/80 border border-slate-200">
               <p className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-400">Room Layout</p>
             </div>
@@ -489,7 +531,7 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
             {tables.length === 0 && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
                 <LayoutGrid className="w-10 h-10 text-slate-300" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Add tables to start building the room layout</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Add tables to build the room layout</p>
               </div>
             )}
 
@@ -501,7 +543,7 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
                 isDragging={draggingId === table.id}
                 onSelect={() => setSelectedId(table.id)}
                 onDragStart={e => handleDragStart(e, table.id)}
-                assignedGuests={guestAssignments[table.id] || []}
+                assignedGuests={(guestAssignments[table.id] || []).map(a => ({ seatId: a.seatId, guest: guests.find(g => g.id === a.guestId) }))}
                 staffList={staff}
               />
             ))}
@@ -511,8 +553,8 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
           {tables.length > 0 && (
             <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
               {tables.map(table => {
-                const color   = TABLE_COLORS.find(c => c.id === table.color) || TABLE_COLORS[0];
-                const filled  = (guestAssignments[table.id] || []).length;
+                const color  = TABLE_COLORS.find(c => c.id === table.color) || TABLE_COLORS[0];
+                const filled = (guestAssignments[table.id] || []).length;
                 return (
                   <button key={table.id} onClick={() => setSelectedId(table.id)}
                     className={cn('flex items-center gap-2 p-2 rounded-xl border-2 text-left transition-all',
@@ -552,7 +594,7 @@ export function SeatingChartTab({ tenantId, eventId, tables: initialTables, onSa
                     onDelete={() => deleteTable(selectedTable.id)}
                     guests={guests}
                     assignedGuests={guestAssignments[selectedTable.id] || []}
-                    onAssignGuest={onAssignGuest}
+                    onAssignGuest={handleAssignGuest}
                     staff={staff}
                     tenantId={tenantId}
                     eventId={eventId}
