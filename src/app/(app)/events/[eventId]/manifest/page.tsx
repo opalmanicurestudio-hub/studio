@@ -25,6 +25,7 @@ import {
   UserPlus, Pencil, Trash2, PackageCheck, PackageX, ChevronDown,
   ChevronUp, X, UserCheck, Box, Check, Bell, ExternalLink,
   RefreshCw, ShieldAlert, Megaphone, Send, Package, FlaskConical,
+  MoreHorizontal, MapPin,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -33,6 +34,12 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Textarea } from '@/components/ui/textarea';
+import { SeatingChartTab } from '@/components/events/SeatingChartTab';
 
 const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(v) : new Date(v));
 const safeNum  = (v: any) => Number(v) || 0;
@@ -531,7 +538,7 @@ const CourseIngredientsPreview = ({ courseNumber, menuItems, guests, inventory }
   );
 };
 
-const NO_SELECTION = '__none__';
+const NO_SELECTION = '**none**';
 
 export default function EventManifestPage() {
   const params   = useParams();
@@ -547,6 +554,7 @@ export default function EventManifestPage() {
   const [guests, setGuests]               = useState<any[]>([]);
   const [menuItems, setMenuItems]         = useState<any[]>([]);
   const [fires, setFires]                 = useState<any[]>([]);
+  // FIX 1: floorRequests now scoped by eventId — was fetching all tenant requests
   const [floorRequests, setFloorRequests] = useState<any[]>([]);
   const [loading, setLoading]             = useState(true);
 
@@ -560,7 +568,15 @@ export default function EventManifestPage() {
     unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/eventGuests`), where('eventId', '==', eventId)), snap => setGuests(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/eventMenuItems`), where('eventId', '==', eventId)), snap => setMenuItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/courseFires`), where('eventId', '==', eventId)), snap => setFires(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
-    unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/floorRequests`), where('status', 'in', ['new', 'acknowledged'])), snap => setFloorRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    // FIX 1: Added where('eventId', '==', eventId) so requests are scoped to this event only
+    unsubs.push(onSnapshot(
+      query(
+        collection(firestore, `tenants/${tenantId}/floorRequests`),
+        where('eventId', '==', eventId),
+        where('status', 'in', ['new', 'acknowledged']),
+      ),
+      snap => setFloorRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    ));
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, eventId]);
 
@@ -586,7 +602,7 @@ export default function EventManifestPage() {
   const [isEndEventOpen, setIsEndEventOpen] = useState(false);
   const [showBroadcast, setShowBroadcast]   = useState(false);
 
-  // Guest state — declared before any useMemo that references them
+  // Guest state
   const [isAddingGuest, setIsAddingGuest]   = useState(false);
   const [editingGuest, setEditingGuest]     = useState<any>(null);
   const [guestForm, setGuestForm]           = useState({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
@@ -608,18 +624,99 @@ export default function EventManifestPage() {
 
   const [firedGuestIdsByCourse, setFiredGuestIdsByCourse] = useState<Record<number, Set<string>>>({});
 
+  // ── Broadcast ─────────────────────────────────────────────────────────────
+  const [broadcastOpen, setBroadcastOpen]       = useState(false);
+  const [broadcastText, setBroadcastText]       = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
+
+  const handleSendBroadcast = async () => {
+    if (!broadcastText.trim() || !firestore) return;
+    setSendingBroadcast(true);
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+        broadcastMessage:  broadcastText.trim(),
+        broadcastSentAt:   new Date().toISOString(),
+        broadcastSentBy:   'host',
+        broadcastDismissed: false,
+      });
+      toast({ title: 'Broadcast sent', description: 'All floor staff will see this now.' });
+      setBroadcastText('');
+      setBroadcastOpen(false);
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Send failed' });
+    } finally {
+      setSendingBroadcast(false);
+    }
+  };
+
+  const handleClearBroadcast = async () => {
+    if (!firestore) return;
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+      broadcastMessage:  null,
+      broadcastDismissed: true,
+    });
+    toast({ title: 'Broadcast cleared' });
+  };
+
+  // ── Request types config ───────────────────────────────────────────────────
+  const DEFAULT_REQUEST_TYPES = [
+    { id: 'water',      label: 'Water Refill',   emoji: '💧', enabled: true,  alwaysShow: true  },
+    { id: 'napkins',    label: 'Napkins',         emoji: '🧻', enabled: true,  alwaysShow: true  },
+    { id: 'utensils',   label: 'Extra Utensils',  emoji: '🍴', enabled: true,  alwaysShow: true  },
+    { id: 'condiments', label: 'Condiments',      emoji: '🧂', enabled: true,  alwaysShow: true  },
+    { id: 'ice',        label: 'Ice',             emoji: '🧊', enabled: true,  alwaysShow: true  },
+    { id: 'menu',       label: 'Menu Question',   emoji: '📋', enabled: true,  alwaysShow: true  },
+    { id: 'temp',       label: 'Too Hot/Cold',    emoji: '🌡️', enabled: true,  alwaysShow: true  },
+    { id: 'spill',      label: 'Spill/Cleanup',   emoji: '🧹', enabled: true,  alwaysShow: true  },
+    { id: 'order',      label: 'Ready to Order',  emoji: '✋', enabled: false, alwaysShow: false },
+    { id: 'bill',       label: 'Bill Please',     emoji: '💳', enabled: false, alwaysShow: false },
+    { id: 'other',      label: 'Something Else',  emoji: '💬', enabled: true,  alwaysShow: true  },
+  ];
+
+  const requestTypes: typeof DEFAULT_REQUEST_TYPES = event?.requestTypes || DEFAULT_REQUEST_TYPES;
+  const [editingRequestTypes, setEditingRequestTypes] = useState(false);
+  const [localRequestTypes, setLocalRequestTypes]     = useState(requestTypes);
+
+  const handleSaveRequestTypes = async () => {
+    if (!firestore) return;
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
+      requestTypes: localRequestTypes,
+    });
+    toast({ title: 'Request menu saved' });
+    setEditingRequestTypes(false);
+  };
+
+  // ── Staff list (for seating chart) ────────────────────────────────────────
+  const eventStaff = useMemo(() =>
+    (staffFromContext || []).filter((s: any) =>
+      (event?.assignedStaffIds || []).includes(s.id)
+    ),
+    [staffFromContext, event]
+  );
+
+  // FIX 2: Added cancellation flag to prevent state updates on unmounted component
   useEffect(() => {
     if (!firestore || !tenantId || fires.length === 0) return;
+    let cancelled = false;
+
     const firedCourseNums = fires.filter(f => f.status === 'fired').map(f => f.courseNumber);
     if (firedCourseNums.length === 0) return;
+
     Promise.all(firedCourseNums.map(async (courseNumber: number) => {
-      const snap = await getDocs(query(collection(firestore, `tenants/${tenantId}/kdsTickets`), where('eventId', '==', eventId), where('courseNumber', '==', courseNumber)));
+      const snap = await getDocs(query(
+        collection(firestore, `tenants/${tenantId}/kdsTickets`),
+        where('eventId', '==', eventId),
+        where('courseNumber', '==', courseNumber),
+      ));
       return { courseNumber, guestIds: new Set(snap.docs.map(d => d.data().guestId as string).filter(Boolean)) };
     })).then(results => {
+      if (cancelled) return;
       const map: Record<number, Set<string>> = {};
       results.forEach(({ courseNumber, guestIds }) => { map[courseNumber] = guestIds; });
       setFiredGuestIdsByCourse(map);
     });
+
+    return () => { cancelled = true; };
   }, [fires, firestore, tenantId, eventId]);
 
   const courseNumbers  = useMemo(() => Array.from(new Set(menuItems.map(m => m.courseNumber))).sort() as number[], [menuItems]);
@@ -726,11 +823,16 @@ export default function EventManifestPage() {
     toast({ title: 'Request resolved ✓' });
   };
 
+  // FIX 3: firingInProgress now also blocks the button immediately via a firing state Set,
+  // preventing the brief double-tap window where the ref check hadn't run yet.
   const firingInProgress = useRef<Set<number>>(new Set());
+  const [firingBlockedSet, setFiringBlockedSet] = useState<Set<number>>(new Set());
 
   const handleRefireDelta = async (courseNumber: number, deltaGuests: any[]) => {
     if (!firestore || !tenantId || deltaGuests.length === 0 || firingInProgress.current.has(courseNumber)) return;
-    firingInProgress.current.add(courseNumber); setIsRefiring(courseNumber);
+    firingInProgress.current.add(courseNumber);
+    setFiringBlockedSet(prev => new Set(prev).add(courseNumber));
+    setIsRefiring(courseNumber);
     try {
       const batch = writeBatch(firestore); const fireId = nanoid(); const now = new Date().toISOString();
       const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
@@ -742,15 +844,24 @@ export default function EventManifestPage() {
       await batch.commit();
       toast({ title: `Course ${courseNumber} re-fired`, description: `${deltaGuests.length} late arrival${deltaGuests.length !== 1 ? 's' : ''} sent to kitchen.` });
     } catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Re-fire failed' }); }
-    finally { setIsRefiring(null); firingInProgress.current.delete(courseNumber); }
+    finally {
+      setIsRefiring(null);
+      firingInProgress.current.delete(courseNumber);
+      setFiringBlockedSet(prev => { const next = new Set(prev); next.delete(courseNumber); return next; });
+    }
   };
 
   const handleFireCourse = async (courseNumber: number) => {
     if (!firestore || !tenantId) return;
-    if (firingInProgress.current.has(courseNumber)) { toast({ variant: 'destructive', title: 'Already firing this course' }); return; }
+    // FIX 3: Check both the ref AND the state set for immediate UI blocking
+    if (firingInProgress.current.has(courseNumber) || firingBlockedSet.has(courseNumber)) {
+      toast({ variant: 'destructive', title: 'Already firing this course' }); return;
+    }
     if (firedCourses.has(courseNumber)) { toast({ variant: 'destructive', title: `Course ${courseNumber} already fired` }); return; }
     if (courseNumber > 1) { const unfiredPrev = courseNumbers.filter(n => n < courseNumber && !firedCourses.has(n)); if (unfiredPrev.length > 0 && !window.confirm(`Course ${unfiredPrev.join(', ')} not fired yet. Continue?`)) return; }
-    firingInProgress.current.add(courseNumber); setIsFiring(courseNumber);
+    firingInProgress.current.add(courseNumber);
+    setFiringBlockedSet(prev => new Set(prev).add(courseNumber));
+    setIsFiring(courseNumber);
     try {
       const existingFire = await getDocs(query(collection(firestore, `tenants/${tenantId}/courseFires`), where('eventId', '==', eventId), where('courseNumber', '==', courseNumber), where('status', '==', 'fired')));
       if (existingFire.docs.some(d => !d.data().isDelta)) { toast({ variant: 'destructive', title: `Course ${courseNumber} was already fired` }); return; }
@@ -767,7 +878,11 @@ export default function EventManifestPage() {
       await batch.commit();
       toast({ title: `Course ${courseNumber} Fired`, description: notCheckedIn > 0 ? `${guestsForCourse.length} tickets sent. ${notCheckedIn} not yet checked in.` : `${guestsForCourse.length} tickets sent to kitchen.` });
     } catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Fire Failed' }); }
-    finally { setIsFiring(null); firingInProgress.current.delete(courseNumber); }
+    finally {
+      setIsFiring(null);
+      firingInProgress.current.delete(courseNumber);
+      setFiringBlockedSet(prev => { const next = new Set(prev); next.delete(courseNumber); return next; });
+    }
   };
 
   const handleCheckInGuest  = async (guestId: string, currentValue: boolean) => { if (!firestore || !tenantId) return; await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId), { checkedIn: !currentValue, checkedInAt: !currentValue ? new Date().toISOString() : null }); toast({ title: !currentValue ? 'Checked In ✓' : 'Check-in Removed' }); };
@@ -846,10 +961,17 @@ export default function EventManifestPage() {
     toast({ title: 'Event complete', description: assignedStaffIds.length > 0 ? `${assignedStaffIds.length} staff member${assignedStaffIds.length !== 1 ? 's' : ''} notified.` : undefined });
   };
 
+  // FIX 4: Revoke the object URL after triggering the download to prevent memory leaks
   const handleExportCSV = () => {
     const rows = [['Name','Email','Phone','Table','Seat','Meal Choice','Allergies','Dietary','Notes','Checked In'], ...guests.map(g => [g.name, g.email||'', g.phone||'', g.tableNumber||'', g.seatNumber||'', g.mealChoiceName||'', (g.allergies||[]).map((a:any)=>typeof a==='object'?a.label:a).join(';'), (g.dietaryRestrictions||[]).join(';'), g.notes||'', g.checkedIn?'Yes':'No'])];
     const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = `${event?.title||event?.name||'event'}-manifest.csv`; a.click();
+    const objectUrl = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = `${event?.title||event?.name||'event'}-manifest.csv`;
+    a.click();
+    // FIX 4: Revoke after a short delay to allow the browser to initiate the download
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
   };
 
   if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin w-8 h-8 text-slate-400" /></div>;
@@ -866,45 +988,127 @@ export default function EventManifestPage() {
       <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
 
-        {/* HEADER */}
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{eventDisplayName}</h1>
-            {event.date  && <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
-            {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {event?.status === 'active' ? (
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live</span>
-                <Button variant="outline" onClick={handleEndEvent} className="h-9 px-3 rounded-xl border-2 border-slate-200 font-black uppercase text-[9px] tracking-widest">End Event</Button>
-              </div>
-            ) : event?.status === 'completed' ? (
-              <span className="px-3 py-1.5 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest">Completed</span>
-            ) : (
-              <Button onClick={() => setIsConfirmActivateOpen(true)} className="h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200">
-                <span className="w-2 h-2 rounded-full bg-white" /> Go Live
+        {/* ── HEADER (mobile-first action bar) ── */}
+        <>
+          {/* Desktop header */}
+          <div className="hidden md:flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{eventDisplayName}</h1>
+              {event.date  && <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
+              {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {event?.status === 'active' ? (
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live
+                  </span>
+                  <Button onClick={() => setBroadcastOpen(true)} variant="outline"
+                    className="h-9 px-3 rounded-xl border-2 border-violet-200 text-violet-700 hover:bg-violet-50 font-black uppercase text-[9px] tracking-widest gap-1.5">
+                    <Megaphone className="w-3.5 h-3.5" /> Broadcast
+                  </Button>
+                  <Button variant="outline" onClick={handleEndEvent}
+                    className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                    End Event
+                  </Button>
+                </div>
+              ) : event?.status === 'completed' ? (
+                <span className="px-3 py-1.5 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest">Completed</span>
+              ) : (
+                <Button onClick={() => setIsConfirmActivateOpen(true)}
+                  className="h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200">
+                  <span className="w-2 h-2 rounded-full bg-white" /> Go Live
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setShowLink(!showLink)}
+                className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
+                <Link2 className="w-4 h-4" /> Guest Link
               </Button>
-            )}
-            {event?.status === 'active' && (
-              <Button variant="outline" onClick={() => setShowBroadcast(s => !s)} className={cn('h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2', currentBroadcast ? 'border-violet-300 bg-violet-50 text-violet-700' : '')}>
-                <Megaphone className="w-4 h-4" /> {currentBroadcast ? 'Broadcasting' : 'Broadcast'}
+              <Button variant="outline" onClick={handleExportCSV}
+                className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
+                <Download className="w-4 h-4" /> Export CSV
               </Button>
-            )}
-            <Button variant="outline" onClick={() => setShowLink(!showLink)} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2"><Link2 className="w-4 h-4" /> Guest Link</Button>
-            <Button variant="outline" onClick={handleExportCSV} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2"><Download className="w-4 h-4" /> Export CSV</Button>
-            <Button variant="outline" onClick={() => router.push(`/events/${eventId}/reconciliation`)} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2"><BarChart2 className="w-4 h-4" /> Post-Event Report</Button>
+              <Button variant="outline" onClick={() => router.push(`/events/${eventId}/reconciliation`)}
+                className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
+                <BarChart2 className="w-4 h-4" /> Post-Event
+              </Button>
+            </div>
           </div>
-        </div>
 
-        {/* BROADCAST */}
-        <AnimatePresence>
-          {showBroadcast && event?.status === 'active' && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-              <BroadcastPanel eventId={eventId} tenantId={tenantId} firestore={firestore} assignedStaffCount={assignedStaffCount} currentBroadcast={currentBroadcast} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+          {/* Mobile action bar */}
+          <div className="md:hidden space-y-3">
+            <div>
+              <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-tight">{eventDisplayName}</h1>
+              {event.date  && <p className="text-xs text-slate-500 mt-0.5">{format(new Date(event.date), 'EEE, MMM d')}</p>}
+              {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{event.venue}</p>}
+            </div>
+            <div className="flex items-center gap-2">
+              {event?.status === 'active' ? (
+                <span className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live
+                </span>
+              ) : event?.status === 'completed' ? (
+                <span className="px-3 py-2 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest shrink-0">Done</span>
+              ) : (
+                <Button onClick={() => setIsConfirmActivateOpen(true)} size="sm"
+                  className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest gap-1.5 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-white" /> Go Live
+                </Button>
+              )}
+              {event?.status === 'active' && (
+                <Button onClick={() => setBroadcastOpen(true)} variant="outline" size="sm"
+                  className="h-9 px-3 rounded-xl border-2 border-violet-200 text-violet-700 hover:bg-violet-50 font-black uppercase text-[9px] gap-1 shrink-0">
+                  <Megaphone className="w-3.5 h-3.5" />
+                </Button>
+              )}
+              <a href={`/floor/${tenantId}`} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 h-9 px-3 rounded-xl border-2 border-slate-200 font-black uppercase text-[9px] tracking-widest text-slate-600 hover:border-slate-300 transition-all shrink-0">
+                <MapPin className="w-3.5 h-3.5" /> Floor
+              </a>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9 w-9 p-0 rounded-xl border-2 shrink-0">
+                    <MoreHorizontal className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[180px]">
+                  <DropdownMenuItem onClick={() => setShowLink(!showLink)}
+                    className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2">
+                    <Link2 className="w-3.5 h-3.5" /> Guest Link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportCSV}
+                    className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2">
+                    <Download className="w-3.5 h-3.5" /> Export CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push(`/events/${eventId}/reconciliation`)}
+                    className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2">
+                    <BarChart2 className="w-3.5 h-3.5" /> Post-Event Report
+                  </DropdownMenuItem>
+                  {event?.status === 'active' && (
+                    <DropdownMenuItem onClick={handleEndEvent}
+                      className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 text-red-500">
+                      <X className="w-3.5 h-3.5" /> End Event
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </>
+
+        {/* Broadcast active indicator */}
+        {event?.broadcastMessage && !event?.broadcastDismissed && (
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-violet-50 border-2 border-violet-200">
+            <div className="flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-violet-600 shrink-0" />
+              <p className="text-sm font-bold text-violet-800 truncate">{event.broadcastMessage}</p>
+            </div>
+            <button onClick={handleClearBroadcast}
+              className="p-1 rounded-lg hover:bg-violet-100 text-violet-500 transition-colors shrink-0 ml-2">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* UNDO */}
         <AnimatePresence>
@@ -919,8 +1123,6 @@ export default function EventManifestPage() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        <FloorRequestPanel requests={floorRequests} onResolve={handleResolveFloorRequest} tenantId={tenantId} />
 
         <AnimatePresence>
           {Object.entries(deltaGuestsByCourse).map(([courseNumStr, deltaGuests]) => {
@@ -999,13 +1201,12 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* ── SHAREABLE LINK — mobile-safe ── */}
+        {/* ── SHAREABLE LINK ── */}
         <AnimatePresence>
           {showLink && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
               className="bg-white rounded-2xl border-2 border-primary/20 p-5 space-y-3">
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest Order Link</p>
-              {/* URL display — wraps naturally, no overflow */}
               <div className="w-full bg-slate-50 rounded-xl px-4 py-3 border-2 border-slate-200">
                 <p className="text-xs font-bold text-slate-700 break-all leading-relaxed">{shareableLink}</p>
               </div>
@@ -1078,6 +1279,8 @@ export default function EventManifestPage() {
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
                 const fired = firedCourses.has(n);
+                // FIX 3: Button disabled also checks firingBlockedSet for immediate UI response
+                const isBlocked = firingBlockedSet.has(n);
                 const count = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
                 const checkedInCount = guests.filter(g => g.checkedIn && (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId))).length;
                 const deltaCount = deltaGuestsByCourse[n]?.length || 0;
@@ -1093,9 +1296,11 @@ export default function EventManifestPage() {
                       {fired && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
                     </div>
                     <CourseIngredientsPreview courseNumber={n} menuItems={menuItems} guests={guests} inventory={inventory || []} />
-                    <Button onClick={() => handleFireCourse(n)} disabled={!!isFiring || fired || count === 0}
+                    <Button
+                      onClick={() => handleFireCourse(n)}
+                      disabled={isBlocked || !!isFiring || fired || count === 0}
                       className={cn('w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 mt-3', fired ? 'bg-emerald-500 hover:bg-emerald-500 opacity-60 cursor-not-allowed' : 'shadow-lg shadow-primary/20')}>
-                      {isFiring === n ? <Loader className="w-4 h-4 animate-spin" /> : fired ? <><CheckCircle2 className="w-4 h-4" /> Fired</> : <><Play className="w-4 h-4" /> Fire Course</>}
+                      {isFiring === n || isBlocked ? <Loader className="w-4 h-4 animate-spin" /> : fired ? <><CheckCircle2 className="w-4 h-4" /> Fired</> : <><Play className="w-4 h-4" /> Fire Course</>}
                     </Button>
                   </div>
                 );
@@ -1104,13 +1309,27 @@ export default function EventManifestPage() {
           </div>
         )}
 
-        {/* MAIN TABS */}
+        {/* ── MAIN TABS ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="h-11 rounded-2xl border-2 bg-slate-100 p-1 gap-1">
-            <TabsTrigger value="guests" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">Guests ({guests.length})</TabsTrigger>
-            <TabsTrigger value="menu"   className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">Menu ({menuItems.length})</TabsTrigger>
-            <TabsTrigger value="staff"  className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-5">Staff</TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+            <TabsList className="h-11 rounded-2xl border-2 bg-slate-100 p-1 gap-1 w-max md:w-full">
+              <TabsTrigger value="guests"  className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-4 whitespace-nowrap">
+                Guests ({guests.length})
+              </TabsTrigger>
+              <TabsTrigger value="menu"    className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-4 whitespace-nowrap">
+                Menu ({menuItems.length})
+              </TabsTrigger>
+              <TabsTrigger value="seating" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-4 whitespace-nowrap">
+                Seating
+              </TabsTrigger>
+              <TabsTrigger value="staff"   className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-4 whitespace-nowrap">
+                Staff
+              </TabsTrigger>
+              <TabsTrigger value="requests" className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-4 whitespace-nowrap">
+                Requests {floorRequests.filter((r:any) => r.status==='new'||r.status==='acknowledged').length > 0 && `(${floorRequests.filter((r:any) => r.status==='new'||r.status==='acknowledged').length})`}
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* GUESTS TAB */}
           <TabsContent value="guests" className="mt-4 space-y-4">
@@ -1245,6 +1464,18 @@ export default function EventManifestPage() {
             {menuItems.length === 0 && !isAddingMenu && <div className="text-center py-10 border-2 border-dashed rounded-3xl"><Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" /><p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p></div>}
           </TabsContent>
 
+          {/* SEATING TAB */}
+          <TabsContent value="seating" className="mt-4">
+            <SeatingChartTab
+              eventId={eventId}
+              tenantId={tenantId}
+              firestore={firestore}
+              guests={guests}
+              staff={eventStaff}
+              event={event}
+            />
+          </TabsContent>
+
           {/* STAFF TAB */}
           <TabsContent value="staff" className="mt-4 space-y-4">
             <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
@@ -1262,7 +1493,114 @@ export default function EventManifestPage() {
               </div>
             </div>
           </TabsContent>
+
+          {/* REQUESTS TAB */}
+          <TabsContent value="requests" className="mt-4 space-y-4">
+            <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
+              <button onClick={() => { setLocalRequestTypes(requestTypes); setEditingRequestTypes(s=>!s); }}
+                className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-primary" />
+                  <p className="font-black text-sm uppercase tracking-tight text-slate-900">Request Menu Config</p>
+                  <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[9px]">
+                    {requestTypes.filter((t:any) => t.enabled).length} active types
+                  </Badge>
+                </div>
+                {editingRequestTypes ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
+              <AnimatePresence>
+                {editingRequestTypes && (
+                  <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}} className="overflow-hidden border-t border-slate-100">
+                    <div className="p-4 space-y-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Toggle which request types guests can send.</p>
+                      <div className="space-y-2">
+                        {localRequestTypes.map((type, idx) => (
+                          <div key={type.id} className={cn('flex items-center gap-3 p-3 rounded-xl border-2 transition-all',
+                            type.enabled ? 'border-primary/20 bg-primary/5' : 'border-slate-200 bg-white opacity-50')}>
+                            <span className="text-xl leading-none w-6 shrink-0">{type.emoji}</span>
+                            <p className="flex-1 font-black text-sm text-slate-900">{type.label}</p>
+                            <button onClick={() => {
+                              const next = [...localRequestTypes];
+                              next[idx] = { ...next[idx], enabled: !next[idx].enabled };
+                              setLocalRequestTypes(next);
+                            }} className={cn('w-9 h-5 rounded-full transition-all relative',
+                              type.enabled ? 'bg-primary' : 'bg-slate-200')}>
+                              <span className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all',
+                                type.enabled ? 'left-4' : 'left-0.5')} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="pt-2 border-t border-slate-100">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Add custom type</p>
+                        <div className="flex gap-2">
+                          <Input placeholder="Label, e.g. More Wings" className="h-10 rounded-xl border-2 font-bold text-sm flex-1"
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                                const label = (e.target as HTMLInputElement).value.trim();
+                                setLocalRequestTypes(prev => [...prev, { id: nanoid(6), label, emoji: '💬', enabled: true, alwaysShow: false }]);
+                                (e.target as HTMLInputElement).value = '';
+                              }
+                            }} />
+                          <p className="text-[9px] font-bold text-slate-400 self-center shrink-0">Press Enter</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3 pt-2">
+                        <Button onClick={() => setEditingRequestTypes(false)} variant="outline" className="flex-1 h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Cancel</Button>
+                        <Button onClick={handleSaveRequestTypes} className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">Save Config</Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <FloorRequestPanel
+              requests={floorRequests.filter((r:any) => r.status==='new'||r.status==='acknowledged')}
+              onResolve={async (id) => {
+                await updateDoc(doc(firestore, `tenants/${tenantId}/floorRequests`, id), {
+                  status: 'done', resolvedAt: new Date().toISOString(), resolvedBy: 'host',
+                });
+                toast({ title: 'Request resolved' });
+              }}
+              tenantId={tenantId}
+            />
+            {floorRequests.filter((r:any) => r.status==='new'||r.status==='acknowledged').length === 0 && (
+              <div className="text-center py-12 border-2 border-dashed rounded-3xl">
+                <CheckCircle2 className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+                <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No active floor requests</p>
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
+
+        {/* ── BROADCAST SHEET ── */}
+        <Sheet open={broadcastOpen} onOpenChange={setBroadcastOpen}>
+          <SheetContent side="bottom" className="rounded-t-3xl border-t-0 pb-safe">
+            <SheetHeader className="pb-4">
+              <SheetTitle className="flex items-center gap-2 font-black uppercase tracking-tight">
+                <Megaphone className="w-5 h-5 text-violet-600" />
+                Send to Floor Staff
+              </SheetTitle>
+              <p className="text-[11px] text-slate-500">All staff on the floor portal will see this immediately.</p>
+            </SheetHeader>
+            <div className="space-y-4">
+              <Textarea value={broadcastText} onChange={e => setBroadcastText(e.target.value)}
+                placeholder="e.g. Course 2 fires in 10 minutes. Clear starter plates now."
+                className="min-h-[100px] rounded-2xl border-2 text-sm font-medium resize-none"
+                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSendBroadcast(); }} />
+              <p className="text-[9px] font-bold text-slate-400">⌘ + Enter to send</p>
+              <div className="flex gap-3">
+                <Button onClick={() => setBroadcastOpen(false)} variant="outline" className="flex-1 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest">Cancel</Button>
+                <Button onClick={handleSendBroadcast} disabled={!broadcastText.trim() || sendingBroadcast}
+                  className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest gap-2 bg-violet-600 hover:bg-violet-700 shadow-lg shadow-violet-200 disabled:opacity-30">
+                  {sendingBroadcast ? <Loader className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" /> Send to Floor</>}
+                </Button>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
+
       </main>
     </div>
   );
