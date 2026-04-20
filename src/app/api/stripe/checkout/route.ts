@@ -1,13 +1,8 @@
-// FILE 1: src/app/api/stripe/checkout/route.ts
-// Creates a Stripe Checkout session for paid event tickets
-// ─────────────────────────────────────────────────────────────────────────────
- 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
- 
-// Initialize Firebase Admin (server-side only)
+
 if (!getApps().length) {
   initializeApp({
     credential: cert({
@@ -17,53 +12,61 @@ if (!getApps().length) {
     }),
   });
 }
- 
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-06-20',
 });
- 
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
     const {
-      tenantId, eventId, guestName, guestEmail, guestPhone,
-      guestId, price, eventName, ticketName, successUrl, cancelUrl,
-    } = body;
- 
+      tenantId,
+      eventId,
+      guestName,
+      guestEmail,
+      guestPhone,
+      guestId,
+      price,
+      eventName,
+      ticketName,
+      successUrl,
+      cancelUrl,
+    } = await req.json();
+
     if (!tenantId || !eventId || !guestEmail || !price) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
- 
-    // Get tenant's Stripe Connect account ID
+
+    // Get the studio's connected Stripe account
     const db = getFirestore();
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
+
     if (!tenantSnap.exists) {
-      return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
     }
-    const tenant = tenantSnap.data()!;
-    const stripeAccountId = tenant.stripeAccountId;
- 
+
+    const stripeAccountId = tenantSnap.data()?.stripeAccountId;
+
     if (!stripeAccountId) {
       return NextResponse.json(
         { error: 'This studio has not connected a payment account yet.' },
         { status: 400 }
       );
     }
- 
-    // Create Stripe Checkout session
-    // Money goes directly to the studio's Stripe account (Connect)
+
+    // Create checkout session on the studio's Stripe account
     const session = await stripe.checkout.sessions.create(
       {
         payment_method_types: ['card'],
-        mode: 'payment',
+        mode:           'payment',
         customer_email: guestEmail,
         line_items: [
           {
             price_data: {
-              currency: 'usd',
-              unit_amount: Math.round(price * 100), // cents
+              currency:     'usd',
+              unit_amount:  Math.round(price * 100),
               product_data: {
-                name: ticketName || 'Event Ticket',
+                name:        ticketName || 'Event Ticket',
                 description: eventName,
               },
             },
@@ -75,22 +78,21 @@ export async function POST(req: NextRequest) {
           eventId,
           guestName,
           guestEmail,
-          guestPhone:  guestPhone || '',
-          guestId:     guestId    || '',
-          ticketName:  ticketName || 'General Admission',
+          guestPhone:  guestPhone  || '',
+          guestId:     guestId     || '',
+          ticketName:  ticketName  || 'General Admission',
         },
         success_url: successUrl,
         cancel_url:  cancelUrl,
       },
       {
-        stripeAccount: stripeAccountId, // Direct to studio's account
+        stripeAccount: stripeAccountId,
       }
     );
- 
+
     return NextResponse.json({ url: session.url, sessionId: session.id });
   } catch (err: any) {
     console.error('[stripe/checkout]', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
- 
