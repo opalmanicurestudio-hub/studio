@@ -5,12 +5,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import {
   Plus, Trash2, QrCode, Printer, Check, X, Download,
-  UserCheck, LayoutGrid, Move, Loader,
+  UserCheck, LayoutGrid, Move, Loader, Users,
 } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import QRCode from 'qrcode';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 export type Seat = {
@@ -30,7 +31,6 @@ export type SeatingTable = {
   staffIds:       string[];
 };
 
-// Props that the manifest page actually passes
 type Props = {
   tenantId:  string;
   eventId:   string;
@@ -62,26 +62,34 @@ const getInitials = (name: string) => {
 
 // ─── CANVAS TABLE CARD ────────────────────────────────────────────────────────
 const CanvasTableCard = ({
-  table, isSelected, isDragging, onSelect, onDragStart, assignedGuests, staffList,
+  table, isSelected, isDragging, onSelect, onPointerDown, assignedGuests, staffList,
 }: {
   table: SeatingTable; isSelected: boolean; isDragging: boolean;
-  onSelect: () => void; onDragStart: (e: React.MouseEvent) => void;
+  onSelect: () => void;
+  onPointerDown: (e: React.PointerEvent) => void;
   assignedGuests: { seatId: string; guest: any }[];
   staffList: { id: string; name: string }[];
 }) => {
-  const color     = TABLE_COLORS.find(c => c.id === table.color) || TABLE_COLORS[0];
+  const color       = TABLE_COLORS.find(c => c.id === table.color) || TABLE_COLORS[0];
   const filledSeats = assignedGuests.length;
-  const pct       = table.seatCount > 0 ? (filledSeats / table.seatCount) * 100 : 0;
+  const pct         = table.seatCount > 0 ? (filledSeats / table.seatCount) * 100 : 0;
 
   return (
     <div
-      onMouseDown={onDragStart}
+      onPointerDown={onPointerDown}
       onClick={onSelect}
+      // touch-action none prevents the browser from scrolling while dragging a table
+      style={{
+        left: `${table.x ?? 20}%`,
+        top: `${table.y ?? 20}%`,
+        transform: 'translate(-50%, -50%)',
+        width: '120px',
+        touchAction: 'none',
+      }}
       className={cn(
         'absolute cursor-grab active:cursor-grabbing select-none transition-shadow',
         isDragging ? 'shadow-2xl z-50 scale-105' : isSelected ? 'shadow-xl z-10' : 'shadow-md z-0',
       )}
-      style={{ left: `${table.x ?? 20}%`, top: `${table.y ?? 20}%`, transform: 'translate(-50%, -50%)', width: '120px' }}
     >
       <div className={cn('rounded-xl border-2 overflow-hidden', color.border, isSelected ? 'ring-2 ring-white ring-offset-1' : '')}>
         <div className={cn('px-3 py-2', color.bg)}>
@@ -115,27 +123,107 @@ const CanvasTableCard = ({
   );
 };
 
+// ─── GUEST ASSIGN SHEET (replaces native <select> on mobile) ─────────────────
+const GuestAssignSheet = ({
+  open, onOpenChange, seat, table, guests, assignedGuests, onAssign,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  seat: Seat | null;
+  table: SeatingTable | null;
+  guests: Props['guests'];
+  assignedGuests: { seatId: string; guestId: string; guestName: string }[];
+  onAssign: (guestId: string, tableId: string, seatId: string) => Promise<void>;
+}) => {
+  const [assigning, setAssigning] = useState<string | null>(null);
+  const [search, setSearch]       = useState('');
+
+  const available = useMemo(() => {
+    const allAssignedGuestIds = new Set(assignedGuests.filter(a => a.seatId !== seat?.id).map(a => a.guestId));
+    const base = guests.filter(g => {
+      if (allAssignedGuestIds.has(g.id)) return false;
+      if (g.tableNumber && g.tableNumber !== table?.id) return false;
+      return true;
+    });
+    if (!search.trim()) return base;
+    return base.filter(g => g.name.toLowerCase().includes(search.toLowerCase()));
+  }, [guests, assignedGuests, seat, table, search]);
+
+  const handlePick = async (guestId: string) => {
+    if (!seat || !table) return;
+    setAssigning(guestId);
+    await onAssign(guestId, table.id, seat.id);
+    setAssigning(null);
+    setSearch('');
+    onOpenChange(false);
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="bottom" className="rounded-t-3xl border-t-0 pb-safe max-h-[75vh] flex flex-col">
+        <SheetHeader className="pb-3 shrink-0">
+          <SheetTitle className="font-black uppercase tracking-tight">
+            Assign Guest — {table?.name} · Seat {seat?.label}
+          </SheetTitle>
+        </SheetHeader>
+        <div className="relative shrink-0 mb-3">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search guests…"
+            className="w-full h-11 rounded-xl border-2 border-slate-200 px-4 text-sm font-bold text-slate-800 outline-none focus:border-slate-400 transition-colors"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-2 pb-4">
+          {available.length === 0 && (
+            <p className="text-center py-8 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              No available guests
+            </p>
+          )}
+          {available.map(g => (
+            <button
+              key={g.id}
+              onClick={() => handlePick(g.id)}
+              disabled={!!assigning}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl border-2 border-slate-100 hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
+            >
+              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center font-black text-slate-500 text-sm shrink-0">
+                {getInitials(g.name)}
+              </div>
+              <p className="font-black text-slate-900">{g.name}</p>
+              {assigning === g.id
+                ? <Loader className="w-4 h-4 animate-spin text-slate-400 ml-auto" />
+                : <Check className="w-4 h-4 text-slate-200 ml-auto" />
+              }
+            </button>
+          ))}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+};
+
 // ─── TABLE CONFIG PANEL ────────────────────────────────────────────────────────
 const TableConfigPanel = ({
   table, onUpdate, onDelete, guests, assignedGuests, onAssignGuest, staff, tenantId, eventId, baseUrl,
 }: {
   table: SeatingTable; onUpdate: (t: SeatingTable) => void; onDelete: () => void;
-  guests: any[]; assignedGuests: { seatId: string; guestId: string; guestName: string }[];
+  guests: Props['guests'];
+  assignedGuests: { seatId: string; guestId: string; guestName: string }[];
   onAssignGuest: (guestId: string, tableId: string, seatId: string) => Promise<void>;
-  staff: { id: string; name: string; avatarUrl?: string }[];
+  staff: Props['staff'];
   tenantId: string; eventId: string; baseUrl: string;
 }) => {
   const [qrUrls,    setQrUrls]    = useState<Record<string, string>>({});
   const [showQr,    setShowQr]    = useState(false);
-  const [assigning, setAssigning] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [activeSeat, setActiveSeat] = useState<Seat | null>(null);
 
-  const handleSeatCountChange = (count: number) => {
+  const handleSeatCountChange = (count: number) =>
     onUpdate({ ...table, seatCount: count, seats: genSeats(count, table.seatLabelStyle) });
-  };
 
-  const handleLabelStyleChange = (style: 'letters' | 'numbers') => {
+  const handleLabelStyleChange = (style: 'letters' | 'numbers') =>
     onUpdate({ ...table, seatLabelStyle: style, seats: genSeats(table.seatCount, style) });
-  };
 
   const generateQrCodes = async () => {
     const urls: Record<string, string> = {};
@@ -147,10 +235,9 @@ const TableConfigPanel = ({
     setShowQr(true);
   };
 
-  const handleAssign = async (seatId: string, guestId: string) => {
-    setAssigning(seatId);
-    await onAssignGuest(guestId, table.id, seatId);
-    setAssigning(null);
+  const openAssignSheet = (seat: Seat) => {
+    setActiveSeat(seat);
+    setSheetOpen(true);
   };
 
   const toggleStaff = (staffId: string) => {
@@ -242,7 +329,7 @@ const TableConfigPanel = ({
         </div>
       </div>
 
-      {/* Guest seat assignment */}
+      {/* Guest seat assignment — uses Sheet on mobile, avoids native <select> issues */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Seat Assignments</label>
         <div className="space-y-2">
@@ -254,23 +341,28 @@ const TableConfigPanel = ({
                   {seat.label}
                 </div>
                 {assigned ? (
-                  <div className="flex-1 flex items-center gap-2 px-3 h-9 rounded-xl bg-emerald-50 border-2 border-emerald-100">
+                  <div className="flex-1 flex items-center gap-2 px-3 h-10 rounded-xl bg-emerald-50 border-2 border-emerald-100">
                     <UserCheck className="w-3 h-3 text-emerald-500 shrink-0" />
-                    <span className="text-sm font-black text-emerald-800 truncate">{assigned.guestName}</span>
+                    <span className="text-sm font-black text-emerald-800 truncate flex-1">{assigned.guestName}</span>
+                    <button
+                      onClick={async () => {
+                        const g = guests.find(g => g.id === assigned.guestId);
+                        if (g) await onAssignGuest('__remove__', table.id, seat.id);
+                      }}
+                      className="p-1 rounded-lg hover:bg-emerald-200 text-emerald-400 hover:text-emerald-700 transition-colors shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
                 ) : (
-                  <select
-                    value=""
-                    onChange={e => { if (e.target.value) handleAssign(seat.id, e.target.value); }}
-                    disabled={assigning === seat.id}
-                    className="flex-1 h-9 rounded-xl border-2 border-slate-100 bg-white px-2 text-sm font-bold text-slate-500 outline-none"
+                  /* Tap button opens Sheet — avoids native select z-index issues on mobile */
+                  <button
+                    onClick={() => openAssignSheet(seat)}
+                    className="flex-1 h-10 rounded-xl border-2 border-slate-100 bg-white px-3 text-sm font-bold text-slate-400 text-left hover:border-slate-300 transition-colors flex items-center gap-2"
                   >
-                    <option value="">Assign guest…</option>
-                    {guests
-                      .filter(g => !g.tableNumber || g.tableNumber === table.id)
-                      .map(g => <option key={g.id} value={g.id}>{g.name}</option>)
-                    }
-                  </select>
+                    <Users className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                    Assign guest…
+                  </button>
                 )}
               </div>
             );
@@ -317,6 +409,17 @@ const TableConfigPanel = ({
         className="w-full h-9 rounded-xl border-2 border-red-100 text-red-400 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 hover:bg-red-50 transition-all">
         <Trash2 className="w-3.5 h-3.5" /> Remove Table
       </button>
+
+      {/* Guest assign sheet */}
+      <GuestAssignSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        seat={activeSeat}
+        table={table}
+        guests={guests}
+        assignedGuests={assignedGuests}
+        onAssign={onAssignGuest}
+      />
     </div>
   );
 };
@@ -325,10 +428,8 @@ const TableConfigPanel = ({
 export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, event }: Props) {
   const { toast } = useToast();
 
-  // Derive baseUrl safely on client
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
-  // Load persisted tables from event doc
   const [tables,     setTables]     = useState<SeatingTable[]>(() => event?.seatingTables || []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -336,9 +437,11 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
   const [saved,      setSaved]      = useState(false);
 
   const canvasRef  = useRef<HTMLDivElement>(null);
+  // Stores the pointer offset within the table card when drag starts
   const dragOffset = useRef({ x: 0, y: 0 });
+  // Store active pointerId so we can capture pointer events cross-platform
+  const activePointer = useRef<number | null>(null);
 
-  // Keep tables in sync if event doc updates externally
   useEffect(() => {
     if (event?.seatingTables) setTables(event.seatingTables);
   }, [event?.seatingTables]);
@@ -381,36 +484,55 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
     if (selectedId === id) setSelectedId(null);
   };
 
-  // ── Drag to reposition ─────────────────────────────────────────────────────
-  const handleDragStart = useCallback((e: React.MouseEvent, tableId: string) => {
+  // ── Unified pointer drag (mouse + touch) ──────────────────────────────────
+  // Using Pointer Events API so one handler works for both mouse and touch.
+  const handlePointerDown = useCallback((e: React.PointerEvent, tableId: string) => {
+    // Only handle primary button for mouse; always handle touch/pen
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
+    e.stopPropagation();
+
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const rect  = canvas.getBoundingClientRect();
+
     const table = tables.find(t => t.id === tableId);
     if (!table) return;
+
+    const rect     = canvas.getBoundingClientRect();
     const tableXpx = ((table.x ?? 20) / 100) * rect.width;
     const tableYpx = ((table.y ?? 20) / 100) * rect.height;
-    dragOffset.current = { x: e.clientX - rect.left - tableXpx, y: e.clientY - rect.top - tableYpx };
+
+    dragOffset.current    = { x: e.clientX - rect.left - tableXpx, y: e.clientY - rect.top - tableYpx };
+    activePointer.current = e.pointerId;
+
+    // Capture so we still get pointermove/pointerup even if pointer leaves element
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
     setDraggingId(tableId);
     setSelectedId(tableId);
-
-    const onMove = (me: MouseEvent) => {
-      const cr   = canvas.getBoundingClientRect();
-      const newX = Math.max(5, Math.min(95, ((me.clientX - cr.left - dragOffset.current.x) / cr.width)  * 100));
-      const newY = Math.max(5, Math.min(95, ((me.clientY - cr.top  - dragOffset.current.y) / cr.height) * 100));
-      setTables(prev => prev.map(t => t.id === tableId ? { ...t, x: newX, y: newY } : t));
-    };
-    const onUp = () => {
-      setDraggingId(null);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
   }, [tables]);
 
-  // ── Save layout to Firestore ───────────────────────────────────────────────
+  const handlePointerMove = useCallback((e: React.PointerEvent, tableId: string) => {
+    if (draggingId !== tableId || activePointer.current !== e.pointerId) return;
+    e.preventDefault();
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const newX = Math.max(5, Math.min(95, ((e.clientX - rect.left - dragOffset.current.x) / rect.width)  * 100));
+    const newY = Math.max(5, Math.min(95, ((e.clientY - rect.top  - dragOffset.current.y) / rect.height) * 100));
+
+    setTables(prev => prev.map(t => t.id === tableId ? { ...t, x: newX, y: newY } : t));
+  }, [draggingId]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent, tableId: string) => {
+    if (draggingId !== tableId) return;
+    setDraggingId(null);
+    activePointer.current = null;
+  }, [draggingId]);
+
+  // ── Save layout ────────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!firestore || !tenantId || !eventId) return;
     setIsSaving(true);
@@ -429,10 +551,22 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
     }
   };
 
-  // ── Assign guest to seat (updates guest doc) ───────────────────────────────
+  // ── Assign guest to seat ───────────────────────────────────────────────────
   const handleAssignGuest = async (guestId: string, tableId: string, seatId: string) => {
     if (!firestore || !tenantId) return;
     try {
+      if (guestId === '__remove__') {
+        // Find which guest is in this seat and clear them
+        const g = guests.find(g => g.tableNumber === tableId && g.seatNumber === seatId);
+        if (g) {
+          await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, g.id), {
+            tableNumber: null,
+            seatNumber:  null,
+          });
+          toast({ title: 'Guest unassigned' });
+        }
+        return;
+      }
       await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId), {
         tableNumber: tableId,
         seatNumber:  seatId,
@@ -504,7 +638,7 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
         </div>
       </div>
 
-      <div className="flex gap-4 flex-1 min-h-0">
+      <div className="flex gap-4 flex-1 min-h-0 flex-col md:flex-row">
         {/* Canvas */}
         <div className="flex-1 min-w-0">
           <div
@@ -541,12 +675,23 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
                 table={table}
                 isSelected={selectedId === table.id}
                 isDragging={draggingId === table.id}
-                onSelect={() => setSelectedId(table.id)}
-                onDragStart={e => handleDragStart(e, table.id)}
+                onSelect={() => setSelectedId(prev => prev === table.id ? null : table.id)}
+                onPointerDown={e => handlePointerDown(e, table.id)}
                 assignedGuests={(guestAssignments[table.id] || []).map(a => ({ seatId: a.seatId, guest: guests.find(g => g.id === a.guestId) }))}
                 staffList={staff}
               />
             ))}
+
+            {/* Pointer move/up handlers on canvas so drag continues even if pointer exits table element */}
+            {draggingId && (
+              <div
+                className="absolute inset-0 z-40"
+                style={{ touchAction: 'none' }}
+                onPointerMove={e => handlePointerMove(e, draggingId)}
+                onPointerUp={e => handlePointerUp(e, draggingId)}
+                onPointerCancel={e => handlePointerUp(e, draggingId)}
+              />
+            )}
           </div>
 
           {/* Table list below canvas */}
@@ -571,16 +716,16 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
           )}
         </div>
 
-        {/* Config panel */}
+        {/* Config panel — full width on mobile when a table is selected, side panel on desktop */}
         <AnimatePresence>
           {selectedTable && (
             <motion.div
-              initial={{ opacity: 0, x: 16, width: 0 }}
-              animate={{ opacity: 1, x: 0, width: 280 }}
-              exit={{ opacity: 0, x: 16, width: 0 }}
-              className="shrink-0 overflow-hidden"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              className="w-full md:w-[280px] md:shrink-0"
             >
-              <div className="w-[280px] bg-white border-2 border-slate-100 rounded-2xl overflow-y-auto max-h-[600px]">
+              <div className="bg-white border-2 border-slate-100 rounded-2xl overflow-y-auto max-h-[70vh] md:max-h-[600px]">
                 <div className="sticky top-0 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between z-10">
                   <p className="font-black text-sm text-slate-800 uppercase tracking-tight">{selectedTable.name}</p>
                   <button onClick={() => setSelectedId(null)} className="w-6 h-6 rounded-lg hover:bg-slate-100 flex items-center justify-center">
