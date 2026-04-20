@@ -51,10 +51,16 @@ type FormData = {
 };
 
 type Props = {
-  isOpen:   boolean;
-  onClose:  () => void;
-  onSave:   (data: FormData) => Promise<void>;
-  tenantId: string;
+  // Inventory page shape
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onRefreshmentAdded?: (item: any) => void;
+  locations?: any[];
+  // Direct shape (manifest etc.)
+  isOpen?: boolean;
+  onClose?: () => void;
+  onSave?: (data: FormData) => Promise<void>;
+  tenantId?: string;
   eventId?: string;
   initial?: Partial<FormData>;
 };
@@ -207,7 +213,12 @@ const LiveSummary = ({ data }: { data: FormData }) => {
 };
 
 // ─── MAIN DIALOG ──────────────────────────────────────────────────────────────
-export function AddRefreshmentDialog({ isOpen, onClose, onSave, tenantId, eventId, initial }: Props) {
+export function AddRefreshmentDialog(props: Props) {
+  // Support both inventory page shape (open/onOpenChange/onRefreshmentAdded)
+  // and direct shape (isOpen/onClose/onSave)
+  const isOpen    = props.open ?? props.isOpen ?? false;
+  const onClose   = props.onClose ?? (() => props.onOpenChange?.(false));
+  const { tenantId, eventId, initial } = props;
   const [step,        setStep]        = useState(1);
   const [data,        setData]        = useState<FormData>({ ...DEFAULT, ...initial });
   const [isSaving,    setIsSaving]    = useState(false);
@@ -231,8 +242,51 @@ export function AddRefreshmentDialog({ isOpen, onClose, onSave, tenantId, eventI
 
   const handleSave = async () => {
     setIsSaving(true);
-    try { await onSave(data); onClose(); }
-    finally { setIsSaving(false); }
+    try {
+      if (props.onSave) {
+        await props.onSave(data);
+      } else if (props.onRefreshmentAdded) {
+        // Convert FormData to InventoryItem shape for inventory page
+        const id = Math.random().toString(36).slice(2);
+        const ppu = data.orderQuantity > 0
+          ? (data.purchasePrice * data.orderQuantity + data.deliveryCost + data.otherFees) / data.orderQuantity
+          : data.purchasePrice;
+        const newItem: any = {
+          id,
+          name:        data.name,
+          type:        'refreshment',
+          category:    data.category,
+          description: data.description,
+          imageUrl:    data.imageUrl,
+          guestPrice:  data.guestPrice,
+          showOnMenu:  data.showOnMenu,
+          availableEvents: data.availableEvents,
+          totalStock:  data.unitsOnHand,
+          unitLabel:   data.unitLabel,
+          divideMethod: data.divideMethod,
+          unitVolumeMl: data.unitVolumeMl,
+          portionVolumeMl: data.portionVolumeMl,
+          portionsPerUnit: data.portionsPerUnit,
+          costPerUnit: ppu,
+          purchasePrice: data.purchasePrice,
+          deliveryCost: data.deliveryCost,
+          otherFees:   data.otherFees,
+          orderQuantity: data.orderQuantity,
+          recipeIngredients: data.recipeIngredients,
+          batches: data.unitsOnHand > 0 ? [{
+            id: `batch-${Math.random().toString(36).slice(2)}`,
+            stock: data.unitsOnHand,
+            costPerUnit: ppu,
+            receivedDate: new Date().toISOString(),
+          }] : [],
+          status: 'active',
+        };
+        props.onRefreshmentAdded(newItem);
+      }
+      onClose();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const portionsPerUnit = data.divideMethod === 'portions'
@@ -244,10 +298,11 @@ export function AddRefreshmentDialog({ isOpen, onClose, onSave, tenantId, eventI
 
   if (!isOpen) return null;
 
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => onClose()} />
 
       <motion.div
         initial={{ opacity: 0, y: 40 }}
