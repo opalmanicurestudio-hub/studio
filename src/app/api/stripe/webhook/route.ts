@@ -25,11 +25,6 @@ function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
 }
 
-// Required: tell Next.js not to parse the body so Stripe can verify the signature
-export const config = {
-  api: { bodyParser: false },
-};
-
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const sig  = req.headers.get('stripe-signature');
