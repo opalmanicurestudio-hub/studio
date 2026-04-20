@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
-if (!getApps().length) {
-
-
-// ─── Firebase Admin (lazy init — must be inside handler, not module scope) ───
+// ─── Lazy inits — must NOT be at module scope (build-time env vars unavailable) ─
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore } = require('firebase-admin/firestore');
@@ -46,7 +43,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Webhook Error: ${err.message}` }, { status: 400 });
   }
 
-  // ── Handle checkout.session.completed ─────────────────────────────────────
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
     const meta    = session.metadata;
@@ -118,9 +114,9 @@ export async function POST(req: NextRequest) {
       //     method: 'POST',
       //     headers: { 'Content-Type': 'application/json' },
       //     body: JSON.stringify({
-      //       phone:     meta.guestPhone,
+      //       phone:      meta.guestPhone,
       //       ticketCode: code,
-      //       eventName: session.metadata?.ticketName,
+      //       eventName:  meta.ticketName,
       //     }),
       //   });
       // }
@@ -128,7 +124,6 @@ export async function POST(req: NextRequest) {
       console.log('[stripe/webhook] Ticket created:', ticketId, 'for', meta.guestEmail);
     } catch (err: any) {
       console.error('[stripe/webhook] Failed to create ticket:', err.message);
-      // Return 500 so Stripe retries
       return NextResponse.json({ error: 'Failed to create ticket' }, { status: 500 });
     }
   }
