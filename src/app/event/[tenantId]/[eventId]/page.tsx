@@ -1,664 +1,648 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { useParams } from 'next/navigation';
-import { useFirebase, useDoc, useMemoFirebase } from '@/firebase';
-import { doc, collection, addDoc, getDocs, query, where } from 'firebase/firestore';
-import { useToast } from '@/hooks/use-toast';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Check, ChevronRight, Loader, AlertTriangle, Utensils,
-  ArrowLeft, Leaf, Info,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { nanoid } from 'nanoid';
 import { format, parseISO } from 'date-fns';
+import {
+  Calendar, Clock, MapPin, Users, Check, ChevronRight,
+  Loader, AlertTriangle, Ticket, Download, Mail, Phone,
+  Star, ArrowLeft, X,
+} from 'lucide-react';
+import { initializeApp, getApps } from 'firebase/app';
+import {
+  getFirestore, doc, getDoc, collection, addDoc,
+  query, where, getDocs, updateDoc,
+} from 'firebase/firestore';
+import { nanoid } from 'nanoid';
+
+// ─── FIREBASE (standalone public page) ───────────────────────────────────────
+const getDb = () => {
+  if (getApps().length === 0) {
+    initializeApp({
+      apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+      authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+      projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+      appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+    });
+  }
+  return getFirestore();
+};
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const safeDate = (v: any) => {
-  if (!v) return new Date();
-  if (v instanceof Date) return v;
-  if (typeof v === 'string') return parseISO(v);
-  if (v?.toDate) return v.toDate();
-  if (v?.seconds) return new Date(v.seconds * 1000);
-  return new Date(v);
+const hexLuminance = (hex: string) => {
+  const r = parseInt(hex.slice(1,3),16)/255;
+  const g = parseInt(hex.slice(3,5),16)/255;
+  const b = parseInt(hex.slice(5,7),16)/255;
+  return 0.299*r + 0.587*g + 0.114*b;
 };
 
-const firstName = (name: string) => name.trim().split(' ')[0];
+const generateTicketCode = () => nanoid(8).toUpperCase();
 
-// ─── ALLERGY OPTIONS ──────────────────────────────────────────────────────────
-type AllergySeverity = 'preference' | 'intolerance' | 'critical';
-type AllergyObj = { id: string; label: string; emoji: string; severity: AllergySeverity; hint?: string };
+// ─── ICS CALENDAR FILE GENERATOR ─────────────────────────────────────────────
+const generateICS = (event: any, ticket: any): string => {
+  const start = event.date && event.time
+    ? new Date(`${event.date}T${event.time}`)
+    : event.date ? new Date(event.date) : new Date();
 
-const ALLERGY_OPTIONS: AllergyObj[] = [
-  { id: 'peanuts',    label: 'Peanuts',    emoji: '🥜', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'nuts',       label: 'Tree Nuts',  emoji: '🌰', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'shellfish',  label: 'Shellfish',  emoji: '🦐', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'fish',       label: 'Fish',       emoji: '🐟', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'eggs',       label: 'Eggs',       emoji: '🥚', severity: 'critical',    hint: 'Anaphylaxis risk' },
-  { id: 'gluten',     label: 'Gluten',     emoji: '🌾', severity: 'intolerance', hint: 'Celiac or intolerance' },
-  { id: 'dairy',      label: 'Dairy',      emoji: '🥛', severity: 'intolerance', hint: 'Lactose intolerance' },
-  { id: 'soy',        label: 'Soy',        emoji: '🫘', severity: 'intolerance', hint: 'Soy intolerance' },
-  { id: 'vegan',      label: 'Vegan',      emoji: '🌿', severity: 'preference' },
-  { id: 'vegetarian', label: 'Vegetarian', emoji: '🥦', severity: 'preference' },
-  { id: 'kosher',     label: 'Kosher',     emoji: '✡️',  severity: 'preference' },
-  { id: 'halal',      label: 'Halal',      emoji: '☪️',  severity: 'preference' },
-];
+  const end = event.endTime && event.date
+    ? new Date(`${event.date}T${event.endTime}`)
+    : new Date(start.getTime() + 2 * 60 * 60 * 1000); // default 2hrs
 
-// ─── STEP INDICATOR ───────────────────────────────────────────────────────────
-const StepDots = ({ total, current }: { total: number; current: number }) => (
-  <div className="flex items-center gap-1.5">
-    {Array.from({ length: total }).map((_, i) => (
-      <div key={i} className={cn(
-        'rounded-full transition-all duration-300',
-        i === current ? 'w-6 h-2 bg-primary' :
-        i < current  ? 'w-2 h-2 bg-primary/30' :
-        'w-2 h-2 bg-slate-200'
-      )} />
-    ))}
-  </div>
-);
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
-// ─── MEAL OPTION CARD ─────────────────────────────────────────────────────────
-const MealOptionCard = ({ option, selected, onSelect }: {
-  option: any; selected: boolean; onSelect: () => void;
-}) => (
-  <button onClick={onSelect}
-    className={cn(
-      'w-full text-left rounded-2xl border-2 overflow-hidden transition-all duration-200 active:scale-[0.98]',
-      selected ? 'border-primary bg-primary/5 shadow-md shadow-primary/10' : 'border-slate-200 bg-white hover:border-slate-300'
-    )}>
-    {option.imageUrl && (
-      <div className="relative w-full h-36 sm:h-44 overflow-hidden">
-        <img src={option.imageUrl} alt={option.name} className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-        {selected && (
-          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 12 }}
-            className="absolute top-3 right-3 w-7 h-7 rounded-full bg-primary flex items-center justify-center shadow-lg">
-            <Check className="w-3.5 h-3.5 text-white" />
-          </motion.div>
-        )}
-      </div>
-    )}
-    <div className="p-4 flex items-start justify-between gap-3">
-      <div className="flex-1 min-w-0">
-        <p className="font-black text-slate-900 text-base leading-tight">{option.name}</p>
-        {option.description && (
-          <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{option.description}</p>
-        )}
-        <div className="flex gap-1.5 mt-2 flex-wrap">
-          {option.isVegan      && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-emerald-50 border border-emerald-200 text-emerald-700"><Leaf className="w-2 h-2" />Vegan</span>}
-          {option.isGlutenFree && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-blue-50 border border-blue-200 text-blue-700">GF</span>}
-        </div>
-      </div>
-      {!option.imageUrl && (
-        <div className={cn('w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all',
-          selected ? 'border-primary bg-primary' : 'border-slate-300')}>
-          {selected && <Check className="w-3 h-3 text-white" />}
-        </div>
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Opal Studio//Event Ticket//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${ticket.id}@opal-studio`,
+    `DTSTART:${fmt(start)}`,
+    `DTEND:${fmt(end)}`,
+    `SUMMARY:${event.name || event.title || 'Event'}`,
+    `DESCRIPTION:Ticket #${ticket.ticketCode}\\nGuest: ${ticket.guestName}`,
+    event.venue ? `LOCATION:${event.venue}` : '',
+    `STATUS:CONFIRMED`,
+    `SEQUENCE:0`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].filter(Boolean);
+
+  return lines.join('\r\n');
+};
+
+const downloadICS = (event: any, ticket: any) => {
+  const ics = generateICS(event, ticket);
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `${(event.name || 'event').replace(/\s+/g, '-').toLowerCase()}.ics`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// ─── TYPES ────────────────────────────────────────────────────────────────────
+type PageState = 'loading' | 'event' | 'form' | 'processing' | 'confirmed' | 'sold_out' | 'closed' | 'error';
+
+type GuestInfo = {
+  name:  string;
+  email: string;
+  phone: string;
+};
+
+// ─── COMPONENTS ───────────────────────────────────────────────────────────────
+const TicketCard = ({ ticket, event, onDownloadCal }: { ticket: any; event: any; onDownloadCal: () => void }) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+    animate={{ opacity: 1, scale: 1, y: 0 }}
+    transition={{ type: 'spring', damping: 14, stiffness: 120 }}
+    className="relative bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-100 max-w-sm w-full mx-auto"
+  >
+    {/* Ticket top */}
+    <div className="p-6 pb-4" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
+      <p className="text-[9px] font-black uppercase tracking-[0.35em] text-white/40 mb-1">Your Ticket</p>
+      <h2 className="text-2xl font-black text-white leading-tight">{event.name || event.title}</h2>
+      {event.date && (
+        <p className="text-white/60 text-sm font-bold mt-2">
+          {format(new Date(event.date), 'EEEE, MMMM d, yyyy')}
+          {event.time && ` · ${event.time}`}
+        </p>
       )}
+      {event.venue && <p className="text-white/40 text-xs font-bold mt-1">{event.venue}</p>}
     </div>
-  </button>
-);
 
-// ─── ALLERGY CHIP ─────────────────────────────────────────────────────────────
-const AllergyChip = ({ opt, selected, onToggle }: {
-  opt: AllergyObj; selected: boolean; onToggle: () => void;
-}) => {
-  const styles = {
-    critical:    { active: 'border-red-400 bg-red-50 text-red-800',    inactive: 'border-slate-200 bg-white text-slate-600 hover:border-red-200' },
-    intolerance: { active: 'border-amber-400 bg-amber-50 text-amber-800', inactive: 'border-slate-200 bg-white text-slate-600 hover:border-amber-200' },
-    preference:  { active: 'border-emerald-400 bg-emerald-50 text-emerald-800', inactive: 'border-slate-200 bg-white text-slate-600 hover:border-slate-300' },
-  };
-  const s = styles[opt.severity];
-  return (
-    <button onClick={onToggle}
-      className={cn(
-        'flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-150 active:scale-[0.97] text-left w-full',
-        selected ? s.active : s.inactive
-      )}>
-      <span className="text-lg leading-none shrink-0">{opt.emoji}</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-black uppercase tracking-wide leading-none">{opt.label}</p>
-        {opt.hint && <p className="text-[9px] mt-0.5 opacity-60">{opt.hint}</p>}
+    {/* Tear line */}
+    <div className="flex items-center">
+      <div className="w-4 h-4 rounded-full bg-slate-50 -ml-2 shrink-0" />
+      <div className="flex-1 border-t-2 border-dashed border-slate-200" />
+      <div className="w-4 h-4 rounded-full bg-slate-50 -mr-2 shrink-0" />
+    </div>
+
+    {/* Ticket bottom */}
+    <div className="p-6 pt-4 space-y-4">
+      <div className="space-y-2">
+        <div className="flex justify-between">
+          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest</span>
+          <span className="text-sm font-black text-slate-800">{ticket.guestName}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Ticket #</span>
+          <span className="text-sm font-black font-mono text-slate-800">{ticket.ticketCode}</span>
+        </div>
+        {ticket.type === 'paid' && (
+          <div className="flex justify-between">
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Paid</span>
+            <span className="text-sm font-black text-emerald-600">${(ticket.amountPaid || ticket.price || 0).toFixed(2)}</span>
+          </div>
+        )}
+        {ticket.type === 'free' && (
+          <div className="flex justify-between">
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Type</span>
+            <span className="text-sm font-black text-slate-600">Free RSVP</span>
+          </div>
+        )}
       </div>
-      {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
-    </button>
-  );
-};
 
-// ─── PROGRESS BAR ─────────────────────────────────────────────────────────────
-const ProgressBar = ({ value }: { value: number }) => (
-  <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
-    <motion.div className="h-full bg-primary rounded-full" initial={{ width: 0 }}
-      animate={{ width: `${value}%` }} transition={{ duration: 0.4, ease: 'easeOut' }} />
-  </div>
+      {/* QR placeholder — real QR generated server-side */}
+      <div className="bg-slate-50 rounded-2xl p-4 flex items-center justify-center aspect-square max-w-[140px] mx-auto border-2 border-slate-100">
+        <div className="text-center space-y-1">
+          <Ticket className="w-10 h-10 text-slate-300 mx-auto" />
+          <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">{ticket.ticketCode}</p>
+        </div>
+      </div>
+
+      <button onClick={onDownloadCal}
+        className="w-full flex items-center justify-center gap-2 h-11 rounded-2xl border-2 border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest hover:border-slate-400 hover:bg-slate-50 transition-all">
+        <Download className="w-3.5 h-3.5" /> Add to Calendar
+      </button>
+    </div>
+  </motion.div>
 );
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
-type Step = 'identity' | 'course' | 'allergies' | 'confirm' | 'done';
+export default function EventPublicPage() {
+  const params      = useParams();
+  const searchParams = useSearchParams();
+  const tenantId    = params.tenantId as string;
+  const eventId     = params.eventId  as string;
 
-export default function EventGuestOrderPage() {
-  const params    = useParams();
-  const tenantId  = params.tenantId as string;
-  const eventId   = params.eventId  as string;
-  const { firestore } = useFirebase();
-  const { toast }     = useToast();
+  // ?invite=guestId for personalized invite links
+  const inviteGuestId = searchParams.get('invite');
+  // ?session_id=xxx for Stripe redirect back
+  const stripeSessionId = searchParams.get('session_id');
 
-  const eventRef  = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/studioEvents/${eventId}`), [firestore, tenantId, eventId]);
-  const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-  const { data: event }  = useDoc<any>(eventRef);
-  const { data: tenant } = useDoc<any>(tenantRef);
+  const [pageState, setPageState]   = useState<PageState>('loading');
+  const [tenant,    setTenant]      = useState<any>(null);
+  const [event,     setEvent]       = useState<any>(null);
+  const [invitedGuest, setInvitedGuest] = useState<any>(null);
+  const [ticket,    setTicket]      = useState<any>(null);
+  const [ticketCount, setTicketCount] = useState(0);
+  const [guest,     setGuest]       = useState<GuestInfo>({ name: '', email: '', phone: '' });
+  const [errors,    setErrors]      = useState<Record<string, string>>({});
+  const [errorMsg,  setErrorMsg]    = useState('');
 
-  const studioName       = tenant?.name || 'Studio';
-  const eventDisplayName = event?.title || event?.name || 'Event';
+  const primaryHex  = tenant?.kioskSettings?.primaryColor || '#6366f1';
+  const isDark      = hexLuminance(primaryHex) < 0.4;
+  const textOn      = isDark ? '#ffffff' : '#0f172a';
+  const logoUrl     = tenant?.kioskSettings?.logoUrl;
 
-  // ── Form state ────────────────────────────────────────────────────────────
-  const [step, setStep]               = useState<Step>('identity');
-  const [guestName, setGuestName]     = useState('');
-  const [guestEmail, setGuestEmail]   = useState('');
-  const [guestPhone, setGuestPhone]   = useState('');
-  const [selectedCourseSelections, setSelectedCourseSelections] = useState<Record<string, string>>({});
-  const [currentCourseIdx, setCurrentCourseIdx] = useState(0);
-  const [selectedAllergies, setSelectedAllergies] = useState<AllergyObj[]>([]);
-  const [allergyNote, setAllergyNote] = useState('');
-  const [guestNote, setGuestNote]     = useState('');
-  const [consentGiven, setConsentGiven] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [alreadyOrdered, setAlreadyOrdered] = useState(false);
-  const [existingOrder, setExistingOrder]   = useState<any>(null);
+  const ticketConfig = event?.ticketingConfig || {};
+  const isPaid       = ticketConfig.type === 'paid';
+  const isFree       = !isPaid;
+  const capacity     = ticketConfig.capacity || null;
+  const isSoldOut    = capacity !== null && ticketCount >= capacity;
 
-  const courses: any[]  = useMemo(() => event?.courses || [], [event]);
-  const hasCourses      = courses.length > 0;
-  const menuItems: any[] = useMemo(() => event?.menuItems || [], [event]);
+  // ── Load data ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const db = getDb();
 
-  const isEventOpen = useMemo(() => {
-    if (!event) return false;
-    if (event.orderingDeadline && new Date() > safeDate(event.orderingDeadline)) return false;
-    return ['open', 'published', 'upcoming', 'active'].includes(event.status);
-  }, [event]);
+        // Tenant
+        const tenantSnap = await getDoc(doc(db, `tenants/${tenantId}`));
+        if (!tenantSnap.exists()) { setErrorMsg('Studio not found.'); setPageState('error'); return; }
+        setTenant(tenantSnap.data());
 
-  // Total steps for progress: identity + courses (or 1 meal) + allergies + confirm
-  const totalStepCount = hasCourses ? 2 + courses.length + 1 : 4;
-  const currentStepIndex = useMemo(() => {
-    if (step === 'identity')  return 0;
-    if (step === 'course')    return 1 + currentCourseIdx;
-    if (step === 'allergies') return hasCourses ? 1 + courses.length : 2;
-    if (step === 'confirm')   return hasCourses ? 2 + courses.length : 3;
-    return totalStepCount;
-  }, [step, currentCourseIdx, hasCourses, courses.length, totalStepCount]);
+        // Event
+        const eventSnap = await getDoc(doc(db, `tenants/${tenantId}/studioEvents/${eventId}`));
+        if (!eventSnap.exists()) { setErrorMsg('Event not found.'); setPageState('error'); return; }
+        const ev = { id: eventSnap.id, ...eventSnap.data() };
+        setEvent(ev);
 
-  const progressValue = (currentStepIndex / (totalStepCount - 1)) * 100;
+        // Ticket count
+        const ticketsSnap = await getDocs(query(
+          collection(db, `tenants/${tenantId}/eventTickets`),
+          where('eventId', '==', eventId),
+          where('status', 'in', ['rsvpd', 'paid', 'checked_in'])
+        ));
+        setTicketCount(ticketsSnap.size);
 
-  const checkDuplicate = async () => {
-    if (!guestEmail.trim() || !firestore) return false;
-    const snap = await getDocs(query(
-      collection(firestore, `tenants/${tenantId}/eventGuests`),
-      where('email', '==', guestEmail.toLowerCase().trim()),
-      where('eventId', '==', eventId)
-    ));
-    if (!snap.empty) {
-      setExistingOrder({ id: snap.docs[0].id, ...snap.docs[0].data() });
-      return true;
-    }
-    return false;
-  };
+        // Invited guest pre-fill
+        if (inviteGuestId) {
+          const guestSnap = await getDoc(doc(db, `tenants/${tenantId}/clients/${inviteGuestId}`));
+          if (guestSnap.exists()) {
+            const g = guestSnap.data();
+            setInvitedGuest(g);
+            setGuest({ name: g.name || '', email: g.email || '', phone: g.phone || '' });
+          }
+        }
 
-  const handleIdentityNext = async () => {
-    if (!guestName.trim()) { toast({ variant: 'destructive', title: 'Please enter your name' }); return; }
-    if (guestEmail.trim() && await checkDuplicate()) { setAlreadyOrdered(true); return; }
-    setStep('course');
-    setCurrentCourseIdx(0);
-  };
+        // Stripe success redirect
+        if (stripeSessionId) {
+          const existingTicket = await getDocs(query(
+            collection(db, `tenants/${tenantId}/eventTickets`),
+            where('stripeSessionId', '==', stripeSessionId)
+          ));
+          if (!existingTicket.empty) {
+            setTicket({ id: existingTicket.docs[0].id, ...existingTicket.docs[0].data() });
+            setPageState('confirmed');
+            return;
+          }
+        }
 
-  const handleCourseNext = () => {
-    const course = courses[currentCourseIdx];
-    if (!course) return;
-    if (!selectedCourseSelections[course.id] && !hasCourses) {
-      toast({ variant: 'destructive', title: 'Please make a selection' }); return;
-    }
-    if (hasCourses && !selectedCourseSelections[course.id]) {
-      toast({ variant: 'destructive', title: `Please select your ${course.name}` }); return;
-    }
-    if (currentCourseIdx < courses.length - 1) {
-      setCurrentCourseIdx(i => i + 1);
-    } else {
-      setStep('allergies');
-    }
-  };
+        // Check event status
+        const evData = ev as any;
+        if (evData.status === 'cancelled') { setErrorMsg('This event has been cancelled.'); setPageState('closed'); return; }
+        if (evData.status === 'closed')    { setErrorMsg('This event is no longer accepting registrations.'); setPageState('closed'); return; }
 
-  const handleMealNext = () => {
-    const anySelected = Object.keys(selectedCourseSelections).length > 0 || menuItems.length === 0;
-    if (!anySelected) { toast({ variant: 'destructive', title: 'Please select your meal' }); return; }
-    setStep('allergies');
-  };
+        const cap = evData.ticketingConfig?.capacity;
+        if (cap && ticketsSnap.size >= cap) { setPageState('sold_out'); return; }
 
-  const handleSubmit = async () => {
-    if (isSubmitting || !firestore) return;
-    setIsSubmitting(true);
-    try {
-      if (event?.orderingDeadline && new Date() > safeDate(event.orderingDeadline)) {
-        toast({ variant: 'destructive', title: 'Orders for this event have closed' }); return;
+        setPageState('event');
+      } catch (e) {
+        console.error(e);
+        setErrorMsg('Something went wrong loading this event.');
+        setPageState('error');
       }
-      // For single-course events, get the single selected meal
-      const singleMealId = !hasCourses ? Object.values(selectedCourseSelections)[0] || null : null;
-      const singleMeal   = menuItems.find((m: any) => m.id === singleMealId);
+    };
+    load();
+  }, [tenantId, eventId, inviteGuestId, stripeSessionId]);
 
-      await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
-        id: nanoid(), eventId, tenantId,
-        name:          guestName.trim(),
-        email:         guestEmail.toLowerCase().trim() || null,
-        phone:         guestPhone.trim() || null,
-        tableNumber:   null,
-        seatNumber:    null,
-        mealChoiceId:  singleMealId,
-        mealChoiceName: singleMeal?.name || null,
-        courseSelections: hasCourses ? selectedCourseSelections : null,
-        allergies:     selectedAllergies,
-        allergyNote:   allergyNote.trim() || null,
-        hasCriticalAllergy: selectedAllergies.some(a => a.severity === 'critical'),
-        guestNote:     guestNote.trim() || null,
-        submittedAt:   new Date().toISOString(),
-        checkedIn: false, source: 'self_register', status: 'submitted',
-      });
-      setStep('done');
+  // ── Validation ──────────────────────────────────────────────────────────
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!guest.name.trim())  e.name  = 'Required';
+    if (!guest.email.trim()) e.email = 'Required';
+    if (guest.email && !/^\S+@\S+\.\S+$/.test(guest.email)) e.email = 'Invalid email';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  // ── Free RSVP submit ────────────────────────────────────────────────────
+  const handleFreeRsvp = async () => {
+    if (!validate()) return;
+    setPageState('processing');
+    try {
+      const db   = getDb();
+      const code = generateTicketCode();
+      const id   = nanoid();
+      const newTicket = {
+        id,
+        eventId,
+        tenantId,
+        guestName:  guest.name.trim(),
+        guestEmail: guest.email.trim().toLowerCase(),
+        guestPhone: guest.phone.trim() || null,
+        guestId:    inviteGuestId || null,
+        type:       'free',
+        status:     'rsvpd',
+        price:      0,
+        amountPaid: 0,
+        ticketCode: code,
+        source:     inviteGuestId ? 'invite_link' : 'public',
+        invitedAt:  null,
+        confirmedAt: new Date().toISOString(),
+        checkedInAt: null,
+        tableNumber: null,
+        seatNumber:  null,
+      };
+      await addDoc(collection(db, `tenants/${tenantId}/eventTickets`), newTicket);
+
+      // ── EMAIL STUB ────────────────────────────────────────────────────────
+      // TODO: Wire up Resend when ready.
+      // Call your API route: POST /api/notifications/ticket-confirmation
+      // Body: { ticket: newTicket, event, tenant, icsAttachment: generateICS(event, newTicket) }
+      // See src/app/api/notifications/ticket-confirmation/route.ts (stub file)
+      // ─────────────────────────────────────────────────────────────────────
+
+      // ── SMS STUB ──────────────────────────────────────────────────────────
+      // TODO: Wire up Twilio when ready.
+      // Call your API route: POST /api/notifications/ticket-sms
+      // Body: { phone: guest.phone, ticketCode: code, eventName: event.name, eventDate: event.date }
+      // See src/app/api/notifications/ticket-sms/route.ts (stub file)
+      // ─────────────────────────────────────────────────────────────────────
+
+      setTicket(newTicket);
+      setPageState('confirmed');
     } catch (e) {
       console.error(e);
-      toast({ variant: 'destructive', title: 'Something went wrong — please try again' });
-    } finally { setIsSubmitting(false); }
+      setErrorMsg('Failed to complete your RSVP. Please try again.');
+      setPageState('form');
+    }
   };
 
-  // ── Loading ────────────────────────────────────────────────────────────────
-  if (!event || !tenant) return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
-      <Loader className="w-6 h-6 animate-spin text-slate-300" />
-    </div>
-  );
+  // ── Paid checkout (Stripe) ──────────────────────────────────────────────
+  const handlePaidCheckout = async () => {
+    if (!validate()) return;
+    setPageState('processing');
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          eventId,
+          guestName:  guest.name.trim(),
+          guestEmail: guest.email.trim().toLowerCase(),
+          guestPhone: guest.phone.trim() || null,
+          guestId:    inviteGuestId || null,
+          price:      ticketConfig.price,
+          eventName:  event.name || event.title,
+          ticketName: ticketConfig.ticketName || 'General Admission',
+          successUrl: `${window.location.href}?session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl:  window.location.href,
+        }),
+      });
+      const { url, error } = await res.json();
+      if (error) throw new Error(error);
+      window.location.href = url;
+    } catch (e: any) {
+      console.error(e);
+      setErrorMsg(e.message || 'Failed to start checkout. Please try again.');
+      setPageState('form');
+    }
+  };
 
-  // ── Already ordered ────────────────────────────────────────────────────────
-  if (alreadyOrdered && existingOrder) return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm space-y-6 text-center">
-        <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-50 border-2 border-amber-200 flex items-center justify-center">
-          <AlertTriangle className="w-7 h-7 text-amber-500" />
-        </div>
-        <div>
-          <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Already Reserved</h2>
-          <p className="text-slate-500 text-sm mt-1">We already have your order, {firstName(existingOrder.name)}.</p>
-        </div>
-        <div className="p-4 rounded-2xl bg-slate-50 border-2 border-slate-200 text-left space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your Selection</p>
-          <p className="font-black text-slate-900">{existingOrder.mealChoiceName || 'Multi-course selection'}</p>
-          {existingOrder.allergies?.length > 0 && (
-            <p className="text-[11px] text-amber-600 font-bold">
-              ⚠ {existingOrder.allergies.map((a: any) => typeof a === 'object' ? a.label : a).join(', ')}
-            </p>
-          )}
-        </div>
-        <p className="text-xs text-slate-400">Need to make a change? Contact your host.</p>
-      </motion.div>
-    </div>
-  );
+  const handleSubmit = isPaid ? handlePaidCheckout : handleFreeRsvp;
 
-  // ── Event closed ──────────────────────────────────────────────────────────
-  if (!isEventOpen && step !== 'done') return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm space-y-4 text-center">
-        <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-50 border-2 border-slate-200 flex items-center justify-center">
-          <Utensils className="w-7 h-7 text-slate-300" />
-        </div>
-        <div>
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">{studioName}</p>
-          <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{eventDisplayName}</h2>
-          <p className="text-slate-500 text-sm mt-2">Pre-orders are now closed.</p>
-          {event.orderingDeadline && (
-            <p className="text-slate-400 text-xs mt-1">
-              Deadline was {format(safeDate(event.orderingDeadline), 'MMM d at h:mm a')}
-            </p>
-          )}
-        </div>
-      </motion.div>
-    </div>
-  );
-
-  // ── Done ──────────────────────────────────────────────────────────────────
-  if (step === 'done') return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-6">
-      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-sm space-y-6 text-center">
-        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
-          transition={{ type: 'spring', damping: 12, stiffness: 120 }}
-          className="w-16 h-16 mx-auto rounded-2xl bg-primary flex items-center justify-center">
-          <Check className="w-8 h-8 text-white" strokeWidth={2.5} />
-        </motion.div>
-        <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{studioName}</p>
-          <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">
-            You're confirmed,<br />{firstName(guestName)}.
-          </h2>
-          <p className="text-slate-500 text-sm">Your reservation for {eventDisplayName} has been received.</p>
-        </div>
-        <div className="p-4 rounded-2xl bg-slate-50 border-2 border-slate-200 text-left space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your Details</p>
-          <p className="font-black text-slate-900">{guestName}</p>
-          {guestEmail && <p className="text-[11px] text-slate-500">{guestEmail}</p>}
-          {selectedAllergies.length > 0 && (
-            <p className="text-[11px] text-amber-600 font-bold">
-              ⚠ {selectedAllergies.map(a => a.label).join(', ')}
-            </p>
-          )}
-        </div>
-        {event.date && (
-          <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">
-            {format(safeDate(event.date), 'EEEE, MMMM d')}
-            {event.time && ` · ${event.time}`}
-          </p>
-        )}
-      </motion.div>
-    </div>
-  );
-
-  // ── Main flow ─────────────────────────────────────────────────────────────
+  // ─── RENDER ───────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen" style={{ background: '#f8fafc' }}>
 
-      {/* ── HEADER ── */}
-      <div className="sticky top-0 z-20 bg-white border-b border-slate-100 px-4 py-3">
-        <div className="max-w-lg mx-auto space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{studioName}</p>
-              <p className="font-black text-sm text-slate-900 uppercase tracking-tight">{eventDisplayName}</p>
-            </div>
-            {guestName && step !== 'identity' && (
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                {firstName(guestName)}
-              </span>
-            )}
-          </div>
-          <ProgressBar value={progressValue} />
-        </div>
-      </div>
-
-      {/* ── CONTENT ── */}
-      <div className="max-w-lg mx-auto px-4 pb-16">
-        <AnimatePresence mode="wait">
-
-          {/* ── IDENTITY ── */}
-          {step === 'identity' && (
-            <motion.div key="identity" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-              className="pt-8 space-y-6">
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Step 1</p>
-                <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">Your details</h1>
-                <p className="text-slate-500 text-sm mt-1">We'll use this to personalise your experience.</p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Name *</label>
-                  <input value={guestName} onChange={e => setGuestName(e.target.value)}
-                    placeholder="Your full name"
-                    className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 text-slate-900 font-bold outline-none focus:border-primary transition-colors placeholder:text-slate-300 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email</label>
-                  <input type="email" value={guestEmail} onChange={e => setGuestEmail(e.target.value)}
-                    placeholder="For your confirmation (optional)"
-                    className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 text-slate-900 font-bold outline-none focus:border-primary transition-colors placeholder:text-slate-300 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone</label>
-                  <input type="tel" value={guestPhone} onChange={e => setGuestPhone(e.target.value)}
-                    placeholder="(555) 000-0000 (optional)"
-                    className="w-full h-12 rounded-xl border-2 border-slate-200 px-4 text-slate-900 font-bold outline-none focus:border-primary transition-colors placeholder:text-slate-300 text-sm" />
-                </div>
-              </div>
-
-              <button onClick={handleIdentityNext}
-                className="w-full h-12 rounded-xl bg-primary text-white font-black uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
-                Continue <ChevronRight className="w-4 h-4" />
-              </button>
+      {/* Hero header */}
+      <div className="relative overflow-hidden" style={{ background: primaryHex, minHeight: 260 }}>
+        <div className="absolute inset-0 pointer-events-none"
+          style={{
+            background: `radial-gradient(ellipse at 30% 50%, rgba(255,255,255,0.12) 0%, transparent 70%),
+                         radial-gradient(ellipse at 80% 20%, rgba(0,0,0,0.15) 0%, transparent 60%)`,
+          }} />
+        <div className="relative z-10 max-w-2xl mx-auto px-6 py-10">
+          {logoUrl && (
+            <img src={logoUrl} alt={tenant?.name} className="h-9 w-auto object-contain mb-6"
+              style={{ filter: isDark ? 'brightness(0) invert(1)' : 'brightness(0)' }} />
+          )}
+          {invitedGuest && (
+            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4"
+              style={{ background: 'rgba(255,255,255,0.15)' }}>
+              <Star className="w-3 h-3" style={{ color: textOn }} />
+              <p className="text-[9px] font-black uppercase tracking-[0.3em]" style={{ color: textOn }}>
+                You've been personally invited
+              </p>
             </motion.div>
           )}
-
-          {/* ── COURSE / MEAL SELECTION ── */}
-          {step === 'course' && (() => {
-            if (hasCourses) {
-              const course = courses[currentCourseIdx];
-              if (!course) return null;
-              const isLast = currentCourseIdx === courses.length - 1;
-              const hasSelection = !!selectedCourseSelections[course.id];
-              return (
-                <motion.div key={`course-${course.id}`} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-                  className="pt-8 space-y-6">
-                  <div>
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
-                      Course {currentCourseIdx + 1} of {courses.length}
-                    </p>
-                    <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">{course.name}</h1>
-                    {course.note && <p className="text-slate-500 text-sm mt-1">{course.note}</p>}
-                  </div>
-                  <div className="space-y-3">
-                    {(course.options || []).map((option: any) => (
-                      <MealOptionCard key={option.id} option={option}
-                        selected={selectedCourseSelections[course.id] === option.id}
-                        onSelect={() => setSelectedCourseSelections(prev => ({ ...prev, [course.id]: option.id }))} />
-                    ))}
-                    {(!course.options || course.options.length === 0) && (
-                      <div className="p-10 text-center border-2 border-dashed border-slate-200 rounded-2xl">
-                        <Utensils className="w-7 h-7 mx-auto mb-2 text-slate-300" />
-                        <p className="text-slate-400 text-sm font-bold">No options for this course yet</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-3">
-                    <button onClick={() => {
-                      if (currentCourseIdx === 0) setStep('identity');
-                      else setCurrentCourseIdx(i => i - 1);
-                    }} className="h-12 px-4 rounded-xl border-2 border-slate-200 text-slate-400 hover:border-slate-300 transition-colors">
-                      <ArrowLeft className="w-4 h-4" />
-                    </button>
-                    <button onClick={handleCourseNext} disabled={!hasSelection}
-                      className="flex-1 h-12 rounded-xl bg-primary text-white font-black uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 disabled:opacity-30 active:scale-[0.98] transition-all">
-                      {isLast ? 'Continue' : `Next: ${courses[currentCourseIdx + 1]?.name || 'Next'}`}
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </motion.div>
-              );
-            }
-
-            // Single meal selection
-            return (
-              <motion.div key="meal" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-                className="pt-8 space-y-6">
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Step 2</p>
-                  <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">Choose your meal</h1>
-                  {event.menuNote && <p className="text-slate-500 text-sm mt-1">{event.menuNote}</p>}
-                </div>
-                <div className="space-y-3">
-                  {menuItems.map((item: any) => (
-                    <MealOptionCard key={item.id} option={item}
-                      selected={selectedCourseSelections['single'] === item.id}
-                      onSelect={() => setSelectedCourseSelections({ single: item.id })} />
-                  ))}
-                  {menuItems.length === 0 && (
-                    <div className="p-10 text-center border-2 border-dashed border-slate-200 rounded-2xl">
-                      <Utensils className="w-7 h-7 mx-auto mb-2 text-slate-300" />
-                      <p className="text-slate-400 text-sm font-bold">Menu not yet configured</p>
+          <AnimatePresence mode="wait">
+            {pageState !== 'loading' && event && (
+              <motion.div key="hero" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+                <h1 className="text-4xl md:text-5xl font-black leading-none tracking-tight" style={{ color: textOn }}>
+                  {event.name || event.title}
+                </h1>
+                <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4">
+                  {event.date && (
+                    <div className="flex items-center gap-2" style={{ color: `${textOn}99` }}>
+                      <Calendar className="w-4 h-4" />
+                      <span className="text-sm font-bold">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</span>
+                    </div>
+                  )}
+                  {event.time && (
+                    <div className="flex items-center gap-2" style={{ color: `${textOn}99` }}>
+                      <Clock className="w-4 h-4" />
+                      <span className="text-sm font-bold">{event.time}{event.endTime && ` – ${event.endTime}`}</span>
+                    </div>
+                  )}
+                  {event.venue && (
+                    <div className="flex items-center gap-2" style={{ color: `${textOn}99` }}>
+                      <MapPin className="w-4 h-4" />
+                      <span className="text-sm font-bold">{event.venue}</span>
+                    </div>
+                  )}
+                  {capacity && (
+                    <div className="flex items-center gap-2" style={{ color: `${textOn}99` }}>
+                      <Users className="w-4 h-4" />
+                      <span className="text-sm font-bold">{Math.max(0, capacity - ticketCount)} spots left</span>
                     </div>
                   )}
                 </div>
-                <div className="flex gap-3">
-                  <button onClick={() => setStep('identity')}
-                    className="h-12 px-4 rounded-xl border-2 border-slate-200 text-slate-400 hover:border-slate-300 transition-colors">
-                    <ArrowLeft className="w-4 h-4" />
-                  </button>
-                  <button onClick={handleMealNext} disabled={!selectedCourseSelections['single']}
-                    className="flex-1 h-12 rounded-xl bg-primary text-white font-black uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 disabled:opacity-30 active:scale-[0.98] transition-all">
-                    Continue <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
               </motion.div>
-            );
-          })()}
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
 
-          {/* ── ALLERGIES ── */}
-          {step === 'allergies' && (
-            <motion.div key="allergies" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-              className="pt-8 space-y-6">
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Almost there</p>
-                <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">Dietary needs?</h1>
-                <p className="text-slate-500 text-sm mt-1">Select all that apply. Our kitchen takes this seriously.</p>
-              </div>
+      {/* Main content */}
+      <div className="max-w-2xl mx-auto px-6 py-10">
+        <AnimatePresence mode="wait">
 
-              {(['critical', 'intolerance', 'preference'] as AllergySeverity[]).map(severity => {
-                const opts = ALLERGY_OPTIONS.filter(o => o.severity === severity);
-                const labels = { critical: 'Allergies', intolerance: 'Intolerances', preference: 'Dietary Preferences' };
-                const colors = { critical: 'text-red-600', intolerance: 'text-amber-600', preference: 'text-emerald-600' };
-                return (
-                  <div key={severity} className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <p className={cn('text-[9px] font-black uppercase tracking-widest', colors[severity])}>
-                        {severity === 'critical' && '⚠ '}{labels[severity]}
-                      </p>
-                      {severity === 'critical' && (
-                        <span className="text-[9px] text-slate-400 font-bold">Kitchen notified immediately</span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {opts.map(opt => (
-                        <AllergyChip key={opt.id} opt={opt}
-                          selected={selectedAllergies.some(a => a.id === opt.id)}
-                          onToggle={() => setSelectedAllergies(prev =>
-                            prev.some(a => a.id === opt.id) ? prev.filter(a => a.id !== opt.id) : [...prev, opt]
-                          )} />
-                      ))}
-                    </div>
+          {/* Loading */}
+          {pageState === 'loading' && (
+            <motion.div key="load" className="flex justify-center py-20">
+              <Loader className="w-8 h-8 animate-spin text-slate-300" />
+            </motion.div>
+          )}
+
+          {/* Event info + CTA */}
+          {pageState === 'event' && event && (
+            <motion.div key="event" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="space-y-6">
+              {event.description && (
+                <div className="bg-white rounded-3xl border-2 border-slate-100 p-6">
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-3">About this event</p>
+                  <p className="text-slate-700 font-medium leading-relaxed">{event.description}</p>
+                </div>
+              )}
+
+              {/* Ticket info card */}
+              <div className="bg-white rounded-3xl border-2 border-slate-100 p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-black text-xl text-slate-900">
+                      {ticketConfig.ticketName || (isPaid ? 'General Admission' : 'Free Event')}
+                    </p>
+                    <p className="text-slate-500 text-sm font-bold mt-0.5">
+                      {isPaid ? `$${ticketConfig.price?.toFixed(2)} per person` : 'Free to attend'}
+                    </p>
                   </div>
-                );
-              })}
+                  <div className="text-right">
+                    <p className="text-3xl font-black" style={{ color: primaryHex }}>
+                      {isPaid ? `$${ticketConfig.price?.toFixed(2)}` : 'Free'}
+                    </p>
+                    {capacity && <p className="text-[9px] font-bold text-slate-400 mt-0.5">{Math.max(0, capacity - ticketCount)} of {capacity} left</p>}
+                  </div>
+                </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Additional notes</label>
-                <textarea value={allergyNote} onChange={e => setAllergyNote(e.target.value)} rows={2}
-                  placeholder="Anything the kitchen should know…"
-                  className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary transition-colors resize-none placeholder:text-slate-300 font-medium" />
-              </div>
-
-              <div className="flex gap-3">
-                <button onClick={() => {
-                  if (hasCourses) { setStep('course'); setCurrentCourseIdx(courses.length - 1); }
-                  else setStep('course');
-                }} className="h-12 px-4 rounded-xl border-2 border-slate-200 text-slate-400 hover:border-slate-300 transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <button onClick={() => setStep('confirm')}
-                  className="flex-1 h-12 rounded-xl bg-primary text-white font-black uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
-                  Review <ChevronRight className="w-4 h-4" />
-                </button>
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setPageState('form')}
+                  className="w-full h-14 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2"
+                  style={{ background: primaryHex, color: textOn }}>
+                  {isPaid ? 'Get Tickets' : 'RSVP Now'} <ChevronRight className="w-4 h-4" />
+                </motion.button>
               </div>
             </motion.div>
           )}
 
-          {/* ── CONFIRM ── */}
-          {step === 'confirm' && (
-            <motion.div key="confirm" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-              className="pt-8 space-y-6">
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Almost done</p>
-                <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">Confirm your reservation</h1>
-              </div>
+          {/* RSVP / checkout form */}
+          {pageState === 'form' && (
+            <motion.div key="form" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="space-y-5">
+              <button onClick={() => setPageState('event')}
+                className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600">
+                <ArrowLeft className="w-3 h-3" /> Back
+              </button>
 
-              {/* Summary */}
-              <div className="rounded-2xl border-2 border-slate-200 overflow-hidden divide-y divide-slate-100">
-                {/* Guest */}
-                <div className="p-4 space-y-0.5">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest</p>
-                  <p className="font-black text-slate-900">{guestName}</p>
-                  {guestEmail && <p className="text-[11px] text-slate-500">{guestEmail}</p>}
+              <div className="bg-white rounded-3xl border-2 border-slate-100 p-6 space-y-5">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">
+                    {isPaid ? 'Checkout' : 'Complete your RSVP'}
+                  </p>
+                  <h2 className="text-2xl font-black text-slate-900">Your details</h2>
                 </div>
 
-                {/* Meal / Courses */}
-                {!hasCourses && selectedCourseSelections['single'] && (
-                  <div className="p-4 space-y-0.5">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal</p>
-                    <p className="font-black text-slate-900">
-                      {menuItems.find((m: any) => m.id === selectedCourseSelections['single'])?.name}
+                {invitedGuest && (
+                  <div className="flex items-center gap-2 p-3 rounded-2xl bg-violet-50 border-2 border-violet-100">
+                    <Star className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                    <p className="text-[9px] font-black uppercase tracking-widest text-violet-700">
+                      Invited guest — details pre-filled
                     </p>
                   </div>
                 )}
-                {hasCourses && (
-                  <div className="p-4 space-y-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your Courses</p>
-                    {courses.map((course: any) => {
-                      const sel = (course.options || []).find((o: any) => o.id === selectedCourseSelections[course.id]);
-                      return (
-                        <div key={course.id} className="flex items-baseline justify-between gap-4">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 shrink-0">{course.name}</p>
-                          <p className="font-bold text-slate-900 text-sm text-right">{sel?.name || <span className="text-slate-300 italic">—</span>}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
 
-                {/* Allergies */}
-                {selectedAllergies.length > 0 && (
-                  <div className="p-4 space-y-1.5">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-amber-500">Dietary Flags</p>
-                    {selectedAllergies.some(a => a.severity === 'critical') && (
-                      <p className="text-[9px] font-black uppercase tracking-widest text-red-500">⚠ Critical — Kitchen will be notified</p>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedAllergies.map(a => (
-                        <span key={a.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase border border-slate-200 bg-slate-50 text-slate-600">
-                          {a.emoji} {a.label}
-                        </span>
-                      ))}
-                    </div>
-                    {allergyNote && <p className="text-[11px] text-slate-400 italic mt-1">{allergyNote}</p>}
-                  </div>
-                )}
-              </div>
-
-              {/* Note to host */}
-              <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Note to host (optional)</label>
-                <textarea value={guestNote} onChange={e => setGuestNote(e.target.value)} rows={2}
-                  placeholder="Anything else we should know?"
-                  className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary transition-colors resize-none placeholder:text-slate-300 font-medium" />
-              </div>
-
-              {/* Consent */}
-              <label className="flex items-start gap-3 cursor-pointer">
-                <div className="mt-0.5 relative shrink-0">
-                  <input type="checkbox" checked={consentGiven} onChange={e => setConsentGiven(e.target.checked)} className="sr-only" />
-                  <div className={cn('w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all',
-                    consentGiven ? 'border-primary bg-primary' : 'border-slate-300 bg-white')}>
-                    {consentGiven && <Check className="w-3 h-3 text-white" />}
-                  </div>
+                {/* Name */}
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Full Name</label>
+                  <input value={guest.name} onChange={e => setGuest(g => ({ ...g, name: e.target.value }))}
+                    placeholder="Your full name"
+                    className="w-full h-12 rounded-2xl border-2 border-slate-100 px-4 text-sm font-bold text-slate-800 outline-none focus:border-slate-300 placeholder:text-slate-300" />
+                  {errors.name && <p className="text-[9px] font-bold text-red-500">{errors.name}</p>}
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  I confirm my dietary information is accurate and understand it will be shared with kitchen staff.
-                </p>
-              </label>
 
-              <div className="flex gap-3">
-                <button onClick={() => setStep('allergies')}
-                  className="h-12 px-4 rounded-xl border-2 border-slate-200 text-slate-400 hover:border-slate-300 transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <button onClick={handleSubmit} disabled={isSubmitting || !consentGiven}
-                  className="flex-1 h-12 rounded-xl bg-primary text-white font-black uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 disabled:opacity-30 active:scale-[0.98] transition-all">
-                  {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : 'Submit Reservation →'}
-                </button>
+                {/* Email */}
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-1.5">
+                    <Mail className="w-3 h-3" /> Email
+                  </label>
+                  <input type="email" value={guest.email} onChange={e => setGuest(g => ({ ...g, email: e.target.value }))}
+                    placeholder="your@email.com"
+                    className="w-full h-12 rounded-2xl border-2 border-slate-100 px-4 text-sm font-bold text-slate-800 outline-none focus:border-slate-300 placeholder:text-slate-300" />
+                  {errors.email && <p className="text-[9px] font-bold text-red-500">{errors.email}</p>}
+                  <p className="text-[8px] font-bold text-slate-400">Your ticket confirmation will be sent here</p>
+                </div>
+
+                {/* Phone */}
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-1.5">
+                    <Phone className="w-3 h-3" /> Phone <span className="text-slate-300">(optional)</span>
+                  </label>
+                  <input type="tel" value={guest.phone} onChange={e => setGuest(g => ({ ...g, phone: e.target.value }))}
+                    placeholder="(555) 000-0000"
+                    className="w-full h-12 rounded-2xl border-2 border-slate-100 px-4 text-sm font-bold text-slate-800 outline-none focus:border-slate-300 placeholder:text-slate-300" />
+                </div>
+
+                {/* Order summary for paid */}
+                {isPaid && (
+                  <div className="p-4 rounded-2xl bg-slate-50 border-2 border-slate-100 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Order Summary</p>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-bold text-slate-600">{ticketConfig.ticketName || 'General Admission'}</span>
+                      <span className="font-black text-slate-800">${ticketConfig.price?.toFixed(2)}</span>
+                    </div>
+                    <div className="border-t border-slate-200 pt-2 flex justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total</span>
+                      <span className="font-black text-slate-900">${ticketConfig.price?.toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {errorMsg && (
+                  <div className="flex items-center gap-2 p-3 rounded-2xl bg-red-50 border-2 border-red-100">
+                    <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                    <p className="text-[10px] font-bold text-red-600">{errorMsg}</p>
+                  </div>
+                )}
+
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleSubmit}
+                  className="w-full h-14 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2"
+                  style={{ background: primaryHex, color: textOn }}>
+                  {isPaid ? 'Proceed to Payment' : 'Confirm RSVP'} <ChevronRight className="w-4 h-4" />
+                </motion.button>
+
+                {isPaid && (
+                  <p className="text-center text-[9px] font-bold text-slate-400">
+                    Secured by Stripe · Your card details are never stored
+                  </p>
+                )}
               </div>
+            </motion.div>
+          )}
+
+          {/* Processing */}
+          {pageState === 'processing' && (
+            <motion.div key="proc" className="flex flex-col items-center justify-center py-20 gap-4">
+              <Loader className="w-8 h-8 animate-spin" style={{ color: primaryHex }} />
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                {isPaid ? 'Redirecting to checkout…' : 'Confirming your RSVP…'}
+              </p>
+            </motion.div>
+          )}
+
+          {/* Confirmed */}
+          {pageState === 'confirmed' && ticket && (
+            <motion.div key="conf" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+              className="space-y-6">
+              <div className="text-center space-y-2">
+                <motion.div
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', damping: 12, stiffness: 140, delay: 0.1 }}
+                  className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center"
+                  style={{ background: `${primaryHex}15`, border: `2px solid ${primaryHex}30` }}>
+                  <Check className="w-8 h-8" style={{ color: primaryHex }} />
+                </motion.div>
+                <h2 className="text-3xl font-black text-slate-900">
+                  {isPaid ? "You're in!" : "RSVP Confirmed!"}
+                </h2>
+                <p className="text-slate-500 font-bold">
+                  {isPaid ? `Payment confirmed · ` : ''}See you there{invitedGuest ? `, ${invitedGuest.name?.split(' ')[0]}` : ''}!
+                </p>
+              </div>
+
+              <TicketCard
+                ticket={ticket}
+                event={event}
+                onDownloadCal={() => downloadICS(event, ticket)}
+              />
+
+              <div className="text-center space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                  A confirmation has been sent to {ticket.guestEmail}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400">
+                  Present your ticket code at the door: <span className="font-black text-slate-700 font-mono">{ticket.ticketCode}</span>
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Sold out */}
+          {pageState === 'sold_out' && (
+            <motion.div key="sold" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="text-center py-16 space-y-4">
+              <div className="w-16 h-16 rounded-2xl mx-auto bg-amber-50 border-2 border-amber-200 flex items-center justify-center">
+                <Ticket className="w-8 h-8 text-amber-400" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900">Sold Out</h2>
+              <p className="text-slate-500 font-bold">This event has reached capacity.</p>
+            </motion.div>
+          )}
+
+          {/* Closed / Error */}
+          {(pageState === 'closed' || pageState === 'error') && (
+            <motion.div key="closed" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="text-center py-16 space-y-4">
+              <div className="w-16 h-16 rounded-2xl mx-auto bg-slate-100 border-2 border-slate-200 flex items-center justify-center">
+                <X className="w-8 h-8 text-slate-400" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900">
+                {pageState === 'error' ? 'Something went wrong' : 'Not Available'}
+              </h2>
+              <p className="text-slate-500 font-bold">{errorMsg}</p>
             </motion.div>
           )}
 
