@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-      privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-  });
+
+// ─── Firebase Admin (lazy init — must be inside handler, not module scope) ───
+function getAdminDb() {
+  const { initializeApp, getApps, cert } = require('firebase-admin/app');
+  const { getFirestore } = require('firebase-admin/firestore');
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert({
+        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+    });
+  }
+  return getFirestore();
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20',
-});
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
+}
 
 export async function GET(req: NextRequest) {
   const code     = req.nextUrl.searchParams.get('code');
@@ -32,6 +37,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // Exchange authorization code for the connected account ID
+    const stripe = getStripe();
     const response = await stripe.oauth.token({
       grant_type: 'authorization_code',
       code,
@@ -44,7 +50,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Save the connected account ID to the tenant doc
-    const db = getFirestore();
+    const db = getAdminDb();
     await db.doc(`tenants/${tenantId}`).update({
       stripeAccountId,
       stripeConnectedAt: new Date().toISOString(),
