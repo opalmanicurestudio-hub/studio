@@ -977,7 +977,7 @@ export default function WalkInPage() {
           </div>
         )}
 
-        {!kioskOpenStatus.open ? (
+        {!kioskOpenStatus.open && !isEventMode ? (
           <div className="flex-1 flex items-center justify-center p-4">
             <ClosedView hours={kioskOpenStatus.hours} logoUrl={logoUrl} tenantName={tenant.name} t={t} />
           </div>
