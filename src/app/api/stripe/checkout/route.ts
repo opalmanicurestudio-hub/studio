@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-      privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-  });
+
+// ─── Firebase Admin (lazy init — must be inside handler, not module scope) ───
+function getAdminDb() {
+  const { initializeApp, getApps, cert } = require('firebase-admin/app');
+  const { getFirestore } = require('firebase-admin/firestore');
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert({
+        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+    });
+  }
+  return getFirestore();
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20',
-});
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get the studio's connected Stripe account
-    const db = getFirestore();
+    const db = getAdminDb();
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
 
     if (!tenantSnap.exists) {
@@ -55,6 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create checkout session on the studio's Stripe account
+    const stripe = getStripe();
     const session = await stripe.checkout.sessions.create(
       {
         payment_method_types: ['card'],
