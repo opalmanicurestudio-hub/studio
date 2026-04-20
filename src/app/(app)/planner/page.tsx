@@ -79,6 +79,25 @@ function PlannerPageContent() {
 
   const events = eventsFromInventory || [];
 
+  // ── Studio events (ticketed events from studioEvents collection) ────────────
+  const studioEventsQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null :
+      query(collection(firestore, `tenants/${tenantId}/studioEvents`),
+        where('status', 'in', ['draft', 'upcoming', 'active', 'completed'])
+      ),
+    [firestore, tenantId]
+  );
+  const { data: studioEventsRaw } = useCollection<any>(studioEventsQ);
+
+  // Filter studio events for the current day and inject them as planner items
+  const studioEventsToday = useMemo(() => {
+    if (!studioEventsRaw) return [];
+    return studioEventsRaw.filter(e => {
+      const d = e.date ? safeDate(e.date) : e.startTime ? safeDate(e.startTime) : null;
+      return d && isSameDay(d, currentDate);
+    });
+  }, [studioEventsRaw, currentDate]);
+
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
@@ -165,6 +184,57 @@ function PlannerPageContent() {
             const def = billDefinitions.find(d => d.id === i.billDefinitionId);
             map.get('business')!.push({ ...i, definition: def, itemType: 'bill' } as any);
         });
+
+        // ── Inject studio events into the Business column ──────────────────
+        studioEventsToday.forEach(se => {
+            // Create a synthetic start time for the event so it renders in the timeline
+            // Use event.time if available, otherwise fall back to event.startTime, otherwise 9am
+            let startTime: string;
+            if (se.startTime) {
+                startTime = typeof se.startTime === 'string' ? se.startTime : safeDate(se.startTime).toISOString();
+            } else if (se.date && se.time) {
+                // se.time might be "7:00 PM" — parse it
+                try {
+                    const d = safeDate(se.date);
+                    const [timePart, meridian] = se.time.split(' ');
+                    const [h, m] = timePart.split(':').map(Number);
+                    let hours = h;
+                    if (meridian?.toUpperCase() === 'PM' && h !== 12) hours += 12;
+                    if (meridian?.toUpperCase() === 'AM' && h === 12) hours = 0;
+                    d.setHours(hours, m || 0, 0, 0);
+                    startTime = d.toISOString();
+                } catch {
+                    const d = safeDate(se.date);
+                    d.setHours(9, 0, 0, 0);
+                    startTime = d.toISOString();
+                }
+            } else {
+                const d = safeDate(se.date || new Date());
+                d.setHours(9, 0, 0, 0);
+                startTime = d.toISOString();
+            }
+
+            // Estimate end time — use event.endTime or duration, default 3 hours
+            let endTime: string;
+            if (se.endTime) {
+                endTime = typeof se.endTime === 'string' ? se.endTime : safeDate(se.endTime).toISOString();
+            } else {
+                endTime = addMinutes(safeDate(startTime), (se.durationMinutes || 180)).toISOString();
+            }
+
+            map.get('business')!.push({
+                ...se,
+                itemType:    'studio_event',
+                startTime,
+                endTime,
+                // DayTimeline expects these fields
+                id:          se.id,
+                title:       se.title || se.name || 'Event',
+                status:      se.status,
+                guestCount:  se.guestCount || 0,
+                isStudioEvent: true,
+            } as any);
+        });
     }
 
     events?.filter(e => isSameDay(safeDate(e.startTime), targetDateStart)).forEach(e => {
@@ -184,7 +254,7 @@ function PlannerPageContent() {
 
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events]);
+  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events, studioEventsToday]);
 
   const kpis = useMemo(() => {
     if (!transactions || !appointments || !services || !selectedTenant) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
@@ -445,6 +515,37 @@ function PlannerPageContent() {
             </div>
           </div>
 
+          {/* Studio events today — show as a banner strip above the date controls */}
+          {studioEventsToday.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
+              {studioEventsToday.map(se => (
+                <button
+                  key={se.id}
+                  onClick={() => router.push(`/events/${se.id}/manifest`)}
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-2 rounded-xl border-2 whitespace-nowrap shrink-0 transition-all hover:scale-105',
+                    se.status === 'active'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : se.status === 'completed'
+                        ? 'bg-slate-100 border-slate-200 text-slate-500'
+                        : 'bg-violet-50 border-violet-200 text-violet-800'
+                  )}
+                >
+                  {se.status === 'active' && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />}
+                  <span className="text-[10px] font-black uppercase tracking-widest">
+                    {se.title || se.name}
+                  </span>
+                  {se.status === 'active' && (
+                    <span className="text-[9px] font-black uppercase tracking-widest opacity-60">Live →</span>
+                  )}
+                  {se.status !== 'active' && se.time && (
+                    <span className="text-[9px] font-bold opacity-60">{se.time}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
             <div className="flex items-center gap-2 sm:gap-3 p-1 sm:py-1 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide justify-between sm:justify-start">
               <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0" onClick={() => setCurrentDate(subDays(currentDate, 1))}><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
@@ -465,12 +566,22 @@ function PlannerPageContent() {
 
           <ScrollArea className="w-full">
             <div className="flex w-full gap-1.5 sm:gap-2 px-1 pb-2">
-              {weekDays.map(day => (
-                <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-2 min-w-[48px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-2 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
-                  <p className={cn("text-[8px] sm:text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
-                  <p className={cn("text-base sm:text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
-                </button>
-              ))}
+              {weekDays.map(day => {
+                const hasStudioEvent = studioEventsRaw?.some(se => {
+                  const d = se.date ? safeDate(se.date) : se.startTime ? safeDate(se.startTime) : null;
+                  return d && isSameDay(d, day);
+                });
+                return (
+                  <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-2 min-w-[48px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-2 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
+                    <p className={cn("text-[8px] sm:text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
+                    <p className={cn("text-base sm:text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
+                    {/* Dot indicator for days with studio events */}
+                    {hasStudioEvent && (
+                      <span className={cn('w-1.5 h-1.5 rounded-full', isSameDay(day, currentDate) ? 'bg-white/60' : 'bg-violet-400')} />
+                    )}
+                  </button>
+                );
+              })}
             </div>
             <ScrollBar orientation="horizontal" className="hidden" />
           </ScrollArea>
