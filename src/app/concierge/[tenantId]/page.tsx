@@ -256,6 +256,7 @@ function ConciergeKioskContent() {
     const [identifiedClient, setIdentifiedClient] = useState<Client | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
     const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
+    const isSubmittingRef = useRef(false);
     
     // Delivery Details
     const [seatNumber, setSeatNumber] = useState(seatParam || '');
@@ -365,7 +366,8 @@ function ConciergeKioskContent() {
     };
 
     const finalizeRequest = async (item: InventoryItem, qty: number) => {
-        if (!firestore || !tenant) return;
+        if (isSubmittingRef.current || !firestore || !tenant) return;
+        isSubmittingRef.current = true;
         setIsVerifying(true);
         try {
             const requestId = nanoid();
@@ -417,6 +419,7 @@ function ConciergeKioskContent() {
         } catch (e) {
             toast({ variant: 'destructive', title: "Request Failed" });
         } finally {
+            isSubmittingRef.current = false;
             setIsVerifying(false);
         }
     };

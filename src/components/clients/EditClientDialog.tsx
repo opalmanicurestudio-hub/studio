@@ -40,19 +40,20 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { 
-  ShieldAlert, 
-  AlertTriangle, 
-  Ear, 
-  Upload, 
-  UserPlus, 
-  Gift, 
-  Home, 
-  Trash2, 
-  X as XIcon, 
-  Sparkles, 
-  Check, 
-  User, 
+import {
+  ShieldAlert,
+  AlertTriangle,
+  Ear,
+  Upload,
+  UserPlus,
+  Gift,
+  Home,
+  Trash2,
+  X as XIcon,
+  Sparkles,
+  Check,
+  CheckCircle2,
+  User,
   Heart,
   FileText,
   Clock,
@@ -62,6 +63,7 @@ import {
   Lock,
   Ban
 } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Client } from '@/lib/data';
 import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';

@@ -217,9 +217,8 @@ function EventGuestOrderPageInner() {
   const checkDuplicate = async (): Promise<boolean> => {
     if (!guestEmail.trim() || !firestore) return false;
     const snap = await getDocs(query(
-      collection(firestore, `tenants/${tenantId}/eventGuests`),
-      where('email', '==', guestEmail.toLowerCase().trim()),
-      where('eventId', '==', eventId)
+      collection(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`),
+      where('email', '==', guestEmail.toLowerCase().trim())
     ));
     if (!snap.empty) {
       setExistingOrder({ id: snap.docs[0].id, ...snap.docs[0].data() });
@@ -249,8 +248,8 @@ function EventGuestOrderPageInner() {
         return;
       }
 
-      let mealChoiceId: string | null = null;
-      let mealChoiceName: string | null = null;
+      let mealId: string | null = null;
+      let mealName: string | null = null;
 
       if (hasCourses) {
         const missing = courses.filter((c: any) => !selectedCourseSelections[c.id]);
@@ -259,26 +258,26 @@ function EventGuestOrderPageInner() {
           return;
         }
         const firstCourse = courses[0];
-        mealChoiceId = selectedCourseSelections[firstCourse?.id] || null;
-        const firstItem = mealChoiceId ? menuItems.find(m => m.id === mealChoiceId) : null;
-        mealChoiceName = firstItem?.name || null;
+        mealId = selectedCourseSelections[firstCourse?.id] || null;
+        const firstItem = mealId ? menuItems.find(m => m.id === mealId) : null;
+        mealName = firstItem?.name || null;
       } else {
         if (!selectedMealId) { setSubmitError('Please select your meal.'); return; }
-        mealChoiceId = selectedMealId;
-        mealChoiceName = menuItems.find(m => m.id === mealChoiceId)?.name || null;
+        mealId = selectedMealId;
+        mealName = menuItems.find(m => m.id === mealId)?.name || null;
       }
 
-      await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
+      await addDoc(collection(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`), {
         id: nanoid(),
         eventId,
         tenantId,
-        name: guestName.trim(),
+        guestName: guestName.trim(),
         email: guestEmail.toLowerCase().trim() || null,
         phone: guestPhone.trim() || null,
         tableNumber: tableNumber.trim(),
         seatNumber: seatNumber.trim() || null,
-        mealChoiceId,
-        mealChoiceName,
+        mealId,
+        mealName,
         courseSelections: hasCourses ? selectedCourseSelections : null,
         allergies: selectedAllergies,
         allergyNote: allergyNote.trim() || null,
@@ -323,7 +322,7 @@ function EventGuestOrderPageInner() {
           </div>
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left space-y-2">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Your Selection</p>
-            <p className="font-black text-slate-900">{existingOrder.mealChoiceName || 'Multi-course selection'}</p>
+            <p className="font-black text-slate-900">{existingOrder.mealName || 'Multi-course selection'}</p>
             {existingOrder.allergies?.length > 0 && (
               <p className="text-xs text-amber-600">
                 ⚠ {existingOrder.allergies.map((a: any) => typeof a === 'object' ? a.label : a).join(', ')}
@@ -340,7 +339,7 @@ function EventGuestOrderPageInner() {
                 if (!firestore || !existingOrder) return;
                 const confirmed = window.confirm('Cancel your order for this event? This cannot be undone.');
                 if (!confirmed) return;
-                await deleteDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, existingOrder.id));
+                await deleteDoc(doc(firestore, `tenants/${tenantId}/events/${eventId}/guestOrders`, existingOrder.id));
                 setAlreadyOrdered(false);
                 setExistingOrder(null);
               }}

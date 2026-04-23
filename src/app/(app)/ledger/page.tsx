@@ -1104,6 +1104,12 @@ const LedgerPage = () => {
         });
     }
 
+    // Mark the original transaction as refunded so the ledger shows a linked reversal
+    batch.update(
+        doc(firestore, `tenants/${tenantId}/transactions`, transactionToRefund.id),
+        { refundedAt: now, refundTransactionId: txnRef.id }
+    );
+
     try {
         await batch.commit();
         toast({ title: "Refund Authorized", description: `Record reversal of $${refundTotal.toFixed(2)} synchronized.` });

@@ -10,25 +10,28 @@ import { doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { type Quote as QuoteType, type Service, type Staff } from '@/lib/data';
-import { 
-    ArrowLeft, 
-    Edit, 
-    Eye, 
-    Save, 
-    Send, 
-    Loader, 
-    Sparkles, 
-    Calculator, 
-    Activity, 
-    Truck, 
-    Shield, 
+import {
+    ArrowLeft,
+    Edit,
+    Eye,
+    Save,
+    Send,
+    Loader,
+    Sparkles,
+    Calculator,
+    Activity,
+    Truck,
+    Shield,
     DollarSign,
     Users,
     CheckCircle2,
     X,
     Plus,
-    Trash2
+    Trash2,
+    Calendar as CalendarIcon
 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
