@@ -1015,7 +1015,7 @@ export default function InventoryPage() {
         let currentStock = safeNumber(product.totalStock);
         const sizePerContainer = safeNumber(product.size);
 
-        currentSize -= data.quantity;
+        currentSize -= quantity;
         while (currentSize <= 0 && currentStock > 0) {
             currentStock -= 1;
             currentSize += sizePerContainer;

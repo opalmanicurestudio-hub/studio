@@ -486,7 +486,9 @@ export const EditStaffDialog: React.FC<any> = ({
         ...staffMember,
         ...data,
         specialties: typeof data.specialties === 'string' ? data.specialties.split(',').map(s => s.trim()).filter(s => s) : data.specialties,
-        compliance: data.compliance?.licenseExpiry ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() } : undefined,
+        compliance: (data.compliance?.licenseExpiry || data.compliance?.licenseNumber)
+            ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry?.toISOString() }
+            : undefined,
     };
     onSave(staffDataToSave);
     onOpenChange(false);

@@ -18,7 +18,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { ArrowLeft, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, ArrowRight, Clock, ShieldCheck, Tag, Building, FileText } from 'lucide-react';
+import { ArrowLeft, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, ArrowRight, Clock, ShieldCheck, Tag, Building, FileText, Check } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

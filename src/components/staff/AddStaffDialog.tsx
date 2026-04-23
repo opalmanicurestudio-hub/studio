@@ -464,7 +464,11 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
 
   const handleNext = async (e: any) => {
     e.preventDefault();
-    const valid = await methods.trigger(step === 1 ? ['name', 'email', 'role', 'pin'] : []);
+    const valid = await methods.trigger(
+      step === 1 ? ['name', 'email', 'role', 'pin'] :
+      step === 2 ? ['services'] :
+      ['payStructure', 'payoutFrequency', 'commissionRate']
+    );
     if (valid) setStep(step + 1);
   };
   const handleBack = (e: any) => { e.preventDefault(); setStep(step - 1); };
