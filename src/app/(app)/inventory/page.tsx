@@ -89,6 +89,8 @@ import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
+import { OrderCard } from '@/components/inventory/OrdersTab';
+import ViewOrEditOrderDialog from '@/components/inventory/ViewOrEditOrderDialog';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { ImageUpload } from '@/components/shared/ImageUpload';

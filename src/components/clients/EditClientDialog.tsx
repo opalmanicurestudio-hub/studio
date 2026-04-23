@@ -72,6 +72,7 @@ import { z } from 'zod';
 import { ImageUpload } from '../shared/ImageUpload';
 import { format, parseISO } from 'date-fns';
 import { PhoneInput } from '../ui/phone-input';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 

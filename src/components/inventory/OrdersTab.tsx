@@ -17,7 +17,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 
-const OrderCard = ({ order }: { order: Order }) => {
+export const OrderCard = ({ order, onSelect, onTrack, onReceive }: {
+    order: Order;
+    onSelect?: (order: Order) => void;
+    onTrack?: (e: React.MouseEvent, url?: string) => void;
+    onReceive?: (order: Order) => void;
+}) => {
     const getStatusVariant = (status: Order['status']) => {
         switch (status) {
             case 'Placed': return { icon: <Clock className="h-3 w-3" />, className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' };
