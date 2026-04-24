@@ -15,7 +15,6 @@ import {
     getFirestore, doc, getDoc, collection, addDoc, getDocs,
     query, where,
 } from 'firebase/firestore';
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
 import {
@@ -42,11 +41,6 @@ const getDb = () => {
         });
     }
     return getFirestore();
-};
-
-const getStorageInstance = () => {
-    getDb(); // ensure app initialized
-    return getStorage();
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -220,30 +214,46 @@ const FieldTextarea = ({ error, ...props }: React.TextareaHTMLAttributes<HTMLTex
 );
 
 // ─── Image uploader ───────────────────────────────────────────────────────────
+// FIX: Uses /api/inquiry/upload-image server route instead of direct Storage
+// so unauthenticated clients can upload without hitting Storage security rules.
 const ImageUploader = ({ tenantId, onUploaded }: { tenantId: string; onUploaded: (urls: string[]) => void }) => {
-    const [uploading, setUploading] = useState(false);
-    const [uploaded, setUploaded] = useState<string[]>([]);
+    const [uploading,   setUploading]   = useState(false);
+    const [uploaded,    setUploaded]    = useState<string[]>([]);
+    const [uploadError, setUploadError] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFiles = async (files: FileList | null) => {
         if (!files || files.length === 0) return;
         setUploading(true);
+        setUploadError('');
+        const urls: string[] = [];
         try {
-            const storage = getStorageInstance();
-            const urls: string[] = [];
             for (const file of Array.from(files)) {
                 if (!file.type.startsWith('image/')) continue;
-                const path = `tenants/${tenantId}/inquiryInspo/${nanoid()}_${file.name}`;
-                const sRef = storageRef(storage, path);
-                await uploadBytes(sRef, file);
-                const url = await getDownloadURL(sRef);
-                urls.push(url);
+                if (file.size > 10 * 1024 * 1024) {
+                    setUploadError(`${file.name} is too large (max 10MB)`);
+                    continue;
+                }
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('tenantId', tenantId);
+                const res = await fetch('/api/inquiry/upload-image', { method: 'POST', body: fd });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    setUploadError(err.error || 'Upload failed — please try again');
+                    continue;
+                }
+                const { url } = await res.json();
+                if (url) urls.push(url);
             }
-            const newUploaded = [...uploaded, ...urls];
-            setUploaded(newUploaded);
-            onUploaded(newUploaded);
+            if (urls.length > 0) {
+                const newUploaded = [...uploaded, ...urls];
+                setUploaded(newUploaded);
+                onUploaded(newUploaded);
+            }
         } catch (e) {
             console.error('Upload error:', e);
+            setUploadError('Upload failed — please try again');
         } finally {
             setUploading(false);
         }
@@ -280,8 +290,11 @@ const ImageUploader = ({ tenantId, onUploaded }: { tenantId: string; onUploaded:
                     <div className="flex flex-col items-center gap-2">
                         <Upload className="w-6 h-6 text-slate-300" />
                         <p className="text-xs font-bold text-slate-500">Tap to upload or drag & drop</p>
-                        <p className="text-[9px] font-bold text-slate-300 uppercase">PNG, JPG, WEBP — multiple allowed</p>
+                        <p className="text-[9px] font-bold text-slate-300 uppercase">PNG, JPG, WEBP up to 10MB — multiple allowed</p>
                     </div>
+                )}
+                {uploadError && (
+                    <p className="text-[10px] font-bold text-red-500 mt-2">{uploadError}</p>
                 )}
             </div>
             {uploaded.length > 0 && (
