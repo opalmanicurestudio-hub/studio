@@ -20,23 +20,20 @@ import {
     useFirebase, useCollection, useMemoFirebase,
     addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking,
 } from '@/firebase';
-import { collection, doc, getDocs, writeBatch, query, where, orderBy } from 'firebase/firestore';
+import { collection, doc, getDocs } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { format, parseISO, formatDistanceToNow, addDays, isPast } from 'date-fns';
-import { nanoid } from 'nanoid';
 import {
     PlusCircle, Search, FileText, Copy, Trash2, Send,
-    CheckCircle2, XCircle, Clock, DollarSign, Calendar, MapPin,
-    MoreHorizontal, Users, Loader, LinkIcon, ExternalLink, Inbox,
-    TrendingUp, AlertTriangle, RefreshCw, Eye, Bell, Star,
-    BarChart2, Percent, ArrowUpRight, Filter, Lock, MessageSquare,
-    ChevronDown, ChevronUp, Phone, Mail, Flag,
+    CheckCircle2, XCircle, Clock, DollarSign, Calendar,
+    MoreHorizontal, Loader, LinkIcon, ExternalLink,
+    RefreshCw, Eye, Flag, Phone, Mail,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem,
     DropdownMenuSeparator, DropdownMenuTrigger,
@@ -46,7 +43,7 @@ import {
     DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import {
-    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialog, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
@@ -54,7 +51,6 @@ import {
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -673,6 +669,13 @@ export default function QuotesPage() {
         setSelectedQuote(quote);
         setSheetOpen(true);
     };
+
+    // Guard: don't render until firestore + tenant ready
+    if (!tenantId) return (
+        <div className="flex h-screen items-center justify-center">
+            <Loader className="animate-spin h-8 w-8 text-primary" />
+        </div>
+    );
 
     return (
         <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
