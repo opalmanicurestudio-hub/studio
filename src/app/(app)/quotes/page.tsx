@@ -1,326 +1,436 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { AppHeader } from '@/components/shared/AppHeader';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { useParams } from 'next/navigation';
+import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { doc, collection, getDocs, query, where } from 'firebase/firestore';
+import { type Quote as QuoteType, type Tenant, type Client } from '@/lib/data';
 import { 
-    PlusCircle, 
-    Megaphone, 
-    Mail, 
-    MessageSquare, 
-    Users, 
-    Star, 
-    UserPlus, 
-    Clock, 
-    MoreHorizontal, 
-    Send, 
-    Trash2, 
-    Eye, 
-    TrendingUp, 
-    DollarSign as DollarSignIcon, 
-    FlaskConical, 
-    Gift, 
-    Loader,
-    Sparkles,
-    CheckCircle2,
-    CheckCircle,
-    Activity,
-    ChevronRight,
-    Search,
+    ShieldCheck, 
+    Calendar, 
+    MapPin, 
+    ArrowRight, 
+    CheckCircle2, 
+    XCircle, 
+    Loader, 
+    CreditCard, 
+    Lock, 
+    Sparkles, 
+    Landmark,
+    DollarSign,
     Percent,
-    FileText,
-    ShieldCheck
+    Users,
+    TrendingUp,
+    AlertTriangle,
+    ChevronDown,
+    ChevronUp,
 } from 'lucide-react';
-import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
-import { useTenant } from '@/context/TenantContext';
-import { type Campaign, type Quote as QuoteType } from '@/lib/data';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
 import { format, parseISO } from 'date-fns';
-import Link from 'next/link';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { cn, safeNumber } from '@/lib/utils';
-import { useInventory } from '@/context/InventoryContext';
-import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
-const AudienceIcon = ({ audience }: { audience: Campaign['targetAudience'] }) => {
-    switch (audience) {
-        case 'all': return <Users className="w-3.5 h-3.5" />;
-        case 'new': return <UserPlus className="w-3.5 h-3.5" />;
-        case 'loyal': return <Star className="w-3.5 h-3.5" />;
-        case 'inactive_90': return <Clock className="w-3.5 h-3.5" />;
-        case 'specific': return <Users className="w-3.5 h-3.5" />;
-        case 'birthday': return <Gift className="w-3.5 h-3.5" />;
-        default: return null;
-    }
-}
+const ViewContainer = ({ children }: { children: React.ReactNode }) => (
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 flex flex-col items-center justify-center p-4 py-20">
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/20 blur-[120px] rounded-full" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-200/20 blur-[120px] rounded-full" />
+        </div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative z-10 w-full max-w-3xl">
+            {children}
+        </motion.div>
+    </div>
+);
 
-const audienceText: Record<Campaign['targetAudience'], string> = {
-    all: 'ALL GUESTS',
-    new: 'NEW GUESTS',
-    loyal: 'LOYAL GUESTS',
-    inactive_90: 'INACTIVE (90D)',
-    specific: 'SPECIFIC GROUP',
-    birthday: 'BIRTHDAY MONTH',
+// ─── Event Cost Breakdown Panel ───────────────────────────────────────────────
+const EventCostBreakdown = ({ quote }: { quote: QuoteType }) => {
+    const [expanded, setExpanded] = useState(false);
+
+    const costs = useMemo(() => {
+        const items = quote.eventCosts || [];
+        const staffCost = items.filter(c => c.category === 'staff').reduce((a, c) => a + c.amount, 0);
+        const venueCost = items.filter(c => c.category === 'venue').reduce((a, c) => a + c.amount, 0);
+        const foodCost = items.filter(c => c.category === 'food').reduce((a, c) => a + c.amount, 0);
+        const transportCost = items.filter(c => c.category === 'transport').reduce((a, c) => a + c.amount, 0);
+        const otherCost = items.filter(c => !['staff','venue','food','transport'].includes(c.category)).reduce((a, c) => a + c.amount, 0);
+        const totalCosts = staffCost + venueCost + foodCost + transportCost + otherCost;
+
+        const servicesSubtotal = quote.lineItems.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0);
+        const projectFeeAmount = servicesSubtotal * ((quote.projectFee || 0) / 100);
+        const revenue = servicesSubtotal + (quote.travelExpenses || 0) + projectFeeAmount;
+        const profit = revenue - totalCosts;
+        const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+        const breakeven = totalCosts;
+        const guestCount = quote.estimatedGuests || 1;
+        const breakevenPerPerson = breakeven / guestCount;
+        const profitPerPerson = profit / guestCount;
+
+        return { staffCost, venueCost, foodCost, transportCost, otherCost, totalCosts, revenue, profit, margin, breakeven, breakevenPerPerson, profitPerPerson, items };
+    }, [quote]);
+
+    if (!quote.eventCosts?.length && !quote.estimatedGuests) return null;
+
+    return (
+        <div className="rounded-[2rem] border-2 border-primary/10 overflow-hidden">
+            <button
+                className="w-full p-6 flex items-center justify-between bg-primary/[0.03] hover:bg-primary/[0.06] transition-colors"
+                onClick={() => setExpanded(e => !e)}
+            >
+                <div className="flex items-center gap-3 text-left">
+                    <div className="p-2 bg-primary/10 rounded-xl"><TrendingUp className="w-4 h-4 text-primary" /></div>
+                    <div>
+                        <p className="font-black text-sm uppercase tracking-tight text-slate-900">Event Economics</p>
+                        <p className="text-[10px] font-bold text-primary/60 uppercase tracking-widest">Breakeven & profitability analysis</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3">
+                    <span className={cn("text-sm font-black font-mono", costs.profit >= 0 ? "text-green-600" : "text-destructive")}>
+                        {costs.profit >= 0 ? '+' : ''}{costs.profit.toFixed(2)}
+                    </span>
+                    {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                </div>
+            </button>
+
+            <AnimatePresence>
+                {expanded && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden"
+                    >
+                        <div className="p-6 space-y-6 bg-white">
+                            {/* Cost breakdown */}
+                            {costs.items.length > 0 && (
+                                <div className="space-y-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cost Breakdown</p>
+                                    <div className="space-y-2">
+                                        {costs.items.map((item, i) => (
+                                            <div key={i} className="flex justify-between items-center py-2 border-b border-dashed border-border/40 last:border-0">
+                                                <div className="text-left">
+                                                    <p className="font-bold text-sm text-slate-800">{item.label}</p>
+                                                    <p className="text-[10px] uppercase font-bold text-muted-foreground opacity-60">{item.category}</p>
+                                                </div>
+                                                <p className="font-black font-mono text-sm text-destructive">-${item.amount.toFixed(2)}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="flex justify-between items-center pt-2 border-t-2 border-dashed">
+                                        <p className="font-black uppercase text-xs text-slate-700">Total Costs</p>
+                                        <p className="font-black font-mono text-destructive">-${costs.totalCosts.toFixed(2)}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* P&L summary */}
+                            <div className="p-5 rounded-2xl bg-slate-900 text-white space-y-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">P&L Summary</p>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="font-bold opacity-60">Revenue</span>
+                                        <span className="font-black font-mono text-green-400">+${costs.revenue.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="font-bold opacity-60">Total Costs</span>
+                                        <span className="font-black font-mono text-red-400">-${costs.totalCosts.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between pt-2 border-t border-white/10">
+                                        <span className="font-black uppercase text-[11px] tracking-widest">Net Profit</span>
+                                        <span className={cn("font-black font-mono text-lg", costs.profit >= 0 ? "text-green-400" : "text-red-400")}>
+                                            {costs.profit >= 0 ? '+' : ''}${costs.profit.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="font-bold opacity-60 text-[11px]">Margin</span>
+                                        <span className="font-black font-mono text-[11px] opacity-80">{costs.margin.toFixed(1)}%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Per-person stats */}
+                            {quote.estimatedGuests && quote.estimatedGuests > 0 && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-100 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-widest text-amber-600 mb-1">Breakeven/Person</p>
+                                        <p className="text-2xl font-black font-mono text-amber-700">${costs.breakevenPerPerson.toFixed(2)}</p>
+                                        <p className="text-[8px] font-bold text-amber-500 mt-1">{quote.estimatedGuests} guests</p>
+                                    </div>
+                                    <div className={cn("p-4 rounded-2xl border-2 text-center", costs.profitPerPerson >= 0 ? "bg-green-50 border-green-100" : "bg-red-50 border-red-100")}>
+                                        <p className={cn("text-[9px] font-black uppercase tracking-widest mb-1", costs.profitPerPerson >= 0 ? "text-green-600" : "text-red-600")}>Profit/Person</p>
+                                        <p className={cn("text-2xl font-black font-mono", costs.profitPerPerson >= 0 ? "text-green-700" : "text-red-700")}>
+                                            {costs.profitPerPerson >= 0 ? '+' : ''}${costs.profitPerPerson.toFixed(2)}
+                                        </p>
+                                        <p className={cn("text-[8px] font-bold mt-1", costs.profitPerPerson >= 0 ? "text-green-500" : "text-red-500")}>per ticket</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {costs.profit < 0 && (
+                                <div className="flex items-start gap-3 p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10">
+                                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                                    <p className="text-[11px] font-bold text-destructive leading-relaxed">
+                                        This event is currently projected at a loss of ${Math.abs(costs.profit).toFixed(2)}. 
+                                        Consider adjusting pricing or reducing costs before accepting.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
 };
 
-const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
-    <Card className="border-2 shadow-sm min-w-0 text-left">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
-                {title}
-            </CardTitle>
-            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
-        </CardHeader>
-        <CardContent>
-            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
-                {value}
-            </div>
-            <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40">{description}</p>
-        </CardContent>
-    </Card>
-);
+export default function PublicQuotePage() {
+    // ─── FIX: tenantId now comes from route params, NOT hardcoded ───────────
+    const { id, tenantId } = useParams() as { id: string; tenantId?: string };
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
 
-const QuoteCard = ({ quote, onBookEvent, onDelete }: { quote: QuoteType, onBookEvent: (quote: QuoteType) => void, onDelete: (id: string) => void }) => (
-    <Card className="border-2 shadow-sm rounded-[1.5rem] overflow-hidden group">
-        <CardContent className="p-5 space-y-4">
-            <div className="flex justify-between items-start gap-4">
-                <div className="flex-1 min-w-0 text-left">
-                    <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{quote.eventName}</p>
-                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">Status: {quote.status}</p>
-                </div>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-2 rounded-lg"><MoreHorizontal className="h-4 w-4" /></Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
-                        <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest">
-                            <Link href={`/quotes/${quote.id}`}>
-                                <Eye className="mr-2 h-3.5 w-3.5 opacity-40"/>
-                                View Details
-                            </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'} className="font-bold text-[10px] uppercase text-primary">
-                            <CheckCircle className="mr-2 h-3.5 w-3.5 opacity-40"/>
-                            <span>Finalize & Book</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase" onClick={() => onDelete(quote.id)}>
-                            <Trash2 className="mr-2 h-3.5 w-3.5 opacity-40"/>
-                            Terminate
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-3 pt-2">
-                <div className="p-3 rounded-xl bg-muted/20 border shadow-inner">
-                    <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40 mb-0.5">Value</p>
-                    <p className="font-black font-mono text-sm">${(quote.lineItems.reduce((acc, i) => acc + (safeNumber(i.price) * safeNumber(i.quantity)), 0) + safeNumber(quote.travelExpenses)).toFixed(0)}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner">
-                    <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Retainer</p>
-                    <p className="font-black font-mono text-sm text-primary">${safeNumber(quote.depositAmount).toFixed(0)}</p>
-                </div>
-            </div>
-        </CardContent>
-    </Card>
-);
+    // Support two route shapes:
+    //   /quote/[tenantId]/[id]  (preferred — tenantId in path)
+    //   /quote/[id]             (legacy — tenantId stored on the quote doc itself)
+    const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(tenantId || null);
+    const [tenantLookupDone, setTenantLookupDone] = useState(!!tenantId);
 
-export default function QuotesPage() {
-  const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
-  const { toast } = useToast();
-  const router = useRouter();
-  const [quoteToDeleteId, setQuoteToDeleteId] = useState<string | null>(null);
-
-  const quotesQuery = useMemoFirebase(() => 
-    firestore && selectedTenant
-      ? collection(firestore, 'tenants', selectedTenant.id, 'quotes')
-      : null
-  , [firestore, selectedTenant]);
-
-  const { data: quotes, isLoading } = useCollection<QuoteType>(quotesQuery);
-
-  const handleDeleteClick = (id: string) => {
-    setQuoteToDeleteId(id);
-  };
-
-  const confirmDelete = () => {
-    if (!quoteToDeleteId || !firestore || !selectedTenant) return;
-    const quoteRef = doc(firestore, 'tenants', selectedTenant.id, 'quotes', quoteToDeleteId);
-    deleteDocumentNonBlocking(quoteRef);
-    toast({ title: "Proposal Terminated" });
-    setQuoteToDeleteId(null);
-  };
-  
-  const sortedQuotes = useMemo(() => {
-    if (!quotes) return [];
-    return [...quotes].sort((a,b) => {
-        const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bDate - aDate;
-    })
-  }, [quotes]);
-
-  const kpiData = useMemo(() => {
-    if (!quotes) return { totalQuotes: 0, totalAccepted: 0, totalValue: 0, conversionRate: 0 };
+    // If tenantId is not in the route, look it up from the quote's tenantId field
+    // via a collectionGroup query (or just try a known tenant — but that's fragile).
+    // Better: store tenantId on the quote and read it from the doc once found.
+    // We'll do a two-step: first load from a public quotes collectionGroup.
+    React.useEffect(() => {
+        if (tenantId || !firestore || !id) return;
+        // Try collectionGroup lookup
+        const doLookup = async () => {
+            try {
+                const snap = await getDocs(
+                    query(collection(firestore, 'quotes'), where('__name__', '>=', id), where('__name__', '<=', id + '\uf8ff'))
+                );
+                // collectionGroup approach
+                if (!snap.empty) {
+                    const path = snap.docs[0].ref.path; // tenants/{tenantId}/quotes/{id}
+                    const parts = path.split('/');
+                    if (parts.length >= 2) setResolvedTenantId(parts[1]);
+                }
+            } catch {
+                // collectionGroup failed — quote won't load, show error gracefully
+            }
+            setTenantLookupDone(true);
+        };
+        doLookup();
+    }, [tenantId, firestore, id]);
     
-    const acceptedQuotes = quotes.filter(q => q.status === 'accepted' || q.status === 'booked');
-    const totalValue = acceptedQuotes.reduce((sum, q) => {
-        const itemsTotal = q.lineItems.reduce((acc, i) => acc + (safeNumber(i.price) * safeNumber(i.quantity)), 0);
-        return sum + itemsTotal + safeNumber(q.travelExpenses);
-    }, 0);
+    const quoteRef = useMemoFirebase(() => 
+        firestore && resolvedTenantId ? doc(firestore, `tenants/${resolvedTenantId}/quotes`, id) : null
+    , [firestore, resolvedTenantId, id]);
     
-    const conversionRate = quotes.length > 0 ? (acceptedQuotes.length / quotes.length) * 100 : 0;
+    const { data: quote, isLoading: isQuoteLoading } = useDoc<QuoteType>(quoteRef);
+    
+    const clientRef = useMemoFirebase(() => 
+        firestore && resolvedTenantId && quote ? doc(firestore, `tenants/${resolvedTenantId}/clients`, quote.clientId) : null
+    , [firestore, resolvedTenantId, quote]);
+    const { data: client } = useDoc<Client>(clientRef);
 
-    return {
-      totalQuotes: quotes.length,
-      totalAccepted: acceptedQuotes.length,
-      totalValue,
-      conversionRate: parseFloat(conversionRate.toFixed(1)),
+    const [isPaying, setIsPaying] = useState(false);
+    const [step, setStep] = useState<'review' | 'payment' | 'success' | 'declined'>('review');
+
+    const servicesSubtotal = useMemo(() => 
+        quote?.lineItems?.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0) || 0
+    , [quote]);
+    
+    const projectFeeAmount = servicesSubtotal * ((quote?.projectFee || 0) / 100);
+    const total = servicesSubtotal + (quote?.travelExpenses || 0) + projectFeeAmount;
+
+    const handleAccept = () => {
+        if (quote?.depositAmount && quote.depositAmount > 0) setStep('payment');
+        else finalizeAcceptance();
     };
-  }, [quotes]);
 
-  return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
-      <AppHeader title="Project Invoicing" />
-      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-1 text-left">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Proposal Ledger</h1>
-            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
-              Contract management & quote engine
-            </p>
-          </div>
-          <Button asChild className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto">
-            <Link href="/quotes/new">
-                <PlusCircle className="mr-2 h-4 w-4" /> New Proposal
-            </Link>
-          </Button>
-        </div>
+    const finalizeAcceptance = async () => {
+        if (!quoteRef) return;
+        setIsPaying(true);
+        updateDocumentNonBlocking(quoteRef, { status: 'accepted', acceptedAt: new Date().toISOString() });
+        setStep('success');
+        setIsPaying(false);
+    };
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard title="Active Protocols" value={kpiData.totalQuotes.toString()} icon={FileText} description="Total proposals created." />
-            <KpiCard title="Accepted Yield" value={`$${kpiData.totalValue.toLocaleString()}`} icon={TrendingUp} description="Value of secured contracts." colorClass="text-primary" />
-            <KpiCard title="Conversion Flow" value={`${kpiData.conversionRate}%`} icon={Activity} description="Accepted vs Draft ratio." />
-            <KpiCard title="Secured Retainers" value={kpiData.totalAccepted.toString()} icon={ShieldCheck} description="Total projects locked." colorClass="text-green-600" />
-        </div>
-        
-        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-          <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-            <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight text-left">Active Matrix</CardTitle>
-            <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 text-left">Audit trail of all studio proposals.</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            {isLoading ? (
-                <div className="flex flex-col items-center justify-center p-24 gap-4">
-                    <Loader className="animate-spin h-8 w-8 text-primary" />
-                    <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Ledger...</p>
+    const handleDecline = () => {
+        if (!quoteRef) return;
+        updateDocumentNonBlocking(quoteRef, { status: 'declined', declinedAt: new Date().toISOString() });
+        setStep('declined');
+    };
+
+    // ─── Loading states ────────────────────────────────────────────────────
+    if (!tenantLookupDone || isQuoteLoading) {
+        return (
+            <ViewContainer>
+                <div className="flex flex-col items-center gap-4">
+                    <Loader className="h-10 w-10 animate-spin text-primary" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Authenticating Protocol...</p>
                 </div>
-            ) : quotes && quotes.length > 0 ? (
-              <>
-                <div className="hidden md:block overflow-x-auto">
-                    <Table>
-                        <TableHeader className="bg-muted/10 border-b-2">
-                            <TableRow>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-slate-900">Project Label</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Deployment Date</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Value</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Status</TableHead>
-                                <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] pr-10 text-slate-900">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {sortedQuotes.map(quote => {
-                                const totalValue = quote.lineItems.reduce((acc, i) => acc + (safeNumber(i.price) * safeNumber(i.quantity)), 0) + safeNumber(quote.travelExpenses);
-                                return (
-                                    <TableRow key={quote.id} className="group hover:bg-primary/[0.02] transition-colors border-b text-left">
-                                        <TableCell className="p-6">
-                                            <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900">{quote.eventName}</p>
-                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">ID: #{quote.id.slice(-6).toUpperCase()}</p>
-                                        </TableCell>
-                                        <TableCell className="font-black text-[10px] uppercase text-slate-600">
-                                            {quote.eventDate ? format(parseISO(quote.eventDate), 'MMM d, yyyy') : 'TBD'}
-                                        </TableCell>
-                                        <TableCell className="font-black font-mono text-sm text-slate-700">${totalValue.toFixed(2)}</TableCell>
-                                        <TableCell>
-                                            <Badge variant={quote.status === 'accepted' ? 'default' : quote.status === 'booked' ? 'outline' : 'secondary'} className={cn("h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm", quote.status === 'booked' && "bg-green-50 text-white")}>
-                                                {quote.status}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right pr-10">
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/5"><MoreHorizontal className="h-4 w-4" /></Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
-                                                    <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest">
-                                                        <Link href={`/quotes/${quote.id}`}>
-                                                            <Eye className="mr-2 h-3.5 w-3.5 opacity-40"/>
-                                                            View Details
-                                                        </Link>
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem onClick={() => {}} disabled={quote.status !== 'accepted'} className="font-bold text-[10px] uppercase text-primary">
-                                                        <CheckCircle className="mr-2 h-3.5 w-3.5 opacity-40"/>
-                                                        <span>Finalize & Book</span>
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase" onClick={() => handleDeleteClick(quote.id)}>
-                                                        <Trash2 className="mr-2 h-3.5 w-3.5 opacity-40"/>
-                                                        Terminate
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        </TableCell>
-                                    </TableRow>
-                                )
-                            })}
-                        </TableBody>
-                    </Table>
+            </ViewContainer>
+        );
+    }
+
+    if (!quote) {
+        return (
+            <ViewContainer>
+                <div className="text-center p-12 bg-white rounded-[3rem] border-4 shadow-3xl space-y-6">
+                    <XCircle className="w-16 h-16 text-destructive mx-auto" />
+                    <h2 className="text-2xl font-black uppercase tracking-tighter">Proposal Expired</h2>
+                    <p className="text-slate-500 font-medium">This proposal is no longer available. Please contact your professional.</p>
                 </div>
-                <div className="md:hidden space-y-4 p-5">
-                    {sortedQuotes.map(quote => (
-                        <QuoteCard key={quote.id} quote={quote} onBookEvent={() => {}} onDelete={handleDeleteClick} />
-                    ))}
+            </ViewContainer>
+        );
+    }
+
+    return (
+        <ViewContainer>
+            {step === 'review' && (
+                <div className="bg-white p-8 md:p-16 rounded-[3rem] border-4 shadow-3xl space-y-12 text-left">
+                    <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Official Proposal</p>
+                        <h1 className="text-3xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none">{quote.eventName}</h1>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest opacity-60">Prepared for {client?.name || 'Guest'}</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t-2 border-dashed">
+                        <div className="space-y-4">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Logistics Dossier</p>
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-3 font-black uppercase text-xs sm:text-sm text-slate-700">
+                                    <Calendar className="w-4 h-4 text-primary opacity-40" />
+                                    {quote.eventDate ? format(parseISO(quote.eventDate), 'MMMM d, yyyy') : 'Date TBD'}
+                                </div>
+                                <div className="flex items-center gap-3 font-black uppercase text-xs sm:text-sm text-slate-700">
+                                    <MapPin className="w-4 h-4 text-primary opacity-40" />
+                                    {typeof quote.eventLocation === 'string' ? quote.eventLocation : 'On-Site Deployment'}
+                                </div>
+                                {quote.estimatedGuests && (
+                                    <div className="flex items-center gap-3 font-black uppercase text-xs sm:text-sm text-slate-700">
+                                        <Users className="w-4 h-4 text-primary opacity-40" />
+                                        {quote.estimatedGuests} estimated guests
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="space-y-4 md:text-right">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Contract Status</p>
+                            <Badge variant="outline" className="h-7 px-4 rounded-full border-2 font-black uppercase text-[10px] tracking-widest bg-primary/5 border-primary/20 text-primary">Pending Acceptance</Badge>
+                        </div>
+                    </div>
+
+                    {/* Event Cost Breakdown — only shown if event economics are configured */}
+                    <EventCostBreakdown quote={quote} />
+
+                    <div className="space-y-6">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-primary">Itemized Protocol</p>
+                        <div className="space-y-3">
+                            {quote.lineItems?.map((item, idx) => (
+                                <div key={idx} className="flex justify-between items-center p-5 rounded-2xl bg-muted/20 border-2 border-transparent">
+                                    <div>
+                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900">{item.name}</p>
+                                        <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">{item.quantity} Unit(s) @ ${item.price.toFixed(2)}</p>
+                                    </div>
+                                    <p className="font-black font-mono text-base text-slate-900">${(item.price * item.quantity).toFixed(2)}</p>
+                                </div>
+                            ))}
+                            {(quote.travelExpenses || 0) > 0 && (
+                                <div className="flex justify-between items-center p-5 rounded-2xl border-2 border-dashed border-border/50">
+                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900">Travel & Logistics</p>
+                                    <p className="font-black font-mono text-base text-slate-900">${(quote.travelExpenses || 0).toFixed(2)}</p>
+                                </div>
+                            )}
+                            {(quote.projectFee || 0) > 0 && (
+                                <div className="flex justify-between items-center p-5 rounded-2xl border-2 border-dashed border-border/50">
+                                    <div className="flex items-center gap-2">
+                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900">Project Fee</p>
+                                        <Badge variant="outline" className="text-[9px] font-black border">{quote.projectFee}%</Badge>
+                                    </div>
+                                    <p className="font-black font-mono text-base text-slate-900">${projectFeeAmount.toFixed(2)}</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="p-8 rounded-[2.5rem] bg-slate-900 text-white space-y-6 shadow-2xl">
+                        <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Contract Total</span>
+                            <span className="text-4xl font-black font-mono tracking-tighter">${total.toFixed(2)}</span>
+                        </div>
+                        {(quote.depositAmount || 0) > 0 && (
+                            <div className="pt-6 border-t border-white/10 flex justify-between items-center">
+                                <div className="space-y-1">
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Retainer Required</span>
+                                    <p className="text-[9px] font-bold opacity-40 uppercase">DUE UPON ACCEPTANCE</p>
+                                </div>
+                                <span className="text-2xl font-black font-mono tracking-tighter text-primary">${(quote.depositAmount || 0).toFixed(2)}</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-4 pt-10 border-t-2 border-dashed">
+                        <Button variant="ghost" onClick={handleDecline} className="h-16 flex-1 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Decline Proposal</Button>
+                        <Button onClick={handleAccept} className="h-16 flex-[2] rounded-2xl text-xl font-black uppercase tracking-tight shadow-2xl shadow-primary/30 group">
+                            Accept & Secure <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-1" />
+                        </Button>
+                    </div>
                 </div>
-              </>
-            ) : (
-              <div className="text-center py-24 md:py-32 px-6 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6">
-                <div className="p-6 bg-muted rounded-[2rem] shadow-inner"><FileText className="h-16 w-16 text-muted-foreground" /></div>
-                <div className="space-y-2 text-center">
-                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Ledger Empty</h3>
-                    <p className="text-sm font-bold uppercase tracking-tight max-w-sm mx-auto text-muted-foreground">
-                        No active project proposals. Create a strategic quote to secure high-value events.
-                    </p>
-                </div>
-                <Button size="lg" asChild className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 mt-4">
-                    <Link href="/quotes/new">Create First Proposal</Link>
-                </Button>
-              </div>
             )}
-          </CardContent>
-        </Card>
-      </main>
 
-      <AlertDialog open={!!quoteToDeleteId} onOpenChange={() => setQuoteToDeleteId(null)}>
-        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-            <AlertDialogHeader className="p-6 pb-0">
-                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Protocol</AlertDialogTitle>
-                <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
-                    You are about to permanently delete this proposal. This will purge all associated yield projections and logistics details. <strong>This action is non-reversible.</strong>
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3 text-left">
-                <Button onClick={confirmDelete} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Record</Button>
-                <AlertDialogCancel onClick={() => setQuoteToDeleteId(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
+            {step === 'payment' && (
+                <div className="bg-white p-8 md:p-16 rounded-[3rem] border-4 shadow-3xl space-y-10 text-center animate-in fade-in zoom-in-95">
+                    <div className="space-y-2">
+                        <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4"><CreditCard className="w-8 h-8 text-primary" /></div>
+                        <h2 className="text-3xl font-black uppercase tracking-tighter">Retainer Secure</h2>
+                        <p className="text-sm font-medium text-slate-500 uppercase tracking-widest opacity-60">Authorize ${(quote.depositAmount || 0).toFixed(2)} to lock your date</p>
+                    </div>
+                    <div className="space-y-6 text-left">
+                        <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div>
+                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div>
+                        </div>
+                    </div>
+                    <Button onClick={finalizeAcceptance} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30" disabled={isPaying}>
+                        {isPaying ? <Loader className="animate-spin" /> : 'Authorize Distribution'}
+                    </Button>
+                    <div className="flex items-center justify-center gap-3 opacity-40"><Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted SSL Secure Tunnel</span></div>
+                </div>
+            )}
+
+            {step === 'success' && (
+                <div className="bg-white p-12 md:p-24 rounded-[3rem] border-4 shadow-3xl text-center space-y-10 animate-in fade-in zoom-in-95">
+                    <div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto rotate-6 shadow-2xl shadow-green-500/5">
+                        <CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" />
+                    </div>
+                    <div className="space-y-3">
+                        <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter">Protocol Accepted</h2>
+                        <p className="text-slate-500 text-lg font-bold uppercase tracking-widest opacity-70">Your project has been secured in our ledger.</p>
+                    </div>
+                    <p className="text-sm font-medium text-slate-400 max-w-sm mx-auto leading-relaxed">Confirmation details and next steps have been dispatched to your email signature.</p>
+                </div>
+            )}
+
+            {step === 'declined' && (
+                <div className="bg-white p-12 md:p-24 rounded-[3rem] border-4 shadow-3xl text-center space-y-10 animate-in fade-in zoom-in-95">
+                    <div className="w-32 h-32 bg-muted rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
+                        <XCircle className="w-16 h-16 text-slate-400" />
+                    </div>
+                    <div className="space-y-2">
+                        <h2 className="text-3xl font-black uppercase tracking-tighter">Proposal Void</h2>
+                        <p className="text-slate-500 font-bold uppercase tracking-widest opacity-70">We've noted your decline.</p>
+                    </div>
+                    <p className="text-sm font-medium text-slate-400 max-w-sm mx-auto leading-relaxed">If this was a mistake or you'd like to adjust the parameters, please contact the studio directly.</p>
+                </div>
+            )}
+        </ViewContainer>
+    );
 }
