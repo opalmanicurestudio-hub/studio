@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import {
@@ -82,6 +81,7 @@ import { nanoid } from 'nanoid';
 import { BrowseConsentFormsDialog } from '@/components/services/BrowseConsentFormsDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useInquiryPrefill } from '@/hooks/useInquiryPrefill';
 
 type LineItem = {
     id: string;
@@ -227,7 +227,8 @@ const YieldEngineCard = ({
   );
 };
 
-export default function QuoteGeneratorPage() {
+// ─── Inner page component ─────────────────────────────────────────────────────
+function QuoteGeneratorPageInner() {
     const { clients, services, consentForms, staff } = useInventory();
     const { selectedTenant } = useTenant();
     const tmhr = selectedTenant?.tmhr || 50;
@@ -236,7 +237,7 @@ export default function QuoteGeneratorPage() {
     const tenantId = selectedTenant?.id;
     const router = useRouter();
 
-    // Event Details
+    // ── Event Details ──────────────────────────────────────────────────────────
     const [clientId, setClientId] = useState('');
     const [isAddingClient, setIsAddingClient] = useState(false);
     const [eventName, setEventName] = useState('');
@@ -244,10 +245,10 @@ export default function QuoteGeneratorPage() {
     const [totalHours, setTotalHours] = useState(0);
     const [eventLocation, setEventLocation] = useState({ street: '', city: '', state: '', zip: '', country: '' });
 
-    // Line Items
+    // ── Line Items ─────────────────────────────────────────────────────────────
     const [lineItems, setLineItems] = useState<LineItem[]>([]);
     
-    // Travel & Expenses
+    // ── Travel & Expenses ──────────────────────────────────────────────────────
     const [roundTripDistance, setRoundTripDistance] = useState(0);
     const [costPerMile, setCostPerMile] = useState(0.67);
     const [isCalculatingTravel, setIsCalculatingTravel] = useState(false);
@@ -258,22 +259,40 @@ export default function QuoteGeneratorPage() {
     const [ratePerDay, setRatePerDay] = useState(0);
     const [equipmentRentalCost, setEquipmentRentalCost] = useState(0);
 
-    // Team & Labor
+    // ── Team & Labor ───────────────────────────────────────────────────────────
     const [staffPayouts, setStaffPayouts] = useState<StaffPayout[]>([]);
 
-    // Fees & Payment
+    // ── Fees & Payment ─────────────────────────────────────────────────────────
     const [projectFee, setProjectFee] = useState(0);
     const [notes, setNotes] = useState('');
     
-    // Financial Terms
+    // ── Financial Terms ────────────────────────────────────────────────────────
     const [depositType, setDepositType] = useState<'percentage' | 'flat'>('percentage');
     const [depositAmountValue, setDepositAmountValue] = useState(20);
     const [paymentTerms, setPaymentTerms] = useState<'on_receipt' | 'net_15' | 'net_30'>('on_receipt');
 
-    // Legal & Compliance
+    // ── Legal & Compliance ─────────────────────────────────────────────────────
     const [requiredFormIds, setRequiredFormIds] = useState<string[]>([]);
     const [isConsentFormDialogOpen, setIsConsentFormDialogOpen] = useState(false);
 
+    // ─── Inquiry Prefill ───────────────────────────────────────────────────────
+    // Reads ?from={requestId} from the URL and auto-populates all fields above.
+    const { prefilling } = useInquiryPrefill({
+        tenantId,
+        firestore,
+        setClientId,
+        setEventName,
+        setEventStartDate,
+        setEventLocation,
+        setTotalHours,
+        setLineItems,
+        setNotes,
+        setRoundTripDistance,
+        setDepositAmountValue,
+        setDepositType,
+    });
+
+    // ── Derived calculations ───────────────────────────────────────────────────
     const travelAndExpenses = useMemo(() => {
         const mileageCost = roundTripDistance * costPerMile;
         const lodgingCost = lodgingNights * lodgingRatePerNight;
@@ -365,7 +384,7 @@ export default function QuoteGeneratorPage() {
 
     const handleLineItemQuantityChange = (id: string, quantity: number) => {
         setLineItems(prev => prev.map(item => item.id === id ? {...item, quantity: Math.max(1, quantity)} : item));
-    }
+    };
 
     const handleAddStaff = (staffId: string) => {
         const member = staff.find(s => s.id === staffId);
@@ -384,7 +403,6 @@ export default function QuoteGeneratorPage() {
 
         const hours = totalHours || 1;
         const numStaff = staffPayouts.length || 1;
-
         const revenueShare = (servicesSubtotal / numStaff) * ((member.commissionRate || 40) / 100);
 
         let timeFloor = 0;
@@ -394,9 +412,7 @@ export default function QuoteGeneratorPage() {
             timeFloor = (hours * tmhr) * ((member.commissionRate || 40) / 100);
         }
 
-        let suggestion = Math.max(revenueShare, timeFloor);
-        suggestion = suggestion * 1.15;
-
+        let suggestion = Math.max(revenueShare, timeFloor) * 1.15;
         handleStaffPayoutChange(staffId, Number(suggestion.toFixed(2)));
         toast({
             title: "Effective Rate Calculated",
@@ -409,6 +425,27 @@ export default function QuoteGeneratorPage() {
     };
 
     const assignedForms = useMemo(() => consentForms.filter(f => requiredFormIds.includes(f.id)), [requiredFormIds, consentForms]);
+
+    // ─── Prefill loading overlay ───────────────────────────────────────────────
+    if (prefilling) return (
+        <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+            <AppHeader title="New Proposal" />
+            <div className="flex flex-1 items-center justify-center flex-col gap-6">
+                <div className="p-8 rounded-[3rem] border-4 bg-white shadow-2xl shadow-primary/10 flex flex-col items-center gap-6 text-center max-w-sm w-full mx-4">
+                    <div className="p-5 rounded-[2rem] bg-primary/10 border-2 border-primary/20">
+                        <Sparkles className="w-10 h-10 text-primary animate-pulse" />
+                    </div>
+                    <div className="space-y-2">
+                        <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Pre-filling Quote</h2>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                            Loading inquiry details, finding client, mapping services...
+                        </p>
+                    </div>
+                    <Loader className="w-6 h-6 animate-spin text-primary" />
+                </div>
+            </div>
+        </div>
+    );
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
@@ -433,6 +470,8 @@ export default function QuoteGeneratorPage() {
           <div className="grid lg:grid-cols-3 gap-10">
             <div className="lg:col-span-2 space-y-10">
               <Accordion type="multiple" defaultValue={['event-details', 'services-products', 'travel-expenses', 'team-labor', 'legal-compliance', 'financial-logic']} className="w-full space-y-10">
+
+                {/* ── 1. Engagement Profile ── */}
                 <AccordionItem value="event-details" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -443,22 +482,22 @@ export default function QuoteGeneratorPage() {
                     <AccordionContent>
                         <CardContent className="p-6 md:p-8 space-y-8 text-left">
                             <div className="space-y-3">
-                            <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Identification</Label>
+                                <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Identification</Label>
                                 <div className="flex gap-3">
-                                <Select value={clientId} onValueChange={(value) => {
-                                    if (value === 'add-new') { setIsAddingClient(true); setClientId(''); } 
-                                    else { setIsAddingClient(false); setClientId(value); }
-                                }}>
-                                    <SelectTrigger id="client" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold uppercase text-xs tracking-tight">
-                                    <SelectValue placeholder="SEARCH GUEST ARCHIVE..." />
-                                    </SelectTrigger>
-                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                    {clients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
-                                    <SelectItem value="add-new" className="font-black text-primary">
-                                        <span className="flex items-center gap-2"><UserPlus className="w-3.5 h-3.5" /> REGISTER NEW PROFILE</span>
-                                    </SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                    <Select value={clientId} onValueChange={(value) => {
+                                        if (value === 'add-new') { setIsAddingClient(true); setClientId(''); } 
+                                        else { setIsAddingClient(false); setClientId(value); }
+                                    }}>
+                                        <SelectTrigger id="client" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold uppercase text-xs tracking-tight">
+                                            <SelectValue placeholder="SEARCH GUEST ARCHIVE..." />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            {clients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
+                                            <SelectItem value="add-new" className="font-black text-primary">
+                                                <span className="flex items-center gap-2"><UserPlus className="w-3.5 h-3.5" /> REGISTER NEW PROFILE</span>
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                             </div>
                             {isAddingClient && (
@@ -472,8 +511,8 @@ export default function QuoteGeneratorPage() {
                                 </Card>
                             )}
                             <div className="space-y-3">
-                            <Label htmlFor="event-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Project Label</Label>
-                            <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., THE ANDERSON WEDDING" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                                <Label htmlFor="event-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Project Label</Label>
+                                <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., THE ANDERSON WEDDING" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                             </div>
                             <div className="space-y-3">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Deployment Zone</Label>
@@ -483,16 +522,17 @@ export default function QuoteGeneratorPage() {
                                         <Input value={eventLocation.city} onChange={(e) => setEventLocation(prev => ({ ...prev, city: e.target.value }))} placeholder="CITY" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                                         <Input value={eventLocation.state} onChange={(e) => setEventLocation(prev => ({ ...prev, state: e.target.value }))} placeholder="STATE / PROVINCE" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                                     </div>
+                                    <Input value={eventLocation.zip} onChange={(e) => setEventLocation(prev => ({ ...prev, zip: e.target.value }))} placeholder="ZIP CODE" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
                                 <div className="space-y-3">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Event Timestamp</Label>
                                     <Input
-                                    type="date"
-                                    value={eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : ''}
-                                    onChange={(e) => setEventStartDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
-                                    className="h-14 rounded-2xl border-2 font-black text-lg"
+                                        type="date"
+                                        value={eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : ''}
+                                        onChange={(e) => setEventStartDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                        className="h-14 rounded-2xl border-2 font-black text-lg"
                                     />
                                 </div>
                                 <div className="space-y-3">
@@ -508,6 +548,7 @@ export default function QuoteGeneratorPage() {
                   </Card>
                 </AccordionItem>
                 
+                {/* ── 2. Protocol Manifest ── */}
                 <AccordionItem value="services-products" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -561,7 +602,8 @@ export default function QuoteGeneratorPage() {
                   </Card>
                 </AccordionItem>
 
-                 <AccordionItem value="travel-expenses" className="border-none">
+                {/* ── 3. Logistics & Deployment ── */}
+                <AccordionItem value="travel-expenses" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
@@ -636,6 +678,7 @@ export default function QuoteGeneratorPage() {
                   </Card>
                 </AccordionItem>
 
+                {/* ── 4. Team & Labor Matrix ── */}
                 <AccordionItem value="team-labor" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -722,6 +765,7 @@ export default function QuoteGeneratorPage() {
                   </Card>
                 </AccordionItem>
 
+                {/* ── 5. Legal & Compliance ── */}
                 <AccordionItem value="legal-compliance" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -761,7 +805,8 @@ export default function QuoteGeneratorPage() {
                   </Card>
                 </AccordionItem>
                 
-                 <AccordionItem value="financial-logic" className="border-none">
+                {/* ── 6. Governance & Terms ── */}
+                <AccordionItem value="financial-logic" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
@@ -808,15 +853,18 @@ export default function QuoteGeneratorPage() {
                                 </div>
                             </div>
                             <div className="space-y-3">
-                                <Label htmlFor="notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Strategic Cavets & Footnotes</Label>
+                                <Label htmlFor="notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Strategic Caveats & Footnotes</Label>
                                 <Textarea id="notes" value={notes} onChange={e => setNotes(e.target.value)} placeholder="ENTER PROPOSAL CONDITIONS OR LOGISTICS NOTES..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20" />
                             </div>
                         </CardContent>
                     </AccordionContent>
                   </Card>
                 </AccordionItem>
+
               </Accordion>
             </div>
+
+            {/* ── Yield Engine sidebar ── */}
             <div className="lg:col-span-1">
               <YieldEngineCard 
                 lineItems={lineItems}
@@ -835,7 +883,7 @@ export default function QuoteGeneratorPage() {
               <Button className="w-full sm:w-auto h-16 px-12 rounded-[2rem] shadow-2xl shadow-primary/30 font-black uppercase tracking-widest text-sm group" onClick={handleSaveQuote}>
                 Commit Record <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" />
               </Button>
-            </div>
+          </div>
         </motion.div>
       </main>
 
@@ -848,4 +896,20 @@ export default function QuoteGeneratorPage() {
       />
     </div>
   );
+}
+
+// ─── Default export wrapped in Suspense ───────────────────────────────────────
+// Required by Next.js 15 because useSearchParams (inside useInquiryPrefill)
+// must be inside a Suspense boundary.
+export default function QuoteGeneratorPage() {
+    return (
+        <Suspense fallback={
+            <div className="flex h-screen w-full items-center justify-center bg-slate-50/50 gap-4">
+                <Loader className="h-8 w-8 animate-spin text-primary" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading...</p>
+            </div>
+        }>
+            <QuoteGeneratorPageInner />
+        </Suspense>
+    );
 }
