@@ -3,33 +3,55 @@
 /**
  * useInquiryPrefill
  * ─────────────────────────────────────────────────────────────────────────────
- * Add this to the top of QuoteGeneratorPage (quotes/new/page.tsx).
+ * Wire this into QuoteGeneratorPage (quotes/new/page.tsx).
+ * Reads ?from={requestId} from the URL and populates ALL form fields.
  *
- * Usage:
+ * ADD TO quotes/new/page.tsx:
+ *
+ *   import { Suspense } from 'react';
+ *   import { useInquiryPrefill } from '@/hooks/useInquiryPrefill';
+ *
+ *   // Inside SettingsPageImpl / QuoteGeneratorPage, after all useState declarations:
  *   const { prefilling } = useInquiryPrefill({
  *     tenantId,
  *     firestore,
- *     setClientId,         // from the form state
+ *     setClientId,
  *     setEventName,
  *     setEventStartDate,
  *     setEventLocation,
  *     setTotalHours,
- *     setLineItems,        // pre-populate services the client asked for
+ *     setLineItems,
  *     setNotes,
- *     onClientLookup,      // optional: called with {name, email, phone} to find/create client
+ *     setRoundTripDistance,   // from travel section
+ *     setDepositAmountValue,  // from financial terms
+ *     setDepositType,
  *   });
  *
- * If ?from=<requestId> is in the URL, this hook:
- * 1. Loads the quoteRequest document
- * 2. Looks up (or creates) the client by email
- * 3. Sets all matching form fields
- * 4. Marks the request as status:'quoted'
- * 5. Returns prefilling=true while loading so you can show a spinner
+ *   // Show overlay while loading:
+ *   if (prefilling) return (
+ *     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+ *       <Loader className="w-10 h-10 animate-spin text-primary" />
+ *       <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">
+ *         Loading inquiry data...
+ *       </p>
+ *     </div>
+ *   );
+ *
+ * WRAP IN SUSPENSE because useSearchParams requires it in Next.js 15:
+ *   export default function QuoteNewPage() {
+ *     return (
+ *       <Suspense fallback={<div>Loading...</div>}>
+ *         <QuoteGeneratorPage />
+ *       </Suspense>
+ *     );
+ *   }
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { doc, getDoc, collection, getDocs, query, where, addDoc, updateDoc } from 'firebase/firestore';
+import {
+    doc, getDoc, collection, getDocs, query, where, addDoc, updateDoc,
+} from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 
@@ -46,7 +68,7 @@ interface PrefillOptions {
     tenantId: string | undefined;
     firestore: any;
 
-    // Form state setters — pass these from your QuoteGeneratorPage state
+    // ── Required setters (match QuoteGeneratorPage state) ──────────────────
     setClientId:       (id: string) => void;
     setEventName:      (name: string) => void;
     setEventStartDate: (date: Date | undefined) => void;
@@ -55,8 +77,10 @@ interface PrefillOptions {
     setLineItems:      (items: LineItem[]) => void;
     setNotes:          (notes: string) => void;
 
-    // Optional: called with raw contact info so caller can handle client creation
-    onClientResolved?: (clientId: string, isNew: boolean) => void;
+    // ── Optional setters — pass if your form has these ─────────────────────
+    setRoundTripDistance?:  (miles: number) => void;    // travel section
+    setDepositAmountValue?: (amount: number) => void;   // financial terms
+    setDepositType?:        (type: 'percentage' | 'flat') => void;
 }
 
 export const useInquiryPrefill = ({
@@ -69,7 +93,9 @@ export const useInquiryPrefill = ({
     setTotalHours,
     setLineItems,
     setNotes,
-    onClientResolved,
+    setRoundTripDistance,
+    setDepositAmountValue,
+    setDepositType,
 }: PrefillOptions) => {
     const searchParams = useSearchParams();
     const { toast }    = useToast();
@@ -81,19 +107,25 @@ export const useInquiryPrefill = ({
     useEffect(() => {
         if (!fromId || !tenantId || !firestore) return;
 
-        const prefill = async () => {
+        const run = async () => {
             setPrefilling(true);
             try {
-                // 1. Load the inquiry
-                const reqSnap = await getDoc(doc(firestore, `tenants/${tenantId}/quoteRequests`, fromId));
-                if (!reqSnap.exists()) {
-                    toast({ variant: 'destructive', title: 'Inquiry not found', description: 'Could not load the inquiry data.' });
+                // ── 1. Load inquiry document ───────────────────────────────
+                const snap = await getDoc(
+                    doc(firestore, `tenants/${tenantId}/quoteRequests`, fromId)
+                );
+                if (!snap.exists()) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Inquiry not found',
+                        description: 'Could not load this inquiry. It may have been deleted.',
+                    });
                     return;
                 }
-                const req = { id: reqSnap.id, ...reqSnap.data() } as any;
+                const req = { id: snap.id, ...snap.data() } as any;
                 setInquiry(req);
 
-                // 2. Find or create the client by email
+                // ── 2. Find or auto-create the client ──────────────────────
                 let resolvedClientId = '';
                 if (req.email) {
                     const clientsSnap = await getDocs(
@@ -102,117 +134,134 @@ export const useInquiryPrefill = ({
                             where('email', '==', req.email.toLowerCase().trim())
                         )
                     );
-
                     if (!clientsSnap.empty) {
-                        // Client exists — use them
                         resolvedClientId = clientsSnap.docs[0].id;
-                        onClientResolved?.(resolvedClientId, false);
                     } else {
-                        // Create a new client record from the inquiry contact info
+                        // Auto-create client from inquiry contact info
                         const newClientId = nanoid();
-                        const newClient = {
-                            id:        newClientId,
-                            name:      req.fullName || `${req.firstName || ''} ${req.lastName || ''}`.trim(),
-                            email:     req.email.toLowerCase().trim(),
-                            phone:     req.phone || '',
-                            createdAt: new Date().toISOString(),
-                            source:    'inquiry_form',
-                            notes:     req.specialRequests || '',
-                        };
-                        await addDoc(collection(firestore, `tenants/${tenantId}/clients`), { ...newClient });
+                        await addDoc(collection(firestore, `tenants/${tenantId}/clients`), {
+                            id:          newClientId,
+                            name:        req.fullName || `${req.firstName || ''} ${req.lastName || ''}`.trim(),
+                            email:       req.email.toLowerCase().trim(),
+                            phone:       req.phone || '',
+                            status:      'active',
+                            source:      'inquiry_form',
+                            notes:       req.specialRequests || '',
+                            createdAt:   new Date().toISOString(),
+                            lifetimeValue: 0,
+                        });
                         resolvedClientId = newClientId;
-                        onClientResolved?.(resolvedClientId, true);
                         toast({
-                            title: 'New Client Created',
-                            description: `${newClient.name} has been added to your client roster from this inquiry.`,
+                            title: 'Client auto-created',
+                            description: `${req.fullName || req.firstName} has been added to your client roster.`,
                         });
                     }
                     setClientId(resolvedClientId);
                 }
 
-                // 3. Pre-fill event name
-                const derivedEventName = req.eventName ||
-                    `${req.firstName || ''}'s ${
-                        req.eventType
-                            ? req.eventType.charAt(0).toUpperCase() + req.eventType.slice(1)
-                            : 'Event'
-                    }`;
-                setEventName(derivedEventName);
+                // ── 3. Event name ──────────────────────────────────────────
+                const eventTypeLabel = req.eventType
+                    ? req.eventType.charAt(0).toUpperCase() + req.eventType.slice(1)
+                    : 'Event';
+                setEventName(
+                    req.eventName ||
+                    `${req.firstName || req.fullName?.split(' ')[0] || 'Client'}'s ${eventTypeLabel}`
+                );
 
-                // 4. Pre-fill event date
+                // ── 4. Event date ──────────────────────────────────────────
                 if (req.eventDate) {
-                    // Parse YYYY-MM-DD safely without timezone shift
                     const [y, m, d] = req.eventDate.split('-').map(Number);
                     setEventStartDate(new Date(y, m - 1, d));
                 }
 
-                // 5. Pre-fill location
-                if (req.venueName || req.venueCity || req.venueState) {
+                // ── 5. Location — FIX: use full address fields ─────────────
+                if (req.venueStreet || req.venueCity || req.venueName) {
                     setEventLocation({
-                        street:  req.venueName || '',
-                        city:    req.venueCity || '',
-                        state:   req.venueState || '',
-                        zip:     '',
+                        street:  req.venueStreet || req.venueName || '',
+                        city:    req.venueCity   || '',
+                        state:   req.venueState  || '',
+                        zip:     req.venueZip    || '',
                         country: '',
                     });
                 }
 
-                // 6. Pre-fill total hours from selected services
+                // ── 6. Hours from selected services ────────────────────────
                 if (req.estimatedHours) {
                     setTotalHours(req.estimatedHours);
                 }
 
-                // 7. Pre-fill line items from interested services
+                // ── 7. Line items — use party size as quantity ─────────────
                 if (req.interestedServices?.length > 0) {
-                    const prefillItems: LineItem[] = req.interestedServices.map((svc: any) => ({
+                    const qty = req.partySize && req.partySize > 1 ? req.partySize : 1;
+                    const items: LineItem[] = req.interestedServices.map((svc: any) => ({
                         id:          svc.id || nanoid(),
                         name:        svc.name,
                         description: svc.description || '',
-                        price:       svc.price || 0,
-                        cost:        svc.cost || 0,
-                        quantity:    req.partySize && req.partySize > 1 ? req.partySize : 1,
+                        price:       svc.price  || 0,
+                        cost:        svc.cost   || 0,
+                        quantity:    qty,
                     }));
-                    setLineItems(prefillItems);
+                    setLineItems(items);
                 }
 
-                // 8. Pre-fill notes with all inquiry context
-                const notesParts: string[] = [];
-                if (req.specialRequests)    notesParts.push(`Client notes: ${req.specialRequests}`);
-                if (req.customServiceNote)  notesParts.push(`Requested services: ${req.customServiceNote}`);
-                if (req.inspirationLinks)   notesParts.push(`Inspiration: ${req.inspirationLinks}`);
-                if (req.travelDetails)      notesParts.push(`Travel: ${req.travelDetails}`);
-                if (req.budgetRange)        notesParts.push(`Budget: ${req.budgetRange}`);
-                if (req.readyToDeposit)     notesParts.push('Client indicated they are ready to make a deposit.');
-                if (req.referralSource)     notesParts.push(`Referred by: ${req.referralSource}`);
-                if (notesParts.length > 0) {
-                    setNotes(notesParts.join('\n\n'));
+                // ── 8. Travel mileage ──────────────────────────────────────
+                if (req.estimatedMiles && setRoundTripDistance) {
+                    setRoundTripDistance(req.estimatedMiles);
                 }
 
-                // 9. Mark the inquiry as quoted
-                await updateDoc(doc(firestore, `tenants/${tenantId}/quoteRequests`, fromId), {
-                    status:   'quoted',
-                    quotedAt: new Date().toISOString(),
-                });
+                // ── 9. Deposit from "ready to deposit" flag ────────────────
+                if (req.readyToDeposit && setDepositAmountValue && setDepositType) {
+                    setDepositType('percentage');
+                    setDepositAmountValue(20); // default 20% retainer
+                }
+
+                // ── 10. Notes — compile everything the owner needs to see ──
+                const parts: string[] = [];
+                parts.push(`=== INQUIRY FROM ${(req.fullName || req.firstName || 'Client').toUpperCase()} ===`);
+                parts.push(`Event: ${req.eventType || 'N/A'} · ${req.guestCount || '?'} guests · ${req.partySize || '?'} needing services`);
+                if (req.budgetRange)     parts.push(`Budget: ${req.budgetRange}`);
+                if (req.timeline)        parts.push(`Timeline: ${req.timeline}`);
+                if (req.venueType)       parts.push(`Location type: ${req.venueType}`);
+                if (req.eventLocation)   parts.push(`Venue: ${req.eventLocation}`);
+                if (req.estimatedMiles)  parts.push(`Travel: ~${req.estimatedMiles} mi round trip · est. $${req.estimatedTravelCost}`);
+                if (req.startTime)       parts.push(`Start time: ${req.startTime}${req.endTime ? ` → ${req.endTime}` : ''}`);
+                if (req.specialRequests) parts.push(`\nClient notes:\n${req.specialRequests}`);
+                if (req.customServiceNote) parts.push(`\nCustom service request:\n${req.customServiceNote}`);
+                if (req.referralSource)  parts.push(`Referred by: ${req.referralSource}${req.referralCode ? ` (code: ${req.referralCode})` : ''}`);
+                if (req.readyToDeposit)  parts.push('✓ Client indicated they are ready to make a deposit.');
+                if (req.bestDays?.length > 0 || req.bestTimeSlot) {
+                    parts.push(`Best time to reach: ${[req.bestDays?.join(', '), req.bestTimeSlot].filter(Boolean).join(' · ')}`);
+                }
+                if (req.inspirationImages?.length > 0) {
+                    parts.push(`\nInspiration images (${req.inspirationImages.length}):\n${req.inspirationImages.join('\n')}`);
+                }
+                setNotes(parts.join('\n'));
+
+                // ── 11. Mark inquiry as quoted ─────────────────────────────
+                await updateDoc(
+                    doc(firestore, `tenants/${tenantId}/quoteRequests`, fromId),
+                    { status: 'quoted', quotedAt: new Date().toISOString() }
+                );
 
                 toast({
-                    title: '✨ Quote Pre-filled',
-                    description: `Loaded from ${req.fullName || req.firstName}'s inquiry. Review and adjust before sending.`,
+                    title: '✨ Quote pre-filled',
+                    description: `All details loaded from ${req.fullName || req.firstName}'s inquiry. Review and adjust before sending.`,
                 });
 
             } catch (e) {
                 console.error('Prefill error:', e);
                 toast({
                     variant: 'destructive',
-                    title: 'Could not pre-fill',
-                    description: 'The inquiry data could not be loaded. Fill in manually.',
+                    title: 'Pre-fill failed',
+                    description: 'Something went wrong loading the inquiry. Check the console.',
                 });
             } finally {
                 setPrefilling(false);
             }
         };
 
-        prefill();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        run();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fromId, tenantId]);
 
     return { prefilling, inquiry, fromId };
