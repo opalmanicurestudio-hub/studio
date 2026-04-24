@@ -12,8 +12,7 @@ import { nanoid } from 'nanoid';
 import {
     PlusCircle, Search, FileText, Copy, Trash2, Eye, Send,
     CheckCircle2, XCircle, Clock, DollarSign, Calendar, MapPin,
-    MoreHorizontal, Users, TrendingUp, Loader, Link as LinkIcon,
-    ExternalLink,
+    MoreHorizontal, Users, Loader, LinkIcon, ExternalLink, Inbox,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,11 +32,13 @@ import {
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { InquiriesTab } from '@/components/quotes/InquiriesTab';
 
-// ─── Status config ────────────────────────────────────────────────────────────
+// ─── Status config ─────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     draft:    { label: 'Draft',    color: 'bg-slate-100 border-slate-200 text-slate-600',   icon: <Clock className="w-3 h-3" /> },
     sent:     { label: 'Sent',     color: 'bg-blue-50 border-blue-100 text-blue-700',        icon: <Send className="w-3 h-3" /> },
@@ -46,24 +47,20 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
     expired:  { label: 'Expired',  color: 'bg-amber-50 border-amber-100 text-amber-700',     icon: <Clock className="w-3 h-3" /> },
 };
 
-// ─── Quote Card ───────────────────────────────────────────────────────────────
+// ─── Quote Card ────────────────────────────────────────────────────────────────
 const QuoteCard = ({
     quote, clients, tenantId,
     onCopyLink, onDelete, onDuplicate, onMarkSent,
 }: {
-    quote: Quote;
-    clients: Client[];
-    tenantId: string;
-    onCopyLink: (q: Quote) => void;
-    onDelete: (q: Quote) => void;
-    onDuplicate: (q: Quote) => void;
-    onMarkSent: (q: Quote) => void;
+    quote: Quote; clients: Client[]; tenantId: string;
+    onCopyLink: (q: Quote) => void; onDelete: (q: Quote) => void;
+    onDuplicate: (q: Quote) => void; onMarkSent: (q: Quote) => void;
 }) => {
-    const client = clients.find(c => c.id === quote.clientId);
-    const status = STATUS_CONFIG[quote.status || 'draft'] || STATUS_CONFIG.draft;
+    const client   = clients.find(c => c.id === quote.clientId);
+    const status   = STATUS_CONFIG[quote.status || 'draft'] || STATUS_CONFIG.draft;
     const subtotal = quote.lineItems?.reduce((a, i) => a + (i.price || 0) * (i.quantity || 1), 0) || 0;
-    const projectFee = subtotal * ((quote.projectFee || 0) / 100);
-    const total = subtotal + (quote.travelExpenses || 0) + projectFee;
+    const fee      = subtotal * ((quote.projectFee || 0) / 100);
+    const total    = subtotal + (quote.travelExpenses || 0) + fee;
 
     return (
         <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:shadow-md hover:border-primary/20 transition-all group">
@@ -124,10 +121,10 @@ const QuoteCard = ({
                             <span className="truncate">{typeof quote.eventLocation === 'string' ? quote.eventLocation : 'On-site'}</span>
                         </div>
                     )}
-                    {quote.estimatedGuests && (
+                    {(quote as any).estimatedGuests && (
                         <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase">
                             <Users className="w-3 h-3 opacity-40" />
-                            {quote.estimatedGuests} guests
+                            {(quote as any).estimatedGuests} guests
                         </div>
                     )}
                 </div>
@@ -137,12 +134,7 @@ const QuoteCard = ({
                         <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Total Value</p>
                         <p className="font-black font-mono text-lg text-primary">${total.toFixed(2)}</p>
                     </div>
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
-                        onClick={() => onCopyLink(quote)}
-                    >
+                    <Button size="sm" variant="outline" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2" onClick={() => onCopyLink(quote)}>
                         <LinkIcon className="w-3 h-3 mr-1.5" /> Share
                     </Button>
                 </div>
@@ -151,29 +143,24 @@ const QuoteCard = ({
     );
 };
 
-// ─── New Quote Dialog ─────────────────────────────────────────────────────────
-const NewQuoteDialog = ({
-    open, onOpenChange, clients, onSave,
-}: {
-    open: boolean;
-    onOpenChange: (v: boolean) => void;
-    clients: Client[];
+// ─── New Quote Dialog ──────────────────────────────────────────────────────────
+const NewQuoteDialog = ({ open, onOpenChange, clients, onSave }: {
+    open: boolean; onOpenChange: (v: boolean) => void; clients: Client[];
     onSave: (data: Omit<Quote, 'id'>) => void;
 }) => {
-    const [clientId, setClientId]         = useState('');
-    const [eventName, setEventName]       = useState('');
-    const [eventDate, setEventDate]       = useState('');
-    const [eventLocation, setEventLocation] = useState('');
+    const [clientId,        setClientId]        = useState('');
+    const [eventName,       setEventName]       = useState('');
+    const [eventDate,       setEventDate]       = useState('');
+    const [eventLocation,   setEventLocation]   = useState('');
     const [estimatedGuests, setEstimatedGuests] = useState('');
-    const [depositAmount, setDepositAmount] = useState('');
-    const [travelExpenses, setTravelExpenses] = useState('');
-    const [projectFee, setProjectFee]     = useState('');
-    const [notes, setNotes]               = useState('');
-    const [items, setItems]               = useState([{ name: '', quantity: 1, price: 0 }]);
+    const [depositAmount,   setDepositAmount]   = useState('');
+    const [travelExpenses,  setTravelExpenses]  = useState('');
+    const [projectFee,      setProjectFee]      = useState('');
+    const [notes,           setNotes]           = useState('');
+    const [items,           setItems]           = useState([{ name: '', quantity: 1, price: 0 }]);
 
-    const addItem = () => setItems(p => [...p, { name: '', quantity: 1, price: 0 }]);
-    const updateItem = (i: number, k: string, v: any) =>
-        setItems(p => p.map((item, idx) => idx === i ? { ...item, [k]: v } : item));
+    const addItem    = () => setItems(p => [...p, { name: '', quantity: 1, price: 0 }]);
+    const updateItem = (i: number, k: string, v: any) => setItems(p => p.map((item, idx) => idx === i ? { ...item, [k]: v } : item));
     const removeItem = (i: number) => setItems(p => p.filter((_, idx) => idx !== i));
 
     const subtotal = items.reduce((a, i) => a + (i.price || 0) * (i.quantity || 1), 0);
@@ -182,14 +169,13 @@ const NewQuoteDialog = ({
 
     const handleSave = () => {
         onSave({
-            clientId,
-            eventName,
+            clientId, eventName,
             eventDate: eventDate || '',
             eventLocation,
             estimatedGuests: parseInt(estimatedGuests) || 0,
-            depositAmount: parseFloat(depositAmount) || 0,
-            travelExpenses: parseFloat(travelExpenses) || 0,
-            projectFee: parseFloat(projectFee) || 0,
+            depositAmount:   parseFloat(depositAmount) || 0,
+            travelExpenses:  parseFloat(travelExpenses) || 0,
+            projectFee:      parseFloat(projectFee) || 0,
             notes,
             lineItems: items.filter(i => i.name.trim()),
             status: 'draft',
@@ -210,22 +196,16 @@ const NewQuoteDialog = ({
                         <div className="space-y-2 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Client</Label>
                             <Select value={clientId} onValueChange={setClientId}>
-                                <SelectTrigger className="h-12 rounded-2xl border-2 font-bold">
-                                    <SelectValue placeholder="Select client..." />
-                                </SelectTrigger>
+                                <SelectTrigger className="h-12 rounded-2xl border-2 font-bold"><SelectValue placeholder="Select client..." /></SelectTrigger>
                                 <SelectContent className="rounded-xl border-2 shadow-xl">
-                                    {clients.map(c => (
-                                        <SelectItem key={c.id} value={c.id} className="font-bold">{c.name}</SelectItem>
-                                    ))}
+                                    {clients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold">{c.name}</SelectItem>)}
                                 </SelectContent>
                             </Select>
                         </div>
-
                         <div className="space-y-2 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Event Name</Label>
                             <Input value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g. Bridal Party — June Wedding" className="h-12 rounded-2xl border-2 font-bold" />
                         </div>
-
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Event Date</Label>
@@ -236,12 +216,10 @@ const NewQuoteDialog = ({
                                 <Input type="number" value={estimatedGuests} onChange={e => setEstimatedGuests(e.target.value)} placeholder="0" className="h-12 rounded-2xl border-2 font-bold" />
                             </div>
                         </div>
-
                         <div className="space-y-2 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Location</Label>
                             <Input value={eventLocation} onChange={e => setEventLocation(e.target.value)} placeholder="Venue or address" className="h-12 rounded-2xl border-2 font-bold" />
                         </div>
-
                         <div className="space-y-3 text-left">
                             <div className="flex items-center justify-between">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Line Items</Label>
@@ -265,14 +243,13 @@ const NewQuoteDialog = ({
                                 ))}
                             </div>
                         </div>
-
                         <div className="grid grid-cols-3 gap-3">
                             <div className="space-y-2 text-left">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Travel ($)</Label>
                                 <Input type="number" value={travelExpenses} onChange={e => setTravelExpenses(e.target.value)} placeholder="0" className="h-10 rounded-xl border-2 font-black" />
                             </div>
                             <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Project Fee (%)</Label>
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Fee (%)</Label>
                                 <Input type="number" value={projectFee} onChange={e => setProjectFee(e.target.value)} placeholder="0" className="h-10 rounded-xl border-2 font-black" />
                             </div>
                             <div className="space-y-2 text-left">
@@ -280,12 +257,10 @@ const NewQuoteDialog = ({
                                 <Input type="number" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} placeholder="0" className="h-10 rounded-xl border-2 font-black" />
                             </div>
                         </div>
-
                         <div className="p-4 rounded-2xl bg-slate-900 text-white flex justify-between items-center">
                             <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Total</span>
                             <span className="text-2xl font-black font-mono">${total.toFixed(2)}</span>
                         </div>
-
                         <div className="space-y-2 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Internal Notes</Label>
                             <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes visible only to you..." className="rounded-2xl border-2 bg-muted/5" rows={3} />
@@ -305,7 +280,7 @@ const NewQuoteDialog = ({
     );
 };
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Page ──────────────────────────────────────────────────────────────────────
 export default function QuotesPage() {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
@@ -319,10 +294,19 @@ export default function QuotesPage() {
     );
     const { data: quotes, isLoading } = useCollection<Quote>(quotesQ);
 
-    const [search, setSearch]             = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
-    const [isNewOpen, setIsNewOpen]       = useState(false);
+    // FIX: also load quoteRequests count for badge
+    const requestsQ = useMemoFirebase(
+        () => tenantId ? collection(firestore, `tenants/${tenantId}/quoteRequests`) : null,
+        [firestore, tenantId]
+    );
+    const { data: quoteRequests } = useCollection<any>(requestsQ);
+    const newInquiryCount = quoteRequests?.filter(r => r.status === 'new' || !r.viewed).length || 0;
+
+    const [search,        setSearch]        = useState('');
+    const [statusFilter,  setStatusFilter]  = useState('all');
+    const [isNewOpen,     setIsNewOpen]     = useState(false);
     const [quoteToDelete, setQuoteToDelete] = useState<Quote | null>(null);
+    const [activeTab,     setActiveTab]     = useState('quotes');
 
     const filtered = useMemo(() => {
         if (!quotes) return [];
@@ -332,7 +316,7 @@ export default function QuotesPage() {
                 (clients.find(c => c.id === q.clientId)?.name || '').toLowerCase().includes(search.toLowerCase());
             const matchesStatus = statusFilter === 'all' || q.status === statusFilter;
             return matchesSearch && matchesStatus;
-        }).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        }).sort((a, b) => ((b as any).createdAt || '').localeCompare((a as any).createdAt || ''));
     }, [quotes, search, statusFilter, clients]);
 
     const stats = useMemo(() => {
@@ -348,15 +332,12 @@ export default function QuotesPage() {
 
     const handleSaveQuote = (data: Omit<Quote, 'id'>) => {
         if (!firestore || !tenantId) return;
-        const id = nanoid();
-        const ref = doc(firestore, `tenants/${tenantId}/quotes`, id);
-        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/quotes`), { ...data, id });
+        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/quotes`), { ...data, id: nanoid() });
         toast({ title: "Quote Created", description: "Draft saved. Share the link when ready." });
     };
 
     const handleCopyLink = (quote: Quote) => {
-        const url = `${window.location.origin}/quote/${tenantId}/${quote.id}`;
-        navigator.clipboard.writeText(url);
+        navigator.clipboard.writeText(`${window.location.origin}/quote/${tenantId}/${quote.id}`);
         toast({ title: "Link Copied", description: "Client link copied to clipboard." });
     };
 
@@ -369,12 +350,9 @@ export default function QuotesPage() {
 
     const handleDuplicate = (quote: Quote) => {
         if (!firestore || !tenantId) return;
-        const { id, status, acceptedAt, declinedAt, ...rest } = quote as any;
+        const { id, status, ...rest } = quote as any;
         addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/quotes`), {
-            ...rest,
-            eventName: `${quote.eventName} (Copy)`,
-            status: 'draft',
-            createdAt: new Date().toISOString(),
+            ...rest, eventName: `${quote.eventName} (Copy)`, status: 'draft', createdAt: new Date().toISOString(),
         });
         toast({ title: "Quote Duplicated" });
     };
@@ -403,81 +381,96 @@ export default function QuotesPage() {
                 {/* Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                     {[
-                        { label: 'Total Quotes',   value: stats.total,              mono: false },
-                        { label: 'Accepted',        value: stats.accepted,           mono: false },
-                        { label: 'Awaiting Reply',  value: stats.pending,            mono: false },
-                        { label: 'Accepted Value',  value: `$${stats.value.toFixed(2)}`, mono: true },
+                        { label: 'Total Quotes',    value: stats.total,                       mono: false },
+                        { label: 'Accepted',         value: stats.accepted,                    mono: false },
+                        { label: 'Awaiting Reply',   value: stats.pending,                     mono: false },
+                        { label: 'Accepted Value',   value: `$${stats.value.toFixed(2)}`,      mono: true  },
                     ].map(s => (
                         <div key={s.label} className="p-5 rounded-[2rem] border-2 bg-white shadow-sm text-left">
                             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{s.label}</p>
-                            <p className={cn("text-2xl font-black mt-1 text-slate-900", s.mono && "font-mono text-primary")}>{s.value}</p>
+                            <p className={cn('text-2xl font-black mt-1 text-slate-900', s.mono && 'font-mono text-primary')}>{s.value}</p>
                         </div>
                     ))}
                 </div>
 
-                {/* Filters */}
-                <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                        <Input
-                            placeholder="SEARCH BY EVENT OR CLIENT..."
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-xs tracking-widest bg-white"
-                        />
-                    </div>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full sm:w-44 bg-white">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl border-2 shadow-xl">
-                            <SelectItem value="all" className="font-bold">All Statuses</SelectItem>
-                            <SelectItem value="draft" className="font-bold">Draft</SelectItem>
-                            <SelectItem value="sent" className="font-bold">Sent</SelectItem>
-                            <SelectItem value="accepted" className="font-bold">Accepted</SelectItem>
-                            <SelectItem value="declined" className="font-bold">Declined</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
+                {/* FIX: Tabs with Inquiries properly wired */}
+                <Tabs value={activeTab} onValueChange={setActiveTab}>
+                    <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner mb-8 inline-flex">
+                        <TabsTrigger value="quotes" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                            Quotes
+                        </TabsTrigger>
+                        <TabsTrigger value="inquiries" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md relative">
+                            Inquiries
+                            {newInquiryCount > 0 && (
+                                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-violet-500 text-white text-[9px] font-black flex items-center justify-center shadow-md">
+                                    {newInquiryCount}
+                                </span>
+                            )}
+                        </TabsTrigger>
+                    </TabsList>
 
-                {/* Grid */}
-                {isLoading ? (
-                    <div className="flex flex-col items-center justify-center py-24 gap-4">
-                        <Loader className="w-8 h-8 animate-spin text-primary" />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Loading Proposals...</p>
-                    </div>
-                ) : filtered.length === 0 ? (
-                    <div className="text-center py-24 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6">
-                        <FileText className="w-16 h-16" />
-                        <div className="space-y-2">
-                            <p className="font-black uppercase tracking-widest text-sm">No Proposals Found</p>
-                            <p className="text-xs font-bold uppercase tracking-widest">Create your first proposal to get started</p>
+                    {/* ── Quotes tab ── */}
+                    <TabsContent value="quotes" className="mt-0">
+                        {/* Filters */}
+                        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                            <div className="relative flex-1">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                                <Input placeholder="SEARCH BY EVENT OR CLIENT..." value={search} onChange={e => setSearch(e.target.value)} className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-xs tracking-widest bg-white" />
+                            </div>
+                            <Select value={statusFilter} onValueChange={setStatusFilter}>
+                                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full sm:w-44 bg-white">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-xl">
+                                    <SelectItem value="all"      className="font-bold">All Statuses</SelectItem>
+                                    <SelectItem value="draft"    className="font-bold">Draft</SelectItem>
+                                    <SelectItem value="sent"     className="font-bold">Sent</SelectItem>
+                                    <SelectItem value="accepted" className="font-bold">Accepted</SelectItem>
+                                    <SelectItem value="declined" className="font-bold">Declined</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                        {filtered.map(q => (
-                            <QuoteCard
-                                key={q.id}
-                                quote={q}
-                                clients={clients || []}
-                                tenantId={tenantId || ''}
-                                onCopyLink={handleCopyLink}
-                                onDelete={setQuoteToDelete}
-                                onDuplicate={handleDuplicate}
-                                onMarkSent={handleMarkSent}
-                            />
-                        ))}
-                    </div>
-                )}
+
+                        {isLoading ? (
+                            <div className="flex flex-col items-center justify-center py-24 gap-4">
+                                <Loader className="w-8 h-8 animate-spin text-primary" />
+                                <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Loading Proposals...</p>
+                            </div>
+                        ) : filtered.length === 0 ? (
+                            <div className="text-center py-24 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6">
+                                <FileText className="w-16 h-16" />
+                                <div className="space-y-2">
+                                    <p className="font-black uppercase tracking-widest text-sm">No Proposals Found</p>
+                                    <p className="text-xs font-bold uppercase tracking-widest">Create your first proposal to get started</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                                {filtered.map(q => (
+                                    <QuoteCard
+                                        key={q.id} quote={q} clients={clients || []} tenantId={tenantId || ''}
+                                        onCopyLink={handleCopyLink} onDelete={setQuoteToDelete}
+                                        onDuplicate={handleDuplicate} onMarkSent={handleMarkSent}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    {/* ── Inquiries tab — FIX: properly wired ── */}
+                    <TabsContent value="inquiries" className="mt-0">
+                        {tenantId ? (
+                            <InquiriesTab tenantId={tenantId} />
+                        ) : (
+                            <div className="flex items-center justify-center py-24">
+                                <Loader className="w-6 h-6 animate-spin text-primary" />
+                            </div>
+                        )}
+                    </TabsContent>
+                </Tabs>
             </main>
 
-            <NewQuoteDialog
-                open={isNewOpen}
-                onOpenChange={setIsNewOpen}
-                clients={clients || []}
-                onSave={handleSaveQuote}
-            />
+            <NewQuoteDialog open={isNewOpen} onOpenChange={setIsNewOpen} clients={clients || []} onSave={handleSaveQuote} />
 
             <AlertDialog open={!!quoteToDelete} onOpenChange={() => setQuoteToDelete(null)}>
                 <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
@@ -491,9 +484,7 @@ export default function QuotesPage() {
                         <Button onClick={() => quoteToDelete && handleDelete(quoteToDelete)} className="w-full h-14 rounded-2xl font-black uppercase tracking-widest bg-destructive text-destructive-foreground hover:bg-destructive/90">
                             Delete
                         </Button>
-                        <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">
-                            Cancel
-                        </AlertDialogCancel>
+                        <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
