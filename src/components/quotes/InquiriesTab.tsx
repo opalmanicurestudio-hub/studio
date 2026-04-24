@@ -23,7 +23,7 @@ import {
     Phone, Mail, MessageSquare, Calendar, MapPin, Users, DollarSign,
     Scissors, Search, Filter, ChevronDown, ChevronUp, Copy,
     AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw,
-    ExternalLink, Building, Plane, Car, FileText,
+    ExternalLink, Building, Plane, Car, FileText, Gift,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -373,6 +373,16 @@ const InquiryDetailSheet = ({
                                 {inquiry.referralSource && (
                                     <InfoTile icon={Star} label="Found Us Via" value={inquiry.referralSource} />
                                 )}
+                                {inquiry.referralCode && (
+                                    <InfoTile icon={Gift} label="Referral Code" value={inquiry.referralCode} />
+                                )}
+                                {inquiry.estimatedMiles && (
+                                    <InfoTile icon={Car} label="Est. Travel" value={`${inquiry.estimatedMiles} mi · $${inquiry.estimatedTravelCost}`} />
+                                )}
+                                {(inquiry.bestDays?.length > 0 || inquiry.bestTimeSlot) && (
+                                    <InfoTile icon={Clock} label="Best Time to Reach"
+                                        value={[inquiry.bestDays?.join(', '), inquiry.bestTimeSlot].filter(Boolean).join(' · ')} />
+                                )}
                             </div>
                         </div>
 
@@ -389,15 +399,27 @@ const InquiryDetailSheet = ({
                             </>
                         )}
 
-                        {/* Inspiration */}
-                        {inquiry.inspirationLinks && (
+                        {/* Inspiration images + links */}
+                        {(inquiry.inspirationImages?.length > 0 || inquiry.inspirationLinks) && (
                             <>
                                 <Separator className="border-dashed" />
                                 <div className="space-y-3">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Inspiration</p>
-                                    <div className="p-4 rounded-2xl border-2 border-dashed bg-muted/5">
-                                        <p className="font-medium text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{inquiry.inspirationLinks}</p>
-                                    </div>
+                                    {inquiry.inspirationImages?.length > 0 && (
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {inquiry.inspirationImages.map((url: string, i: number) => (
+                                                <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                                                    className="relative aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-primary/40 transition-all">
+                                                    <img src={url} alt="" className="w-full h-full object-cover" />
+                                                </a>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {inquiry.inspirationLinks && (
+                                        <div className="p-4 rounded-2xl border-2 border-dashed bg-muted/5">
+                                            <p className="font-medium text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{inquiry.inspirationLinks}</p>
+                                        </div>
+                                    )}
                                 </div>
                             </>
                         )}
