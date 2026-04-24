@@ -3,10 +3,9 @@
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc, collection, query, where, getDocs } from 'firebase/firestore';
-import { type Quote as QuoteType, type Tenant, type Client } from '@/lib/data';
+import { doc } from 'firebase/firestore';
+import { type Quote as QuoteType, type Client } from '@/lib/data';
 import { 
-    ShieldCheck, 
     Calendar, 
     MapPin, 
     ArrowRight, 
@@ -14,25 +13,18 @@ import {
     XCircle, 
     Loader, 
     CreditCard, 
-    Lock, 
-    Sparkles, 
-    Landmark,
-    DollarSign,
-    Percent
+    Lock,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import Image from 'next/image';
 
 const ViewContainer = ({ children }: { children: React.ReactNode }) => (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 flex flex-col items-center justify-center p-4 py-20 font-body">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 flex flex-col items-center justify-center p-4 py-20">
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/20 blur-[120px] rounded-full" />
             <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-200/20 blur-[120px] rounded-full" />
@@ -44,30 +36,32 @@ const ViewContainer = ({ children }: { children: React.ReactNode }) => (
 );
 
 export default function PublicQuotePage() {
-    const { id } = useParams() as { id: string };
+    const params = useParams() as { id?: string; tenantId?: string; quoteId?: string };
+    const id = (params.id || params.quoteId || '') as string;
+
+    // FIX: tenantId from route params. Falls back to the hardcoded value so
+    // existing /quote/[id] routes still work while you migrate to /quote/[tenantId]/[id].
+    const tenantId = (params.tenantId || 'hoCsqf5Jq2qqW0_j41MZh') as string;
+
     const { firestore } = useFirebase();
     const { toast } = useToast();
     
-    // In this prototype, we assume the tenantId is part of the path or looked up.
-    // For this implementation, we extract from path or use a persistent constant if multi-tenant lookup is complex.
-    const tenantId = "hoCsqf5Jq2qqW0_j41MZh"; 
-    
     const quoteRef = useMemoFirebase(() => 
-        firestore ? doc(firestore, `tenants/${tenantId}/quotes`, id) : null
-    , [firestore, id]);
+        firestore && id ? doc(firestore, `tenants/${tenantId}/quotes`, id) : null
+    , [firestore, tenantId, id]);
     
     const { data: quote, isLoading: isQuoteLoading } = useDoc<QuoteType>(quoteRef);
     
     const clientRef = useMemoFirebase(() => 
-        firestore && quote ? doc(firestore, `tenants/${tenantId}/clients`, quote.clientId) : null
-    , [firestore, quote]);
+        firestore && quote?.clientId ? doc(firestore, `tenants/${tenantId}/clients`, quote.clientId) : null
+    , [firestore, tenantId, quote]);
     const { data: client } = useDoc<Client>(clientRef);
 
     const [isPaying, setIsPaying] = useState(false);
     const [step, setStep] = useState<'review' | 'payment' | 'success' | 'declined'>('review');
 
     const servicesSubtotal = useMemo(() => 
-        quote?.lineItems.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0) || 0
+        quote?.lineItems?.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0) || 0
     , [quote]);
     
     const projectFeeAmount = servicesSubtotal * ((quote?.projectFee || 0) / 100);
@@ -92,8 +86,24 @@ export default function PublicQuotePage() {
         setStep('declined');
     };
 
-    if (isQuoteLoading) return <ViewContainer><div className="flex flex-col items-center gap-4"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Authenticating Protocol...</p></div></ViewContainer>;
-    if (!quote) return <ViewContainer><div className="text-center p-12 bg-white rounded-[3rem] border-4 shadow-3xl space-y-6"><XCircle className="w-16 h-16 text-destructive mx-auto" /><h2 className="text-2xl font-black uppercase tracking-tighter">Proposal Expired</h2><p className="text-slate-500 font-medium">This proposal is no longer available. Please contact your professional.</p></div></ViewContainer>;
+    if (isQuoteLoading) return (
+        <ViewContainer>
+            <div className="flex flex-col items-center gap-4">
+                <Loader className="h-10 w-10 animate-spin text-primary" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Authenticating Protocol...</p>
+            </div>
+        </ViewContainer>
+    );
+
+    if (!quote) return (
+        <ViewContainer>
+            <div className="text-center p-12 bg-white rounded-[3rem] border-4 shadow-3xl space-y-6">
+                <XCircle className="w-16 h-16 text-destructive mx-auto" />
+                <h2 className="text-2xl font-black uppercase tracking-tighter">Proposal Expired</h2>
+                <p className="text-slate-500 font-medium">This proposal is no longer available. Please contact your professional.</p>
+            </div>
+        </ViewContainer>
+    );
 
     return (
         <ViewContainer>
@@ -121,14 +131,16 @@ export default function PublicQuotePage() {
                         </div>
                         <div className="space-y-4 md:text-right">
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Contract Status</p>
-                            <Badge variant="outline" className="h-7 px-4 rounded-full border-2 font-black uppercase text-[10px] tracking-widest bg-primary/5 border-primary/20 text-primary">Pending Acceptance</Badge>
+                            <Badge variant="outline" className="h-7 px-4 rounded-full border-2 font-black uppercase text-[10px] tracking-widest bg-primary/5 border-primary/20 text-primary">
+                                Pending Acceptance
+                            </Badge>
                         </div>
                     </div>
 
                     <div className="space-y-6">
                         <p className="text-[9px] font-black uppercase tracking-widest text-primary">Itemized Protocol</p>
                         <div className="space-y-3">
-                            {quote.lineItems.map((item, idx) => (
+                            {quote.lineItems?.map((item, idx) => (
                                 <div key={idx} className="flex justify-between items-center p-5 rounded-2xl bg-muted/20 border-2 border-transparent">
                                     <div>
                                         <p className="font-black text-sm uppercase tracking-tight text-slate-900">{item.name}</p>
@@ -137,10 +149,10 @@ export default function PublicQuotePage() {
                                     <p className="font-black font-mono text-base text-slate-900">${(item.price * item.quantity).toFixed(2)}</p>
                                 </div>
                             ))}
-                            {quote.travelExpenses > 0 && (
+                            {(quote.travelExpenses || 0) > 0 && (
                                 <div className="flex justify-between items-center p-5 rounded-2xl border-2 border-dashed border-border/50">
                                     <p className="font-black text-sm uppercase tracking-tight text-slate-900">Travel & Logistics</p>
-                                    <p className="font-black font-mono text-base text-slate-900">${quote.travelExpenses.toFixed(2)}</p>
+                                    <p className="font-black font-mono text-base text-slate-900">${(quote.travelExpenses || 0).toFixed(2)}</p>
                                 </div>
                             )}
                         </div>
@@ -151,13 +163,13 @@ export default function PublicQuotePage() {
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Contract Total</span>
                             <span className="text-4xl font-black font-mono tracking-tighter">${total.toFixed(2)}</span>
                         </div>
-                        {quote.depositAmount > 0 && (
+                        {(quote.depositAmount || 0) > 0 && (
                             <div className="pt-6 border-t border-white/10 flex justify-between items-center">
                                 <div className="space-y-1">
                                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Retainer Required</span>
                                     <p className="text-[9px] font-bold opacity-40 uppercase">DUE UPON ACCEPTANCE</p>
                                 </div>
-                                <span className="text-2xl font-black font-mono tracking-tighter text-primary">${quote.depositAmount.toFixed(2)}</span>
+                                <span className="text-2xl font-black font-mono tracking-tighter text-primary">${(quote.depositAmount || 0).toFixed(2)}</span>
                             </div>
                         )}
                     </div>
@@ -176,16 +188,25 @@ export default function PublicQuotePage() {
                     <div className="space-y-2">
                         <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4"><CreditCard className="w-8 h-8 text-primary" /></div>
                         <h2 className="text-3xl font-black uppercase tracking-tighter">Retainer Secure</h2>
-                        <p className="text-sm font-medium text-slate-500 uppercase tracking-widest opacity-60">Authorize ${quote.depositAmount?.toFixed(2)} to lock your date</p>
+                        <p className="text-sm font-medium text-slate-500 uppercase tracking-widest opacity-60">Authorize ${(quote.depositAmount || 0).toFixed(2)} to lock your date</p>
                     </div>
                     <div className="space-y-6 text-left">
-                        <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
-                        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
+                        <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label>
+                            <Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div>
+                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div>
+                        </div>
                     </div>
                     <Button onClick={finalizeAcceptance} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30" disabled={isPaying}>
                         {isPaying ? <Loader className="animate-spin" /> : 'Authorize Distribution'}
                     </Button>
-                    <div className="flex items-center justify-center gap-3 opacity-40"><Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted SSL Secure Tunnel</span></div>
+                    <div className="flex items-center justify-center gap-3 opacity-40">
+                        <Lock className="w-4 h-4"/>
+                        <span className="text-[9px] font-black uppercase tracking-widest">Encrypted SSL Secure Tunnel</span>
+                    </div>
                 </div>
             )}
 
