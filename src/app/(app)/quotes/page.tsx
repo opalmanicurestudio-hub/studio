@@ -1,82 +1,133 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+/**
+ * QUOTES DASHBOARD — FULL LIFECYCLE
+ * src/app/(app)/quotes/page.tsx
+ *
+ * New in this version:
+ * - Auto-expires sent/viewed quotes past their expiry date on load
+ * - "Send Quote" marks as sent + sets sentAt + sets expiresInDays
+ * - Revision requests appear as a badge + expandable thread
+ * - Follow-up flag on declined quotes
+ * - Analytics tab: acceptance rate, avg value, conversion by source
+ * - Quote detail sheet with full history
+ * - Expiry config per quote (7 / 14 / 30 days)
+ */
+
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import {
+    useFirebase, useCollection, useMemoFirebase,
+    addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking,
+} from '@/firebase';
+import { collection, doc, getDocs, writeBatch, query, where, orderBy } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { type Quote, type Client } from '@/lib/data';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, formatDistanceToNow, addDays, isPast } from 'date-fns';
 import { nanoid } from 'nanoid';
 import {
-    PlusCircle, Search, FileText, Copy, Trash2, Eye, Send,
+    PlusCircle, Search, FileText, Copy, Trash2, Send,
     CheckCircle2, XCircle, Clock, DollarSign, Calendar, MapPin,
     MoreHorizontal, Users, Loader, LinkIcon, ExternalLink, Inbox,
+    TrendingUp, AlertTriangle, RefreshCw, Eye, Bell, Star,
+    BarChart2, Percent, ArrowUpRight, Filter, Lock, MessageSquare,
+    ChevronDown, ChevronUp, Phone, Mail, Flag,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem,
     DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+    Dialog, DialogContent, DialogHeader, DialogTitle,
+    DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+    Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { InquiriesTab } from '@/components/quotes/InquiriesTab';
 
+const formatCurrency = (n: number) => `$${(n || 0).toFixed(2)}`;
+
 // ─── Status config ─────────────────────────────────────────────────────────────
-const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-    draft:    { label: 'Draft',    color: 'bg-slate-100 border-slate-200 text-slate-600',   icon: <Clock className="w-3 h-3" /> },
-    sent:     { label: 'Sent',     color: 'bg-blue-50 border-blue-100 text-blue-700',        icon: <Send className="w-3 h-3" /> },
-    accepted: { label: 'Accepted', color: 'bg-green-50 border-green-100 text-green-700',     icon: <CheckCircle2 className="w-3 h-3" /> },
-    declined: { label: 'Declined', color: 'bg-red-50 border-red-100 text-red-700',           icon: <XCircle className="w-3 h-3" /> },
-    expired:  { label: 'Expired',  color: 'bg-amber-50 border-amber-100 text-amber-700',     icon: <Clock className="w-3 h-3" /> },
+const STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
+    draft:               { label: 'Draft',            color: 'bg-slate-100 border-slate-200 text-slate-600',    dot: 'bg-slate-400' },
+    sent:                { label: 'Sent',              color: 'bg-blue-50 border-blue-100 text-blue-700',         dot: 'bg-blue-400' },
+    viewed:              { label: 'Viewed',            color: 'bg-violet-50 border-violet-100 text-violet-700',   dot: 'bg-violet-500 animate-pulse' },
+    accepted:            { label: 'Accepted',          color: 'bg-green-50 border-green-100 text-green-700',      dot: 'bg-green-500' },
+    declined:            { label: 'Declined',          color: 'bg-red-50 border-red-100 text-red-700',            dot: 'bg-red-400' },
+    expired:             { label: 'Expired',           color: 'bg-amber-50 border-amber-100 text-amber-700',      dot: 'bg-amber-400' },
+    revision_requested:  { label: 'Revision Req.',     color: 'bg-orange-50 border-orange-100 text-orange-700',   dot: 'bg-orange-400 animate-pulse' },
+};
+
+// ─── Quote value calculator ────────────────────────────────────────────────────
+const calcTotal = (quote: any) => {
+    const sub = quote.lineItems?.reduce((a: number, i: any) => a + ((i.price || 0) * (i.quantity || 1)), 0) || 0;
+    const fee = sub * ((quote.projectFee || 0) / 100);
+    return sub + (quote.travelExpenses || 0) + fee;
 };
 
 // ─── Quote Card ────────────────────────────────────────────────────────────────
 const QuoteCard = ({
     quote, clients, tenantId,
-    onCopyLink, onDelete, onDuplicate, onMarkSent,
+    onCopyLink, onDelete, onDuplicate, onSend, onOpen, onMarkFollowUp,
 }: {
-    quote: Quote; clients: Client[]; tenantId: string;
-    onCopyLink: (q: Quote) => void; onDelete: (q: Quote) => void;
-    onDuplicate: (q: Quote) => void; onMarkSent: (q: Quote) => void;
+    quote: any; clients: any[]; tenantId: string;
+    onCopyLink: (q: any) => void; onDelete: (q: any) => void;
+    onDuplicate: (q: any) => void; onSend: (q: any) => void;
+    onOpen: (q: any) => void; onMarkFollowUp: (q: any) => void;
 }) => {
-    const client   = clients.find(c => c.id === quote.clientId);
-    const status   = STATUS_CONFIG[quote.status || 'draft'] || STATUS_CONFIG.draft;
-    const subtotal = quote.lineItems?.reduce((a, i) => a + (i.price || 0) * (i.quantity || 1), 0) || 0;
-    const fee      = subtotal * ((quote.projectFee || 0) / 100);
-    const total    = subtotal + (quote.travelExpenses || 0) + fee;
+    const client = clients.find(c => c.id === quote.clientId);
+    const status = STATUS_CONFIG[quote.status || 'draft'] || STATUS_CONFIG.draft;
+    const total  = calcTotal(quote);
+    const needsFollowUp = quote.needsFollowUp && quote.status === 'declined';
+    const hasRevision   = quote.status === 'revision_requested';
+    const isExpiringSoon = ['sent', 'viewed'].includes(quote.status) && quote.sentAt && quote.expiresInDays &&
+        !isPast(addDays(new Date(quote.sentAt), quote.expiresInDays)) &&
+        isPast(addDays(new Date(quote.sentAt), quote.expiresInDays - 3));
 
     return (
-        <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:shadow-md hover:border-primary/20 transition-all group">
-            <CardContent className="p-6 space-y-4">
+        <Card
+            className={cn(
+                'border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:shadow-md transition-all cursor-pointer group',
+                hasRevision && 'border-orange-200 ring-2 ring-orange-100',
+                needsFollowUp && 'border-red-100',
+                isExpiringSoon && 'border-amber-200',
+            )}
+            onClick={() => onOpen(quote)}
+        >
+            <CardContent className="p-5 space-y-4">
+                {/* Top row */}
                 <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1 text-left min-w-0">
-                        <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">
-                            {quote.eventName || 'Untitled Quote'}
-                        </p>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                            {client?.name || 'Unknown Client'}
-                        </p>
+                    <div className="min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2">
+                            <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">
+                                {quote.eventName || 'Untitled'}
+                            </p>
+                            {hasRevision && <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shrink-0" />}
+                            {needsFollowUp && <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />}
+                        </div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{client?.name || '—'}</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                        <Badge variant="outline" className={cn('h-6 px-2 font-black text-[9px] uppercase tracking-widest border flex items-center gap-1', status.color)}>
-                            {status.icon} {status.label}
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                        <Badge variant="outline" className={cn('h-6 px-2 font-black text-[8px] uppercase tracking-widest border flex items-center gap-1', status.color)}>
+                            <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', status.dot)} />
+                            {status.label}
                         </Badge>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -84,23 +135,31 @@ const QuoteCard = ({
                                     <MoreHorizontal className="w-4 h-4" />
                                 </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
-                                <DropdownMenuItem onClick={() => onCopyLink(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 px-3">
+                            <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 w-48">
+                                <DropdownMenuItem onClick={() => onOpen(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10">
+                                    <Eye className="w-3.5 h-3.5 mr-2" /> View Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onCopyLink(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10">
                                     <LinkIcon className="w-3.5 h-3.5 mr-2" /> Copy Client Link
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => window.open(`/quote/${tenantId}/${quote.id}`, '_blank')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 px-3">
-                                    <ExternalLink className="w-3.5 h-3.5 mr-2" /> Preview Quote
+                                <DropdownMenuItem onClick={() => window.open(`/quote/${tenantId}/${quote.id}`, '_blank')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10">
+                                    <ExternalLink className="w-3.5 h-3.5 mr-2" /> Preview
                                 </DropdownMenuItem>
                                 {quote.status === 'draft' && (
-                                    <DropdownMenuItem onClick={() => onMarkSent(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 px-3">
-                                        <Send className="w-3.5 h-3.5 mr-2" /> Mark as Sent
+                                    <DropdownMenuItem onClick={() => onSend(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 text-primary">
+                                        <Send className="w-3.5 h-3.5 mr-2" /> Send to Client
                                     </DropdownMenuItem>
                                 )}
-                                <DropdownMenuItem onClick={() => onDuplicate(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 px-3">
+                                {quote.status === 'declined' && (
+                                    <DropdownMenuItem onClick={() => onMarkFollowUp(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 text-amber-700">
+                                        <Flag className="w-3.5 h-3.5 mr-2" /> Flag Follow-Up
+                                    </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => onDuplicate(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10">
                                     <Copy className="w-3.5 h-3.5 mr-2" /> Duplicate
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => onDelete(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 px-3 text-destructive">
+                                <DropdownMenuItem onClick={() => onDelete(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 text-destructive">
                                     <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
@@ -108,179 +167,395 @@ const QuoteCard = ({
                     </div>
                 </div>
 
-                <div className="space-y-1.5 text-left">
+                {/* Meta */}
+                <div className="space-y-1">
                     {quote.eventDate && (
                         <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase">
                             <Calendar className="w-3 h-3 opacity-40" />
-                            {format(parseISO(quote.eventDate), 'MMM d, yyyy')}
+                            {format(new Date(quote.eventDate + 'T12:00:00'), 'MMM d, yyyy')}
                         </div>
                     )}
-                    {quote.eventLocation && (
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase truncate">
-                            <MapPin className="w-3 h-3 opacity-40 shrink-0" />
-                            <span className="truncate">{typeof quote.eventLocation === 'string' ? quote.eventLocation : 'On-site'}</span>
+                    {quote.viewedAt && (
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-violet-500 uppercase">
+                            <Eye className="w-3 h-3" />
+                            Viewed {formatDistanceToNow(parseISO(quote.viewedAt), { addSuffix: true })}
                         </div>
                     )}
-                    {(quote as any).estimatedGuests && (
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase">
-                            <Users className="w-3 h-3 opacity-40" />
-                            {(quote as any).estimatedGuests} guests
+                    {isExpiringSoon && (
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-amber-600 uppercase">
+                            <Clock className="w-3 h-3" /> Expiring soon
+                        </div>
+                    )}
+                    {hasRevision && (
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-orange-600 uppercase">
+                            <RefreshCw className="w-3 h-3" /> Revision requested
+                        </div>
+                    )}
+                    {needsFollowUp && (
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-red-500 uppercase">
+                            <Flag className="w-3 h-3" /> Needs follow-up
                         </div>
                     )}
                 </div>
 
+                {/* Footer */}
                 <div className="flex items-center justify-between pt-3 border-t border-dashed">
-                    <div className="text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Total Value</p>
-                        <p className="font-black font-mono text-lg text-primary">${total.toFixed(2)}</p>
-                    </div>
-                    <Button size="sm" variant="outline" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2" onClick={() => onCopyLink(quote)}>
-                        <LinkIcon className="w-3 h-3 mr-1.5" /> Share
-                    </Button>
+                    <p className="font-black font-mono text-lg text-primary">{formatCurrency(total)}</p>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase">
+                        {quote.createdAt ? formatDistanceToNow(parseISO(quote.createdAt), { addSuffix: true }) : ''}
+                    </p>
                 </div>
             </CardContent>
         </Card>
     );
 };
 
-// ─── New Quote Dialog ──────────────────────────────────────────────────────────
-const NewQuoteDialog = ({ open, onOpenChange, clients, onSave }: {
-    open: boolean; onOpenChange: (v: boolean) => void; clients: Client[];
-    onSave: (data: Omit<Quote, 'id'>) => void;
+// ─── Quote detail sheet ────────────────────────────────────────────────────────
+const QuoteDetailSheet = ({
+    quote, clients, tenantId, open, onOpenChange,
+    onSend, onCopyLink, onDuplicate, onDelete,
+}: {
+    quote: any; clients: any[]; tenantId: string;
+    open: boolean; onOpenChange: (v: boolean) => void;
+    onSend: (q: any) => void; onCopyLink: (q: any) => void;
+    onDuplicate: (q: any) => void; onDelete: (q: any) => void;
 }) => {
-    const [clientId,        setClientId]        = useState('');
-    const [eventName,       setEventName]       = useState('');
-    const [eventDate,       setEventDate]       = useState('');
-    const [eventLocation,   setEventLocation]   = useState('');
-    const [estimatedGuests, setEstimatedGuests] = useState('');
-    const [depositAmount,   setDepositAmount]   = useState('');
-    const [travelExpenses,  setTravelExpenses]  = useState('');
-    const [projectFee,      setProjectFee]      = useState('');
-    const [notes,           setNotes]           = useState('');
-    const [items,           setItems]           = useState([{ name: '', quantity: 1, price: 0 }]);
+    const [revisions,       setRevisions]       = useState<any[]>([]);
+    const [loadingRevisions, setLoadingRevisions] = useState(false);
+    const { firestore } = useFirebase();
 
-    const addItem    = () => setItems(p => [...p, { name: '', quantity: 1, price: 0 }]);
-    const updateItem = (i: number, k: string, v: any) => setItems(p => p.map((item, idx) => idx === i ? { ...item, [k]: v } : item));
-    const removeItem = (i: number) => setItems(p => p.filter((_, idx) => idx !== i));
+    useEffect(() => {
+        if (!open || !quote || !firestore || !tenantId) return;
+        setLoadingRevisions(true);
+        getDocs(collection(firestore, `tenants/${tenantId}/quotes/${quote.id}/revisions`))
+            .then(snap => setRevisions(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+            .catch(console.error)
+            .finally(() => setLoadingRevisions(false));
+    }, [open, quote?.id, firestore, tenantId]);
 
-    const subtotal = items.reduce((a, i) => a + (i.price || 0) * (i.quantity || 1), 0);
-    const feeAmt   = subtotal * ((parseFloat(projectFee) || 0) / 100);
-    const total    = subtotal + (parseFloat(travelExpenses) || 0) + feeAmt;
-
-    const handleSave = () => {
-        onSave({
-            clientId, eventName,
-            eventDate: eventDate || '',
-            eventLocation,
-            estimatedGuests: parseInt(estimatedGuests) || 0,
-            depositAmount:   parseFloat(depositAmount) || 0,
-            travelExpenses:  parseFloat(travelExpenses) || 0,
-            projectFee:      parseFloat(projectFee) || 0,
-            notes,
-            lineItems: items.filter(i => i.name.trim()),
-            status: 'draft',
-            createdAt: new Date().toISOString(),
-        } as any);
-        onOpenChange(false);
-    };
+    if (!quote) return null;
+    const client = clients.find(c => c.id === quote.clientId);
+    const total  = calcTotal(quote);
+    const status = STATUS_CONFIG[quote.status || 'draft'] || STATUS_CONFIG.draft;
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-2xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl max-h-[90dvh] flex flex-col">
-                <DialogHeader className="p-8 pb-0 text-left flex-shrink-0">
-                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter">New Proposal</DialogTitle>
-                    <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Build a client-facing quote</DialogDescription>
-                </DialogHeader>
+        <Sheet open={open} onOpenChange={onOpenChange}>
+            <SheetContent side="right" className="w-full sm:max-w-2xl p-0 flex flex-col border-l-0 sm:border-l">
+                <SheetHeader className="p-8 pb-5 border-b bg-muted/5 flex-shrink-0 text-left">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1 min-w-0">
+                            <SheetTitle className="text-2xl font-black uppercase tracking-tighter leading-none">
+                                {quote.eventName || 'Untitled Quote'}
+                            </SheetTitle>
+                            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
+                                {client?.name || 'Unknown Client'}
+                            </SheetDescription>
+                        </div>
+                        <Badge variant="outline" className={cn('h-7 px-3 font-black text-[9px] uppercase tracking-widest border flex items-center gap-1.5 shrink-0', status.color)}>
+                            <span className={cn('w-1.5 h-1.5 rounded-full', status.dot)} />
+                            {status.label}
+                        </Badge>
+                    </div>
+                </SheetHeader>
+
                 <ScrollArea className="flex-1 min-h-0">
-                    <div className="p-8 space-y-6">
-                        <div className="space-y-2 text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Client</Label>
-                            <Select value={clientId} onValueChange={setClientId}>
-                                <SelectTrigger className="h-12 rounded-2xl border-2 font-bold"><SelectValue placeholder="Select client..." /></SelectTrigger>
-                                <SelectContent className="rounded-xl border-2 shadow-xl">
-                                    {clients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold">{c.name}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-2 text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Event Name</Label>
-                            <Input value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g. Bridal Party — June Wedding" className="h-12 rounded-2xl border-2 font-bold" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Event Date</Label>
-                                <Input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} className="h-12 rounded-2xl border-2 font-bold" />
-                            </div>
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Est. Guests</Label>
-                                <Input type="number" value={estimatedGuests} onChange={e => setEstimatedGuests(e.target.value)} placeholder="0" className="h-12 rounded-2xl border-2 font-bold" />
-                            </div>
-                        </div>
-                        <div className="space-y-2 text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Location</Label>
-                            <Input value={eventLocation} onChange={e => setEventLocation(e.target.value)} placeholder="Venue or address" className="h-12 rounded-2xl border-2 font-bold" />
-                        </div>
-                        <div className="space-y-3 text-left">
-                            <div className="flex items-center justify-between">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Line Items</Label>
-                                <Button variant="outline" size="sm" onClick={addItem} className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
-                                    <PlusCircle className="w-3 h-3 mr-1" /> Add
-                                </Button>
-                            </div>
+                    <div className="p-8 space-y-8 text-left">
+
+                        {/* Timeline */}
+                        <div className="space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Status Timeline</p>
                             <div className="space-y-2">
-                                {items.map((item, i) => (
-                                    <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
-                                        <Input value={item.name} onChange={e => updateItem(i, 'name', e.target.value)} placeholder="Service description" className="h-10 rounded-xl border-2 text-sm font-bold" />
-                                        <Input type="number" value={item.quantity} onChange={e => updateItem(i, 'quantity', parseInt(e.target.value) || 1)} className="h-10 rounded-xl border-2 w-16 text-center font-black" />
-                                        <div className="relative w-24">
-                                            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
-                                            <Input type="number" value={item.price || ''} onChange={e => updateItem(i, 'price', parseFloat(e.target.value) || 0)} placeholder="0" className="h-10 pl-6 rounded-xl border-2 font-black font-mono text-right text-sm" />
+                                {[
+                                    { label: 'Created',    date: quote.createdAt,     icon: FileText },
+                                    { label: 'Sent',       date: quote.sentAt,        icon: Send },
+                                    { label: 'Viewed',     date: quote.viewedAt,      icon: Eye },
+                                    { label: 'Revision',   date: quote.revisionRequestedAt, icon: RefreshCw },
+                                    { label: 'Accepted',   date: quote.acceptedAt,    icon: CheckCircle2 },
+                                    { label: 'Declined',   date: quote.declinedAt,    icon: XCircle },
+                                    { label: 'Expired',    date: quote.expiredAt,     icon: Clock },
+                                ].filter(e => e.date).map((event, i) => {
+                                    const Icon = event.icon;
+                                    return (
+                                        <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-muted/5 border">
+                                            <Icon className="w-4 h-4 text-primary/40 shrink-0" />
+                                            <div className="flex-1">
+                                                <p className="font-black text-xs uppercase tracking-widest text-slate-700">{event.label}</p>
+                                            </div>
+                                            <p className="text-[10px] font-bold text-muted-foreground">
+                                                {format(parseISO(event.date), 'MMM d, yyyy · h:mm a')}
+                                            </p>
                                         </div>
-                                        <Button variant="ghost" size="icon" onClick={() => removeItem(i)} className="h-10 w-10 rounded-xl text-destructive/40 hover:text-destructive">
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </Button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <Separator className="border-dashed" />
+
+                        {/* Decline reason */}
+                        {quote.declineReason && (
+                            <div className="space-y-2">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Decline Reason</p>
+                                <div className="p-4 rounded-2xl bg-red-50 border-2 border-red-100">
+                                    <p className="font-black text-sm text-red-800">{quote.declineReason}</p>
+                                    {quote.declineNote && <p className="text-[11px] font-medium text-red-600 mt-1">{quote.declineNote}</p>}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Revision requests */}
+                        {(revisions.length > 0 || loadingRevisions) && (
+                            <div className="space-y-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Revision Requests</p>
+                                {loadingRevisions ? (
+                                    <div className="flex justify-center p-4"><Loader className="w-5 h-5 animate-spin text-primary" /></div>
+                                ) : revisions.map(rev => (
+                                    <div key={rev.id} className="p-4 rounded-2xl border-2 border-orange-100 bg-orange-50 space-y-1">
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-orange-600">
+                                                {format(parseISO(rev.requestedAt), 'MMM d, yyyy · h:mm a')}
+                                            </p>
+                                            <Badge variant="outline" className="h-5 px-2 text-[8px] font-black border-orange-200 text-orange-600">
+                                                {rev.status}
+                                            </Badge>
+                                        </div>
+                                        <p className="font-medium text-sm text-orange-900 leading-relaxed">{rev.message}</p>
                                     </div>
                                 ))}
                             </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-3">
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Travel ($)</Label>
-                                <Input type="number" value={travelExpenses} onChange={e => setTravelExpenses(e.target.value)} placeholder="0" className="h-10 rounded-xl border-2 font-black" />
+                        )}
+
+                        <Separator className="border-dashed" />
+
+                        {/* Line items */}
+                        <div className="space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Services</p>
+                            <div className="space-y-2">
+                                {quote.lineItems?.map((item: any, i: number) => (
+                                    <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-muted/5 border">
+                                        <div>
+                                            <p className="font-black text-sm uppercase text-slate-900">{item.name}</p>
+                                            <p className="text-[10px] font-bold text-muted-foreground">{item.quantity} × {formatCurrency(item.price)}</p>
+                                        </div>
+                                        <p className="font-black font-mono text-sm">{formatCurrency(item.price * item.quantity)}</p>
+                                    </div>
+                                ))}
+                                <div className="flex justify-between items-center p-4 rounded-xl bg-slate-900 text-white">
+                                    <span className="font-black text-[10px] uppercase tracking-widest opacity-40">Total</span>
+                                    <span className="font-black font-mono text-xl">{formatCurrency(total)}</span>
+                                </div>
                             </div>
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Fee (%)</Label>
-                                <Input type="number" value={projectFee} onChange={e => setProjectFee(e.target.value)} placeholder="0" className="h-10 rounded-xl border-2 font-black" />
-                            </div>
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Deposit ($)</Label>
-                                <Input type="number" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} placeholder="0" className="h-10 rounded-xl border-2 font-black" />
-                            </div>
                         </div>
-                        <div className="p-4 rounded-2xl bg-slate-900 text-white flex justify-between items-center">
-                            <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Total</span>
-                            <span className="text-2xl font-black font-mono">${total.toFixed(2)}</span>
-                        </div>
-                        <div className="space-y-2 text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Internal Notes</Label>
-                            <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes visible only to you..." className="rounded-2xl border-2 bg-muted/5" rows={3} />
-                        </div>
+
+                        {/* Client contact */}
+                        {client && (
+                            <>
+                                <Separator className="border-dashed" />
+                                <div className="space-y-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Client</p>
+                                    <div className="space-y-2">
+                                        {client.email && (
+                                            <a href={`mailto:${client.email}`} className="flex items-center gap-3 p-3 rounded-xl border bg-white hover:border-primary/20 transition-all">
+                                                <Mail className="w-4 h-4 text-primary/40" />
+                                                <span className="font-bold text-sm">{client.email}</span>
+                                            </a>
+                                        )}
+                                        {client.phone && (
+                                            <a href={`tel:${client.phone}`} className="flex items-center gap-3 p-3 rounded-xl border bg-white hover:border-primary/20 transition-all">
+                                                <Phone className="w-4 h-4 text-primary/40" />
+                                                <span className="font-bold text-sm">{client.phone}</span>
+                                            </a>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </ScrollArea>
-                <DialogFooter className="p-8 pt-0 border-t bg-muted/5 flex-shrink-0">
-                    <div className="flex gap-3 w-full">
-                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase tracking-widest text-[10px]">Cancel</Button>
-                        <Button onClick={handleSave} disabled={!clientId || !eventName} className="flex-[2] h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20">
-                            Save Draft
+
+                {/* Footer actions */}
+                <div className="p-6 border-t bg-muted/5 flex-shrink-0 space-y-3">
+                    {quote.status === 'draft' && (
+                        <Button onClick={() => { onSend(quote); onOpenChange(false); }} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                            <Send className="mr-2 h-3.5 w-3.5" /> Send to Client
+                        </Button>
+                    )}
+                    <div className="flex gap-3">
+                        <Button variant="outline" onClick={() => onCopyLink(quote)} className="flex-1 h-10 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
+                            <LinkIcon className="mr-1.5 h-3.5 w-3.5" /> Copy Link
+                        </Button>
+                        <Button variant="outline" onClick={() => window.open(`/quote/${tenantId}/${quote.id}`, '_blank')} className="flex-1 h-10 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
+                            <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Preview
                         </Button>
                     </div>
+                </div>
+            </SheetContent>
+        </Sheet>
+    );
+};
+
+// ─── Send Quote Dialog ─────────────────────────────────────────────────────────
+const SendQuoteDialog = ({ open, onOpenChange, quote, onConfirm }: {
+    open: boolean; onOpenChange: (v: boolean) => void;
+    quote: any; onConfirm: (expiryDays: number) => void;
+}) => {
+    const [expiryDays, setExpiryDays] = useState(14);
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="rounded-[3rem] border-4 shadow-3xl max-w-md">
+                <DialogHeader className="p-8 pb-4 text-left">
+                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Send Proposal</DialogTitle>
+                    <DialogDescription className="font-bold text-sm text-slate-600 uppercase tracking-widest opacity-60">
+                        Configure expiry and share the link with {quote?.eventName || 'the client'}.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="px-8 pb-4 space-y-6">
+                    <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Quote expires in</Label>
+                        <Select value={String(expiryDays)} onValueChange={v => setExpiryDays(parseInt(v))}>
+                            <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl border-2">
+                                <SelectItem value="7"  className="font-bold">7 days</SelectItem>
+                                <SelectItem value="14" className="font-bold">14 days (recommended)</SelectItem>
+                                <SelectItem value="30" className="font-bold">30 days</SelectItem>
+                                <SelectItem value="60" className="font-bold">60 days</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-blue-50 border-2 border-blue-100 space-y-1">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">Next steps</p>
+                        <p className="text-[11px] font-bold text-blue-600 leading-relaxed">
+                            After sending, copy the client link and share it via text, email, or DM. 
+                            You'll be notified when they view and respond.
+                        </p>
+                    </div>
+                </div>
+                <DialogFooter className="px-8 pb-8 flex gap-3">
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase text-[10px] tracking-widest">Cancel</Button>
+                    <Button onClick={() => onConfirm(expiryDays)} className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
+                        <Send className="mr-2 h-4 w-4" /> Mark as Sent
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
     );
 };
 
-// ─── Page ──────────────────────────────────────────────────────────────────────
+// ─── Analytics tab ─────────────────────────────────────────────────────────────
+const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) => {
+    const stats = useMemo(() => {
+        const total       = quotes.length;
+        const accepted    = quotes.filter(q => q.status === 'accepted');
+        const declined    = quotes.filter(q => q.status === 'declined');
+        const sent        = quotes.filter(q => ['sent', 'viewed', 'accepted', 'declined', 'expired'].includes(q.status));
+        const acceptRate  = sent.length > 0 ? (accepted.length / sent.length) * 100 : 0;
+        const avgValue    = accepted.length > 0
+            ? accepted.reduce((a, q) => a + calcTotal(q), 0) / accepted.length : 0;
+        const totalRevenue = accepted.reduce((a, q) => a + calcTotal(q), 0);
+        const viewedRate  = sent.length > 0
+            ? (quotes.filter(q => q.viewedAt).length / sent.length) * 100 : 0;
+
+        // Decline reasons breakdown
+        const reasons: Record<string, number> = {};
+        declined.forEach(q => {
+            const r = q.declineReason || 'Not specified';
+            reasons[r] = (reasons[r] || 0) + 1;
+        });
+
+        // Time to accept (days)
+        const acceptTimes = accepted
+            .filter(q => q.sentAt && q.acceptedAt)
+            .map(q => (new Date(q.acceptedAt).getTime() - new Date(q.sentAt).getTime()) / (1000 * 60 * 60 * 24));
+        const avgDaysToAccept = acceptTimes.length > 0
+            ? acceptTimes.reduce((a, b) => a + b, 0) / acceptTimes.length : 0;
+
+        return { total, acceptRate, avgValue, totalRevenue, viewedRate, reasons, avgDaysToAccept, acceptedCount: accepted.length, declinedCount: declined.length };
+    }, [quotes]);
+
+    return (
+        <div className="space-y-8">
+            {/* KPI grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                    { label: 'Total Quotes',     value: stats.total,                     mono: false, color: '' },
+                    { label: 'Acceptance Rate',  value: `${stats.acceptRate.toFixed(0)}%`, mono: true,  color: stats.acceptRate >= 50 ? 'text-green-600' : 'text-amber-600' },
+                    { label: 'Avg Quote Value',  value: `$${stats.avgValue.toFixed(0)}`,  mono: true,  color: 'text-primary' },
+                    { label: 'Total Revenue',    value: `$${stats.totalRevenue.toFixed(0)}`, mono: true, color: 'text-green-600' },
+                ].map(s => (
+                    <div key={s.label} className="p-5 rounded-[2rem] border-2 bg-white shadow-sm text-left">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{s.label}</p>
+                        <p className={cn('text-2xl font-black mt-1', s.mono ? s.color : 'text-slate-900')}>{s.value}</p>
+                    </div>
+                ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Funnel */}
+                <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Proposal Funnel</p>
+                    <div className="space-y-3">
+                        {[
+                            { label: 'Total Sent',  value: quotes.filter(q => q.status !== 'draft').length, color: 'bg-blue-400', pct: 100 },
+                            { label: 'Viewed',      value: quotes.filter(q => q.viewedAt).length,           color: 'bg-violet-400', pct: stats.viewedRate },
+                            { label: 'Accepted',    value: stats.acceptedCount,                              color: 'bg-green-400', pct: stats.acceptRate },
+                            { label: 'Declined',    value: stats.declinedCount,                              color: 'bg-red-300',   pct: quotes.filter(q => q.status !== 'draft').length > 0 ? (stats.declinedCount / quotes.filter(q => q.status !== 'draft').length) * 100 : 0 },
+                        ].map(row => (
+                            <div key={row.label} className="space-y-1">
+                                <div className="flex justify-between text-[10px] font-black uppercase text-slate-600">
+                                    <span>{row.label}</span>
+                                    <span className="font-mono">{row.value}</span>
+                                </div>
+                                <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                                    <div className={cn('h-full rounded-full transition-all', row.color)} style={{ width: `${Math.min(row.pct, 100)}%` }} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Decline reasons */}
+                <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Why Clients Decline</p>
+                    {Object.keys(stats.reasons).length === 0 ? (
+                        <p className="text-sm font-bold text-muted-foreground opacity-40 text-center py-6">No declines yet</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {Object.entries(stats.reasons).sort((a, b) => b[1] - a[1]).map(([reason, count]) => (
+                                <div key={reason} className="flex justify-between items-center p-3 rounded-xl bg-muted/5 border">
+                                    <p className="font-bold text-sm text-slate-700 truncate">{reason}</p>
+                                    <Badge variant="outline" className="font-black font-mono shrink-0 ml-2">{count}</Badge>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Timing stats */}
+                <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4 md:col-span-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Response Timing</p>
+                    <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center p-4 rounded-2xl bg-muted/5 border">
+                            <p className="text-2xl font-black font-mono text-primary">{stats.viewedRate.toFixed(0)}%</p>
+                            <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mt-1">View Rate</p>
+                        </div>
+                        <div className="text-center p-4 rounded-2xl bg-muted/5 border">
+                            <p className="text-2xl font-black font-mono text-slate-900">{stats.avgDaysToAccept.toFixed(1)}</p>
+                            <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mt-1">Avg Days to Accept</p>
+                        </div>
+                        <div className="text-center p-4 rounded-2xl bg-muted/5 border">
+                            <p className="text-2xl font-black font-mono text-green-600">{stats.acceptRate.toFixed(0)}%</p>
+                            <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mt-1">Close Rate</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─── Main page ─────────────────────────────────────────────────────────────────
 export default function QuotesPage() {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
@@ -292,9 +567,8 @@ export default function QuotesPage() {
         () => tenantId ? collection(firestore, `tenants/${tenantId}/quotes`) : null,
         [firestore, tenantId]
     );
-    const { data: quotes, isLoading } = useCollection<Quote>(quotesQ);
+    const { data: quotes, isLoading } = useCollection<any>(quotesQ);
 
-    // FIX: also load quoteRequests count for badge
     const requestsQ = useMemoFirebase(
         () => tenantId ? collection(firestore, `tenants/${tenantId}/quoteRequests`) : null,
         [firestore, tenantId]
@@ -304,63 +578,100 @@ export default function QuotesPage() {
 
     const [search,        setSearch]        = useState('');
     const [statusFilter,  setStatusFilter]  = useState('all');
-    const [isNewOpen,     setIsNewOpen]     = useState(false);
-    const [quoteToDelete, setQuoteToDelete] = useState<Quote | null>(null);
     const [activeTab,     setActiveTab]     = useState('quotes');
+    const [selectedQuote, setSelectedQuote] = useState<any>(null);
+    const [sheetOpen,     setSheetOpen]     = useState(false);
+    const [quoteToDelete, setQuoteToDelete] = useState<any>(null);
+    const [quoteToSend,   setQuoteToSend]   = useState<any>(null);
+
+    // ── Auto-expire on load ────────────────────────────────────────────────────
+    useEffect(() => {
+        if (!quotes || !firestore || !tenantId) return;
+        quotes.forEach(q => {
+            if (!['sent', 'viewed'].includes(q.status)) return;
+            if (!q.expiresInDays || !q.sentAt) return;
+            const expiryDate = addDays(new Date(q.sentAt), q.expiresInDays);
+            if (isPast(expiryDate)) {
+                updateDocumentNonBlocking(
+                    doc(firestore, `tenants/${tenantId}/quotes`, q.id),
+                    { status: 'expired', expiredAt: new Date().toISOString() }
+                );
+            }
+        });
+    }, [quotes, firestore, tenantId]);
 
     const filtered = useMemo(() => {
         if (!quotes) return [];
-        return quotes.filter(q => {
-            const matchesSearch = !search ||
-                (q.eventName || '').toLowerCase().includes(search.toLowerCase()) ||
-                (clients.find(c => c.id === q.clientId)?.name || '').toLowerCase().includes(search.toLowerCase());
-            const matchesStatus = statusFilter === 'all' || q.status === statusFilter;
-            return matchesSearch && matchesStatus;
-        }).sort((a, b) => ((b as any).createdAt || '').localeCompare((a as any).createdAt || ''));
+        return quotes
+            .filter(q => {
+                const matchSearch = !search ||
+                    (q.eventName || '').toLowerCase().includes(search.toLowerCase()) ||
+                    (clients.find((c: any) => c.id === q.clientId)?.name || '').toLowerCase().includes(search.toLowerCase());
+                const matchStatus = statusFilter === 'all' || q.status === statusFilter;
+                return matchSearch && matchStatus;
+            })
+            .sort((a, b) => ((b.createdAt || '').localeCompare(a.createdAt || '')));
     }, [quotes, search, statusFilter, clients]);
 
     const stats = useMemo(() => {
-        if (!quotes) return { total: 0, accepted: 0, pending: 0, value: 0 };
-        const accepted = quotes.filter(q => q.status === 'accepted');
-        const pending  = quotes.filter(q => q.status === 'sent');
-        const value    = accepted.reduce((a, q) => {
-            const sub = q.lineItems?.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0) || 0;
-            return a + sub + (q.travelExpenses || 0) + sub * ((q.projectFee || 0) / 100);
-        }, 0);
-        return { total: quotes.length, accepted: accepted.length, pending: pending.length, value };
+        if (!quotes) return { total: 0, accepted: 0, pending: 0, value: 0, needsAttention: 0 };
+        return {
+            total:         quotes.length,
+            accepted:      quotes.filter(q => q.status === 'accepted').length,
+            pending:       quotes.filter(q => ['sent', 'viewed'].includes(q.status)).length,
+            value:         quotes.filter(q => q.status === 'accepted').reduce((a, q) => a + calcTotal(q), 0),
+            needsAttention: quotes.filter(q => q.status === 'revision_requested' || (q.needsFollowUp && q.status === 'declined')).length,
+        };
     }, [quotes]);
 
-    const handleSaveQuote = (data: Omit<Quote, 'id'>) => {
-        if (!firestore || !tenantId) return;
-        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/quotes`), { ...data, id: nanoid() });
-        toast({ title: "Quote Created", description: "Draft saved. Share the link when ready." });
+    const handleSendConfirm = (expiryDays: number) => {
+        if (!quoteToSend || !firestore || !tenantId) return;
+        updateDocumentNonBlocking(
+            doc(firestore, `tenants/${tenantId}/quotes`, quoteToSend.id),
+            { status: 'sent', sentAt: new Date().toISOString(), expiresInDays: expiryDays }
+        );
+        setQuoteToSend(null);
+        toast({ title: 'Quote Sent', description: 'Copy the client link and share it with them.' });
+        // Auto-copy the link to clipboard
+        navigator.clipboard.writeText(`${window.location.origin}/quote/${tenantId}/${quoteToSend.id}`);
     };
 
-    const handleCopyLink = (quote: Quote) => {
-        navigator.clipboard.writeText(`${window.location.origin}/quote/${tenantId}/${quote.id}`);
-        toast({ title: "Link Copied", description: "Client link copied to clipboard." });
-    };
-
-    const handleDelete = (quote: Quote) => {
+    const handleDelete = (quote: any) => {
         if (!firestore || !tenantId) return;
         deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/quotes`, quote.id));
         setQuoteToDelete(null);
-        toast({ title: "Quote Deleted" });
+        toast({ title: 'Quote Deleted' });
     };
 
-    const handleDuplicate = (quote: Quote) => {
+    const handleCopyLink = (quote: any) => {
+        navigator.clipboard.writeText(`${window.location.origin}/quote/${tenantId}/${quote.id}`);
+        toast({ title: 'Link Copied', description: 'Paste it anywhere to share with the client.' });
+    };
+
+    const handleDuplicate = (quote: any) => {
         if (!firestore || !tenantId) return;
-        const { id, status, ...rest } = quote as any;
+        const { id, status, sentAt, viewedAt, acceptedAt, declinedAt, expiredAt, locked, ...rest } = quote;
         addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/quotes`), {
-            ...rest, eventName: `${quote.eventName} (Copy)`, status: 'draft', createdAt: new Date().toISOString(),
+            ...rest,
+            eventName:  `${quote.eventName} (Copy)`,
+            status:     'draft',
+            createdAt:  new Date().toISOString(),
         });
-        toast({ title: "Quote Duplicated" });
+        toast({ title: 'Duplicated' });
     };
 
-    const handleMarkSent = (quote: Quote) => {
+    const handleMarkFollowUp = (quote: any) => {
         if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/quotes`, quote.id), { status: 'sent', sentAt: new Date().toISOString() });
-        toast({ title: "Marked as Sent" });
+        updateDocumentNonBlocking(
+            doc(firestore, `tenants/${tenantId}/quotes`, quote.id),
+            { followUpScheduled: new Date().toISOString() }
+        );
+        toast({ title: 'Follow-up Flagged', description: 'Marked for outreach.' });
+    };
+
+    const handleOpen = (quote: any) => {
+        setSelectedQuote(quote);
+        setSheetOpen(true);
     };
 
     return (
@@ -368,65 +679,75 @@ export default function QuotesPage() {
             <AppHeader title="Quotes" />
             <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto">
 
+                {/* Header */}
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
                     <div className="space-y-1">
                         <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Proposals</h1>
                         <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Client quotes & event contracts</p>
                     </div>
-                    <Button onClick={() => setIsNewOpen(true)} className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto">
+                    <Button
+                        onClick={() => window.location.href = '/quotes/new'}
+                        className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto"
+                    >
                         <PlusCircle className="mr-2 h-4 w-4" /> New Proposal
                     </Button>
                 </div>
 
                 {/* Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
                     {[
-                        { label: 'Total Quotes',    value: stats.total,                       mono: false },
-                        { label: 'Accepted',         value: stats.accepted,                    mono: false },
-                        { label: 'Awaiting Reply',   value: stats.pending,                     mono: false },
-                        { label: 'Accepted Value',   value: `$${stats.value.toFixed(2)}`,      mono: true  },
+                        { label: 'Total',       value: stats.total,                          color: '' },
+                        { label: 'Accepted',    value: stats.accepted,                       color: 'text-green-600' },
+                        { label: 'Awaiting',    value: stats.pending,                        color: 'text-blue-600' },
+                        { label: 'Revenue',     value: `$${stats.value.toFixed(0)}`,         color: 'text-primary' },
+                        { label: 'Action Needed', value: stats.needsAttention,               color: stats.needsAttention > 0 ? 'text-orange-600' : '' },
                     ].map(s => (
-                        <div key={s.label} className="p-5 rounded-[2rem] border-2 bg-white shadow-sm text-left">
+                        <div key={s.label} className={cn('p-4 rounded-[2rem] border-2 bg-white shadow-sm text-left', s.label === 'Action Needed' && stats.needsAttention > 0 && 'border-orange-200 bg-orange-50')}>
                             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{s.label}</p>
-                            <p className={cn('text-2xl font-black mt-1 text-slate-900', s.mono && 'font-mono text-primary')}>{s.value}</p>
+                            <p className={cn('text-2xl font-black mt-0.5', s.color || 'text-slate-900')}>{s.value}</p>
                         </div>
                     ))}
                 </div>
 
-                {/* FIX: Tabs with Inquiries properly wired */}
+                {/* Tabs */}
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
                     <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner mb-8 inline-flex">
-                        <TabsTrigger value="quotes" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
-                            Quotes
-                        </TabsTrigger>
-                        <TabsTrigger value="inquiries" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md relative">
-                            Inquiries
-                            {newInquiryCount > 0 && (
-                                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-violet-500 text-white text-[9px] font-black flex items-center justify-center shadow-md">
-                                    {newInquiryCount}
-                                </span>
-                            )}
-                        </TabsTrigger>
+                        {[
+                            { value: 'quotes',    label: 'Quotes' },
+                            { value: 'inquiries', label: 'Inquiries', badge: newInquiryCount },
+                            { value: 'analytics', label: 'Analytics' },
+                        ].map(tab => (
+                            <TabsTrigger key={tab.value} value={tab.value} className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md relative">
+                                {tab.label}
+                                {tab.badge && tab.badge > 0 && (
+                                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-violet-500 text-white text-[9px] font-black flex items-center justify-center">
+                                        {tab.badge}
+                                    </span>
+                                )}
+                            </TabsTrigger>
+                        ))}
                     </TabsList>
 
-                    {/* ── Quotes tab ── */}
+                    {/* ── Quotes ── */}
                     <TabsContent value="quotes" className="mt-0">
-                        {/* Filters */}
                         <div className="flex flex-col sm:flex-row gap-3 mb-6">
                             <div className="relative flex-1">
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                                <Input placeholder="SEARCH BY EVENT OR CLIENT..." value={search} onChange={e => setSearch(e.target.value)} className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-xs tracking-widest bg-white" />
+                                <Input placeholder="Search by event or client..." value={search} onChange={e => setSearch(e.target.value)} className="pl-12 h-12 rounded-2xl border-2 font-bold bg-white" />
                             </div>
                             <Select value={statusFilter} onValueChange={setStatusFilter}>
-                                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full sm:w-44 bg-white">
+                                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full sm:w-52 bg-white">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent className="rounded-xl border-2 shadow-xl">
-                                    <SelectItem value="all"      className="font-bold">All Statuses</SelectItem>
-                                    <SelectItem value="draft"    className="font-bold">Draft</SelectItem>
-                                    <SelectItem value="sent"     className="font-bold">Sent</SelectItem>
-                                    <SelectItem value="accepted" className="font-bold">Accepted</SelectItem>
-                                    <SelectItem value="declined" className="font-bold">Declined</SelectItem>
+                                    <SelectItem value="all"                className="font-bold">All Statuses</SelectItem>
+                                    <SelectItem value="draft"              className="font-bold">Draft</SelectItem>
+                                    <SelectItem value="sent"               className="font-bold">Sent</SelectItem>
+                                    <SelectItem value="viewed"             className="font-bold">Viewed</SelectItem>
+                                    <SelectItem value="revision_requested" className="font-bold">Revision Requested</SelectItem>
+                                    <SelectItem value="accepted"           className="font-bold">Accepted</SelectItem>
+                                    <SelectItem value="declined"           className="font-bold">Declined</SelectItem>
+                                    <SelectItem value="expired"            className="font-bold">Expired</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -434,54 +755,70 @@ export default function QuotesPage() {
                         {isLoading ? (
                             <div className="flex flex-col items-center justify-center py-24 gap-4">
                                 <Loader className="w-8 h-8 animate-spin text-primary" />
-                                <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Loading Proposals...</p>
                             </div>
                         ) : filtered.length === 0 ? (
-                            <div className="text-center py-24 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6">
+                            <div className="text-center py-24 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                                 <FileText className="w-16 h-16" />
-                                <div className="space-y-2">
-                                    <p className="font-black uppercase tracking-widest text-sm">No Proposals Found</p>
-                                    <p className="text-xs font-bold uppercase tracking-widest">Create your first proposal to get started</p>
-                                </div>
+                                <p className="font-black uppercase tracking-widest text-sm">No proposals found</p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                 {filtered.map(q => (
                                     <QuoteCard
                                         key={q.id} quote={q} clients={clients || []} tenantId={tenantId || ''}
                                         onCopyLink={handleCopyLink} onDelete={setQuoteToDelete}
-                                        onDuplicate={handleDuplicate} onMarkSent={handleMarkSent}
+                                        onDuplicate={handleDuplicate} onSend={q => setQuoteToSend(q)}
+                                        onOpen={handleOpen} onMarkFollowUp={handleMarkFollowUp}
                                     />
                                 ))}
                             </div>
                         )}
                     </TabsContent>
 
-                    {/* ── Inquiries tab — FIX: properly wired ── */}
+                    {/* ── Inquiries ── */}
                     <TabsContent value="inquiries" className="mt-0">
-                        {tenantId ? (
-                            <InquiriesTab tenantId={tenantId} />
-                        ) : (
-                            <div className="flex items-center justify-center py-24">
-                                <Loader className="w-6 h-6 animate-spin text-primary" />
-                            </div>
-                        )}
+                        {tenantId ? <InquiriesTab tenantId={tenantId} /> : <Loader className="animate-spin" />}
+                    </TabsContent>
+
+                    {/* ── Analytics ── */}
+                    <TabsContent value="analytics" className="mt-0">
+                        <AnalyticsTab quotes={quotes || []} clients={clients || []} />
                     </TabsContent>
                 </Tabs>
             </main>
 
-            <NewQuoteDialog open={isNewOpen} onOpenChange={setIsNewOpen} clients={clients || []} onSave={handleSaveQuote} />
+            {/* Detail sheet */}
+            <QuoteDetailSheet
+                quote={selectedQuote}
+                clients={clients || []}
+                tenantId={tenantId || ''}
+                open={sheetOpen}
+                onOpenChange={setSheetOpen}
+                onSend={q => setQuoteToSend(q)}
+                onCopyLink={handleCopyLink}
+                onDuplicate={handleDuplicate}
+                onDelete={setQuoteToDelete}
+            />
 
+            {/* Send dialog */}
+            <SendQuoteDialog
+                open={!!quoteToSend}
+                onOpenChange={open => !open && setQuoteToSend(null)}
+                quote={quoteToSend}
+                onConfirm={handleSendConfirm}
+            />
+
+            {/* Delete confirmation */}
             <AlertDialog open={!!quoteToDelete} onOpenChange={() => setQuoteToDelete(null)}>
                 <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-                    <AlertDialogHeader className="p-6 pb-0">
+                    <AlertDialogHeader className="p-8 pb-4">
                         <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Delete Proposal</AlertDialogTitle>
-                        <AlertDialogDescription className="font-bold text-sm text-slate-600 uppercase">
-                            Permanently delete &quot;{quoteToDelete?.eventName}&quot;? This cannot be undone.
+                        <AlertDialogDescription className="font-bold text-sm text-slate-600">
+                            Permanently delete "{quoteToDelete?.eventName}"? This cannot be undone.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={() => quoteToDelete && handleDelete(quoteToDelete)} className="w-full h-14 rounded-2xl font-black uppercase tracking-widest bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    <AlertDialogFooter className="p-8 pt-0 flex flex-col gap-3">
+                        <Button onClick={() => quoteToDelete && handleDelete(quoteToDelete)} className="w-full h-12 rounded-2xl font-black uppercase tracking-widest bg-destructive text-destructive-foreground hover:bg-destructive/90">
                             Delete
                         </Button>
                         <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
