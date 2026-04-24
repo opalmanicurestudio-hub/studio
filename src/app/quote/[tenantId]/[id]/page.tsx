@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { initializeApp, getApps } from 'firebase/app';
+import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { type Quote as QuoteType, type Client } from '@/lib/data';
 import { 
     Calendar, 
@@ -21,8 +21,23 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { motion } from 'framer-motion';
-import { useToast } from '@/hooks/use-toast';
 
+// ─── Standalone Firebase (no auth context needed) ─────────────────────────────
+const getDb = () => {
+    if (getApps().length === 0) {
+        initializeApp({
+            apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+            authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+            projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+            storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+            messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+            appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+        });
+    }
+    return getFirestore();
+};
+
+// ─── ViewContainer ────────────────────────────────────────────────────────────
 const ViewContainer = ({ children }: { children: React.ReactNode }) => (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 flex flex-col items-center justify-center p-4 py-20">
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -35,58 +50,87 @@ const ViewContainer = ({ children }: { children: React.ReactNode }) => (
     </div>
 );
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function PublicQuotePage() {
     const params = useParams() as { id?: string; tenantId?: string; quoteId?: string };
-    const id = (params.id || params.quoteId || '') as string;
-
-    // FIX: tenantId from route params. Falls back to the hardcoded value so
-    // existing /quote/[id] routes still work while you migrate to /quote/[tenantId]/[id].
+    const id       = (params.id || params.quoteId || '') as string;
     const tenantId = (params.tenantId || 'hoCsqf5Jq2qqW0_j41MZh') as string;
 
-    const { firestore } = useFirebase();
-    const { toast } = useToast();
-    
-    const quoteRef = useMemoFirebase(() => 
-        firestore && id ? doc(firestore, `tenants/${tenantId}/quotes`, id) : null
-    , [firestore, tenantId, id]);
-    
-    const { data: quote, isLoading: isQuoteLoading } = useDoc<QuoteType>(quoteRef);
-    
-    const clientRef = useMemoFirebase(() => 
-        firestore && quote?.clientId ? doc(firestore, `tenants/${tenantId}/clients`, quote.clientId) : null
-    , [firestore, tenantId, quote]);
-    const { data: client } = useDoc<Client>(clientRef);
+    const [quote,     setQuote]     = useState<QuoteType | null>(null);
+    const [client,    setClient]    = useState<Client | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isPaying,  setIsPaying]  = useState(false);
+    const [step,      setStep]      = useState<'review' | 'payment' | 'success' | 'declined'>('review');
 
-    const [isPaying, setIsPaying] = useState(false);
-    const [step, setStep] = useState<'review' | 'payment' | 'success' | 'declined'>('review');
+    // ── Load quote (and client) once on mount ─────────────────────────────────
+    useEffect(() => {
+        if (!id || !tenantId) { setIsLoading(false); return; }
+        const load = async () => {
+            try {
+                const db = getDb();
+                const snap = await getDoc(doc(db, `tenants/${tenantId}/quotes`, id));
+                if (!snap.exists()) { setIsLoading(false); return; }
+                const q = { id: snap.id, ...snap.data() } as QuoteType;
+                setQuote(q);
+                if (q.clientId) {
+                    const clientSnap = await getDoc(doc(db, `tenants/${tenantId}/clients`, q.clientId));
+                    if (clientSnap.exists()) setClient({ id: clientSnap.id, ...clientSnap.data() } as Client);
+                }
+            } catch (e) {
+                console.error('Quote load error:', e);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        load();
+    }, [id, tenantId]);
 
-    const servicesSubtotal = useMemo(() => 
+    // ── Calculations ──────────────────────────────────────────────────────────
+    const servicesSubtotal = useMemo(() =>
         quote?.lineItems?.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0) || 0
     , [quote]);
-    
     const projectFeeAmount = servicesSubtotal * ((quote?.projectFee || 0) / 100);
     const total = servicesSubtotal + (quote?.travelExpenses || 0) + projectFeeAmount;
 
+    // ── Actions ───────────────────────────────────────────────────────────────
     const handleAccept = () => {
         if (quote?.depositAmount && quote.depositAmount > 0) setStep('payment');
         else finalizeAcceptance();
     };
 
     const finalizeAcceptance = async () => {
-        if (!quoteRef) return;
+        if (!id || !tenantId) return;
         setIsPaying(true);
-        updateDocumentNonBlocking(quoteRef, { status: 'accepted', acceptedAt: new Date().toISOString() });
-        setStep('success');
-        setIsPaying(false);
+        try {
+            const db = getDb();
+            await updateDoc(doc(db, `tenants/${tenantId}/quotes`, id), {
+                status: 'accepted',
+                acceptedAt: new Date().toISOString(),
+            });
+            setStep('success');
+        } catch (e) {
+            console.error('Accept error:', e);
+        } finally {
+            setIsPaying(false);
+        }
     };
 
-    const handleDecline = () => {
-        if (!quoteRef) return;
-        updateDocumentNonBlocking(quoteRef, { status: 'declined', declinedAt: new Date().toISOString() });
+    const handleDecline = async () => {
+        if (!id || !tenantId) return;
+        try {
+            const db = getDb();
+            await updateDoc(doc(db, `tenants/${tenantId}/quotes`, id), {
+                status: 'declined',
+                declinedAt: new Date().toISOString(),
+            });
+        } catch (e) {
+            console.error('Decline error:', e);
+        }
         setStep('declined');
     };
 
-    if (isQuoteLoading) return (
+    // ── Loading / not found ───────────────────────────────────────────────────
+    if (isLoading) return (
         <ViewContainer>
             <div className="flex flex-col items-center gap-4">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
@@ -105,6 +149,7 @@ export default function PublicQuotePage() {
         </ViewContainer>
     );
 
+    // ── Main render ───────────────────────────────────────────────────────────
     return (
         <ViewContainer>
             {step === 'review' && (
@@ -175,7 +220,9 @@ export default function PublicQuotePage() {
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-4 pt-10 border-t-2 border-dashed">
-                        <Button variant="ghost" onClick={handleDecline} className="h-16 flex-1 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Decline Proposal</Button>
+                        <Button variant="ghost" onClick={handleDecline} className="h-16 flex-1 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">
+                            Decline Proposal
+                        </Button>
                         <Button onClick={handleAccept} className="h-16 flex-[2] rounded-2xl text-xl font-black uppercase tracking-tight shadow-2xl shadow-primary/30 group">
                             Accept & Secure <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-1" />
                         </Button>
@@ -188,7 +235,9 @@ export default function PublicQuotePage() {
                     <div className="space-y-2">
                         <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4"><CreditCard className="w-8 h-8 text-primary" /></div>
                         <h2 className="text-3xl font-black uppercase tracking-tighter">Retainer Secure</h2>
-                        <p className="text-sm font-medium text-slate-500 uppercase tracking-widest opacity-60">Authorize ${(quote.depositAmount || 0).toFixed(2)} to lock your date</p>
+                        <p className="text-sm font-medium text-slate-500 uppercase tracking-widest opacity-60">
+                            Authorize ${(quote.depositAmount || 0).toFixed(2)} to lock your date
+                        </p>
                     </div>
                     <div className="space-y-6 text-left">
                         <div className="space-y-2">
@@ -196,8 +245,14 @@ export default function PublicQuotePage() {
                             <Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div>
-                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div>
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label>
+                                <Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label>
+                                <Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" />
+                            </div>
                         </div>
                     </div>
                     <Button onClick={finalizeAcceptance} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30" disabled={isPaying}>
@@ -219,7 +274,9 @@ export default function PublicQuotePage() {
                         <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter">Protocol Accepted</h2>
                         <p className="text-slate-500 text-lg font-bold uppercase tracking-widest opacity-70">Your project has been secured in our ledger.</p>
                     </div>
-                    <p className="text-sm font-medium text-slate-400 max-w-sm mx-auto leading-relaxed">Confirmation details and next steps have been dispatched to your email signature.</p>
+                    <p className="text-sm font-medium text-slate-400 max-w-sm mx-auto leading-relaxed">
+                        Confirmation details and next steps have been dispatched to your email signature.
+                    </p>
                 </div>
             )}
 
@@ -232,7 +289,9 @@ export default function PublicQuotePage() {
                         <h2 className="text-3xl font-black uppercase tracking-tighter">Proposal Void</h2>
                         <p className="text-slate-500 font-bold uppercase tracking-widest opacity-70">We've noted your decline.</p>
                     </div>
-                    <p className="text-sm font-medium text-slate-400 max-w-sm mx-auto leading-relaxed">If this was a mistake or you'd like to adjust the parameters, please contact the studio directly.</p>
+                    <p className="text-sm font-medium text-slate-400 max-w-sm mx-auto leading-relaxed">
+                        If this was a mistake or you'd like to adjust the parameters, please contact the studio directly.
+                    </p>
                 </div>
             )}
         </ViewContainer>
