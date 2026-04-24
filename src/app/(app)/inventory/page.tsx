@@ -1,4 +1,3 @@
-
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
@@ -64,7 +63,9 @@ import {
   Info,
   Coffee,
   History,
-  Zap
+  Zap,
+  ExternalLink,
+  Save,
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -167,6 +168,316 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+// ─── ORDER STATUS STYLES ─────────────────────────────────────────────────────
+const ORDER_STATUS_STYLES: Record<string, string> = {
+  'Draft': 'bg-slate-100 border-slate-200 text-slate-600',
+  'Placed': 'bg-blue-50 border-blue-100 text-blue-700',
+  'Shipped': 'bg-amber-50 border-amber-100 text-amber-700',
+  'Partially Received': 'bg-orange-50 border-orange-100 text-orange-700',
+  'Received': 'bg-green-50 border-green-100 text-green-700',
+  'Cancelled': 'bg-destructive/5 border-destructive/10 text-destructive',
+};
+
+// ─── ORDER CARD ───────────────────────────────────────────────────────────────
+const OrderCard = ({
+  order,
+  onSelect,
+  onTrack,
+  onReceive,
+}: {
+  order: Order;
+  onSelect: (order: Order) => void;
+  onTrack: (e: React.MouseEvent, url?: string) => void;
+  onReceive: (order: Order) => void;
+}) => {
+  const totalCost = order.items.reduce((acc, item) => acc + item.quantity * item.costPerUnit, 0);
+  const totalItems = order.items.reduce((acc, item) => acc + item.quantity, 0);
+  const canReceive = order.status === 'Placed' || order.status === 'Shipped' || order.status === 'Partially Received';
+
+  return (
+    <Card
+      className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white cursor-pointer hover:shadow-md hover:border-primary/20 transition-all group"
+      onClick={() => onSelect(order)}
+    >
+      <CardContent className="p-6 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1 text-left min-w-0">
+            <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{order.supplier}</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              #{order.id.slice(-6).toUpperCase()} · {format(parseISO(order.orderDate), 'MMM d, yyyy')}
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className={cn(
+              'h-6 px-3 font-black text-[9px] uppercase tracking-widest border-2 shrink-0',
+              ORDER_STATUS_STYLES[order.status] ?? ORDER_STATUS_STYLES['Draft']
+            )}
+          >
+            {order.status}
+          </Badge>
+        </div>
+
+        <div className="space-y-1 text-left">
+          {order.items.slice(0, 2).map((item, i) => (
+            <p key={i} className="text-[10px] font-bold text-muted-foreground truncate">
+              · {item.productName} ×{item.quantity}
+            </p>
+          ))}
+          {order.items.length > 2 && (
+            <p className="text-[10px] font-black text-primary">+{order.items.length - 2} more items</p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between pt-3 border-t border-dashed">
+          <div className="text-left space-y-0.5">
+            <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Items / Cost</p>
+            <p className="font-black text-base tracking-tight">
+              {totalItems} units · <span className="text-primary">${totalCost.toFixed(2)}</span>
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {order.trackingNumber && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
+                onClick={(e) => { e.stopPropagation(); onTrack(e, order.trackingUrl); }}
+              >
+                <Truck className="mr-1.5 h-3 w-3" /> Track
+              </Button>
+            )}
+            {canReceive && (
+              <Button
+                size="sm"
+                className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-md shadow-primary/20"
+                onClick={(e) => { e.stopPropagation(); onReceive(order); }}
+              >
+                <PackageOpen className="mr-1.5 h-3 w-3" /> Receive
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+// ─── VIEW / EDIT ORDER DIALOG ─────────────────────────────────────────────────
+const ViewOrEditOrderDialog = ({
+  order,
+  open,
+  onOpenChange,
+  onSave,
+  onCancelOrder,
+  onTrack,
+}: {
+  order: Order | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (order: Order) => void;
+  onCancelOrder: (orderId: string) => void;
+  onTrack: (e: React.MouseEvent, url?: string) => void;
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [trackingUrl, setTrackingUrl] = useState('');
+  const [expectedDate, setExpectedDate] = useState('');
+
+  useEffect(() => {
+    if (order) {
+      setNotes(order.notes || '');
+      setTrackingNumber(order.trackingNumber || '');
+      setTrackingUrl(order.trackingUrl || '');
+      setExpectedDate(order.expectedArrivalDate || '');
+      setIsEditing(false);
+    }
+  }, [order]);
+
+  if (!order) return null;
+
+  const totalCost = order.items.reduce((acc, item) => acc + item.quantity * item.costPerUnit, 0);
+  const canCancel = order.status !== 'Cancelled' && order.status !== 'Received';
+
+  const handleSave = () => {
+    onSave({
+      ...order,
+      notes,
+      trackingNumber,
+      trackingUrl,
+      expectedArrivalDate: expectedDate,
+    });
+    setIsEditing(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl max-h-[90dvh] flex flex-col">
+        <DialogHeader className="p-8 pb-0 text-left flex-shrink-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">Purchase Order</p>
+              <DialogTitle className="text-2xl font-black uppercase tracking-tighter">{order.supplier}</DialogTitle>
+              <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
+                #{order.id.slice(-6).toUpperCase()} · Placed {format(parseISO(order.orderDate), 'MMM d, yyyy')}
+              </DialogDescription>
+            </div>
+            <Badge
+              variant="outline"
+              className={cn(
+                'h-7 px-3 font-black text-[9px] uppercase tracking-widest border-2 shrink-0 mt-1',
+                ORDER_STATUS_STYLES[order.status] ?? ORDER_STATUS_STYLES['Draft']
+              )}
+            >
+              {order.status}
+            </Badge>
+          </div>
+        </DialogHeader>
+
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="p-8 space-y-6">
+            {/* Items */}
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Order Items</p>
+              <div className="rounded-2xl border-2 overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-muted/10">
+                    <TableRow>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 p-4">Product</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">Qty</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right pr-4">Cost</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {order.items.map((item, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="p-4 font-bold text-sm text-slate-900">{item.productName}</TableCell>
+                        <TableCell className="text-right font-black font-mono">{item.quantity}</TableCell>
+                        <TableCell className="text-right pr-4 font-black font-mono text-primary">
+                          ${(item.quantity * item.costPerUnit).toFixed(2)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="bg-muted/10">
+                      <TableCell colSpan={2} className="p-4 font-black uppercase text-[10px] tracking-widest text-right">Total</TableCell>
+                      <TableCell className="text-right pr-4 font-black font-mono text-lg text-primary">${totalCost.toFixed(2)}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            {/* Tracking */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2 text-left">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tracking Number</Label>
+                {isEditing ? (
+                  <Input
+                    value={trackingNumber}
+                    onChange={(e) => setTrackingNumber(e.target.value)}
+                    className="h-12 rounded-xl border-2 font-mono font-black text-xs"
+                    placeholder="e.g., 1Z999AA10123456784"
+                  />
+                ) : (
+                  <div className="h-12 rounded-xl border-2 border-dashed flex items-center px-4 gap-2">
+                    <span className="font-mono font-black text-xs text-slate-600">{trackingNumber || '—'}</span>
+                    {trackingNumber && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={(e) => onTrack(e, trackingUrl || undefined)}>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2 text-left">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expected Arrival</Label>
+                {isEditing ? (
+                  <Input
+                    type="date"
+                    value={expectedDate ? expectedDate.split('T')[0] : ''}
+                    onChange={(e) => setExpectedDate(e.target.value ? new Date(e.target.value).toISOString() : '')}
+                    className="h-12 rounded-xl border-2 font-black text-xs"
+                  />
+                ) : (
+                  <div className="h-12 rounded-xl border-2 border-dashed flex items-center px-4">
+                    <span className="font-black text-xs text-slate-600">
+                      {expectedDate ? format(parseISO(expectedDate), 'MMM d, yyyy') : '—'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {isEditing && (
+              <div className="space-y-2 text-left">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tracking URL</Label>
+                <Input
+                  value={trackingUrl}
+                  onChange={(e) => setTrackingUrl(e.target.value)}
+                  className="h-12 rounded-xl border-2 font-black text-xs"
+                  placeholder="https://track.carrier.com/..."
+                />
+              </div>
+            )}
+
+            {/* Notes */}
+            <div className="space-y-2 text-left">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Notes</Label>
+              {isEditing ? (
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="rounded-2xl border-2 bg-muted/5 min-h-[80px] focus-visible:ring-primary/20"
+                  placeholder="Internal notes about this order..."
+                />
+              ) : (
+                <div className="rounded-2xl border-2 border-dashed p-4 min-h-[60px]">
+                  <p className="text-sm font-medium text-slate-600 whitespace-pre-wrap">{notes || <span className="opacity-30 font-black text-[10px] uppercase">No notes</span>}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </ScrollArea>
+
+        <DialogFooter className="p-8 pt-0 border-t bg-muted/5 flex-shrink-0">
+          <div className="flex flex-col gap-3 w-full">
+            {isEditing ? (
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => setIsEditing(false)}>
+                  Cancel
+                </Button>
+                <Button className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20" onClick={handleSave}>
+                  <Save className="mr-2 h-4 w-4" /> Save Changes
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => setIsEditing(true)}>
+                  <Edit className="mr-2 h-4 w-4" /> Edit Order
+                </Button>
+                {canCancel && (
+                  <Button
+                    variant="destructive"
+                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest"
+                    onClick={() => { onOpenChange(false); onCancelOrder(order.id); }}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" /> Cancel Order
+                  </Button>
+                )}
+              </div>
+            )}
+            <Button variant="ghost" className="h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ─── HOSPITALITY LEDGER ───────────────────────────────────────────────────────
 const HospitalityLedger = () => {
     const { refreshmentRequests, isLoading } = useInventory();
     const [searchTerm, setSearchTerm] = useState('');
@@ -273,6 +584,7 @@ const HospitalityLedger = () => {
     );
 };
 
+// ─── ORDERS TAB ───────────────────────────────────────────────────────────────
 const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
@@ -360,8 +672,8 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         toast({
             title: "Order Updated",
             description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
-        })
-    }
+        });
+    };
 
     const handleCancelOrderClick = (orderId: string) => {
         const order = orders?.find(o => o.id === orderId);
@@ -420,7 +732,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
             const statusMatch = statusFilter === 'all' || order.status === statusFilter;
 
             return searchTermMatch && statusMatch;
-        }).sort((a,b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
+        }).sort((a, b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
     }, [orders, searchTerm, statusFilter]);
     
     const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
@@ -576,7 +888,15 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
             ) : orders && orders.length > 0 ? (
                 filteredOrders.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-500">
-                        {filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
+                        {filteredOrders.map(order => (
+                            <OrderCard
+                                key={order.id}
+                                order={order}
+                                onSelect={setSelectedOrder}
+                                onTrack={openTrackingUrl}
+                                onReceive={setOrderToReceive}
+                            />
+                        ))}
                     </div>
                 ) : (
                     <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
@@ -601,7 +921,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                 onCancelOrder={handleCancelOrderClick}
                 onTrack={openTrackingUrl}
             />
-             <ReceiveStockDialog
+            <ReceiveStockDialog
                 open={!!orderToReceive}
                 onOpenChange={() => setOrderToReceive(null)}
                 order={orderToReceive}
@@ -635,6 +955,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     );
 };
 
+// ─── EMPTY STATES ─────────────────────────────────────────────────────────────
 const EmptyOrdersState = ({ onAddFirstOrder }: { onAddFirstOrder: () => void }) => (
     <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
         <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
@@ -642,7 +963,7 @@ const EmptyOrdersState = ({ onAddFirstOrder }: { onAddFirstOrder: () => void }) 
         </div>
         <div className="space-y-2">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Procurement Clear</h3>
-            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground mx-auto">
                 No supply orders in the ledger. Track supplier shipments and landed costs to protect your margins.
             </p>
         </div>
@@ -660,7 +981,7 @@ const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
         </div>
         <div className="space-y-2">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Inventory is Empty</h3>
-            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground mx-auto">
                 Start building your asset manifest to unlock automated costing and yield tracking.
             </p>
         </div>
@@ -671,6 +992,7 @@ const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
     </div>
 );
 
+// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function InventoryPage() {
   const { 
     inventory, 
@@ -797,7 +1119,7 @@ export default function InventoryPage() {
     toast({
         title: "Items Deleted",
         description: `${itemCount} item(s) have been removed from your inventory.`,
-    })
+    });
   }, [selectedItems, toast, firestore, tenantId]);
   
     const handleBulkArchive = useCallback(() => {
@@ -898,12 +1220,11 @@ export default function InventoryPage() {
     return newType;
   };
 
-
   const handleOpenLogUse = (item: InventoryItem) => {
     setLogUseDialogType('product');
     setSelectedProduct(item);
     setIsLogUseOpen(true);
-  }
+  };
 
   const handleOpenLogSale = (item: InventoryItem) => {
     setSelectedProduct(item);
@@ -1027,7 +1348,7 @@ export default function InventoryPage() {
 
         updateData.totalStock = currentStock;
         updateData.partialContainerSize = currentSize;
-    } else { // 'unit' costing method, or undefined
+    } else {
         updateData.totalStock = (product.totalStock || 0) - quantity;
         unit = product.unit || 'units';
     }
@@ -1122,7 +1443,7 @@ export default function InventoryPage() {
             const updatedBatches = product.batches.map(b => {
                 if (b.id === item.batchId) {
                     totalLoss += item.stock * item.costPerUnit;
-                    return { ...b, stock: 0 }; // Set stock of this batch to 0
+                    return { ...b, stock: 0 };
                 }
                 return b;
             });
@@ -1134,7 +1455,6 @@ export default function InventoryPage() {
                 totalStock: newTotalStock,
             };
             
-            // If writing off the last container, clear partial usage as well
             if (newTotalStock === 0) {
                 updatePayload.partialContainerUses = 0;
                 updatePayload.partialContainerSize = 0;
@@ -1154,7 +1474,6 @@ export default function InventoryPage() {
         }
     });
     
-    // Create a single transaction for the total loss
     if (totalLoss > 0) {
         const transaction: Omit<Transaction, 'id' | 'date'> = {
             description: `Spoilage Write-off: ${items.length} batch(es)`,
@@ -1171,7 +1490,6 @@ export default function InventoryPage() {
         const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
         batch.set(txnRef, JSON.parse(JSON.stringify({...transaction, date: new Date().toISOString()})));
     }
-
 
     batch.commit().then(() => {
         toast({
@@ -1215,7 +1533,7 @@ export default function InventoryPage() {
     });
     setIsEndExperimentOpen(false);
     setSelectedProduct(null);
-  }
+  };
 
   const filteredInventory = useMemo(() => {
     if (!inventory) return [];
@@ -1247,14 +1565,8 @@ export default function InventoryPage() {
     return filteredInventory.slice(startIndex, endIndex);
   }, [filteredInventory, currentPage]);
 
-  const handlePrevPage = () => {
-    setCurrentPage(prev => Math.max(prev - 1, 1));
-  };
-
-  const handleNextPage = () => {
-    setCurrentPage(prev => Math.min(prev + 1, totalPages));
-  };
-
+  const handlePrevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
+  const handleNextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
 
   const handleScan = useCallback((data: string) => {
     const rawData = data.trim();
@@ -1262,18 +1574,11 @@ export default function InventoryPage() {
         const productId = rawData.split('/').pop();
         if (productId) {
             setSearchTerm(productId);
-            toast({
-                title: "Product Found",
-                description: `Displaying results for scanned product.`,
-            });
+            toast({ title: "Product Found", description: `Displaying results for scanned product.` });
         }
     } else {
-        // Handle raw SKU or ID/ShortID scanning
         setSearchTerm(rawData);
-        toast({
-            title: "Scanning...",
-            description: `Searching for code: ${rawData}`,
-        });
+        toast({ title: "Scanning...", description: `Searching for code: ${rawData}` });
     }
   }, [toast]);
   
@@ -1291,9 +1596,8 @@ export default function InventoryPage() {
             handleScan(decodedText);
             setIsScannerOpen(false);
           };
-          const onScanFailure = () => { /* ignore */ };
-          html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
-            .catch(err => {
+          html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, () => {})
+            .catch(() => {
               toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start the camera. Please check permissions and try again.' });
               setIsScannerOpen(false);
             });
