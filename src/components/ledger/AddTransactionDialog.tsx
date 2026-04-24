@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect } from 'react';
@@ -43,7 +42,6 @@ import { Calendar } from '../ui/calendar';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Separator } from '../ui/separator';
 
 const transactionSchema = z.object({
@@ -174,7 +172,8 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
             <Separator className="border-dashed" />
 
             <div className="space-y-8">
-                <SectionHeader icon={List} title="Audit Detail" />
+                {/* FIX: was icon={List} — List was never imported. Changed to FileText which is imported above. */}
+                <SectionHeader icon={FileText} title="Audit Detail" />
                 <div className="space-y-6 text-left">
                     <div className="space-y-2">
                         <Label htmlFor="description" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Operational Description</Label>
@@ -222,6 +221,7 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
                             <Tag className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
                             <Input id="category" placeholder="e.g., Supplies, Travel, Revenue" {...register('category')} className="h-12 pl-10 rounded-xl border-2 font-black uppercase text-xs" />
                         </div>
+                        {errors.category && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.category.message}</p>}
                     </div>
 
                     <div className="space-y-2">
@@ -254,6 +254,7 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
                                 </SelectContent>
                             </Select>
                         )}/>
+                        {errors.paymentMethod && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.paymentMethod.message}</p>}
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="paymentMethodIdentifier" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Account Identifier</Label>
@@ -269,8 +270,8 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
                 </div>
             </div>
         </div>
-    )
-}
+    );
+};
 
 export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   open,
@@ -297,7 +298,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   const { handleSubmit, reset } = methods;
 
   useEffect(() => {
-    if(open) {
+    if (open) {
         reset({
              date: new Date(),
              context: 'Business',
@@ -318,7 +319,6 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
     onConfirm(newTransaction);
   };
   
-  const title = "Add New Transaction";
   const DialogContainer = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;
 
@@ -327,27 +327,27 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
       <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
         <FormProvider {...methods}>
             <form id="add-transaction-strategic-form" onSubmit={handleSubmit(handleFormSubmit)} className="flex flex-col h-full overflow-hidden">
-                <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
+                <div className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
                     <div className="flex items-center gap-3 mb-2">
                         <Sparkles className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Accounting Suite</span>
                     </div>
-                    <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+                    <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Add New Transaction</DialogTitle>
                     <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Manually log an income or expense into the studio ledger.</DialogDescription>
-                </DialogHeader>
+                </div>
                 
                 <ScrollArea className="flex-1">
-                    <div className={cn("p-8 pb-32")}>
+                    <div className="p-8 pb-32">
                         <AddTransactionForm staff={staff} />
                     </div>
                 </ScrollArea>
 
-                <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-8")}>
+                <div className="border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-8">
                     <div className="flex w-full gap-4">
                         <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
                         <Button type="submit" className="flex-[2.5] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Log Transaction <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
                     </div>
-                </DialogFooter>
+                </div>
             </form>
         </FormProvider>
       </ContentComponent>
