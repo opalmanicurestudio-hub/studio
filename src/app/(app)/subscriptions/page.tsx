@@ -1,10 +1,9 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Check, Loader, Award, Sparkles, Zap, ShieldCheck } from 'lucide-react';
+import { Check, Loader, Award, Sparkles, Zap, ShieldCheck, XCircle } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
