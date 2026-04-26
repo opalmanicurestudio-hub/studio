@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -56,7 +55,7 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, deleteField } from 'firebase/firestore';
+import { collection, doc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import {
   AlertDialog,
@@ -82,9 +81,6 @@ import { Switch } from '@/components/ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useToast } from '@/hooks/use-toast';
-import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { firebaseConfig } from '@/firebase/config';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -440,7 +436,6 @@ export default function StaffPage() {
             setDateRange({ from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) });
             break;
         case 'custom':
-            // Don't change if already custom
             break;
     }
   }, [periodPreset]);
@@ -477,7 +472,6 @@ export default function StaffPage() {
         });
         const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
 
-
         const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
         
         const serviceRevenue = staffTransactions
@@ -493,7 +487,6 @@ export default function StaffPage() {
 
         const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
         const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
-
 
         const tips = staffTransactions.reduce((acc, t) => {
             if (t.category === 'Tips') return acc + t.amount;
@@ -524,7 +517,7 @@ export default function StaffPage() {
                 totalBreakMinutes += log.durationMinutes;
             }
         }
-        if(clockInTime) {
+        if (clockInTime) {
             const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
             totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
         }
@@ -546,7 +539,7 @@ export default function StaffPage() {
             ...staffMember,
             stats: {
                 totalServices: completedAppointmentsCount,
-                avgActualServiceTime: 0, // Placeholder
+                avgActualServiceTime: 0,
                 avgVariance,
                 totalInServiceHours: totalInServiceMinutes / 60,
                 utilizationRate,
@@ -573,68 +566,60 @@ export default function StaffPage() {
   };
 
   const handleAddStaff = async (data: AddStaffFormData) => {
-    if (!firestore || !tenantId || !user) return;
+    if (!firestore || !tenantId) return;
 
-    const tempAppName = `temp-signup-app-${nanoid()}`;
-    let tempApp: FirebaseApp | undefined;
+    // Guard: ensure PIN is present and valid before writing to Firestore
+    if (!data.pin || data.pin.length !== 4 || !/^\d{4}$/.test(data.pin)) {
+      uiToast({
+        variant: 'destructive',
+        title: 'Missing PIN',
+        description: 'A valid 4-digit PIN is required. Please go back and regenerate one.',
+      });
+      return;
+    }
 
     try {
-      tempApp = initializeApp(firebaseConfig, tempAppName);
-      const tempAuth = getAuth(tempApp);
-
-      const userCredential = await createUserWithEmailAndPassword(tempAuth, data.email, data.password);
-      const newAuthUser = userCredential.user;
-      
-      const staffId = newAuthUser.uid;
-      const { password, confirmPassword, ...staffDataForDb } = data;
+      const staffId = nanoid();
 
       const fullStaffObject: Staff = {
-        ...(staffDataForDb as Omit<AddStaffFormData, 'password' | 'confirmPassword'>),
+        ...data,
         id: staffId,
         tenantId: tenantId,
         avatarUrl: data.avatarUrl || '',
         active: false,
         onBreak: false,
         status: 'idle',
-        specialties: typeof data.specialties === 'string' ? data.specialties.split(',').map(s => s.trim()).filter(Boolean) : [],
+        specialties: typeof data.specialties === 'string'
+          ? data.specialties.split(',').map(s => s.trim()).filter(Boolean)
+          : [],
         services: data.services || [],
         assignedFormIds: data.assignedFormIds || [],
         payStructure: data.payStructure || 'commission',
-        commissionRate: data.commissionRate || 40,
-        retailCommissionRate: data.retailCommissionRate || 10,
+        commissionRate: data.commissionRate ?? 40,
+        retailCommissionRate: data.retailCommissionRate ?? 10,
         hourlyRate: data.hourlyRate,
         pin: data.pin,
         showOnPublicPage: data.showOnPublicPage,
       };
 
       const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
-
-      const batch = writeBatch(firestore);
       const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-      const staffDirectoryRef = doc(firestore, 'staffDirectory', staffId);
+      await setDoc(staffDocRef, sanitizedData);
 
-      batch.set(staffDocRef, sanitizedData);
-      batch.set(staffDirectoryRef, {
-          tenantId: tenantId,
-          role: sanitizedData.role
-      });
-
-      await batch.commit();
-      
       uiToast({
         title: 'Staff Member Added',
-        description: `${data.name} can now log in with their credentials.`,
+        description: `${data.name} has been registered with PIN access.`,
       });
-      
+
+      setIsAddStaffOpen(false);
+
     } catch (error: any) {
-      console.error("Error adding staff:", error);
-      let description = 'An unexpected error occurred.';
-      if (error.code === 'auth/email-already-in-use') {
-        description = 'This email is already in use by another account.';
-      }
-      uiToast({ variant: 'destructive', title: 'Failed to Add Staff', description });
-    } finally {
-      if (tempApp) await deleteApp(tempApp);
+      console.error('Error adding staff:', error);
+      uiToast({
+        variant: 'destructive',
+        title: 'Failed to Add Staff',
+        description: error?.message || 'An unexpected error occurred.',
+      });
     }
   };
 
@@ -663,7 +648,7 @@ export default function StaffPage() {
           case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
           case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
           case 'break_end':
-              if(staffMember.breakStartTime) {
+              if (staffMember.breakStartTime) {
                   const duration = differenceInMinutes(parseISO(now), parseISO(staffMember.breakStartTime));
                   logEntry.durationMinutes = duration;
               }
@@ -678,7 +663,7 @@ export default function StaffPage() {
   const handleStatusChangeWithAuth = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
       setPendingStatusAction({ staffId, action });
       setIsPinAuthOpen(true);
-  }
+  };
 
   const handleVerifyPin = () => {
     if (!pendingStatusAction || !staff) return;
@@ -710,7 +695,12 @@ export default function StaffPage() {
             batch.delete(tierRef);
         }
     });
-    batch.commit().then(() => { uiToast({ title: 'Pricing Tiers Saved!' }); }).catch((error) => { console.error("Error saving tiers:", error); uiToast({ variant: 'destructive', title: 'Error', description: 'Could not save pricing tiers.' }); });
+    batch.commit()
+      .then(() => { uiToast({ title: 'Pricing Tiers Saved!' }); })
+      .catch((error) => {
+        console.error("Error saving tiers:", error);
+        uiToast({ variant: 'destructive', title: 'Error', description: 'Could not save pricing tiers.' });
+      });
   };
   
   const handleDeleteTier = (tierId: string) => {
@@ -736,10 +726,7 @@ export default function StaffPage() {
 
     const batch = writeBatch(firestore);
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffToDelete.id);
-    const directoryDocRef = doc(firestore, 'staffDirectory', staffToDelete.id);
-
     batch.delete(staffDocRef);
-    batch.delete(directoryDocRef);
 
     try {
         await batch.commit();
@@ -854,6 +841,7 @@ export default function StaffPage() {
             </>
         )}
       </main>
+
       <AddStaffDialog 
         open={isAddStaffOpen} 
         onOpenChange={setIsAddStaffOpen} 
@@ -873,8 +861,8 @@ export default function StaffPage() {
         pricingTiers={pricingTiers || []}
         existingStaff={staff || []}
       />
-       {selectedStaffMember && (
-           <StaffDetailsSheet
+      {selectedStaffMember && (
+          <StaffDetailsSheet
             open={isDetailsSheetOpen}
             onOpenChange={setIsDetailsSheetOpen}
             staffMember={selectedStaffMember}
@@ -885,7 +873,7 @@ export default function StaffPage() {
             activityLogs={activityLogs || []}
             consentForms={consentForms || []}
           />
-       )}
+      )}
       
       <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
@@ -928,7 +916,7 @@ export default function StaffPage() {
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="p-6">
-                <p className="text-sm font-medium text-slate-600 leading-relaxed text-left">This will permanently delete the staff profile and directory entry. The associated authentication account will remain, but they will be prohibited from all studio access. <strong>This action is non-reversible.</strong></p>
+                <p className="text-sm font-medium text-slate-600 leading-relaxed text-left">This will permanently delete the staff profile. <strong>This action is non-reversible.</strong></p>
             </div>
             <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3">
                 <Button onClick={confirmDeleteStaff} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Purge Record</Button>
