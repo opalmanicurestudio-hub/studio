@@ -79,7 +79,6 @@ function PlannerPageContent() {
 
   const events = eventsFromInventory || [];
 
-  // ── Studio events (ticketed events from studioEvents collection) ────────────
   const studioEventsQ = useMemoFirebase(
     () => !firestore || !tenantId ? null :
       query(collection(firestore, `tenants/${tenantId}/studioEvents`),
@@ -89,7 +88,6 @@ function PlannerPageContent() {
   );
   const { data: studioEventsRaw } = useCollection<any>(studioEventsQ);
 
-  // Filter studio events for the current day and inject them as planner items
   const studioEventsToday = useMemo(() => {
     if (!studioEventsRaw) return [];
     return studioEventsRaw.filter(e => {
@@ -185,15 +183,11 @@ function PlannerPageContent() {
             map.get('business')!.push({ ...i, definition: def, itemType: 'bill' } as any);
         });
 
-        // ── Inject studio events into the Business column ──────────────────
         studioEventsToday.forEach(se => {
-            // Create a synthetic start time for the event so it renders in the timeline
-            // Use event.time if available, otherwise fall back to event.startTime, otherwise 9am
             let startTime: string;
             if (se.startTime) {
                 startTime = typeof se.startTime === 'string' ? se.startTime : safeDate(se.startTime).toISOString();
             } else if (se.date && se.time) {
-                // se.time might be "7:00 PM" — parse it
                 try {
                     const d = safeDate(se.date);
                     const [timePart, meridian] = se.time.split(' ');
@@ -214,7 +208,6 @@ function PlannerPageContent() {
                 startTime = d.toISOString();
             }
 
-            // Estimate end time — use event.endTime or duration, default 3 hours
             let endTime: string;
             if (se.endTime) {
                 endTime = typeof se.endTime === 'string' ? se.endTime : safeDate(se.endTime).toISOString();
@@ -227,7 +220,6 @@ function PlannerPageContent() {
                 itemType:    'studio_event',
                 startTime,
                 endTime,
-                // DayTimeline expects these fields
                 id:          se.id,
                 title:       se.title || se.name || 'Event',
                 status:      se.status,
@@ -268,6 +260,15 @@ function PlannerPageContent() {
     const weeklyBreakEven = ((selectedTenant.tmhr || 50) * 160 / 30.44) * 7;
     return { weeklyRevenue: revenue, projectedRevenue: projected, weeklyBreakEven, weeklyNetProfit: revenue - weeklyBreakEven, absorbedCosts: absorbed + waivedTotal };
   }, [transactions, appointments, services, currentDate, selectedTenant]);
+
+  // ── Stuck appointments: servicing or ready_for_checkout from a previous day ──
+  const stuckAppointments = useMemo(() => {
+    if (!appointments) return [];
+    return appointments.filter(a =>
+      ['servicing', 'ready_for_checkout'].includes(a.status) &&
+      !isSameDay(safeDate(a.startTime), currentDate)
+    );
+  }, [appointments, currentDate]);
 
   const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
     if (!firestore || !tenantId || !selectedTenant) return;
@@ -515,7 +516,6 @@ function PlannerPageContent() {
             </div>
           </div>
 
-          {/* Studio events today — show as a banner strip above the date controls */}
           {studioEventsToday.length > 0 && (
             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
               {studioEventsToday.map(se => (
@@ -575,7 +575,6 @@ function PlannerPageContent() {
                   <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-2 min-w-[48px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-2 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
                     <p className={cn("text-[8px] sm:text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
                     <p className={cn("text-base sm:text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
-                    {/* Dot indicator for days with studio events */}
                     {hasStudioEvent && (
                       <span className={cn('w-1.5 h-1.5 rounded-full', isSameDay(day, currentDate) ? 'bg-white/60' : 'bg-violet-400')} />
                     )}
@@ -587,6 +586,43 @@ function PlannerPageContent() {
           </ScrollArea>
         </div>
       </div>
+
+      {/* ── Stuck appointments banner ── */}
+      {stuckAppointments.length > 0 && (
+        <div className="px-4 py-2 bg-amber-50 border-b-2 border-amber-200">
+          <div className="max-w-7xl mx-auto space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+              <AlertTriangle className="w-3 h-3" />
+              {stuckAppointments.length} session{stuckAppointments.length > 1 ? 's' : ''} need attention
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {stuckAppointments.map(apt => {
+                const svc = services?.find(s => s.id === apt.serviceId);
+                return (
+                  <button
+                    key={apt.id}
+                    onClick={() => { setSelectedAppointment(apt); setIsDetailsOpen(true); }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border-2 border-amber-300 shrink-0 hover:bg-amber-50 transition-all active:scale-95"
+                  >
+                    <div className={cn('w-2 h-2 rounded-full shrink-0',
+                      apt.status === 'servicing' ? 'bg-primary animate-pulse' : 'bg-emerald-500')} />
+                    <div className="text-left">
+                      <p className="font-black uppercase text-[10px] text-slate-800">{apt.clientName || 'Guest'}</p>
+                      <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                        {svc?.name || 'Service'} · {format(safeDate(apt.startTime), 'MMM d, h:mm a')}
+                      </p>
+                    </div>
+                    <Badge className={cn('font-black text-[8px] uppercase border-none shrink-0',
+                      apt.status === 'servicing' ? 'bg-primary/10 text-primary' : 'bg-emerald-100 text-emerald-700')}>
+                      {apt.status === 'servicing' ? 'In Service' : 'Checkout'}
+                    </Badge>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
         <DayTimeline
