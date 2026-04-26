@@ -76,7 +76,6 @@ const addStaffSchema = z.object({
     licenseExpiry: z.string().optional(),
     documentUrl: z.string().optional(),
   }).optional(),
-  // FIX: pin must be a 4-digit string — validated here, set via setValue not readOnly
   pin: z.string().length(4, 'PIN must be exactly 4 digits.').regex(/^\d{4}$/, 'PIN must be numeric.'),
   showOnPublicPage: z.boolean().default(true),
 }).superRefine((data, ctx) => {
@@ -122,8 +121,6 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
   const { register, control, watch, setValue, formState: { errors } } = useFormContext<AddStaffFormData>();
   const pin = watch('pin') || '';
 
-  // Regenerate PIN — called from the refresh button
-  // FIX: uses setValue (not readOnly + reset) so RHF actually tracks the new value
   const handleRegeneratePin = () => {
     const newPin = Math.floor(1000 + Math.random() * 9000).toString();
     setValue('pin', newPin, { shouldValidate: true, shouldDirty: true });
@@ -165,8 +162,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
           <PhoneInput name="phone" label="" />
         </div>
 
-        {/* PIN block — FIX: no readOnly, uses hidden input pattern so staff can't accidentally edit
-            but RHF can still read + validate the value */}
+        {/* PIN block */}
         <div className="p-6 bg-primary/5 rounded-[2.5rem] border-4 border-primary/10 space-y-4 shadow-inner">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -178,13 +174,10 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
 
           <div className="flex flex-col items-center gap-3">
             {/*
-              FIX: The critical change is here.
-              - We removed `readOnly` — that attribute silently breaks RHF form submission
-                because the browser excludes read-only inputs from the FormData payload,
-                and RHF mirrors this behaviour.
-              - Instead we use `tabIndex={-1}` + `onKeyDown preventDefault` so it looks
-                locked to the user but RHF can still read and validate the value.
-              - The `{...register('pin')}` spread ensures the field is registered properly.
+              The PIN input is registered with RHF via {...register('pin')}.
+              We use tabIndex={-1} + onKeyDown preventDefault to prevent manual
+              editing while still allowing RHF to read and validate the value.
+              The value is set programmatically via setValue() only.
             */}
             <div className="relative w-full">
               <Input
@@ -193,14 +186,12 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
                 maxLength={4}
                 tabIndex={-1}
                 onKeyDown={(e) => {
-                  // Allow tab/shift-tab for accessibility but block all typing
                   if (!['Tab', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
                     e.preventDefault();
                   }
                 }}
                 autoComplete="off"
               />
-              {/* Refresh button overlaid on the input */}
               <button
                 type="button"
                 onClick={handleRegeneratePin}
@@ -630,7 +621,6 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     },
   });
 
-  // Generates a PIN that doesn't collide with any existing staff member's PIN
   const generateUniquePin = (staffList: Staff[]) => {
     let pin = '';
     let isUnique = false;
@@ -647,7 +637,8 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     if (open) {
       const newPin = generateUniquePin(existingStaff || []);
 
-      // FIX: reset() sets the form back to initial values including PIN
+      // reset() handles everything in one call — no setTimeout needed.
+      // The PIN is included directly so RHF has it from the first render.
       methods.reset({
         name: '',
         email: '',
@@ -663,18 +654,10 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         pin: newPin,
       });
 
-      // FIX: setTimeout(0) runs after the React render cycle so the reset has
-      // settled before we call setValue. Without this, Zod may see an empty
-      // string from the reset before the PIN value has been applied.
-      setTimeout(() => {
-        methods.setValue('pin', newPin, { shouldValidate: true, shouldDirty: true });
-      }, 0);
-
       setStep(1);
     }
   }, [open, pricingTiers, existingStaff, methods]);
 
-  // Per-step field validation before advancing
   const handleNext = async (e: React.MouseEvent) => {
     e.preventDefault();
 
@@ -692,14 +675,11 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     setStep(prev => prev - 1);
   };
 
-  // FIX: handleSubmit from RHF wraps our onSave — if there are any validation
-  // errors (including the PIN) they surface here rather than silently blocking.
   const handleFormSubmit = methods.handleSubmit(
     (data) => {
       onSave(data);
     },
     (errors) => {
-      // Log validation errors in dev so they're visible
       if (process.env.NODE_ENV === 'development') {
         console.warn('[AddStaffDialog] Form validation errors:', errors);
       }
@@ -710,7 +690,6 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     <FormProvider {...methods}>
       <form id="add-staff-wizard-form" onSubmit={handleFormSubmit} className="flex flex-col flex-1 min-h-0">
 
-        {/* Header with progress bar */}
         <DialogHeader className={cn('flex-shrink-0 text-left border-b bg-muted/5', isMobile ? 'p-6' : 'p-8 pb-6')}>
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
@@ -727,7 +706,6 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
           </div>
         </DialogHeader>
 
-        {/* Scrollable body */}
         <ScrollArea className="flex-1">
           <div className={cn('pb-32', isMobile ? 'p-6' : 'p-8')}>
             {step === 1 && <Step1 pricingTiers={pricingTiers} />}
@@ -736,7 +714,6 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
           </div>
         </ScrollArea>
 
-        {/* Footer nav */}
         <DialogFooter className={cn('border-t bg-background flex-shrink-0 shadow-2xl', isMobile ? 'p-4' : 'p-6 sm:p-8 pt-4')}>
           <div className="flex w-full gap-4">
             {step > 1 && (
@@ -782,7 +759,6 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     </FormProvider>
   );
 
-  // Render as Sheet on mobile, Dialog on desktop — same inner content
   const DialogContainer = isMobile ? Sheet : Dialog;
 
   return (
