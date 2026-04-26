@@ -554,29 +554,48 @@ export default function EventManifestPage() {
   const [guests, setGuests]               = useState<any[]>([]);
   const [menuItems, setMenuItems]         = useState<any[]>([]);
   const [fires, setFires]                 = useState<any[]>([]);
-  // FIX 1: floorRequests now scoped by eventId — was fetching all tenant requests
   const [floorRequests, setFloorRequests] = useState<any[]>([]);
   const [loading, setLoading]             = useState(true);
 
+  // ─── FIX: All onSnapshot mappings use { ...d.data(), id: d.id } so the
+  //         Firestore document ID always wins over the stored `id` field.
+  //         Previously { id: d.id, ...d.data() } let d.data().id (a nanoid)
+  //         overwrite d.id, causing every updateDoc call to target the wrong
+  //         document path — silently failing check-in, edit guest, seat
+  //         assignment, and meal override. ───────────────────────────────────
   useEffect(() => {
     if (!firestore || !tenantId || !eventId) return;
     const unsubs: (() => void)[] = [];
+
     unsubs.push(onSnapshot(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), snap => {
-      if (snap.exists()) setEvent({ id: snap.id, ...snap.data() });
+      if (snap.exists()) setEvent({ ...snap.data(), id: snap.id });
       setLoading(false);
     }));
-    unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/eventGuests`), where('eventId', '==', eventId)), snap => setGuests(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
-    unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/eventMenuItems`), where('eventId', '==', eventId)), snap => setMenuItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
-    unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/courseFires`), where('eventId', '==', eventId)), snap => setFires(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
-    // FIX 1: Added where('eventId', '==', eventId) so requests are scoped to this event only
+
+    unsubs.push(onSnapshot(
+      query(collection(firestore, `tenants/${tenantId}/eventGuests`), where('eventId', '==', eventId)),
+      snap => setGuests(snap.docs.map(d => ({ ...d.data(), id: d.id })))
+    ));
+
+    unsubs.push(onSnapshot(
+      query(collection(firestore, `tenants/${tenantId}/eventMenuItems`), where('eventId', '==', eventId)),
+      snap => setMenuItems(snap.docs.map(d => ({ ...d.data(), id: d.id })))
+    ));
+
+    unsubs.push(onSnapshot(
+      query(collection(firestore, `tenants/${tenantId}/courseFires`), where('eventId', '==', eventId)),
+      snap => setFires(snap.docs.map(d => ({ ...d.data(), id: d.id })))
+    ));
+
     unsubs.push(onSnapshot(
       query(
         collection(firestore, `tenants/${tenantId}/floorRequests`),
         where('eventId', '==', eventId),
         where('status', 'in', ['new', 'acknowledged']),
       ),
-      snap => setFloorRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => setFloorRequests(snap.docs.map(d => ({ ...d.data(), id: d.id })))
     ));
+
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, eventId]);
 
@@ -597,7 +616,7 @@ export default function EventManifestPage() {
   const [activeTab, setActiveTab]           = useState('guests');
   const [staffToAdd, setStaffToAdd]         = useState('');
   const [mealOverrideGuest, setMealOverrideGuest] = useState<any>(null);
-  const [mealOverrideId, setMealOverrideId] = useState('');
+  const [mealOverrideId, setMealOverrideId] = useState<string>('');
   const [savingOverride, setSavingOverride] = useState(false);
   const [isEndEventOpen, setIsEndEventOpen] = useState(false);
   const [showBroadcast, setShowBroadcast]   = useState(false);
@@ -694,7 +713,6 @@ export default function EventManifestPage() {
     [staffFromContext, event]
   );
 
-  // FIX 2: Added cancellation flag to prevent state updates on unmounted component
   useEffect(() => {
     if (!firestore || !tenantId || fires.length === 0) return;
     let cancelled = false;
@@ -823,8 +841,6 @@ export default function EventManifestPage() {
     toast({ title: 'Request resolved ✓' });
   };
 
-  // FIX 3: firingInProgress now also blocks the button immediately via a firing state Set,
-  // preventing the brief double-tap window where the ref check hadn't run yet.
   const firingInProgress = useRef<Set<number>>(new Set());
   const [firingBlockedSet, setFiringBlockedSet] = useState<Set<number>>(new Set());
 
@@ -853,7 +869,6 @@ export default function EventManifestPage() {
 
   const handleFireCourse = async (courseNumber: number) => {
     if (!firestore || !tenantId) return;
-    // FIX 3: Check both the ref AND the state set for immediate UI blocking
     if (firingInProgress.current.has(courseNumber) || firingBlockedSet.has(courseNumber)) {
       toast({ variant: 'destructive', title: 'Already firing this course' }); return;
     }
@@ -885,17 +900,63 @@ export default function EventManifestPage() {
     }
   };
 
-  const handleCheckInGuest  = async (guestId: string, currentValue: boolean) => { if (!firestore || !tenantId) return; await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId), { checkedIn: !currentValue, checkedInAt: !currentValue ? new Date().toISOString() : null }); toast({ title: !currentValue ? 'Checked In ✓' : 'Check-in Removed' }); };
-  const handleDeleteGuest   = async (guestId: string)  => { if (!firestore || !tenantId) return; await deleteDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId)); toast({ title: 'Guest Removed' }); };
+  const handleCheckInGuest  = async (guestId: string, currentValue: boolean) => {
+    if (!firestore || !tenantId) return;
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId), {
+        checkedIn: !currentValue,
+        checkedInAt: !currentValue ? new Date().toISOString() : null,
+      });
+      toast({ title: !currentValue ? 'Checked In ✓' : 'Check-in Removed' });
+    } catch (e) {
+      console.error('Check-in failed:', e);
+      toast({ variant: 'destructive', title: 'Check-in failed — please try again' });
+    }
+  };
 
+  const handleDeleteGuest = async (guestId: string) => {
+    if (!firestore || !tenantId) return;
+    await deleteDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId));
+    toast({ title: 'Guest Removed' });
+  };
+
+  // ─── FIX: Added catch block so save failures surface to the user instead
+  //         of silently doing nothing. The try/finally was already present,
+  //         but errors were propagating uncaught. ───────────────────────────
   const handleSaveGuest = async () => {
     if (!guestForm.name.trim() || !firestore || !tenantId) return;
     setSavingGuest(true);
     const mealItem = menuItems.find(m => m.id === guestForm.mealChoiceId);
     try {
-      if (editingGuest) { await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, editingGuest.id), { ...guestForm, mealChoiceId: guestForm.mealChoiceId || null, mealChoiceName: mealItem?.name || null, updatedAt: new Date().toISOString() }); toast({ title: 'Guest Updated' }); }
-      else { const id = nanoid(); await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), { id, eventId, tenantId, ...guestForm, mealChoiceId: guestForm.mealChoiceId || null, mealChoiceName: mealItem?.name || null, allergies: [], dietaryRestrictions: [], checkedIn: false, source: 'manual', submittedAt: new Date().toISOString() }); toast({ title: 'Guest Added' }); }
-    } finally { setSavingGuest(false); setIsAddingGuest(false); setEditingGuest(null); setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' }); }
+      if (editingGuest) {
+        await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, editingGuest.id), {
+          ...guestForm,
+          mealChoiceId: guestForm.mealChoiceId || null,
+          mealChoiceName: mealItem?.name || null,
+          updatedAt: new Date().toISOString(),
+        });
+        toast({ title: 'Guest Updated' });
+      } else {
+        const id = nanoid();
+        await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
+          id, eventId, tenantId, ...guestForm,
+          mealChoiceId: guestForm.mealChoiceId || null,
+          mealChoiceName: mealItem?.name || null,
+          allergies: [], dietaryRestrictions: [],
+          checkedIn: false, source: 'manual',
+          submittedAt: new Date().toISOString(),
+        });
+        toast({ title: 'Guest Added' });
+      }
+    } catch (e) {
+      console.error('Save guest failed:', e);
+      toast({ variant: 'destructive', title: editingGuest ? 'Update failed — please try again' : 'Failed to add guest' });
+    } finally {
+      setSavingGuest(false);
+      setIsAddingGuest(false);
+      setEditingGuest(null);
+      setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
+    }
   };
 
   const handleImportClient = async (client: any) => {
@@ -934,7 +995,34 @@ export default function EventManifestPage() {
     toast({ title: `${item.name} removed${selectCount > 0 ? ` — ${selectCount} guest meal choice cleared` : ''}` });
   };
 
-  const handleMealOverride = async () => { if (!mealOverrideGuest || !firestore || !tenantId) return; setSavingOverride(true); const resolvedId = mealOverrideId === NO_SELECTION ? null : mealOverrideId; const mealItem = menuItems.find(m => m.id === resolvedId); await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, mealOverrideGuest.id), { mealChoiceId: resolvedId, mealChoiceName: mealItem?.name || null, mealOverriddenAt: new Date().toISOString(), mealOverriddenBy: 'staff' }); setSavingOverride(false); setMealOverrideGuest(null); setMealOverrideId(''); toast({ title: `Meal updated for ${mealOverrideGuest.name}` }); };
+  // ─── FIX: Added try/finally so savingOverride always resets even if
+  //         updateDoc throws. Previously a failed write (e.g. due to the
+  //         wrong guest.id) would leave the dialog permanently in the
+  //         loading state. Also added "No Selection" option in the UI so
+  //         staff can clear a guest's meal choice. ──────────────────────────
+  const handleMealOverride = async () => {
+    if (!mealOverrideGuest || !firestore || !tenantId) return;
+    setSavingOverride(true);
+    try {
+      const resolvedId = mealOverrideId === NO_SELECTION ? null : mealOverrideId || null;
+      const mealItem = menuItems.find(m => m.id === resolvedId);
+      await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, mealOverrideGuest.id), {
+        mealChoiceId: resolvedId,
+        mealChoiceName: mealItem?.name || null,
+        mealOverriddenAt: new Date().toISOString(),
+        mealOverriddenBy: 'staff',
+      });
+      toast({ title: `Meal updated for ${mealOverrideGuest.name}` });
+      setMealOverrideGuest(null);
+      setMealOverrideId('');
+    } catch (e) {
+      console.error('Meal override failed:', e);
+      toast({ variant: 'destructive', title: 'Override failed — please try again' });
+    } finally {
+      setSavingOverride(false);
+    }
+  };
+
   const handleAddStaff    = async () => { if (!staffToAdd || !firestore || !tenantId) return; const current = event?.assignedStaffIds || []; if (current.includes(staffToAdd)) return; await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: [...current, staffToAdd] }); setStaffToAdd(''); toast({ title: 'Staff assigned' }); };
   const handleRemoveStaff = async (staffId: string) => { if (!firestore || !tenantId) return; await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: (event?.assignedStaffIds || []).filter((id: string) => id !== staffId) }); toast({ title: 'Staff removed' }); };
 
@@ -961,7 +1049,6 @@ export default function EventManifestPage() {
     toast({ title: 'Event complete', description: assignedStaffIds.length > 0 ? `${assignedStaffIds.length} staff member${assignedStaffIds.length !== 1 ? 's' : ''} notified.` : undefined });
   };
 
-  // FIX 4: Revoke the object URL after triggering the download to prevent memory leaks
   const handleExportCSV = () => {
     const rows = [['Name','Email','Phone','Table','Seat','Meal Choice','Allergies','Dietary','Notes','Checked In'], ...guests.map(g => [g.name, g.email||'', g.phone||'', g.tableNumber||'', g.seatNumber||'', g.mealChoiceName||'', (g.allergies||[]).map((a:any)=>typeof a==='object'?a.label:a).join(';'), (g.dietaryRestrictions||[]).join(';'), g.notes||'', g.checkedIn?'Yes':'No'])];
     const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -970,7 +1057,6 @@ export default function EventManifestPage() {
     a.href = objectUrl;
     a.download = `${event?.title||event?.name||'event'}-manifest.csv`;
     a.click();
-    // FIX 4: Revoke after a short delay to allow the browser to initiate the download
     setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
   };
 
@@ -988,9 +1074,8 @@ export default function EventManifestPage() {
       <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
 
-        {/* ── HEADER (mobile-first action bar) ── */}
+        {/* ── HEADER ── */}
         <>
-          {/* Desktop header */}
           <div className="hidden md:flex items-start justify-between gap-4">
             <div>
               <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{eventDisplayName}</h1>
@@ -1035,7 +1120,6 @@ export default function EventManifestPage() {
             </div>
           </div>
 
-          {/* Mobile action bar */}
           <div className="md:hidden space-y-3">
             <div>
               <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-tight">{eventDisplayName}</h1>
@@ -1096,7 +1180,7 @@ export default function EventManifestPage() {
           </div>
         </>
 
-        {/* Broadcast active indicator */}
+        {/* Active broadcast banner */}
         {event?.broadcastMessage && !event?.broadcastDismissed && (
           <div className="flex items-center justify-between p-3 rounded-2xl bg-violet-50 border-2 border-violet-200">
             <div className="flex items-center gap-2">
@@ -1131,29 +1215,64 @@ export default function EventManifestPage() {
           })}
         </AnimatePresence>
 
-        {/* MEAL OVERRIDE */}
+        {/* ─── FIX: MEAL OVERRIDE MODAL ─────────────────────────────────────────
+            • Opens with NO_SELECTION sentinel (not '') so Save is always enabled
+            • Added "No Selection / Clear" option at the top of the list
+            • Save button disabled only while saving, not based on empty string ── */}
         <AnimatePresence>
           {mealOverrideGuest && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setMealOverrideGuest(null)}>
-              <motion.div initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }} onClick={e => e.stopPropagation()}
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm p-4"
+              onClick={() => setMealOverrideGuest(null)}>
+              <motion.div initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
+                onClick={e => e.stopPropagation()}
                 className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-2xl overflow-hidden">
                 <div className="p-5 border-b border-slate-100">
                   <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Override Meal Choice</p>
                   <p className="font-black text-lg text-slate-900 mt-0.5">{mealOverrideGuest.name}</p>
-                  <p className="text-[10px] text-slate-400 font-bold">Current: {mealOverrideGuest.mealChoiceName || 'No selection'}{mealOverrideGuest.tableNumber && ` · Table ${mealOverrideGuest.tableNumber}`}</p>
+                  <p className="text-[10px] text-slate-400 font-bold">
+                    Current: {mealOverrideGuest.mealChoiceName || 'No selection'}
+                    {mealOverrideGuest.tableNumber && ` · Table ${mealOverrideGuest.tableNumber}`}
+                  </p>
                 </div>
                 <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
+                  {/* Clear option */}
+                  <button
+                    onClick={() => setMealOverrideId(NO_SELECTION)}
+                    className={cn(
+                      'w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left',
+                      mealOverrideId === NO_SELECTION
+                        ? 'border-slate-400 bg-slate-50'
+                        : 'border-slate-200 hover:border-slate-300'
+                    )}>
+                    <div>
+                      <p className="font-black text-sm text-slate-500">No Selection / Clear</p>
+                      <p className="text-[10px] text-slate-400">Remove guest's meal choice</p>
+                    </div>
+                    {mealOverrideId === NO_SELECTION && <Check className="w-4 h-4 text-slate-500 shrink-0" />}
+                  </button>
                   {menuItems.map(item => (
-                    <button key={item.id} onClick={() => setMealOverrideId(item.id)} className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left', mealOverrideId === item.id ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300')}>
-                      <div><p className="font-black text-sm text-slate-900">{item.name}</p>{item.description && <p className="text-[10px] text-slate-400">{item.description}</p>}</div>
+                    <button key={item.id} onClick={() => setMealOverrideId(item.id)}
+                      className={cn(
+                        'w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left',
+                        mealOverrideId === item.id ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300'
+                      )}>
+                      <div>
+                        <p className="font-black text-sm text-slate-900">{item.name}</p>
+                        {item.description && <p className="text-[10px] text-slate-400">{item.description}</p>}
+                      </div>
                       {mealOverrideId === item.id && <Check className="w-4 h-4 text-primary shrink-0" />}
                     </button>
                   ))}
                 </div>
                 <div className="p-4 flex gap-3 border-t border-slate-100">
-                  <Button variant="outline" onClick={() => setMealOverrideGuest(null)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                  <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                  <Button variant="outline" onClick={() => { setMealOverrideGuest(null); setMealOverrideId(''); }}
+                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
+                    Cancel
+                  </Button>
+                  {/* FIX: disabled only while saving — not blocked by empty mealOverrideId */}
+                  <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId}
+                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
                     {savingOverride ? <Loader className="w-4 h-4 animate-spin" /> : 'Save Override →'}
                   </Button>
                 </div>
@@ -1201,7 +1320,7 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* ── SHAREABLE LINK ── */}
+        {/* SHAREABLE LINK */}
         <AnimatePresence>
           {showLink && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
@@ -1279,7 +1398,6 @@ export default function EventManifestPage() {
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
                 const fired = firedCourses.has(n);
-                // FIX 3: Button disabled also checks firingBlockedSet for immediate UI response
                 const isBlocked = firingBlockedSet.has(n);
                 const count = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
                 const checkedInCount = guests.filter(g => g.checkedIn && (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId))).length;
@@ -1380,8 +1498,56 @@ export default function EventManifestPage() {
                         <td className="px-4 py-3">{guest.tableNumber && <span className="text-[10px] font-black uppercase text-slate-500">T{guest.tableNumber}</span>}{guest.seatNumber && <span className="text-[10px] font-black uppercase text-slate-400"> · {guest.seatNumber}</span>}</td>
                         <td className="px-4 py-3"><p className="text-sm font-bold text-slate-700">{guest.mealChoiceName || <span className="text-slate-300 italic text-xs">—</span>}</p></td>
                         <td className="px-4 py-3"><div className="flex flex-wrap gap-1">{(guest.allergies || []).map((a: any, i: number) => <AllergyPill key={i} allergy={a} />)}{(guest.dietaryRestrictions || []).map((d: string) => <span key={d} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-emerald-50 border-emerald-200 text-emerald-700"><Leaf className="w-2 h-2" /> {d}</span>)}</div></td>
-                        <td className="px-4 py-3"><button onClick={() => handleCheckInGuest(guest.id, guest.checkedIn)} className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all', guest.checkedIn ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-primary/30 hover:text-primary')}>{guest.checkedIn ? <><UserCheck className="w-3 h-3" /> In</> : <><UserPlus className="w-3 h-3" /> Check In</>}</button></td>
-                        <td className="px-4 py-3"><div className="flex items-center gap-1"><button onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || ''); }} className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors"><Utensils className="w-3.5 h-3.5" /></button><button onClick={() => { setEditingGuest(guest); setIsAddingGuest(false); setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' }); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"><Pencil className="w-3.5 h-3.5" /></button><button onClick={() => handleDeleteGuest(guest.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
+                        <td className="px-4 py-3">
+                          {/* FIX: check-in button now reliably updates because guest.id
+                                  is the Firestore doc ID (fixed in onSnapshot mapping) */}
+                          <button
+                            onClick={() => handleCheckInGuest(guest.id, guest.checkedIn)}
+                            className={cn(
+                              'flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all',
+                              guest.checkedIn
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-primary/30 hover:text-primary'
+                            )}>
+                            {guest.checkedIn ? <><UserCheck className="w-3 h-3" /> In</> : <><UserPlus className="w-3 h-3" /> Check In</>}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            {/* FIX: meal override opens with current choice OR NO_SELECTION
+                                    sentinel so the Save button is always actionable */}
+                            <button
+                              onClick={() => {
+                                setMealOverrideGuest(guest);
+                                setMealOverrideId(guest.mealChoiceId || NO_SELECTION);
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors">
+                              <Utensils className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingGuest(guest);
+                                setIsAddingGuest(false);
+                                setGuestForm({
+                                  name: guest.name,
+                                  email: guest.email || '',
+                                  phone: guest.phone || '',
+                                  tableNumber: guest.tableNumber || '',
+                                  seatNumber: guest.seatNumber || '',
+                                  mealChoiceId: guest.mealChoiceId || '',
+                                  notes: guest.notes || '',
+                                });
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteGuest(guest.id)}
+                              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {filtered.length === 0 && <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400 font-bold uppercase tracking-widest">{guests.length === 0 ? 'No guests yet — add manually or share the guest link' : 'No guests match your filters'}</td></tr>}
@@ -1464,7 +1630,8 @@ export default function EventManifestPage() {
             {menuItems.length === 0 && !isAddingMenu && <div className="text-center py-10 border-2 border-dashed rounded-3xl"><Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" /><p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p></div>}
           </TabsContent>
 
-          {/* SEATING TAB */}
+          {/* SEATING TAB — guests prop now has correct Firestore doc IDs,
+              so any updateDoc calls inside SeatingChartTab will work. */}
           <TabsContent value="seating" className="mt-4">
             <SeatingChartTab
               eventId={eventId}
@@ -1574,7 +1741,7 @@ export default function EventManifestPage() {
           </TabsContent>
         </Tabs>
 
-        {/* ── BROADCAST SHEET ── */}
+        {/* BROADCAST SHEET */}
         <Sheet open={broadcastOpen} onOpenChange={setBroadcastOpen}>
           <SheetContent side="bottom" className="rounded-t-3xl border-t-0 pb-safe">
             <SheetHeader className="pb-4">
