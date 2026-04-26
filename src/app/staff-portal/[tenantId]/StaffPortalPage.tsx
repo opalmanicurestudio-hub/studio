@@ -3055,6 +3055,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const clockStatus = useMemo(() => {
     if (!activityLogs) return { isClockedIn: false, isOnBreak: false, minutesWorked: 0, breakMinutes: 0, breakStartTime: null as Date | null };
     const logs = activityLogs
+// Stuck appointments — servicing or ready_for_checkout from a previous day
+  const stuckApts = useMemo(() => {
+    return allMyApts.filter((a: any) =>
+      ['servicing', 'ready_for_checkout'].includes(a.status) &&
+      !isSameDay(safeDate(a.startTime), today)
+    );
+  }, [allMyApts, today]);
       .filter((l: any) => isSameDay(safeDate(l.timestamp), today))
       .sort((a: any, b: any) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
 
@@ -3310,6 +3317,48 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
+{stuckApts.length > 0 && (
+                  <div className="rounded-[2rem] border-2 border-amber-300 bg-amber-50 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2 bg-amber-100/60">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <p className="font-black uppercase text-[10px] text-amber-700 tracking-widest">
+                        {stuckApts.length} Session{stuckApts.length > 1 ? 's' : ''} Need Attention
+                      </p>
+                    </div>
+                    <div className="divide-y divide-amber-100">
+                      {stuckApts.map((apt: any) => {
+                        const svc = (services || []).find((s: any) => s.id === apt.serviceId);
+                        return (
+                          <button key={apt.id}
+                            onClick={() => { setDrawerApt(apt); setDrawerSvc(svc); }}
+                            className="w-full flex items-center gap-3 p-4 text-left active:bg-amber-100 transition-all active:scale-[0.98]">
+                            <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center shrink-0',
+                              apt.status === 'servicing' ? 'bg-primary/10' : 'bg-emerald-100')}>
+                              {apt.status === 'servicing'
+                                ? <Timer className="w-4 h-4 text-primary" />
+                                : <ShoppingCart className="w-4 h-4 text-emerald-600" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-black uppercase text-[11px] text-slate-800 truncate">
+                                {apt.clientName?.split(' ')[0] || 'Guest'} · {svc?.name || 'Service'}
+                              </p>
+                              <p className="text-[8px] font-bold text-amber-700 uppercase">
+                                Started {format(safeDate(apt.startTime), 'MMM d')} · Never closed
+                              </p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className={cn('text-[7px] font-black uppercase rounded-lg px-1.5 py-0.5',
+                                apt.status === 'servicing' ? 'bg-primary/10 text-primary' : 'bg-emerald-100 text-emerald-700')}>
+                                {apt.status === 'servicing' ? 'In Service' : 'Checkout Queue'}
+                              </span>
+                              <ChevronRight className="w-3 h-3 text-amber-500" />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <NextBanner appointments={allMyApts} services={services} />
                 <WalkInLeaderboard
                   allWalkIns={allWalkInsRaw || []}
