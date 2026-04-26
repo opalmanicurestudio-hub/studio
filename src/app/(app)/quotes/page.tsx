@@ -1,5 +1,15 @@
 'use client';
 
+/**
+ * QuotesPage.tsx
+ *
+ * FIXES APPLIED:
+ * 1. Quote templates are no longer hardcoded to nail studios.
+ *    Templates now load from Firestore tenants/{id}/quoteTemplates.
+ *    On first visit, we seed a single generic starter template.
+ *    Staff can create, edit, and delete their own templates that match their niche.
+ */
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -7,7 +17,9 @@ import {
   useFirebase, useCollection, useMemoFirebase,
   addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking,
 } from '@/firebase';
-import { collection, doc, getDocs, addDoc, updateDoc } from 'firebase/firestore';
+import {
+  collection, doc, getDocs, addDoc, updateDoc, deleteDoc, setDoc, query, where,
+} from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
@@ -18,7 +30,7 @@ import {
   MoreHorizontal, Loader, LinkIcon, ExternalLink,
   RefreshCw, Eye, Flag, Phone, Mail, ArrowRight,
   CreditCard, TrendingUp, BookOpen, Zap, ChevronDown,
-  ChevronUp, Check, X, CalendarCheck,
+  ChevronUp, Check, X, CalendarCheck, Edit2, Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,54 +63,28 @@ import { InquiriesTab } from '@/components/quotes/InquiriesTab';
 
 const formatCurrency = (n: number) => `$${(n || 0).toFixed(2)}`;
 
-// ─── Quote templates ───────────────────────────────────────────────────────────
-const QUOTE_TEMPLATES = [
-  {
-    id: 't1', name: 'Studio Nail Event', description: 'Standard in-studio nail art event',
-    lineItems: [
-      { name: 'Nail Artist (per hour)', quantity: 3, price: 150 },
-      { name: 'Product & Setup', quantity: 1, price: 120 },
-    ],
-    projectFee: 15, travelExpenses: 0,
-  },
-  {
-    id: 't2', name: 'Bridal Party', description: 'Bride + bridal party full package',
-    lineItems: [
-      { name: 'Bridal Manicure & Pedicure', quantity: 1, price: 200 },
-      { name: 'Bridesmaid Manicure', quantity: 4, price: 85 },
-      { name: 'Nail Art Add-on', quantity: 5, price: 40 },
-    ],
-    projectFee: 20, travelExpenses: 0,
-  },
-  {
-    id: 't3', name: 'Corporate Wellness', description: 'On-site corporate event with multiple artists',
-    lineItems: [
-      { name: 'Artist Staffing (per artist)', quantity: 2, price: 400 },
-      { name: 'Travel & Setup', quantity: 1, price: 150 },
-      { name: 'Supplies (per guest)', quantity: 20, price: 25 },
-    ],
-    projectFee: 10, travelExpenses: 100,
-  },
-  {
-    id: 't4', name: 'Private Party', description: 'Private home or venue nail party',
-    lineItems: [
-      { name: 'Nail Artist', quantity: 1, price: 350 },
-      { name: 'Travel Fee', quantity: 1, price: 75 },
-      { name: 'Supplies', quantity: 10, price: 30 },
-    ],
-    projectFee: 15, travelExpenses: 75,
-  },
-];
+// ─── GENERIC SEED TEMPLATE ────────────────────────────────────────────────────
+// This is only used on first visit when a tenant has no templates yet.
+// It is intentionally generic — not tied to any specific service niche.
+const SEED_TEMPLATE = {
+  name: 'Standard Service Package',
+  description: 'Customize this template for your service offering',
+  lineItems: [
+    { name: 'Service', quantity: 1, price: 0 },
+  ],
+  projectFee: 0,
+  travelExpenses: 0,
+};
 
-// ─── Status config ─────────────────────────────────────────────────────────────
+// ─── STATUS CONFIG ────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
-  draft:              { label: 'Draft',          color: 'bg-slate-100 border-slate-200 text-slate-600',  dot: 'bg-slate-400' },
-  sent:               { label: 'Sent',            color: 'bg-blue-50 border-blue-100 text-blue-700',      dot: 'bg-blue-400' },
-  viewed:             { label: 'Viewed',          color: 'bg-violet-50 border-violet-100 text-violet-700',dot: 'bg-violet-500 animate-pulse' },
-  accepted:           { label: 'Accepted',        color: 'bg-green-50 border-green-100 text-green-700',   dot: 'bg-green-500' },
-  declined:           { label: 'Declined',        color: 'bg-red-50 border-red-100 text-red-700',         dot: 'bg-red-400' },
-  expired:            { label: 'Expired',         color: 'bg-amber-50 border-amber-100 text-amber-700',   dot: 'bg-amber-400' },
-  revision_requested: { label: 'Revision Req.',   color: 'bg-orange-50 border-orange-100 text-orange-700',dot: 'bg-orange-400 animate-pulse' },
+  draft:              { label: 'Draft',         color: 'bg-slate-100 border-slate-200 text-slate-600',   dot: 'bg-slate-400' },
+  sent:               { label: 'Sent',           color: 'bg-blue-50 border-blue-100 text-blue-700',       dot: 'bg-blue-400' },
+  viewed:             { label: 'Viewed',         color: 'bg-violet-50 border-violet-100 text-violet-700', dot: 'bg-violet-500 animate-pulse' },
+  accepted:           { label: 'Accepted',       color: 'bg-green-50 border-green-100 text-green-700',    dot: 'bg-green-500' },
+  declined:           { label: 'Declined',       color: 'bg-red-50 border-red-100 text-red-700',          dot: 'bg-red-400' },
+  expired:            { label: 'Expired',        color: 'bg-amber-50 border-amber-100 text-amber-700',    dot: 'bg-amber-400' },
+  revision_requested: { label: 'Revision Req.',  color: 'bg-orange-50 border-orange-100 text-orange-700', dot: 'bg-orange-400 animate-pulse' },
 };
 
 const calcTotal = (quote: any) => {
@@ -107,13 +93,12 @@ const calcTotal = (quote: any) => {
   return sub + (quote.travelExpenses || 0) + fee;
 };
 
-// Returns expiry info for a live quote, or null if not applicable
 const getExpiryInfo = (quote: any) => {
   if (!['sent', 'viewed'].includes(quote.status)) return null;
   if (!quote.sentAt || !quote.expiresInDays) return null;
   const expiryDate = addDays(new Date(quote.sentAt), quote.expiresInDays);
   const msLeft = expiryDate.getTime() - Date.now();
-  if (msLeft <= 0) return null; // will be auto-expired
+  if (msLeft <= 0) return null;
   const daysLeft = Math.ceil(msLeft / (1000 * 60 * 60 * 24));
   if (daysLeft > 7) return null;
   return {
@@ -123,23 +108,20 @@ const getExpiryInfo = (quote: any) => {
   };
 };
 
-// ─── Expiry Countdown Chip ─────────────────────────────────────────────────────
 const ExpiryChip = ({ quote }: { quote: any }) => {
   const info = getExpiryInfo(quote);
   if (!info) return null;
   return (
     <span className={cn(
       'inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border',
-      info.urgent
-        ? 'bg-red-50 border-red-200 text-red-600 animate-pulse'
-        : 'bg-amber-50 border-amber-200 text-amber-600',
+      info.urgent ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' : 'bg-amber-50 border-amber-200 text-amber-600',
     )}>
       <Clock className="w-2.5 h-2.5" /> {info.label}
     </span>
   );
 };
 
-// ─── Quote Card ────────────────────────────────────────────────────────────────
+// ─── QUOTE CARD ───────────────────────────────────────────────────────────────
 const QuoteCard = ({
   quote, clients, tenantId,
   onCopyLink, onDelete, onDuplicate, onSend, onOpen, onMarkFollowUp, onConvert,
@@ -170,7 +152,6 @@ const QuoteCard = ({
       onClick={() => onOpen(quote)}
     >
       <CardContent className="p-5 space-y-4">
-        {/* Top row */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-0.5">
             <div className="flex items-center gap-2 flex-wrap">
@@ -230,7 +211,6 @@ const QuoteCard = ({
           </div>
         </div>
 
-        {/* Meta */}
         <div className="space-y-1">
           {quote.eventDate && (
             <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase">
@@ -240,8 +220,7 @@ const QuoteCard = ({
           )}
           {quote.viewedAt && (
             <div className="flex items-center gap-2 text-[10px] font-bold text-violet-500 uppercase">
-              <Eye className="w-3 h-3" />
-              Viewed {formatDistanceToNow(parseISO(quote.viewedAt), { addSuffix: true })}
+              <Eye className="w-3 h-3" /> Viewed {formatDistanceToNow(parseISO(quote.viewedAt), { addSuffix: true })}
             </div>
           )}
           {hasRevision && (
@@ -261,12 +240,10 @@ const QuoteCard = ({
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-dashed gap-2 flex-wrap">
           <p className="font-black font-mono text-lg text-primary">{formatCurrency(total)}</p>
           <div className="flex items-center gap-2">
             <ExpiryChip quote={quote} />
-            {/* Deposit status */}
             {quote.status === 'accepted' && (
               <span className={cn(
                 'text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border',
@@ -274,7 +251,7 @@ const QuoteCard = ({
                   ? 'bg-green-50 border-green-200 text-green-700'
                   : 'bg-slate-50 border-slate-200 text-slate-400',
               )}>
-                {quote.depositPaid ? `Dep. ✓` : 'No deposit'}
+                {quote.depositPaid ? 'Dep. ✓' : 'No deposit'}
               </span>
             )}
           </div>
@@ -284,7 +261,7 @@ const QuoteCard = ({
   );
 };
 
-// ─── Quote Detail Sheet ────────────────────────────────────────────────────────
+// ─── QUOTE DETAIL SHEET ───────────────────────────────────────────────────────
 const QuoteDetailSheet = ({
   quote, clients, tenantId, open, onOpenChange,
   onSend, onCopyLink, onDuplicate, onDelete, onConvert, firestore,
@@ -356,9 +333,9 @@ const QuoteDetailSheet = ({
   };
 
   if (!quote) return null;
-  const client = clients.find(c => c.id === quote.clientId);
-  const total  = calcTotal(quote);
-  const status = STATUS_CONFIG[quote.status || 'draft'] || STATUS_CONFIG.draft;
+  const client    = clients.find(c => c.id === quote.clientId);
+  const total     = calcTotal(quote);
+  const status    = STATUS_CONFIG[quote.status || 'draft'] || STATUS_CONFIG.draft;
   const totalPaid = (quote.payments || []).reduce((a: number, p: any) => a + (p.amount || 0), 0);
   const balance   = total - totalPaid;
 
@@ -383,7 +360,8 @@ const QuoteDetailSheet = ({
               {quote.convertedToEventId && (
                 <button
                   onClick={() => router.push(`/events/${quote.convertedToEventId}/manifest`)}
-                  className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-emerald-600 hover:text-emerald-700 transition-colors">
+                  className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-emerald-600 hover:text-emerald-700 transition-colors"
+                >
                   <CalendarCheck className="w-3 h-3" /> View Event <ArrowRight className="w-2.5 h-2.5" />
                 </button>
               )}
@@ -394,45 +372,47 @@ const QuoteDetailSheet = ({
         <ScrollArea className="flex-1 min-h-0">
           <div className="p-8 space-y-8 text-left">
 
-            {/* Payment summary (accepted quotes) */}
             {quote.status === 'accepted' && (
               <div className="p-5 rounded-2xl border-2 border-green-100 bg-green-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-black uppercase tracking-widest text-green-700">Payment Status</p>
-                  <button onClick={() => setShowDepositForm(s => !s)}
-                    className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-green-600 hover:text-green-800 transition-colors">
+                  <button
+                    onClick={() => setShowDepositForm(s => !s)}
+                    className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-green-600 hover:text-green-800 transition-colors"
+                  >
                     <CreditCard className="w-3 h-3" /> Record Payment {showDepositForm ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                   </button>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="text-center p-3 rounded-xl bg-white border border-green-200">
-                    <p className="text-[8px] font-black uppercase tracking-widest text-green-600 opacity-60">Total</p>
-                    <p className="font-black font-mono text-sm text-slate-900">{formatCurrency(total)}</p>
-                  </div>
-                  <div className="text-center p-3 rounded-xl bg-white border border-green-200">
-                    <p className="text-[8px] font-black uppercase tracking-widest text-green-600 opacity-60">Paid</p>
-                    <p className="font-black font-mono text-sm text-green-700">{formatCurrency(totalPaid)}</p>
-                  </div>
-                  <div className={cn('text-center p-3 rounded-xl border', balance > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-green-200')}>
-                    <p className="text-[8px] font-black uppercase tracking-widest opacity-60">Balance</p>
-                    <p className={cn('font-black font-mono text-sm', balance > 0 ? 'text-amber-700' : 'text-green-700')}>{formatCurrency(balance)}</p>
-                  </div>
+                  {[
+                    { label: 'Total',   value: formatCurrency(total),     color: 'text-slate-900' },
+                    { label: 'Paid',    value: formatCurrency(totalPaid), color: 'text-green-700' },
+                    { label: 'Balance', value: formatCurrency(balance),   color: balance > 0 ? 'text-amber-700' : 'text-green-700' },
+                  ].map(s => (
+                    <div key={s.label} className={cn('text-center p-3 rounded-xl bg-white border', balance > 0 && s.label === 'Balance' ? 'border-amber-200 bg-amber-50' : 'border-green-200')}>
+                      <p className="text-[8px] font-black uppercase tracking-widest text-green-600 opacity-60">{s.label}</p>
+                      <p className={cn('font-black font-mono text-sm', s.color)}>{s.value}</p>
+                    </div>
+                  ))}
                 </div>
                 {showDepositForm && (
                   <div className="flex gap-2 pt-1">
                     <div className="relative flex-1">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">$</span>
-                      <Input type="number" min="0" step="0.01"
+                      <Input
+                        type="number" min="0" step="0.01"
                         value={depositAmount} onChange={e => setDepositAmount(e.target.value)}
-                        placeholder="Amount paid" className="pl-7 h-11 rounded-xl border-2 font-bold" />
+                        placeholder="Amount paid" className="pl-7 h-11 rounded-xl border-2 font-bold"
+                      />
                     </div>
-                    <Button onClick={handleRecordDeposit} disabled={savingDeposit || !depositAmount}
-                      className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-1.5">
+                    <Button
+                      onClick={handleRecordDeposit} disabled={savingDeposit || !depositAmount}
+                      className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-1.5"
+                    >
                       {savingDeposit ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><Check className="w-3.5 h-3.5" /> Save</>}
                     </Button>
                   </div>
                 )}
-                {/* Payment history */}
                 {(quote.payments || []).length > 0 && (
                   <div className="space-y-1.5 pt-1">
                     {(quote.payments || []).map((p: any) => (
@@ -446,7 +426,6 @@ const QuoteDetailSheet = ({
               </div>
             )}
 
-            {/* Timeline */}
             <div className="space-y-3">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Status Timeline</p>
               <div className="space-y-2">
@@ -475,7 +454,6 @@ const QuoteDetailSheet = ({
 
             <Separator className="border-dashed" />
 
-            {/* Decline reason */}
             {quote.declineReason && (
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Decline Reason</p>
@@ -486,7 +464,6 @@ const QuoteDetailSheet = ({
               </div>
             )}
 
-            {/* Revision requests + reply */}
             {(revisions.length > 0 || loadingRevisions || quote.status === 'revision_requested') && (
               <div className="space-y-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Revision Requests</p>
@@ -503,16 +480,18 @@ const QuoteDetailSheet = ({
                     <p className="font-medium text-sm text-orange-900 leading-relaxed">{rev.message}</p>
                   </div>
                 ))}
-                {/* Reply box — only when revision is open */}
                 {quote.status === 'revision_requested' && (
                   <div className="space-y-2 p-4 rounded-2xl border-2 border-orange-200 bg-white">
                     <p className="text-[9px] font-black uppercase tracking-widest text-orange-600">Reply & Re-send Quote</p>
                     <Textarea
                       value={replyText} onChange={e => setReplyText(e.target.value)}
-                      placeholder="Explain what you updated (e.g. 'Removed setup fee, adjusted artist count')…"
-                      className="min-h-[80px] rounded-xl border-2 text-sm font-medium resize-none" />
-                    <Button onClick={handleSendRevisionReply} disabled={sendingReply || !replyText.trim()}
-                      className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-orange-600 hover:bg-orange-700">
+                      placeholder="Explain what you updated…"
+                      className="min-h-[80px] rounded-xl border-2 text-sm font-medium resize-none"
+                    />
+                    <Button
+                      onClick={handleSendRevisionReply} disabled={sendingReply || !replyText.trim()}
+                      className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-orange-600 hover:bg-orange-700"
+                    >
                       {sendingReply ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5" /> Re-send Updated Quote</>}
                     </Button>
                   </div>
@@ -522,7 +501,6 @@ const QuoteDetailSheet = ({
 
             <Separator className="border-dashed" />
 
-            {/* Line items */}
             <div className="space-y-3">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Services</p>
               <div className="space-y-2">
@@ -544,7 +522,9 @@ const QuoteDetailSheet = ({
                 {quote.projectFee > 0 && (
                   <div className="flex justify-between items-center p-3 rounded-xl bg-muted/5 border">
                     <p className="font-black text-sm uppercase text-slate-900">Service Fee ({quote.projectFee}%)</p>
-                    <p className="font-black font-mono text-sm">{formatCurrency((quote.lineItems?.reduce((a: number, i: any) => a + (i.price * i.quantity), 0) || 0) * (quote.projectFee / 100))}</p>
+                    <p className="font-black font-mono text-sm">
+                      {formatCurrency((quote.lineItems?.reduce((a: number, i: any) => a + (i.price * i.quantity), 0) || 0) * (quote.projectFee / 100))}
+                    </p>
                   </div>
                 )}
                 <div className="flex justify-between items-center p-4 rounded-xl bg-slate-900 text-white">
@@ -554,7 +534,6 @@ const QuoteDetailSheet = ({
               </div>
             </div>
 
-            {/* Client contact */}
             {client && (
               <>
                 <Separator className="border-dashed" />
@@ -580,22 +559,28 @@ const QuoteDetailSheet = ({
           </div>
         </ScrollArea>
 
-        {/* Footer actions */}
         <div className="p-6 border-t bg-muted/5 flex-shrink-0 space-y-3">
           {quote.status === 'draft' && (
-            <Button onClick={() => { onSend(quote); onOpenChange(false); }} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+            <Button
+              onClick={() => { onSend(quote); onOpenChange(false); }}
+              className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20"
+            >
               <Send className="mr-2 h-3.5 w-3.5" /> Send to Client
             </Button>
           )}
           {quote.status === 'accepted' && !quote.convertedToEventId && (
-            <Button onClick={() => { onConvert(quote); onOpenChange(false); }}
-              className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 gap-2">
+            <Button
+              onClick={() => { onConvert(quote); onOpenChange(false); }}
+              className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 gap-2"
+            >
               <CalendarCheck className="h-4 w-4" /> Convert to Event →
             </Button>
           )}
           {quote.convertedToEventId && (
-            <Button onClick={() => router.push(`/events/${quote.convertedToEventId}/manifest`)} variant="outline"
-              className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 border-emerald-200 text-emerald-700 gap-2">
+            <Button
+              onClick={() => router.push(`/events/${quote.convertedToEventId}/manifest`)} variant="outline"
+              className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 border-emerald-200 text-emerald-700 gap-2"
+            >
               <CalendarCheck className="h-4 w-4" /> View Linked Event →
             </Button>
           )}
@@ -613,7 +598,7 @@ const QuoteDetailSheet = ({
   );
 };
 
-// ─── Send Quote Dialog ─────────────────────────────────────────────────────────
+// ─── SEND QUOTE DIALOG ────────────────────────────────────────────────────────
 const SendQuoteDialog = ({ open, onOpenChange, quote, onConfirm }: {
   open: boolean; onOpenChange: (v: boolean) => void;
   quote: any; onConfirm: (expiryDays: number) => void;
@@ -632,9 +617,7 @@ const SendQuoteDialog = ({ open, onOpenChange, quote, onConfirm }: {
           <div className="space-y-2">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Quote expires in</Label>
             <Select value={String(expiryDays)} onValueChange={v => setExpiryDays(parseInt(v))}>
-              <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-xs">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-xs"><SelectValue /></SelectTrigger>
               <SelectContent className="rounded-xl border-2">
                 <SelectItem value="7"  className="font-bold">7 days</SelectItem>
                 <SelectItem value="14" className="font-bold">14 days (recommended)</SelectItem>
@@ -662,7 +645,7 @@ const SendQuoteDialog = ({ open, onOpenChange, quote, onConfirm }: {
   );
 };
 
-// ─── Convert to Event Dialog ───────────────────────────────────────────────────
+// ─── CONVERT TO EVENT DIALOG ──────────────────────────────────────────────────
 const ConvertToEventDialog = ({ open, onOpenChange, quote, clients, tenantId, firestore }: {
   open: boolean; onOpenChange: (v: boolean) => void;
   quote: any; clients: any[]; tenantId: string; firestore: any;
@@ -676,55 +659,26 @@ const ConvertToEventDialog = ({ open, onOpenChange, quote, clients, tenantId, fi
     if (!firestore || !tenantId || !quote) return;
     setConverting(true);
     try {
-      // Build line items → course hints for the event description
       const lineItemSummary = (quote.lineItems || []).map((l: any) => `${l.name} (×${l.quantity})`).join(', ');
-
-      // Create the studioEvent
       const eventRef = await addDoc(collection(firestore, `tenants/${tenantId}/studioEvents`), {
-        title:         quote.eventName || 'Untitled Event',
-        name:          quote.eventName || 'Untitled Event',
-        date:          quote.eventDate || '',
-        time:          '19:00',
-        venue:         quote.venue || '',
-        capacity:      quote.partySize ? parseInt(quote.partySize) : null,
-        description:   lineItemSummary || null,
-        status:        'upcoming',
-        quoteId:       quote.id,
-        eventType:     'other',
-        tenantId,
-        courses:       [],
-        menuItems:     [],
-        createdAt:     new Date().toISOString(),
+        title: quote.eventName || 'Untitled Event', name: quote.eventName || 'Untitled Event',
+        date: quote.eventDate || '', time: '19:00', venue: quote.venue || '',
+        capacity: quote.partySize ? parseInt(quote.partySize) : null,
+        description: lineItemSummary || null, status: 'upcoming', quoteId: quote.id,
+        eventType: 'other', tenantId, courses: [], menuItems: [], createdAt: new Date().toISOString(),
       });
-
-      // Add client as the first guest
       if (client) {
         await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
-          id:                   nanoid(),
-          eventId:              eventRef.id,
-          tenantId,
-          name:                 client.name,
-          email:                client.email || '',
-          phone:                client.phone || '',
-          tableNumber:          '',
-          seatNumber:           '',
-          mealChoiceId:         null,
-          mealChoiceName:       null,
-          allergies:            [],
-          dietaryRestrictions:  [],
-          checkedIn:            false,
-          source:               'quote_conversion',
-          clientId:             client.id,
-          submittedAt:          new Date().toISOString(),
+          id: nanoid(), eventId: eventRef.id, tenantId,
+          name: client.name, email: client.email || '', phone: client.phone || '',
+          tableNumber: '', seatNumber: '', mealChoiceId: null, mealChoiceName: null,
+          allergies: [], dietaryRestrictions: [], checkedIn: false,
+          source: 'quote_conversion', clientId: client.id, submittedAt: new Date().toISOString(),
         });
       }
-
-      // Mark the quote as converted
       await updateDoc(doc(firestore, `tenants/${tenantId}/quotes`, quote.id), {
-        convertedToEventId: eventRef.id,
-        convertedAt:        new Date().toISOString(),
+        convertedToEventId: eventRef.id, convertedAt: new Date().toISOString(),
       });
-
       toast({ title: 'Event created!', description: 'Redirecting to manifest…' });
       onOpenChange(false);
       router.push(`/events/${eventRef.id}/manifest`);
@@ -738,7 +692,6 @@ const ConvertToEventDialog = ({ open, onOpenChange, quote, clients, tenantId, fi
 
   if (!quote) return null;
   const total = calcTotal(quote);
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="rounded-[3rem] border-4 shadow-2xl max-w-md">
@@ -751,41 +704,24 @@ const ConvertToEventDialog = ({ open, onOpenChange, quote, clients, tenantId, fi
           </DialogDescription>
         </DialogHeader>
         <div className="px-8 pb-4 space-y-4">
-          {/* Preview of what will be created */}
           <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 space-y-3">
             <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 opacity-70">Event Title</p>
-                <p className="font-black text-sm text-emerald-900">{quote.eventName || 'Untitled'}</p>
-              </div>
-              {quote.eventDate && (
-                <div className="flex justify-between items-center">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 opacity-70">Date</p>
-                  <p className="font-bold text-sm text-emerald-800">{format(new Date(quote.eventDate + 'T12:00:00'), 'MMM d, yyyy')}</p>
+              {[
+                { label: 'Event Title', value: quote.eventName || 'Untitled' },
+                quote.eventDate && { label: 'Date', value: format(new Date(quote.eventDate + 'T12:00:00'), 'MMM d, yyyy') },
+                quote.venue && { label: 'Venue', value: quote.venue },
+                client && { label: 'First Guest', value: client.name },
+              ].filter(Boolean).map((row: any) => (
+                <div key={row.label} className="flex justify-between items-center">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 opacity-70">{row.label}</p>
+                  <p className="font-bold text-sm text-emerald-800">{row.value}</p>
                 </div>
-              )}
-              {quote.venue && (
-                <div className="flex justify-between items-center">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 opacity-70">Venue</p>
-                  <p className="font-bold text-sm text-emerald-800">{quote.venue}</p>
-                </div>
-              )}
-              {client && (
-                <div className="flex justify-between items-center">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 opacity-70">First Guest</p>
-                  <p className="font-bold text-sm text-emerald-800">{client.name}</p>
-                </div>
-              )}
+              ))}
               <div className="flex justify-between items-center border-t border-emerald-200 pt-2 mt-2">
                 <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 opacity-70">Quoted Value</p>
                 <p className="font-black font-mono text-emerald-700">{formatCurrency(total)}</p>
               </div>
             </div>
-          </div>
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-            <p className="text-[10px] font-bold text-slate-500 leading-relaxed">
-              The event manifest opens immediately. Add menu items, staff, and remaining guests there. The quote stays linked for reference.
-            </p>
           </div>
         </div>
         <DialogFooter className="px-8 pb-8 flex gap-3">
@@ -800,29 +736,206 @@ const ConvertToEventDialog = ({ open, onOpenChange, quote, clients, tenantId, fi
   );
 };
 
-// ─── Quote Templates Sheet ─────────────────────────────────────────────────────
+// ─── TEMPLATE EDITOR ──────────────────────────────────────────────────────────
+// Inline editor for a single template's line items + fees.
+// Used in both the "create new" and "edit existing" flows.
+const TemplateEditor = ({
+  initial,
+  onSave,
+  onCancel,
+  saving,
+}: {
+  initial: any;
+  onSave: (data: any) => void;
+  onCancel: () => void;
+  saving: boolean;
+}) => {
+  const [name,           setName]           = useState(initial.name || '');
+  const [description,    setDescription]    = useState(initial.description || '');
+  const [projectFee,     setProjectFee]     = useState(initial.projectFee ?? 0);
+  const [travelExpenses, setTravelExpenses] = useState(initial.travelExpenses ?? 0);
+  const [lineItems,      setLineItems]      = useState<any[]>(
+    initial.lineItems?.length ? initial.lineItems : [{ name: '', quantity: 1, price: 0 }]
+  );
+
+  const subtotal = lineItems.reduce((a: number, li: any) => a + ((li.price || 0) * (li.quantity || 1)), 0);
+  const total = subtotal + (travelExpenses || 0) + subtotal * ((projectFee || 0) / 100);
+
+  const updateItem = (i: number, field: string, value: any) => {
+    setLineItems(prev => prev.map((li, idx) => idx === i ? { ...li, [field]: value } : li));
+  };
+
+  const addItem = () => setLineItems(prev => [...prev, { name: '', quantity: 1, price: 0 }]);
+  const removeItem = (i: number) => setLineItems(prev => prev.filter((_, idx) => idx !== i));
+
+  const handleSave = () => {
+    if (!name.trim()) return;
+    onSave({ name: name.trim(), description: description.trim(), lineItems, projectFee, travelExpenses });
+  };
+
+  return (
+    <div className="space-y-5 p-5 rounded-2xl border-2 border-primary/20 bg-primary/5">
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Template Name *</Label>
+          <Input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g., Photography Half-Day Package"
+            className="h-11 rounded-xl border-2 font-bold"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Description</Label>
+          <Input
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Brief description of what this covers"
+            className="h-10 rounded-xl border-2"
+          />
+        </div>
+      </div>
+
+      {/* Line items */}
+      <div className="space-y-2">
+        <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Line Items</Label>
+        {lineItems.map((li: any, i: number) => (
+          <div key={i} className="grid grid-cols-[1fr_60px_80px_32px] gap-2 items-center">
+            <Input
+              value={li.name}
+              onChange={e => updateItem(i, 'name', e.target.value)}
+              placeholder="Item name"
+              className="h-9 rounded-lg border-2 text-sm font-bold"
+            />
+            <Input
+              type="number" min="1"
+              value={li.quantity}
+              onChange={e => updateItem(i, 'quantity', parseInt(e.target.value) || 1)}
+              className="h-9 rounded-lg border-2 text-sm font-bold text-center"
+            />
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">$</span>
+              <Input
+                type="number" min="0" step="0.01"
+                value={li.price}
+                onChange={e => updateItem(i, 'price', parseFloat(e.target.value) || 0)}
+                className="h-9 pl-5 rounded-lg border-2 text-sm font-bold font-mono"
+              />
+            </div>
+            <button
+              onClick={() => removeItem(i)}
+              disabled={lineItems.length === 1}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-20"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={addItem}
+          className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-primary hover:text-primary/80 transition-colors"
+        >
+          <PlusCircle className="w-3.5 h-3.5" /> Add Line Item
+        </button>
+      </div>
+
+      {/* Fees */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Service Fee %</Label>
+          <Input
+            type="number" min="0" max="100"
+            value={projectFee}
+            onChange={e => setProjectFee(parseFloat(e.target.value) || 0)}
+            className="h-9 rounded-lg border-2 text-sm font-bold"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Travel Expenses $</Label>
+          <Input
+            type="number" min="0"
+            value={travelExpenses}
+            onChange={e => setTravelExpenses(parseFloat(e.target.value) || 0)}
+            className="h-9 rounded-lg border-2 text-sm font-bold"
+          />
+        </div>
+      </div>
+
+      {/* Total preview */}
+      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 text-white">
+        <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Estimated Total</span>
+        <span className="font-black font-mono">{formatCurrency(total)}</span>
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <Button variant="outline" onClick={onCancel} className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">
+          Cancel
+        </Button>
+        <Button
+          onClick={handleSave}
+          disabled={saving || !name.trim()}
+          className="flex-[2] h-10 rounded-xl font-black uppercase text-[10px] tracking-widest gap-1.5"
+        >
+          {saving ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5" /> Save Template</>}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+// ─── QUOTE TEMPLATES SHEET ────────────────────────────────────────────────────
+// FIX: templates now load from Firestore tenants/{id}/quoteTemplates.
+// Staff can create templates that match their actual business type (photography,
+// catering, florals, beauty, etc.) rather than being stuck with hardcoded
+// nail-studio presets that make no sense for other niches.
 const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients }: {
   open: boolean; onOpenChange: (v: boolean) => void;
   tenantId: string; firestore: any; clients: any[];
 }) => {
   const router    = useRouter();
   const { toast } = useToast();
-  const [creating, setCreating] = useState<string | null>(null);
-  const [clientId, setClientId] = useState('');
+  const [templates,      setTemplates]      = useState<any[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [creating,       setCreating]       = useState<string | null>(null);
+  const [clientId,       setClientId]       = useState('');
+  const [showNewForm,    setShowNewForm]     = useState(false);
+  const [editingId,      setEditingId]      = useState<string | null>(null);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [deletingId,     setDeletingId]     = useState<string | null>(null);
 
-  const handleUseTemplate = async (template: typeof QUOTE_TEMPLATES[0]) => {
+  // Load templates from Firestore on open
+  useEffect(() => {
+    if (!open || !firestore || !tenantId) return;
+    setLoading(true);
+    getDocs(collection(firestore, `tenants/${tenantId}/quoteTemplates`))
+      .then(async snap => {
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // FIX: seed with a single generic template on first visit
+        if (docs.length === 0) {
+          const seedRef = doc(collection(firestore, `tenants/${tenantId}/quoteTemplates`));
+          await setDoc(seedRef, { ...SEED_TEMPLATE, createdAt: new Date().toISOString() });
+          setTemplates([{ id: seedRef.id, ...SEED_TEMPLATE }]);
+        } else {
+          setTemplates(docs);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [open, firestore, tenantId]);
+
+  const handleUseTemplate = async (template: any) => {
     if (!firestore || !tenantId) return;
     setCreating(template.id);
     try {
       const ref = await addDoc(collection(firestore, `tenants/${tenantId}/quotes`), {
-        eventName:       `${template.name}`,
-        clientId:        clientId || null,
-        status:          'draft',
-        lineItems:       template.lineItems,
-        projectFee:      template.projectFee,
-        travelExpenses:  template.travelExpenses,
-        createdAt:       new Date().toISOString(),
-        fromTemplate:    template.id,
+        eventName:      template.name,
+        clientId:       clientId || null,
+        status:         'draft',
+        lineItems:      template.lineItems,
+        projectFee:     template.projectFee,
+        travelExpenses: template.travelExpenses,
+        createdAt:      new Date().toISOString(),
+        fromTemplate:   template.id,
       });
       toast({ title: 'Draft created from template', description: 'Opening quote editor…' });
       onOpenChange(false);
@@ -834,92 +947,204 @@ const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients 
     }
   };
 
+  const handleSaveTemplate = async (data: any, existingId?: string) => {
+    if (!firestore || !tenantId) return;
+    setSavingTemplate(true);
+    try {
+      if (existingId) {
+        await updateDoc(doc(firestore, `tenants/${tenantId}/quoteTemplates`, existingId), {
+          ...data, updatedAt: new Date().toISOString(),
+        });
+        setTemplates(prev => prev.map(t => t.id === existingId ? { ...t, ...data } : t));
+        toast({ title: 'Template updated' });
+        setEditingId(null);
+      } else {
+        const ref = await addDoc(collection(firestore, `tenants/${tenantId}/quoteTemplates`), {
+          ...data, createdAt: new Date().toISOString(),
+        });
+        setTemplates(prev => [...prev, { id: ref.id, ...data }]);
+        toast({ title: 'Template created' });
+        setShowNewForm(false);
+      }
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Failed to save template' });
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    if (!firestore || !tenantId) return;
+    setDeletingId(templateId);
+    try {
+      await deleteDoc(doc(firestore, `tenants/${tenantId}/quoteTemplates`, templateId));
+      setTemplates(prev => prev.filter(t => t.id !== templateId));
+      toast({ title: 'Template deleted' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Failed to delete template' });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+      <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col">
         <SheetHeader className="p-8 pb-5 border-b text-left">
           <SheetTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-primary" /> Quote Templates
           </SheetTitle>
           <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
-            Start from a pre-built package
+            Your saved service packages — tailored to your business
           </SheetDescription>
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Assign to Client (optional)</Label>
-            <Select value={clientId || '**none**'} onValueChange={v => setClientId(v === '**none**' ? '' : v)}>
-              <SelectTrigger className="h-11 rounded-xl border-2 font-bold text-sm">
-                <SelectValue placeholder="Select client…" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="**none**" className="font-bold">No client yet</SelectItem>
-                {(clients || []).map((c: any) => (
-                  <SelectItem key={c.id} value={c.id} className="font-bold">{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {QUOTE_TEMPLATES.map(t => {
-            const subtotal = t.lineItems.reduce((a, i) => a + i.price * i.quantity, 0);
-            const total    = subtotal + t.travelExpenses + subtotal * (t.projectFee / 100);
-            return (
-              <div key={t.id} className="rounded-2xl border-2 border-slate-200 bg-white overflow-hidden hover:border-primary/30 transition-all">
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div>
-                      <p className="font-black text-sm text-slate-900">{t.name}</p>
-                      <p className="text-[10px] font-bold text-slate-400 mt-0.5">{t.description}</p>
-                    </div>
-                    <p className="font-black font-mono text-primary shrink-0">{formatCurrency(total)}</p>
-                  </div>
-                  <div className="space-y-1 mb-3">
-                    {t.lineItems.map((li, i) => (
-                      <div key={i} className="flex justify-between text-[10px] font-bold text-slate-500">
-                        <span>{li.name} ×{li.quantity}</span>
-                        <span className="font-mono">{formatCurrency(li.price * li.quantity)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <Button onClick={() => handleUseTemplate(t)} disabled={!!creating}
-                    className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-widest gap-2">
-                    {creating === t.id ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><Zap className="w-3.5 h-3.5" /> Use This Template</>}
-                  </Button>
-                </div>
+
+        <ScrollArea className="flex-1">
+          <div className="p-6 space-y-5">
+
+            {/* Client assignment */}
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Assign to Client (optional)</Label>
+              <Select value={clientId || '**none**'} onValueChange={v => setClientId(v === '**none**' ? '' : v)}>
+                <SelectTrigger className="h-11 rounded-xl border-2 font-bold text-sm">
+                  <SelectValue placeholder="Select client…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="**none**" className="font-bold">No client yet</SelectItem>
+                  {(clients || []).map((c: any) => (
+                    <SelectItem key={c.id} value={c.id} className="font-bold">{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* New template form */}
+            {showNewForm ? (
+              <TemplateEditor
+                initial={SEED_TEMPLATE}
+                onSave={(data) => handleSaveTemplate(data)}
+                onCancel={() => setShowNewForm(false)}
+                saving={savingTemplate}
+              />
+            ) : (
+              <button
+                onClick={() => setShowNewForm(true)}
+                className="w-full flex items-center justify-center gap-2 h-12 rounded-2xl border-2 border-dashed border-primary/30 text-primary font-black uppercase text-[10px] tracking-widest hover:bg-primary/5 transition-colors"
+              >
+                <PlusCircle className="w-4 h-4" /> Create New Template
+              </button>
+            )}
+
+            {/* Template list */}
+            {loading ? (
+              <div className="flex justify-center py-8">
+                <Loader className="w-6 h-6 animate-spin text-primary" />
               </div>
-            );
-          })}
-        </div>
+            ) : templates.length === 0 ? (
+              <div className="text-center py-10 border-4 border-dashed rounded-[2.5rem] opacity-30">
+                <BookOpen className="w-8 h-8 mx-auto mb-2" />
+                <p className="text-[10px] font-black uppercase tracking-widest">No templates yet</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {templates.map(t => {
+                  const subtotal = t.lineItems?.reduce((a: number, i: any) => a + (i.price * i.quantity), 0) || 0;
+                  const total = subtotal + (t.travelExpenses || 0) + subtotal * ((t.projectFee || 0) / 100);
+
+                  if (editingId === t.id) {
+                    return (
+                      <TemplateEditor
+                        key={t.id}
+                        initial={t}
+                        onSave={(data) => handleSaveTemplate(data, t.id)}
+                        onCancel={() => setEditingId(null)}
+                        saving={savingTemplate}
+                      />
+                    );
+                  }
+
+                  return (
+                    <div key={t.id} className="rounded-2xl border-2 border-slate-200 bg-white overflow-hidden hover:border-primary/30 transition-all">
+                      <div className="p-4">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="min-w-0">
+                            <p className="font-black text-sm text-slate-900 truncate">{t.name}</p>
+                            {t.description && (
+                              <p className="text-[10px] font-bold text-slate-400 mt-0.5 truncate">{t.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <p className="font-black font-mono text-primary text-sm">{formatCurrency(total)}</p>
+                            <button
+                              onClick={() => setEditingId(t.id)}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-primary hover:bg-primary/10 transition-colors"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTemplate(t.id)}
+                              disabled={deletingId === t.id}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                            >
+                              {deletingId === t.id ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-1 mb-3">
+                          {t.lineItems?.map((li: any, i: number) => (
+                            <div key={i} className="flex justify-between text-[10px] font-bold text-slate-500">
+                              <span className="truncate">{li.name} ×{li.quantity}</span>
+                              <span className="font-mono ml-2 shrink-0">{formatCurrency(li.price * li.quantity)}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <Button
+                          onClick={() => handleUseTemplate(t)}
+                          disabled={!!creating}
+                          className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-widest gap-2"
+                        >
+                          {creating === t.id
+                            ? <Loader className="w-3.5 h-3.5 animate-spin" />
+                            : <><Zap className="w-3.5 h-3.5" /> Use This Template</>
+                          }
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
       </SheetContent>
     </Sheet>
   );
 };
 
-// ─── Analytics Tab ─────────────────────────────────────────────────────────────
+// ─── ANALYTICS TAB ────────────────────────────────────────────────────────────
 const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) => {
   const stats = useMemo(() => {
-    const total      = quotes.length;
-    const accepted   = quotes.filter(q => q.status === 'accepted');
-    const declined   = quotes.filter(q => q.status === 'declined');
-    const sent       = quotes.filter(q => ['sent', 'viewed', 'accepted', 'declined', 'expired'].includes(q.status));
-    const acceptRate = sent.length > 0 ? (accepted.length / sent.length) * 100 : 0;
-    const avgValue   = accepted.length > 0
-      ? accepted.reduce((a, q) => a + calcTotal(q), 0) / accepted.length : 0;
-    const totalRevenue  = accepted.reduce((a, q) => a + calcTotal(q), 0);
-    const viewedRate    = sent.length > 0 ? (quotes.filter(q => q.viewedAt).length / sent.length) * 100 : 0;
+    const total    = quotes.length;
+    const accepted = quotes.filter(q => q.status === 'accepted');
+    const declined = quotes.filter(q => q.status === 'declined');
+    const sent     = quotes.filter(q => ['sent', 'viewed', 'accepted', 'declined', 'expired'].includes(q.status));
+    const acceptRate  = sent.length > 0 ? (accepted.length / sent.length) * 100 : 0;
+    const avgValue    = accepted.length > 0 ? accepted.reduce((a, q) => a + calcTotal(q), 0) / accepted.length : 0;
+    const totalRevenue = accepted.reduce((a, q) => a + calcTotal(q), 0);
+    const viewedRate  = sent.length > 0 ? (quotes.filter(q => q.viewedAt).length / sent.length) * 100 : 0;
     const reasons: Record<string, number> = {};
     declined.forEach(q => { const r = q.declineReason || 'Not specified'; reasons[r] = (reasons[r] || 0) + 1; });
-    const acceptTimes   = accepted.filter(q => q.sentAt && q.acceptedAt).map(q => (new Date(q.acceptedAt).getTime() - new Date(q.sentAt).getTime()) / (1000 * 60 * 60 * 24));
+    const acceptTimes = accepted.filter(q => q.sentAt && q.acceptedAt)
+      .map(q => (new Date(q.acceptedAt).getTime() - new Date(q.sentAt).getTime()) / (1000 * 60 * 60 * 24));
     const avgDaysToAccept = acceptTimes.length > 0 ? acceptTimes.reduce((a, b) => a + b, 0) / acceptTimes.length : 0;
     return { total, acceptRate, avgValue, totalRevenue, viewedRate, reasons, avgDaysToAccept, acceptedCount: accepted.length, declinedCount: declined.length };
   }, [quotes]);
 
-  // Monthly trend — last 6 months
   const monthlyData = useMemo(() => {
     const map: Record<string, { label: string; sent: number; accepted: number; revenue: number }> = {};
     quotes.forEach(q => {
       if (!q.createdAt) return;
-      const key   = format(parseISO(q.createdAt), 'yyyy-MM');
+      const key = format(parseISO(q.createdAt), 'yyyy-MM');
       const label = format(parseISO(q.createdAt), 'MMM');
       if (!map[key]) map[key] = { label, sent: 0, accepted: 0, revenue: 0 };
       if (q.status !== 'draft') map[key].sent++;
@@ -932,7 +1157,6 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
 
   return (
     <div className="space-y-8">
-      {/* KPI grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Total Quotes',    value: stats.total,                        color: '' },
@@ -947,7 +1171,6 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
         ))}
       </div>
 
-      {/* Monthly revenue trend */}
       {monthlyData.length > 0 && (
         <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4">
           <div className="flex items-center gap-2">
@@ -973,28 +1196,22 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-4 pt-1">
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary/80" /><span className="text-[9px] font-bold text-slate-500 uppercase">Revenue (bar height)</span></div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-white border border-slate-200 text-[6px] flex items-center justify-center font-black text-slate-500">n</span><span className="text-[9px] font-bold text-slate-500 uppercase">Accepted count</span></div>
-          </div>
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Funnel */}
         <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Proposal Funnel</p>
           <div className="space-y-3">
             {[
-              { label: 'Total Sent',  value: quotes.filter(q => q.status !== 'draft').length, color: 'bg-blue-400', pct: 100 },
-              { label: 'Viewed',      value: quotes.filter(q => q.viewedAt).length,            color: 'bg-violet-400', pct: stats.viewedRate },
+              { label: 'Total Sent', value: quotes.filter(q => q.status !== 'draft').length, color: 'bg-blue-400',    pct: 100 },
+              { label: 'Viewed',     value: quotes.filter(q => q.viewedAt).length,            color: 'bg-violet-400', pct: stats.viewedRate },
               { label: 'Accepted',   value: stats.acceptedCount,                               color: 'bg-green-400', pct: stats.acceptRate },
               { label: 'Declined',   value: stats.declinedCount,                               color: 'bg-red-300',   pct: quotes.filter(q => q.status !== 'draft').length > 0 ? (stats.declinedCount / quotes.filter(q => q.status !== 'draft').length) * 100 : 0 },
             ].map(row => (
               <div key={row.label} className="space-y-1">
                 <div className="flex justify-between text-[10px] font-black uppercase text-slate-600">
-                  <span>{row.label}</span>
-                  <span className="font-mono">{row.value}</span>
+                  <span>{row.label}</span><span className="font-mono">{row.value}</span>
                 </div>
                 <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
                   <div className={cn('h-full rounded-full transition-all', row.color)} style={{ width: `${Math.min(row.pct, 100)}%` }} />
@@ -1004,7 +1221,6 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
           </div>
         </div>
 
-        {/* Decline reasons */}
         <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Why Clients Decline</p>
           {Object.keys(stats.reasons).length === 0 ? (
@@ -1021,22 +1237,19 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
           )}
         </div>
 
-        {/* Timing stats */}
         <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4 md:col-span-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Response Timing</p>
           <div className="grid grid-cols-3 gap-4">
-            <div className="text-center p-4 rounded-2xl bg-muted/5 border">
-              <p className="text-2xl font-black font-mono text-primary">{stats.viewedRate.toFixed(0)}%</p>
-              <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mt-1">View Rate</p>
-            </div>
-            <div className="text-center p-4 rounded-2xl bg-muted/5 border">
-              <p className="text-2xl font-black font-mono text-slate-900">{stats.avgDaysToAccept.toFixed(1)}</p>
-              <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mt-1">Avg Days to Accept</p>
-            </div>
-            <div className="text-center p-4 rounded-2xl bg-muted/5 border">
-              <p className="text-2xl font-black font-mono text-green-600">{stats.acceptRate.toFixed(0)}%</p>
-              <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mt-1">Close Rate</p>
-            </div>
+            {[
+              { label: 'View Rate',         value: `${stats.viewedRate.toFixed(0)}%`,       color: 'text-primary' },
+              { label: 'Avg Days to Accept',value: stats.avgDaysToAccept.toFixed(1),        color: 'text-slate-900' },
+              { label: 'Close Rate',        value: `${stats.acceptRate.toFixed(0)}%`,       color: 'text-green-600' },
+            ].map(s => (
+              <div key={s.label} className="text-center p-4 rounded-2xl bg-muted/5 border">
+                <p className={cn('text-2xl font-black font-mono', s.color)}>{s.value}</p>
+                <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mt-1">{s.label}</p>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1044,7 +1257,7 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
   );
 };
 
-// ─── Main Page ─────────────────────────────────────────────────────────────────
+// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function QuotesPage() {
   const router = useRouter();
   const { firestore } = useFirebase();
@@ -1121,7 +1334,6 @@ export default function QuotesPage() {
       doc(firestore, `tenants/${tenantId}/quotes`, quoteToSend.id),
       { status: 'sent', sentAt: new Date().toISOString(), expiresInDays: expiryDays }
     );
-    // Copy link + notify
     const link = `${window.location.origin}/quote/${tenantId}/${quoteToSend.id}`;
     navigator.clipboard.writeText(link).then(() => {
       toast({ title: 'Quote Sent ✓', description: 'Client link copied — paste it in your message to them.' });
@@ -1153,8 +1365,7 @@ export default function QuotesPage() {
     toast({ title: 'Duplicated' });
   };
 
-  // FIX: was only setting followUpScheduled — needsFollowUp boolean was never written,
-  // so the card's `needsFollowUp` check always returned false.
+  // FIX was in original: needsFollowUp boolean now correctly written
   const handleMarkFollowUp = (quote: any) => {
     if (!firestore || !tenantId) return;
     updateDocumentNonBlocking(
@@ -1177,19 +1388,23 @@ export default function QuotesPage() {
       <AppHeader title="Quotes" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto">
 
-        {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
           <div className="space-y-1">
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Proposals</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Client quotes & event contracts</p>
           </div>
           <div className="flex items-center gap-3 w-full md:w-auto">
-            <Button variant="outline" onClick={() => setTemplatesSheetOpen(true)}
-              className="h-14 px-5 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setTemplatesSheetOpen(true)}
+              className="h-14 px-5 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] gap-2"
+            >
               <BookOpen className="w-4 h-4" /> Templates
             </Button>
-            <Button onClick={() => router.push('/quotes/new')}
-              className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 flex-1 md:flex-none gap-2">
+            <Button
+              onClick={() => router.push('/quotes/new')}
+              className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 flex-1 md:flex-none gap-2"
+            >
               <PlusCircle className="h-4 w-4" /> New Proposal
             </Button>
           </div>
@@ -1204,7 +1419,10 @@ export default function QuotesPage() {
             { label: 'Revenue',       value: `$${stats.value.toFixed(0)}`, color: 'text-primary' },
             { label: 'Action Needed', value: stats.needsAttention,         color: stats.needsAttention > 0 ? 'text-orange-600' : '' },
           ].map(s => (
-            <div key={s.label} className={cn('p-4 rounded-[2rem] border-2 bg-white shadow-sm text-left', s.label === 'Action Needed' && stats.needsAttention > 0 && 'border-orange-200 bg-orange-50')}>
+            <div key={s.label} className={cn(
+              'p-4 rounded-[2rem] border-2 bg-white shadow-sm text-left',
+              s.label === 'Action Needed' && stats.needsAttention > 0 && 'border-orange-200 bg-orange-50'
+            )}>
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{s.label}</p>
               <p className={cn('text-2xl font-black mt-0.5', s.color || 'text-slate-900')}>{s.value}</p>
             </div>
@@ -1219,7 +1437,11 @@ export default function QuotesPage() {
               { value: 'inquiries', label: 'Inquiries', badge: newInquiryCount },
               { value: 'analytics', label: 'Analytics' },
             ].map(tab => (
-              <TabsTrigger key={tab.value} value={tab.value} className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md relative">
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md relative"
+              >
                 {tab.label}
                 {tab.badge && tab.badge > 0 && (
                   <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-violet-500 text-white text-[9px] font-black flex items-center justify-center">
@@ -1235,21 +1457,30 @@ export default function QuotesPage() {
             <div className="flex flex-col sm:flex-row gap-3 mb-6">
               <div className="relative flex-1">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                <Input placeholder="Search by event or client..." value={search} onChange={e => setSearch(e.target.value)} className="pl-12 h-12 rounded-2xl border-2 font-bold bg-white" />
+                <Input
+                  placeholder="Search by event or client..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="pl-12 h-12 rounded-2xl border-2 font-bold bg-white"
+                />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full sm:w-52 bg-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-xl">
-                  <SelectItem value="all"                className="font-bold">All Statuses</SelectItem>
-                  <SelectItem value="draft"              className="font-bold">Draft</SelectItem>
-                  <SelectItem value="sent"               className="font-bold">Sent</SelectItem>
-                  <SelectItem value="viewed"             className="font-bold">Viewed</SelectItem>
-                  <SelectItem value="revision_requested" className="font-bold">Revision Requested</SelectItem>
-                  <SelectItem value="accepted"           className="font-bold">Accepted</SelectItem>
-                  <SelectItem value="declined"           className="font-bold">Declined</SelectItem>
-                  <SelectItem value="expired"            className="font-bold">Expired</SelectItem>
+                  {[
+                    ['all',                'All Statuses'],
+                    ['draft',              'Draft'],
+                    ['sent',               'Sent'],
+                    ['viewed',             'Viewed'],
+                    ['revision_requested', 'Revision Requested'],
+                    ['accepted',           'Accepted'],
+                    ['declined',           'Declined'],
+                    ['expired',            'Expired'],
+                  ].map(([v, l]) => (
+                    <SelectItem key={v} value={v} className="font-bold">{l}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1278,12 +1509,10 @@ export default function QuotesPage() {
             )}
           </TabsContent>
 
-          {/* Inquiries tab */}
           <TabsContent value="inquiries" className="mt-0">
             {tenantId ? <InquiriesTab tenantId={tenantId} /> : <Loader className="animate-spin" />}
           </TabsContent>
 
-          {/* Analytics tab */}
           <TabsContent value="analytics" className="mt-0">
             <AnalyticsTab quotes={quotes || []} clients={clients || []} />
           </TabsContent>
@@ -1292,47 +1521,29 @@ export default function QuotesPage() {
 
       {/* Detail sheet */}
       <QuoteDetailSheet
-        quote={selectedQuote}
-        clients={clients || []}
-        tenantId={tenantId || ''}
-        firestore={firestore}
-        open={sheetOpen}
-        onOpenChange={setSheetOpen}
-        onSend={q => setQuoteToSend(q)}
-        onCopyLink={handleCopyLink}
-        onDuplicate={handleDuplicate}
-        onDelete={setQuoteToDelete}
+        quote={selectedQuote} clients={clients || []} tenantId={tenantId || ''}
+        firestore={firestore} open={sheetOpen} onOpenChange={setSheetOpen}
+        onSend={q => setQuoteToSend(q)} onCopyLink={handleCopyLink}
+        onDuplicate={handleDuplicate} onDelete={setQuoteToDelete}
         onConvert={q => setConvertDialogQuote(q)}
       />
 
-      {/* Send dialog */}
       <SendQuoteDialog
-        open={!!quoteToSend}
-        onOpenChange={open => !open && setQuoteToSend(null)}
-        quote={quoteToSend}
-        onConfirm={handleSendConfirm}
+        open={!!quoteToSend} onOpenChange={open => !open && setQuoteToSend(null)}
+        quote={quoteToSend} onConfirm={handleSendConfirm}
       />
 
-      {/* Convert to event dialog */}
       <ConvertToEventDialog
-        open={!!convertDialogQuote}
-        onOpenChange={open => !open && setConvertDialogQuote(null)}
-        quote={convertDialogQuote}
-        clients={clients || []}
-        tenantId={tenantId || ''}
-        firestore={firestore}
+        open={!!convertDialogQuote} onOpenChange={open => !open && setConvertDialogQuote(null)}
+        quote={convertDialogQuote} clients={clients || []} tenantId={tenantId || ''} firestore={firestore}
       />
 
-      {/* Templates sheet */}
+      {/* FIX: QuoteTemplatesSheet now loads from Firestore, not a hardcoded array */}
       <QuoteTemplatesSheet
-        open={templatesSheetOpen}
-        onOpenChange={setTemplatesSheetOpen}
-        tenantId={tenantId || ''}
-        firestore={firestore}
-        clients={clients || []}
+        open={templatesSheetOpen} onOpenChange={setTemplatesSheetOpen}
+        tenantId={tenantId || ''} firestore={firestore} clients={clients || []}
       />
 
-      {/* Delete confirmation */}
       <AlertDialog open={!!quoteToDelete} onOpenChange={() => setQuoteToDelete(null)}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
           <AlertDialogHeader className="p-8 pb-4">
@@ -1342,10 +1553,15 @@ export default function QuotesPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="p-8 pt-0 flex flex-col gap-3">
-            <Button onClick={() => quoteToDelete && handleDelete(quoteToDelete)} className="w-full h-12 rounded-2xl font-black uppercase tracking-widest bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <Button
+              onClick={() => quoteToDelete && handleDelete(quoteToDelete)}
+              className="w-full h-12 rounded-2xl font-black uppercase tracking-widest bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Delete
             </Button>
-            <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">
+              Cancel
+            </AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
