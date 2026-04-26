@@ -3055,6 +3055,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const clockStatus = useMemo(() => {
     if (!activityLogs) return { isClockedIn: false, isOnBreak: false, minutesWorked: 0, breakMinutes: 0, breakStartTime: null as Date | null };
     const logs = activityLogs
+      .filter((l: any) => isSameDay(safeDate(l.timestamp), today))
+      .sort((a: any, b: any) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
 // Stuck appointments — servicing or ready_for_checkout from a previous day
   const stuckApts = useMemo(() => {
     return allMyApts.filter((a: any) =>
@@ -3062,9 +3064,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       !isSameDay(safeDate(a.startTime), today)
     );
   }, [allMyApts, today]);
-      .filter((l: any) => isSameDay(safeDate(l.timestamp), today))
-      .sort((a: any, b: any) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
-
     let isClockedIn = false, clockInTime: Date | null = null;
     let isOnBreak = false, breakStartTime: Date | null = null;
     let totalWorked = 0, totalBreak = 0;
