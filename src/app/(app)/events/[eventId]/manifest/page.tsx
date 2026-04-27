@@ -834,7 +834,11 @@ export default function EventManifestPage() {
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, eventId]);
 
-  // ── Table/seat options ─────────────────────────────────────────────────────
+  // ── Table/seat options derived from guests ─────────────────────────────────
+  // NOTE: guests now store tableNumber as the human-readable table name (e.g. "1", "Main")
+  // and seatNumber as the human-readable seat label (e.g. "A", "1").
+  // This hook reads those values directly, so dropdowns will always be populated correctly
+  // regardless of whether guests were added manually or via the seating chart.
   const { tables, seatsByTable, tableOptions } = useTableSeatOptions(guests);
 
   // ── UI state ───────────────────────────────────────────────────────────────
@@ -1681,7 +1685,7 @@ export default function EventManifestPage() {
                         </Select>
                       </div>
 
-                      {/* Table dropdown */}
+                      {/* Table dropdown — populated from all guests' tableNumber values (human-readable) */}
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label>
                         {tables.length > 0 ? (
@@ -1713,7 +1717,7 @@ export default function EventManifestPage() {
                         )}
                       </div>
 
-                      {/* Seat dropdown */}
+                      {/* Seat dropdown — populated from seatsByTable[selectedTable] */}
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</Label>
                         {(tableInputMode === 'existing' && guestForm.tableNumber) || (tableInputMode === 'new' && newTableValue) ? (
@@ -1760,13 +1764,12 @@ export default function EventManifestPage() {
             ) : (
               <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
 
-                {/* ── MOBILE CARD LIST (hidden on md+) ── */}
+                {/* ── MOBILE CARD LIST ── */}
                 <div className="block md:hidden divide-y divide-slate-100">
                   {filtered.map(guest => {
                     const mealName = menuItems.find(m => m.id === guest.mealChoiceId)?.name || guest.mealChoiceName;
                     return (
                       <div key={guest.id} className={cn('flex items-start gap-3 p-4', !guest.checkedIn && 'opacity-70')}>
-                        {/* Check-in toggle */}
                         <button
                           onClick={() => handleCheckInGuest(guest.id, guest.checkedIn)}
                           className={cn(
@@ -1778,8 +1781,6 @@ export default function EventManifestPage() {
                         >
                           <Check className="w-4 h-4" />
                         </button>
-
-                        {/* Guest info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-black text-sm text-slate-900">{guest.name}</p>
@@ -1809,8 +1810,6 @@ export default function EventManifestPage() {
                             </div>
                           )}
                         </div>
-
-                        {/* Actions */}
                         <div className="flex flex-col gap-1 shrink-0">
                           <button
                             onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || NO_SELECTION); }}
@@ -1845,7 +1844,7 @@ export default function EventManifestPage() {
                   )}
                 </div>
 
-                {/* ── DESKTOP TABLE (hidden on mobile) ── */}
+                {/* ── DESKTOP TABLE ── */}
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
@@ -2014,7 +2013,6 @@ export default function EventManifestPage() {
                   const isKitchen   = currentRole === 'kitchen';
                   return (
                     <div key={staffId} className={cn('rounded-2xl border-2 overflow-hidden', isKitchen ? 'border-orange-200' : 'border-slate-200')}>
-                      {/* Staff header */}
                       <div className={cn('flex items-center justify-between gap-3 p-3', isKitchen ? 'bg-orange-50' : 'bg-slate-50')}>
                         <div className="flex items-center gap-3 min-w-0">
                           <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0',
@@ -2036,10 +2034,7 @@ export default function EventManifestPage() {
                           </button>
                         </div>
                       </div>
-
-                      {/* Assignment fields */}
                       <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {/* Role */}
                         <div className="space-y-1.5">
                           <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Role</Label>
                           <Select
@@ -2057,8 +2052,6 @@ export default function EventManifestPage() {
                             </SelectContent>
                           </Select>
                         </div>
-
-                        {/* Table zone / Station */}
                         {!isKitchen ? (
                           <div className="space-y-1.5">
                             <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Table Zone</Label>
@@ -2104,8 +2097,6 @@ export default function EventManifestPage() {
                             </Select>
                           </div>
                         )}
-
-                        {/* Shift picker — full width */}
                         <div className="space-y-1.5 sm:col-span-2">
                           <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Shift</Label>
                           <ShiftPicker
@@ -2114,8 +2105,6 @@ export default function EventManifestPage() {
                           />
                         </div>
                       </div>
-
-                      {/* Saved assignment preview */}
                       {saved.role && (
                         <div className="px-3 pb-3">
                           <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">
@@ -2129,8 +2118,6 @@ export default function EventManifestPage() {
                     </div>
                   );
                 })}
-
-                {/* Add staff */}
                 <div className="pt-2 space-y-2">
                   <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Add Staff Member</Label>
                   <div className="flex gap-2">
