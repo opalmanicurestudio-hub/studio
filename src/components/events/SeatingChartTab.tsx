@@ -13,7 +13,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
-// ─── TYPES ────────────────────────────────────────────────────────────────────
+// ─── TYPES ───────────────────────────────────────────────────────────────────
 export type Seat = {
   id:    string;
   label: string;
@@ -49,6 +49,12 @@ const TABLE_COLORS = [
   { id: 'emerald', bg: 'bg-emerald-600', border: 'border-emerald-400', hex: '#059669' },
 ];
 
+// Avatar color palette for guest initials
+const AVATAR_COLORS = [
+  'bg-rose-400', 'bg-violet-400', 'bg-teal-400', 'bg-amber-400',
+  'bg-emerald-400', 'bg-blue-400', 'bg-orange-400', 'bg-pink-400',
+];
+
 const genSeats = (count: number, style: 'letters' | 'numbers'): Seat[] =>
   Array.from({ length: count }, (_, i) => ({
     id:    nanoid(4),
@@ -60,13 +66,26 @@ const getInitials = (name: string) => {
   return p.length === 1 ? p[0].slice(0, 2).toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase();
 };
 
+// Stable color from name string
+const getAvatarColor = (name: string) => {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+};
+
 // ─── CANVAS TABLE CARD ────────────────────────────────────────────────────────
+// FIX: Removed the overlay div approach. Instead, the drag handlers live directly
+// on the card element using setPointerCapture so pointermove/pointerup keep firing
+// even after the pointer leaves the element — no overlay needed.
 const CanvasTableCard = ({
-  table, isSelected, isDragging, onSelect, onPointerDown, assignedGuests, staffList,
+  table, isSelected, isDragging, onSelect, onPointerDown, onPointerMove, onPointerUp,
+  assignedGuests, staffList,
 }: {
   table: SeatingTable; isSelected: boolean; isDragging: boolean;
   onSelect: () => void;
   onPointerDown: (e: React.PointerEvent) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
+  onPointerUp:   (e: React.PointerEvent) => void;
   assignedGuests: { seatId: string; guest: any }[];
   staffList: { id: string; name: string }[];
 }) => {
@@ -74,17 +93,24 @@ const CanvasTableCard = ({
   const filledSeats = assignedGuests.length;
   const pct         = table.seatCount > 0 ? (filledSeats / table.seatCount) * 100 : 0;
 
+  // Show up to 6 guest avatars, then +N overflow
+  const visibleGuests = assignedGuests.slice(0, 6);
+  const overflowCount = assignedGuests.length - visibleGuests.length;
+
   return (
     <div
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
       onClick={onSelect}
-      // touch-action none prevents the browser from scrolling while dragging a table
       style={{
         left: `${table.x ?? 20}%`,
-        top: `${table.y ?? 20}%`,
+        top:  `${table.y ?? 20}%`,
         transform: 'translate(-50%, -50%)',
-        width: '120px',
+        width: '128px',
         touchAction: 'none',
+        userSelect: 'none',
       }}
       className={cn(
         'absolute cursor-grab active:cursor-grabbing select-none transition-shadow',
@@ -92,29 +118,60 @@ const CanvasTableCard = ({
       )}
     >
       <div className={cn('rounded-xl border-2 overflow-hidden', color.border, isSelected ? 'ring-2 ring-white ring-offset-1' : '')}>
+        {/* Header */}
         <div className={cn('px-3 py-2', color.bg)}>
-          <p className="text-[9px] font-black uppercase tracking-widest text-white/70 leading-none mb-0.5">Table</p>
+          <p className="text-[8px] font-black uppercase tracking-widest text-white/70 leading-none mb-0.5">Table</p>
           <p className="font-black text-white text-sm leading-none truncate">{table.name}</p>
         </div>
-        <div className="bg-white/95 px-3 py-2 space-y-1.5">
+
+        {/* Body */}
+        <div className="bg-white/95 px-3 py-2 space-y-2">
+          {/* Seat fill bar */}
           <div className="flex items-center justify-between">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seats</span>
+            <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Seats</span>
             <span className="text-[10px] font-black text-slate-700">{filledSeats}/{table.seatCount}</span>
           </div>
           <div className="h-1 rounded-full bg-slate-100 overflow-hidden">
             <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${pct}%` }} />
           </div>
+
+          {/* ── LIVE GUEST AVATARS ── */}
+          {assignedGuests.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {visibleGuests.map(({ guest }) => guest ? (
+                <div
+                  key={guest.id}
+                  title={guest.name}
+                  className={cn(
+                    'w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-black text-white shrink-0 ring-1 ring-white',
+                    getAvatarColor(guest.name),
+                  )}
+                >
+                  {getInitials(guest.name)}
+                </div>
+              ) : null)}
+              {overflowCount > 0 && (
+                <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[7px] font-black text-slate-500 ring-1 ring-white">
+                  +{overflowCount}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Staff coverage dots */}
           {table.staffIds.length > 0 && (
-            <div className="flex flex-wrap gap-0.5 mt-1">
+            <div className="flex flex-wrap gap-0.5 pt-0.5 border-t border-slate-100">
               {table.staffIds.slice(0, 3).map(sid => {
                 const s = staffList.find(st => st.id === sid);
                 return s ? (
-                  <div key={sid} className="w-4 h-4 rounded-full bg-violet-100 flex items-center justify-center text-[6px] font-black text-violet-700">
+                  <div key={sid} className="w-4 h-4 rounded-full bg-violet-100 flex items-center justify-center text-[6px] font-black text-violet-700" title={s.name}>
                     {getInitials(s.name)}
                   </div>
                 ) : null;
               })}
-              {table.staffIds.length > 3 && <span className="text-[7px] font-black text-slate-400">+{table.staffIds.length - 3}</span>}
+              {table.staffIds.length > 3 && (
+                <span className="text-[7px] font-black text-slate-400">+{table.staffIds.length - 3}</span>
+              )}
             </div>
           )}
         </div>
@@ -123,7 +180,7 @@ const CanvasTableCard = ({
   );
 };
 
-// ─── GUEST ASSIGN SHEET (replaces native <select> on mobile) ─────────────────
+// ─── GUEST ASSIGN SHEET ───────────────────────────────────────────────────────
 const GuestAssignSheet = ({
   open, onOpenChange, seat, table, guests, assignedGuests, onAssign,
 }: {
@@ -187,7 +244,7 @@ const GuestAssignSheet = ({
               disabled={!!assigning}
               className="w-full flex items-center gap-3 p-3 rounded-2xl border-2 border-slate-100 hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
             >
-              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center font-black text-slate-500 text-sm shrink-0">
+              <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center font-black text-white text-sm shrink-0', getAvatarColor(g.name))}>
                 {getInitials(g.name)}
               </div>
               <p className="font-black text-slate-900">{g.name}</p>
@@ -203,7 +260,7 @@ const GuestAssignSheet = ({
   );
 };
 
-// ─── TABLE CONFIG PANEL ────────────────────────────────────────────────────────
+// ─── TABLE CONFIG PANEL ───────────────────────────────────────────────────────
 const TableConfigPanel = ({
   table, onUpdate, onDelete, guests, assignedGuests, onAssignGuest, staff, tenantId, eventId, baseUrl,
 }: {
@@ -214,9 +271,9 @@ const TableConfigPanel = ({
   staff: Props['staff'];
   tenantId: string; eventId: string; baseUrl: string;
 }) => {
-  const [qrUrls,    setQrUrls]    = useState<Record<string, string>>({});
-  const [showQr,    setShowQr]    = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [qrUrls,     setQrUrls]     = useState<Record<string, string>>({});
+  const [showQr,     setShowQr]     = useState(false);
+  const [sheetOpen,  setSheetOpen]  = useState(false);
   const [activeSeat, setActiveSeat] = useState<Seat | null>(null);
 
   const handleSeatCountChange = (count: number) =>
@@ -329,7 +386,7 @@ const TableConfigPanel = ({
         </div>
       </div>
 
-      {/* Guest seat assignment — uses Sheet on mobile, avoids native <select> issues */}
+      {/* Guest seat assignment */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Seat Assignments</label>
         <div className="space-y-2">
@@ -342,7 +399,9 @@ const TableConfigPanel = ({
                 </div>
                 {assigned ? (
                   <div className="flex-1 flex items-center gap-2 px-3 h-10 rounded-xl bg-emerald-50 border-2 border-emerald-100">
-                    <UserCheck className="w-3 h-3 text-emerald-500 shrink-0" />
+                    <div className={cn('w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-black text-white shrink-0', getAvatarColor(assigned.guestName))}>
+                      {getInitials(assigned.guestName)}
+                    </div>
                     <span className="text-sm font-black text-emerald-800 truncate flex-1">{assigned.guestName}</span>
                     <button
                       onClick={async () => {
@@ -355,7 +414,6 @@ const TableConfigPanel = ({
                     </button>
                   </div>
                 ) : (
-                  /* Tap button opens Sheet — avoids native select z-index issues on mobile */
                   <button
                     onClick={() => openAssignSheet(seat)}
                     className="flex-1 h-10 rounded-xl border-2 border-slate-100 bg-white px-3 text-sm font-bold text-slate-400 text-left hover:border-slate-300 transition-colors flex items-center gap-2"
@@ -410,7 +468,6 @@ const TableConfigPanel = ({
         <Trash2 className="w-3.5 h-3.5" /> Remove Table
       </button>
 
-      {/* Guest assign sheet */}
       <GuestAssignSheet
         open={sheetOpen}
         onOpenChange={setSheetOpen}
@@ -436,10 +493,10 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
   const [isSaving,   setIsSaving]   = useState(false);
   const [saved,      setSaved]      = useState(false);
 
-  const canvasRef  = useRef<HTMLDivElement>(null);
-  // Stores the pointer offset within the table card when drag starts
-  const dragOffset = useRef({ x: 0, y: 0 });
-  // Store active pointerId so we can capture pointer events cross-platform
+  const canvasRef     = useRef<HTMLDivElement>(null);
+  // Stores pointer offset within the card at drag start (in canvas-percentage units)
+  const dragOffset    = useRef({ xPct: 0, yPct: 0 });
+  // Active pointer id for correct multi-touch handling
   const activePointer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -484,10 +541,12 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
     if (selectedId === id) setSelectedId(null);
   };
 
-  // ── Unified pointer drag (mouse + touch) ──────────────────────────────────
-  // Using Pointer Events API so one handler works for both mouse and touch.
+  // ── Pointer drag — FIX ────────────────────────────────────────────────────
+  // Key insight: we call setPointerCapture on the card element so all subsequent
+  // pointermove/pointerup events are delivered to that element even if the pointer
+  // moves outside it. This removes the need for the overlay div entirely.
+  // Handlers are passed down to CanvasTableCard and attached directly on its root div.
   const handlePointerDown = useCallback((e: React.PointerEvent, tableId: string) => {
-    // Only handle primary button for mouse; always handle touch/pen
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -499,13 +558,19 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
     if (!table) return;
 
     const rect     = canvas.getBoundingClientRect();
+    // Current table centre in pixels relative to canvas
     const tableXpx = ((table.x ?? 20) / 100) * rect.width;
     const tableYpx = ((table.y ?? 20) / 100) * rect.height;
 
-    dragOffset.current    = { x: e.clientX - rect.left - tableXpx, y: e.clientY - rect.top - tableYpx };
+    // Offset from pointer to table centre (in canvas-% units for resolution independence)
+    dragOffset.current = {
+      xPct: ((e.clientX - rect.left) - tableXpx) / rect.width  * 100,
+      yPct: ((e.clientY - rect.top)  - tableYpx) / rect.height * 100,
+    };
+
     activePointer.current = e.pointerId;
 
-    // Capture so we still get pointermove/pointerup even if pointer leaves element
+    // Capture: all future events for this pointer go to this element
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
     setDraggingId(tableId);
@@ -520,8 +585,12 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const newX = Math.max(5, Math.min(95, ((e.clientX - rect.left - dragOffset.current.x) / rect.width)  * 100));
-    const newY = Math.max(5, Math.min(95, ((e.clientY - rect.top  - dragOffset.current.y) / rect.height) * 100));
+    const newX = Math.max(5, Math.min(95,
+      ((e.clientX - rect.left) / rect.width  * 100) - dragOffset.current.xPct
+    ));
+    const newY = Math.max(5, Math.min(95,
+      ((e.clientY - rect.top)  / rect.height * 100) - dragOffset.current.yPct
+    ));
 
     setTables(prev => prev.map(t => t.id === tableId ? { ...t, x: newX, y: newY } : t));
   }, [draggingId]);
@@ -556,7 +625,6 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
     if (!firestore || !tenantId) return;
     try {
       if (guestId === '__remove__') {
-        // Find which guest is in this seat and clear them
         const g = guests.find(g => g.tableNumber === tableId && g.seatNumber === seatId);
         if (g) {
           await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, g.id), {
@@ -677,21 +745,16 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
                 isDragging={draggingId === table.id}
                 onSelect={() => setSelectedId(prev => prev === table.id ? null : table.id)}
                 onPointerDown={e => handlePointerDown(e, table.id)}
-                assignedGuests={(guestAssignments[table.id] || []).map(a => ({ seatId: a.seatId, guest: guests.find(g => g.id === a.guestId) }))}
+                onPointerMove={e => handlePointerMove(e, table.id)}
+                onPointerUp={e => handlePointerUp(e, table.id)}
+                assignedGuests={(guestAssignments[table.id] || []).map(a => ({
+                  seatId: a.seatId,
+                  guest:  guests.find(g => g.id === a.guestId),
+                }))}
                 staffList={staff}
               />
             ))}
-
-            {/* Pointer move/up handlers on canvas so drag continues even if pointer exits table element */}
-            {draggingId && (
-              <div
-                className="absolute inset-0 z-40"
-                style={{ touchAction: 'none' }}
-                onPointerMove={e => handlePointerMove(e, draggingId)}
-                onPointerUp={e => handlePointerUp(e, draggingId)}
-                onPointerCancel={e => handlePointerUp(e, draggingId)}
-              />
-            )}
+            {/* No overlay div needed — pointer capture handles this */}
           </div>
 
           {/* Table list below canvas */}
@@ -716,7 +779,7 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
           )}
         </div>
 
-        {/* Config panel — full width on mobile when a table is selected, side panel on desktop */}
+        {/* Config panel */}
         <AnimatePresence>
           {selectedTable && (
             <motion.div
