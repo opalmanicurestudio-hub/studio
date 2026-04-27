@@ -47,7 +47,7 @@ const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(
 const safeNum  = (v: any) => Number(v) || 0;
 const NO_SELECTION = '**none**';
 
-// ─── STAFF ROLE CONFIG ──────────────────────────────────────────────────────
+// ─── STAFF ROLE CONFIG ────────────────────────────────────────────────────────
 const STAFF_ROLES = [
   { id: 'floor',   label: 'Floor Service', icon: '🍽️' },
   { id: 'kitchen', label: 'Kitchen',       icon: '👨‍🍳' },
@@ -57,15 +57,85 @@ const STAFF_ROLES = [
   { id: 'manager', label: 'Manager',       icon: '📋' },
 ];
 
-// ─── DERIVE TABLE + SEAT LISTS FROM GUESTS ──────────────────────────────────
+// ─── SHIFT PRESETS ────────────────────────────────────────────────────────────
+const SHIFT_PRESETS = [
+  { id: 'morning',   label: 'Morning',    time: '8:00 AM – 2:00 PM' },
+  { id: 'lunch',     label: 'Lunch',      time: '11:00 AM – 4:00 PM' },
+  { id: 'afternoon', label: 'Afternoon',  time: '2:00 PM – 7:00 PM' },
+  { id: 'dinner',    label: 'Dinner',     time: '5:00 PM – 10:00 PM' },
+  { id: 'evening',   label: 'Evening',    time: '6:00 PM – 11:00 PM' },
+  { id: 'night',     label: 'Late Night', time: '10:00 PM – 3:00 AM' },
+  { id: 'split',     label: 'Split',      time: '11:00 AM – 3:00 PM / 6:00 PM – 10:00 PM' },
+];
+
+// ─── SHIFT PICKER ─────────────────────────────────────────────────────────────
+const ShiftPicker = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) => {
+  const isPreset   = SHIFT_PRESETS.some(p => p.time === value);
+  const [showCustom, setShowCustom] = React.useState(!!value && !isPreset);
+  const [customVal,  setCustomVal]  = React.useState(!isPreset ? value : '');
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {SHIFT_PRESETS.map(p => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => { setShowCustom(false); onChange(p.time); }}
+            className={cn(
+              'px-2.5 py-1.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all leading-none',
+              value === p.time
+                ? 'bg-slate-900 border-slate-900 text-white'
+                : 'border-slate-100 text-slate-500 hover:border-slate-300 bg-white',
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => { setShowCustom(true); onChange(customVal); }}
+          className={cn(
+            'px-2.5 py-1.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all leading-none',
+            showCustom && !isPreset
+              ? 'bg-slate-900 border-slate-900 text-white'
+              : 'border-slate-100 text-slate-500 hover:border-slate-300 bg-white',
+          )}
+        >
+          Custom…
+        </button>
+      </div>
+      {showCustom && (
+        <Input
+          value={customVal}
+          onChange={e => { setCustomVal(e.target.value); onChange(e.target.value); }}
+          placeholder="e.g. 4pm – midnight"
+          className="h-9 rounded-xl border-2 text-xs font-bold"
+          autoFocus
+        />
+      )}
+      {value && (
+        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest truncate">
+          ⏰ {value}
+        </p>
+      )}
+    </div>
+  );
+};
+
+// ─── DERIVE TABLE + SEAT LISTS FROM GUESTS ────────────────────────────────────
 function useTableSeatOptions(guests: any[]) {
   return useMemo(() => {
-    // Unique table numbers, sorted naturally
     const tables = Array.from(
       new Set(guests.map(g => g.tableNumber).filter(Boolean))
     ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-    // Seats per table
     const seatsByTable: Record<string, string[]> = {};
     guests.forEach(g => {
       if (!g.tableNumber || !g.seatNumber) return;
@@ -78,14 +148,12 @@ function useTableSeatOptions(guests: any[]) {
       seats.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     );
 
-    // Format for display: "Table 1", "Table 2A", etc.
     const tableOptions = tables.map(t => ({ value: t, label: `Table ${t}` }));
-
     return { tables, seatsByTable, tableOptions };
   }, [guests]);
 }
 
-// ─── ALLERGY PILL ───────────────────────────────────────────────────────────
+// ─── ALLERGY PILL ─────────────────────────────────────────────────────────────
 const AllergyPill = ({ allergy }: { allergy: any }) => {
   const label    = typeof allergy === 'object' ? allergy.label    : allergy;
   const severity = typeof allergy === 'object' ? allergy.severity : 'preference';
@@ -106,7 +174,7 @@ const AllergyPill = ({ allergy }: { allergy: any }) => {
   );
 };
 
-// ─── CAPACITY RING ──────────────────────────────────────────────────────────
+// ─── CAPACITY RING ────────────────────────────────────────────────────────────
 const CapacityRing = ({ checkedIn, total, capacity }: {
   checkedIn: number; total: number; capacity: number | null;
 }) => {
@@ -134,15 +202,14 @@ const CapacityRing = ({ checkedIn, total, capacity }: {
   );
 };
 
-// ─── KDS TICKET STATUS BADGE ────────────────────────────────────────────────
-// Shows real-time status of a fired ticket coming back from KDS
+// ─── KDS STATUS BADGE ─────────────────────────────────────────────────────────
 const KdsStatusBadge = ({ status }: { status: string }) => {
   const map: Record<string, { label: string; cls: string }> = {
-    pending:    { label: 'Queued',      cls: 'bg-amber-50 border-amber-200 text-amber-700' },
-    preparing:  { label: 'Cooking',     cls: 'bg-blue-50 border-blue-200 text-blue-700' },
-    ready:      { label: 'Ready',       cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-    delivered:  { label: 'Delivered',   cls: 'bg-slate-100 border-slate-200 text-slate-500' },
-    bumped:     { label: 'Bumped',      cls: 'bg-green-50 border-green-200 text-green-700' },
+    pending:   { label: 'Queued',    cls: 'bg-amber-50 border-amber-200 text-amber-700' },
+    preparing: { label: 'Cooking',   cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+    ready:     { label: 'Ready',     cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+    delivered: { label: 'Delivered', cls: 'bg-slate-100 border-slate-200 text-slate-500' },
+    bumped:    { label: 'Bumped',    cls: 'bg-green-50 border-green-200 text-green-700' },
   };
   const cfg = map[status] || map.pending;
   return (
@@ -152,12 +219,11 @@ const KdsStatusBadge = ({ status }: { status: string }) => {
   );
 };
 
-// ─── ORDERING DEADLINE BANNER ───────────────────────────────────────────────
+// ─── ORDERING DEADLINE BANNER ─────────────────────────────────────────────────
 const OrderingDeadlineBanner = ({ deadline, eventId, tenantId, firestore }: {
   deadline: string; eventId: string; tenantId: string; firestore: any;
 }) => {
   const [now, setNow] = useState(Date.now());
-  const { toast } = useToast();
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 10000);
     return () => clearInterval(id);
@@ -192,7 +258,7 @@ const OrderingDeadlineBanner = ({ deadline, eventId, tenantId, firestore }: {
   );
 };
 
-// ─── MENU NOTE BANNER ───────────────────────────────────────────────────────
+// ─── MENU NOTE BANNER ─────────────────────────────────────────────────────────
 const MenuNoteBanner = ({ note }: { note: string }) => (
   <div className="flex items-start gap-3 p-4 rounded-2xl bg-blue-50 border-2 border-blue-200">
     <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
@@ -203,7 +269,7 @@ const MenuNoteBanner = ({ note }: { note: string }) => (
   </div>
 );
 
-// ─── QUOTE LINK BADGE ───────────────────────────────────────────────────────
+// ─── QUOTE LINK BADGE ─────────────────────────────────────────────────────────
 const QuoteLinkBadge = ({ quoteId, tenantId, firestore }: {
   quoteId: string; tenantId: string; firestore: any;
 }) => {
@@ -219,9 +285,9 @@ const QuoteLinkBadge = ({ quoteId, tenantId, firestore }: {
   const total = (quote.lineItems || []).reduce((a: number, i: any) => a + (i.price || 0) * (i.quantity || 1), 0);
   const STATUS_COLORS: Record<string, string> = {
     accepted: 'bg-green-50 border-green-200 text-green-700',
-    declined:  'bg-red-50 border-red-200 text-red-600',
-    sent:      'bg-blue-50 border-blue-200 text-blue-700',
-    viewed:    'bg-violet-50 border-violet-200 text-violet-700',
+    declined: 'bg-red-50 border-red-200 text-red-600',
+    sent:     'bg-blue-50 border-blue-200 text-blue-700',
+    viewed:   'bg-violet-50 border-violet-200 text-violet-700',
   };
   return (
     <button onClick={() => router.push('/quotes')}
@@ -232,7 +298,7 @@ const QuoteLinkBadge = ({ quoteId, tenantId, firestore }: {
   );
 };
 
-// ─── ALL COURSES FIRED NUDGE ────────────────────────────────────────────────
+// ─── ALL COURSES FIRED NUDGE ──────────────────────────────────────────────────
 const AllCoursesFiredNudge = ({ onEndEvent }: { onEndEvent: () => void }) => (
   <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
     className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-5 flex items-center justify-between gap-4">
@@ -252,7 +318,7 @@ const AllCoursesFiredNudge = ({ onEndEvent }: { onEndEvent: () => void }) => (
   </motion.div>
 );
 
-// ─── COURSE FIRE CONFIRM DIALOG ─────────────────────────────────────────────
+// ─── COURSE FIRE CONFIRM DIALOG ───────────────────────────────────────────────
 const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName, guests, menuItems, onConfirm, isFiring }: {
   open: boolean; onOpenChange: (v: boolean) => void;
   courseNumber: number; courseName: string;
@@ -351,7 +417,7 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
   );
 };
 
-// ─── KITCHEN PRINT MODAL ────────────────────────────────────────────────────
+// ─── KITCHEN PRINT MODAL ──────────────────────────────────────────────────────
 const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, courseNumbers }: {
   open: boolean; onOpenChange: (v: boolean) => void;
   event: any; guests: any[]; menuItems: any[]; courseNumbers: number[];
@@ -413,7 +479,6 @@ const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, cours
     win.document.close();
     setTimeout(() => win.print(), 300);
   };
-  const allergenGuestCount = guests.filter(g => g.checkedIn && (g.allergies || []).length > 0).length;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 shadow-2xl">
@@ -441,7 +506,7 @@ const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, cours
   );
 };
 
-// ─── TABLE GROUPED VIEW ─────────────────────────────────────────────────────
+// ─── TABLE GROUPED VIEW ───────────────────────────────────────────────────────
 const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOverride }: {
   guests: any[]; menuItems: any[];
   onCheckIn: (id: string, current: boolean) => void;
@@ -477,7 +542,6 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
                   {table === '__unassigned__' ? '?' : table}
                 </div>
                 <div>
-                  {/* FIX: Display "Table X" not raw value */}
                   <p className="font-black text-sm text-slate-900 uppercase tracking-tight">
                     {table === '__unassigned__' ? 'No Table Assigned' : `Table ${table}`}
                   </p>
@@ -501,7 +565,6 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-black text-sm text-slate-900">{g.name}</p>
-                        {/* FIX: Display "Seat A" not raw value */}
                         {g.seatNumber && <span className="text-[9px] font-bold text-slate-400 uppercase">Seat {g.seatNumber}</span>}
                         {(g.allergies || []).map((a: any, i: number) => <AllergyPill key={i} allergy={a} />)}
                       </div>
@@ -523,7 +586,7 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
   );
 };
 
-// ─── STAT CARD ──────────────────────────────────────────────────────────────
+// ─── STAT CARD ────────────────────────────────────────────────────────────────
 const StatCard = ({ label, value, sub, color = 'slate' }: {
   label: string; value: string | number; sub?: string; color?: string;
 }) => {
@@ -543,7 +606,7 @@ const StatCard = ({ label, value, sub, color = 'slate' }: {
   );
 };
 
-// ─── FLOOR REQUEST PANEL ────────────────────────────────────────────────────
+// ─── FLOOR REQUEST PANEL ──────────────────────────────────────────────────────
 const FLOOR_REQUEST_ICONS: Record<string, string> = {
   water: '💧', napkins: '🧻', condiments: '🧂', utensils: '🍴',
   ice: '🧊', accessibility: '♿', temperature: '🌡️', cleaning: '🧹', other: '💬',
@@ -580,7 +643,6 @@ const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
                 <div className="flex-1 min-w-0">
                   <p className="font-black text-sm text-amber-900">{r.label || r.requestType}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    {/* FIX: Display "Table X" label */}
                     {r.tableNumber && <span className="text-[9px] font-bold text-amber-600 uppercase">Table {r.tableNumber}</span>}
                     {r.guestName   && <span className="text-[9px] font-bold text-amber-600 uppercase">{r.guestName}</span>}
                     <span className={cn('text-[9px] font-black uppercase tracking-widest', isLate ? 'text-red-500' : 'text-amber-500')}>
@@ -602,7 +664,7 @@ const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
   );
 };
 
-// ─── DELTA REFIRE BANNER ────────────────────────────────────────────────────
+// ─── DELTA REFIRE BANNER ──────────────────────────────────────────────────────
 const DeltaRefireBanner = ({ courseNumber, courseName, deltaGuests, onRefire, isFiring }: {
   courseNumber: number; courseName: string; deltaGuests: any[];
   onRefire: (n: number, guests: any[]) => Promise<void>; isFiring: boolean;
@@ -629,7 +691,7 @@ const DeltaRefireBanner = ({ courseNumber, courseName, deltaGuests, onRefire, is
   </motion.div>
 );
 
-// ─── COURSE INGREDIENTS PREVIEW ─────────────────────────────────────────────
+// ─── COURSE INGREDIENTS PREVIEW ───────────────────────────────────────────────
 const CourseIngredientsPreview = ({ courseNumber, menuItems, guests, inventory }: {
   courseNumber: number; menuItems: any[]; guests: any[]; inventory: any[];
 }) => {
@@ -682,8 +744,7 @@ const CourseIngredientsPreview = ({ courseNumber, menuItems, guests, inventory }
   );
 };
 
-// ─── LIVE KDS STATUS PANEL ──────────────────────────────────────────────────
-// NEW: Shows real-time ticket status back from kitchen for each course
+// ─── LIVE KDS STATUS PANEL ────────────────────────────────────────────────────
 const LiveKdsStatusPanel = ({ courseNumber, courseName, kdsTickets, guests }: {
   courseNumber: number; courseName: string; kdsTickets: any[]; guests: any[];
 }) => {
@@ -693,7 +754,7 @@ const LiveKdsStatusPanel = ({ courseNumber, courseName, kdsTickets, guests }: {
   const counts = { pending: 0, preparing: 0, ready: 0, delivered: 0, bumped: 0 };
   courseTickets.forEach(t => { if (t.status in counts) counts[t.status as keyof typeof counts]++; });
 
-  const allDone = courseTickets.every(t => ['delivered', 'bumped'].includes(t.status));
+  const allDone  = courseTickets.every(t => ['delivered', 'bumped'].includes(t.status));
   const anyReady = courseTickets.some(t => t.status === 'ready');
 
   return (
@@ -705,17 +766,14 @@ const LiveKdsStatusPanel = ({ courseNumber, courseName, kdsTickets, guests }: {
             <Zap className="w-2.5 h-2.5" /> Plates Ready
           </span>
         )}
-        {allDone && (
-          <span className="text-[9px] font-black uppercase text-emerald-600">All Served ✓</span>
-        )}
+        {allDone && <span className="text-[9px] font-black uppercase text-emerald-600">All Served ✓</span>}
       </div>
       <div className="flex gap-2 flex-wrap">
-        {counts.pending > 0    && <span className="px-2 py-0.5 rounded-full bg-amber-100 border border-amber-200 text-[8px] font-black text-amber-700">{counts.pending} queued</span>}
-        {counts.preparing > 0  && <span className="px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-[8px] font-black text-blue-700">{counts.preparing} cooking</span>}
-        {counts.ready > 0      && <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-200 text-[8px] font-black text-emerald-700">{counts.ready} ready</span>}
-        {counts.delivered > 0  && <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[8px] font-black text-slate-500">{counts.delivered} delivered</span>}
+        {counts.pending > 0   && <span className="px-2 py-0.5 rounded-full bg-amber-100 border border-amber-200 text-[8px] font-black text-amber-700">{counts.pending} queued</span>}
+        {counts.preparing > 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-[8px] font-black text-blue-700">{counts.preparing} cooking</span>}
+        {counts.ready > 0     && <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-200 text-[8px] font-black text-emerald-700">{counts.ready} ready</span>}
+        {counts.delivered > 0 && <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[8px] font-black text-slate-500">{counts.delivered} delivered</span>}
       </div>
-      {/* Show which tables are ready */}
       {anyReady && (
         <div className="pt-1">
           <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Ready Tables</p>
@@ -751,7 +809,7 @@ export default function EventManifestPage() {
   const [menuItems,     setMenuItems]     = useState<any[]>([]);
   const [fires,         setFires]         = useState<any[]>([]);
   const [floorRequests, setFloorRequests] = useState<any[]>([]);
-  const [kdsTickets,    setKdsTickets]    = useState<any[]>([]); // NEW: live KDS feedback
+  const [kdsTickets,    setKdsTickets]    = useState<any[]>([]);
   const [loading,       setLoading]       = useState(true);
 
   useEffect(() => {
@@ -770,15 +828,13 @@ export default function EventManifestPage() {
     unsubs.push(onSnapshot(
       query(collection(firestore, `tenants/${tenantId}/floorRequests`), where('eventId', '==', eventId), where('status', 'in', ['new', 'acknowledged'])),
       snap => setFloorRequests(snap.docs.map(d => ({ ...d.data(), id: d.id })))));
-    // NEW: Subscribe to KDS tickets for real-time kitchen status
     unsubs.push(onSnapshot(
       query(collection(firestore, `tenants/${tenantId}/kdsTickets`), where('eventId', '==', eventId)),
       snap => setKdsTickets(snap.docs.map(d => ({ ...d.data(), id: d.id })))));
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, eventId]);
 
-  // ── Table/seat options derived from guest list ─────────────────────────────
-  // FIX: These replace all free-text table/seat inputs throughout the page
+  // ── Table/seat options ─────────────────────────────────────────────────────
   const { tables, seatsByTable, tableOptions } = useTableSeatOptions(guests);
 
   // ── UI state ───────────────────────────────────────────────────────────────
@@ -787,74 +843,73 @@ export default function EventManifestPage() {
   const [filterFlag,     setFilterFlag]     = useState('all');
   const [guestViewMode,  setGuestViewMode]  = useState<'list' | 'table'>('list');
   const [selectedGuests, setSelectedGuests] = useState<Set<string>>(new Set());
-  const [isFiring,          setIsFiring]          = useState<number | null>(null);
-  const [isRefiring,        setIsRefiring]         = useState<number | null>(null);
-  const [fireConfirmCourse, setFireConfirmCourse]  = useState<number | null>(null);
-  const [isConfirmActivateOpen, setIsConfirmActivateOpen] = useState(false);
-  const [activatingNow,     setActivatingNow]      = useState(false);
-  const [undoWindowOpen,    setUndoWindowOpen]     = useState(false);
-  const [undoCountdown,     setUndoCountdown]      = useState(120);
-  const [showLink,          setShowLink]           = useState(false);
-  const [qrTables,          setQrTables]           = useState('');
-  const [qrSeatsPerTable,   setQrSeatsPerTable]    = useState('');
-  const [qrCodes,           setQrCodes]            = useState<{ label: string; dataUrl: string }[]>([]);
-  const [activeTab,         setActiveTab]          = useState('guests');
-  const [staffToAdd,        setStaffToAdd]         = useState('');
-  const [mealOverrideGuest, setMealOverrideGuest]  = useState<any>(null);
-  const [mealOverrideId,    setMealOverrideId]     = useState<string>('');
-  const [savingOverride,    setSavingOverride]     = useState(false);
-  const [isEndEventOpen,    setIsEndEventOpen]     = useState(false);
-  const [broadcastOpen,     setBroadcastOpen]      = useState(false);
-  const [broadcastText,     setBroadcastText]      = useState('');
-  const [sendingBroadcast,  setSendingBroadcast]   = useState(false);
-  const [printModalOpen,    setPrintModalOpen]     = useState(false);
+  const [isFiring,             setIsFiring]             = useState<number | null>(null);
+  const [isRefiring,           setIsRefiring]           = useState<number | null>(null);
+  const [fireConfirmCourse,    setFireConfirmCourse]    = useState<number | null>(null);
+  const [isConfirmActivateOpen,setIsConfirmActivateOpen]= useState(false);
+  const [activatingNow,        setActivatingNow]        = useState(false);
+  const [undoWindowOpen,       setUndoWindowOpen]       = useState(false);
+  const [undoCountdown,        setUndoCountdown]        = useState(120);
+  const [showLink,             setShowLink]             = useState(false);
+  const [qrTables,             setQrTables]             = useState('');
+  const [qrSeatsPerTable,      setQrSeatsPerTable]      = useState('');
+  const [qrCodes,              setQrCodes]              = useState<{ label: string; dataUrl: string }[]>([]);
+  const [activeTab,            setActiveTab]            = useState('guests');
+  const [staffToAdd,           setStaffToAdd]           = useState('');
+  const [mealOverrideGuest,    setMealOverrideGuest]    = useState<any>(null);
+  const [mealOverrideId,       setMealOverrideId]       = useState<string>('');
+  const [savingOverride,       setSavingOverride]       = useState(false);
+  const [isEndEventOpen,       setIsEndEventOpen]       = useState(false);
+  const [broadcastOpen,        setBroadcastOpen]        = useState(false);
+  const [broadcastText,        setBroadcastText]        = useState('');
+  const [sendingBroadcast,     setSendingBroadcast]     = useState(false);
+  const [printModalOpen,       setPrintModalOpen]       = useState(false);
 
   // Guest form
-  const [isAddingGuest, setIsAddingGuest] = useState(false);
-  const [editingGuest,  setEditingGuest]  = useState<any>(null);
-  // FIX: table/seat stored as strings, displayed as "Table X" / "Seat Y"
-  const [guestForm,     setGuestForm]     = useState({
+  const [isAddingGuest,  setIsAddingGuest]  = useState(false);
+  const [editingGuest,   setEditingGuest]   = useState<any>(null);
+  const [guestForm,      setGuestForm]      = useState({
     name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '',
   });
   const [tableInputMode, setTableInputMode] = useState<'existing' | 'new'>('existing');
   const [newTableValue,  setNewTableValue]  = useState('');
-  const [clientSearch,  setClientSearch]  = useState('');
-  const [savingGuest,   setSavingGuest]   = useState(false);
+  const [clientSearch,   setClientSearch]   = useState('');
+  const [savingGuest,    setSavingGuest]    = useState(false);
 
   // Menu form
-  const [isAddingMenu,  setIsAddingMenu]  = useState(false);
-  const [newMenuName,   setNewMenuName]   = useState('');
-  const [newMenuDesc,   setNewMenuDesc]   = useState('');
-  const [newMenuCourse, setNewMenuCourse] = useState(1);
-  const [newMenuVegan,  setNewMenuVegan]  = useState(false);
-  const [newMenuGF,     setNewMenuGF]     = useState(false);
-  const [menuSupplies,  setMenuSupplies]  = useState<{ inventoryId: string; qty: number }[]>([]);
+  const [isAddingMenu,           setIsAddingMenu]           = useState(false);
+  const [newMenuName,            setNewMenuName]            = useState('');
+  const [newMenuDesc,            setNewMenuDesc]            = useState('');
+  const [newMenuCourse,          setNewMenuCourse]          = useState(1);
+  const [newMenuVegan,           setNewMenuVegan]           = useState(false);
+  const [newMenuGF,              setNewMenuGF]              = useState(false);
+  const [menuSupplies,           setMenuSupplies]           = useState<{ inventoryId: string; qty: number }[]>([]);
   const [newMenuInventoryItemId, setNewMenuInventoryItemId] = useState('');
-  const [newMenuPrice,  setNewMenuPrice]  = useState(0);
-  const [inventorySearch, setInventorySearch] = useState('');
+  const [newMenuPrice,           setNewMenuPrice]           = useState(0);
+  const [inventorySearch,        setInventorySearch]        = useState('');
 
   const [firedGuestIdsByCourse, setFiredGuestIdsByCourse] = useState<Record<number, Set<string>>>({});
   const firingInProgress = useRef<Set<number>>(new Set());
   const [firingBlockedSet, setFiringBlockedSet] = useState<Set<number>>(new Set());
 
-  // Staff state — now with role + shift fields
+  // Staff state
   const [staffZones,       setStaffZones]       = useState<Record<string, string>>({});
-  const [staffRoles,       setStaffRoles]        = useState<Record<string, string>>({});
-  const [staffShifts,      setStaffShifts]       = useState<Record<string, string>>({});
-  const [staffTableRanges, setStaffTableRanges]  = useState<Record<string, string[]>>({});
+  const [staffRoles,       setStaffRoles]       = useState<Record<string, string>>({});
+  const [staffShifts,      setStaffShifts]      = useState<Record<string, string>>({});
+  const [staffTableRanges, setStaffTableRanges] = useState<Record<string, string[]>>({});
 
   const DEFAULT_REQUEST_TYPES = [
-    { id: 'water',     label: 'Water Refill',   emoji: '💧', enabled: true,  alwaysShow: true  },
-    { id: 'napkins',   label: 'Napkins',         emoji: '🧻', enabled: true,  alwaysShow: true  },
-    { id: 'utensils',  label: 'Extra Utensils',  emoji: '🍴', enabled: true,  alwaysShow: true  },
-    { id: 'condiments',label: 'Condiments',      emoji: '🧂', enabled: true,  alwaysShow: true  },
-    { id: 'ice',       label: 'Ice',             emoji: '🧊', enabled: true,  alwaysShow: true  },
-    { id: 'menu',      label: 'Menu Question',   emoji: '📋', enabled: true,  alwaysShow: true  },
-    { id: 'temp',      label: 'Too Hot/Cold',    emoji: '🌡️', enabled: true,  alwaysShow: true  },
-    { id: 'spill',     label: 'Spill/Cleanup',   emoji: '🧹', enabled: true,  alwaysShow: true  },
-    { id: 'order',     label: 'Ready to Order',  emoji: '✋', enabled: false, alwaysShow: false },
-    { id: 'bill',      label: 'Bill Please',     emoji: '💳', enabled: false, alwaysShow: false },
-    { id: 'other',     label: 'Something Else',  emoji: '💬', enabled: true,  alwaysShow: true  },
+    { id: 'water',      label: 'Water Refill',  emoji: '💧', enabled: true,  alwaysShow: true  },
+    { id: 'napkins',    label: 'Napkins',        emoji: '🧻', enabled: true,  alwaysShow: true  },
+    { id: 'utensils',   label: 'Extra Utensils', emoji: '🍴', enabled: true,  alwaysShow: true  },
+    { id: 'condiments', label: 'Condiments',     emoji: '🧂', enabled: true,  alwaysShow: true  },
+    { id: 'ice',        label: 'Ice',            emoji: '🧊', enabled: true,  alwaysShow: true  },
+    { id: 'menu',       label: 'Menu Question',  emoji: '📋', enabled: true,  alwaysShow: true  },
+    { id: 'temp',       label: 'Too Hot/Cold',   emoji: '🌡️', enabled: true,  alwaysShow: true  },
+    { id: 'spill',      label: 'Spill/Cleanup',  emoji: '🧹', enabled: true,  alwaysShow: true  },
+    { id: 'order',      label: 'Ready to Order', emoji: '✋', enabled: false, alwaysShow: false },
+    { id: 'bill',       label: 'Bill Please',    emoji: '💳', enabled: false, alwaysShow: false },
+    { id: 'other',      label: 'Something Else', emoji: '💬', enabled: true,  alwaysShow: true  },
   ];
   const requestTypes: typeof DEFAULT_REQUEST_TYPES = event?.requestTypes || DEFAULT_REQUEST_TYPES;
   const [editingRequestTypes, setEditingRequestTypes] = useState(false);
@@ -951,7 +1006,6 @@ export default function EventManifestPage() {
     return warnings;
   }, [guests, menuItems]);
 
-  // ── Available seat options for selected table ─────────────────────────────
   const availableSeats = useMemo(() => {
     const tNum = tableInputMode === 'existing' ? guestForm.tableNumber : newTableValue;
     if (!tNum) return [];
@@ -960,7 +1014,6 @@ export default function EventManifestPage() {
       .map(g => g.seatNumber)
       .filter(Boolean);
     const existingSeats = seatsByTable[tNum] || [];
-    // Generate A–Z for common seat patterns, plus existing ones
     const allPossibleSeats = ['A','B','C','D','E','F','G','H','I','J','K','L'];
     const combined = Array.from(new Set([...existingSeats, ...allPossibleSeats]));
     return combined.filter(s => !takenSeats.includes(s));
@@ -1007,7 +1060,6 @@ export default function EventManifestPage() {
   const handleSaveGuest = async () => {
     if (!guestForm.name.trim() || !firestore || !tenantId) return;
     setSavingGuest(true);
-    // FIX: resolve the actual table number (existing or newly typed)
     const resolvedTable = tableInputMode === 'new' ? newTableValue.trim() : guestForm.tableNumber;
     const mealItem = menuItems.find(m => m.id === guestForm.mealChoiceId);
     try {
@@ -1096,7 +1148,6 @@ export default function EventManifestPage() {
         batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), {
           id: kdsId, source: 'event', eventId, eventTitle: event?.title || '',
           courseFireId: fireId, courseNumber, guestId: g.id, guestName: g.name,
-          // FIX: store label-formatted seat/table for KDS display
           seatNumber: g.seatNumber ? `Seat ${g.seatNumber}` : null,
           tableNumber: g.tableNumber ? `Table ${g.tableNumber}` : null,
           tableNumberRaw: g.tableNumber || null,
@@ -1155,7 +1206,6 @@ export default function EventManifestPage() {
     }
   };
 
-  // ── Staff assignment — now saves role, zone (tables), and shift ───────────
   const handleAddStaff = async () => {
     if (!staffToAdd || !firestore || !tenantId) return;
     const current = event?.assignedStaffIds || [];
@@ -1174,16 +1224,15 @@ export default function EventManifestPage() {
     toast({ title: 'Staff removed' });
   };
 
-  // FIX: Save full staff assignment with role, table zone dropdown values, and shift time
   const handleSaveStaffAssignment = async (staffId: string) => {
     if (!firestore || !tenantId) return;
     const assignments = {
       ...(event?.staffAssignments || {}),
       [staffId]: {
-        role:        staffRoles[staffId]       || 'floor',
-        tables:      staffTableRanges[staffId] || [],
-        shift:       staffShifts[staffId]      || '',
-        updatedAt:   new Date().toISOString(),
+        role:      staffRoles[staffId]       || 'floor',
+        tables:    staffTableRanges[staffId] || [],
+        shift:     staffShifts[staffId]      || '',
+        updatedAt: new Date().toISOString(),
       },
     };
     await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { staffAssignments: assignments });
@@ -1308,9 +1357,9 @@ export default function EventManifestPage() {
   if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin w-8 h-8 text-slate-400" /></div>;
   if (!event)  return <div className="flex h-screen items-center justify-center text-slate-400 font-bold">Event not found</div>;
 
-  const eventDisplayName   = event.title || event.name || 'Untitled Event';
-  const assignedStaffCount = (event?.assignedStaffIds || []).length;
-  const currentBroadcast   = event?.broadcastMessage && !event?.broadcastDismissed ? event.broadcastMessage : null;
+  const eventDisplayName    = event.title || event.name || 'Untitled Event';
+  const assignedStaffCount  = (event?.assignedStaffIds || []).length;
+  const currentBroadcast    = event?.broadcastMessage && !event?.broadcastDismissed ? event.broadcastMessage : null;
   const hasOrderingDeadline = event?.orderingDeadline && !isPast(new Date(event.orderingDeadline));
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1319,7 +1368,7 @@ export default function EventManifestPage() {
       <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
 
-        {/* ── HEADER ──────────────────────────────────────────────────────── */}
+        {/* ── DESKTOP HEADER ──────────────────────────────────────────────── */}
         <div className="hidden md:flex items-start justify-between gap-4">
           <div className="flex items-start gap-6">
             <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
@@ -1372,7 +1421,7 @@ export default function EventManifestPage() {
           </div>
         </div>
 
-        {/* Mobile header */}
+        {/* ── MOBILE HEADER ───────────────────────────────────────────────── */}
         <div className="md:hidden space-y-3">
           <div className="flex items-center gap-4">
             <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
@@ -1450,7 +1499,7 @@ export default function EventManifestPage() {
 
         {/* ── STATS ────────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Responses"    value={stats.total}        sub={`${stats.checkedIn} checked in`} />
+          <StatCard label="Responses"     value={stats.total}        sub={`${stats.checkedIn} checked in`} />
           <StatCard label="Allergy Flags" value={stats.allergyCount} sub={stats.uniqueAllergies.slice(0, 2).join(', ') || 'None'} color="amber" />
           {Object.entries(stats.mealCounts).slice(0, 2).map(([meal, count]) => (
             <StatCard key={meal} label={meal} value={count as number} sub={`${Math.round((count as number) / Math.max(stats.total, 1) * 100)}%`} color="emerald" />
@@ -1480,10 +1529,10 @@ export default function EventManifestPage() {
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
-                const fired     = firedCourses.has(n);
-                const isBlocked = firingBlockedSet.has(n);
-                const count     = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
-                const inCount   = guests.filter(g => g.checkedIn && (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId))).length;
+                const fired      = firedCourses.has(n);
+                const isBlocked  = firingBlockedSet.has(n);
+                const count      = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
+                const inCount    = guests.filter(g => g.checkedIn && (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId))).length;
                 const deltaCount = deltaGuestsByCourse[n]?.length || 0;
                 return (
                   <div key={n} className={cn('p-4 rounded-2xl border-2', fired ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50')}>
@@ -1497,7 +1546,6 @@ export default function EventManifestPage() {
                       {fired && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
                     </div>
                     <CourseIngredientsPreview courseNumber={n} menuItems={menuItems} guests={guests} inventory={inventory || []} />
-                    {/* NEW: Live KDS status feedback for this course */}
                     {fired && <LiveKdsStatusPanel courseNumber={n} courseName={courseLabels[n] || `Course ${n}`} kdsTickets={kdsTickets} guests={guests} />}
                     <Button
                       onClick={() => setFireConfirmCourse(n)}
@@ -1534,8 +1582,13 @@ export default function EventManifestPage() {
 
           {/* ── GUESTS TAB ────────────────────────────────────────────────── */}
           <TabsContent value="guests" className="mt-4 space-y-4">
+            {/* Toolbar */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Button onClick={() => { setIsAddingGuest(true); setEditingGuest(null); setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' }); setTableInputMode('existing'); setNewTableValue(''); }}
+              <Button onClick={() => {
+                setIsAddingGuest(true); setEditingGuest(null);
+                setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
+                setTableInputMode('existing'); setNewTableValue('');
+              }}
                 className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
                 <UserPlus className="w-4 h-4" /> Add Guest
               </Button>
@@ -1569,7 +1622,7 @@ export default function EventManifestPage() {
               </div>
             </div>
 
-            {/* Bulk check-in */}
+            {/* Bulk check-in bar */}
             {selectedGuests.size > 0 && (
               <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
                 className="flex items-center justify-between p-3 rounded-2xl bg-primary/5 border-2 border-primary/20">
@@ -1608,12 +1661,18 @@ export default function EventManifestPage() {
                       </div>
                     )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label>
-                        <Input value={guestForm.name} onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className="h-11 rounded-xl border-2" /></div>
-                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email</Label>
-                        <Input value={guestForm.email} onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" className="h-11 rounded-xl border-2" /></div>
-                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone</Label>
-                        <Input value={guestForm.phone} onChange={e => setGuestForm(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 000-0000" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label>
+                        <Input value={guestForm.name} onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className="h-11 rounded-xl border-2" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email</Label>
+                        <Input value={guestForm.email} onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" className="h-11 rounded-xl border-2" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone</Label>
+                        <Input value={guestForm.phone} onChange={e => setGuestForm(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 000-0000" className="h-11 rounded-xl border-2" />
+                      </div>
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
                         <Select value={guestForm.mealChoiceId || NO_SELECTION} onValueChange={v => setGuestForm(p => ({ ...p, mealChoiceId: v === NO_SELECTION ? '' : v }))}>
@@ -1622,7 +1681,7 @@ export default function EventManifestPage() {
                         </Select>
                       </div>
 
-                      {/* FIX: Table — dropdown of existing tables + "New table" option */}
+                      {/* Table dropdown */}
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label>
                         {tables.length > 0 ? (
@@ -1654,7 +1713,7 @@ export default function EventManifestPage() {
                         )}
                       </div>
 
-                      {/* FIX: Seat — dropdown populated from table selection */}
+                      {/* Seat dropdown */}
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</Label>
                         {(tableInputMode === 'existing' && guestForm.tableNumber) || (tableInputMode === 'new' && newTableValue) ? (
@@ -1685,6 +1744,7 @@ export default function EventManifestPage() {
               )}
             </AnimatePresence>
 
+            {/* Guest list / table view */}
             {guestViewMode === 'table' ? (
               <TableGroupedView
                 guests={filtered} menuItems={menuItems}
@@ -1699,7 +1759,94 @@ export default function EventManifestPage() {
               />
             ) : (
               <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-                <div className="overflow-x-auto">
+
+                {/* ── MOBILE CARD LIST (hidden on md+) ── */}
+                <div className="block md:hidden divide-y divide-slate-100">
+                  {filtered.map(guest => {
+                    const mealName = menuItems.find(m => m.id === guest.mealChoiceId)?.name || guest.mealChoiceName;
+                    return (
+                      <div key={guest.id} className={cn('flex items-start gap-3 p-4', !guest.checkedIn && 'opacity-70')}>
+                        {/* Check-in toggle */}
+                        <button
+                          onClick={() => handleCheckInGuest(guest.id, guest.checkedIn)}
+                          className={cn(
+                            'mt-0.5 w-8 h-8 rounded-xl border-2 flex items-center justify-center shrink-0 transition-all',
+                            guest.checkedIn
+                              ? 'bg-emerald-500 border-emerald-500 text-white'
+                              : 'border-slate-200 text-transparent hover:border-emerald-300',
+                          )}
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+
+                        {/* Guest info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-black text-sm text-slate-900">{guest.name}</p>
+                            {guest.checkedIn && (
+                              <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">In</span>
+                            )}
+                            {guest.hasCriticalAllergy && (
+                              <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5">
+                                <AlertTriangle className="w-2.5 h-2.5" /> Allergy
+                              </span>
+                            )}
+                          </div>
+                          {(guest.tableNumber || guest.seatNumber) && (
+                            <p className="text-[10px] font-bold text-slate-500 mt-0.5 uppercase tracking-wide">
+                              {guest.tableNumber && `Table ${guest.tableNumber}`}
+                              {guest.seatNumber  && ` · Seat ${guest.seatNumber}`}
+                            </p>
+                          )}
+                          {mealName && (
+                            <p className="text-[10px] font-bold text-slate-400 mt-0.5">{mealName}</p>
+                          )}
+                          {(guest.allergies || []).length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {(guest.allergies || []).map((a: any, i: number) => (
+                                <AllergyPill key={i} allergy={a} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex flex-col gap-1 shrink-0">
+                          <button
+                            onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || NO_SELECTION); }}
+                            className="p-2 rounded-xl hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors"
+                          >
+                            <Utensils className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingGuest(guest); setIsAddingGuest(false);
+                              setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' });
+                              setTableInputMode('existing'); setNewTableValue('');
+                            }}
+                            className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteGuest(guest.id)}
+                            className="p-2 rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <div className="px-4 py-12 text-center text-sm text-slate-400 font-bold uppercase tracking-widest">
+                      {guests.length === 0 ? 'No guests yet — add manually or share the guest link' : 'No guests match your filters'}
+                    </div>
+                  )}
+                </div>
+
+                {/* ── DESKTOP TABLE (hidden on mobile) ── */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50">
@@ -1730,7 +1877,6 @@ export default function EventManifestPage() {
                             <p className="text-[10px] text-slate-400">{guest.email || ''}</p>
                             {guest.hasCriticalAllergy && <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5 mt-0.5"><AlertTriangle className="w-2.5 h-2.5" /> Critical Allergy</span>}
                           </td>
-                          {/* FIX: Display "Table X · Seat Y" not raw values */}
                           <td className="px-4 py-3">
                             {guest.tableNumber && <span className="text-[10px] font-black uppercase text-slate-700">Table {guest.tableNumber}</span>}
                             {guest.seatNumber  && <span className="text-[10px] font-black uppercase text-slate-500"> · Seat {guest.seatNumber}</span>}
@@ -1892,8 +2038,8 @@ export default function EventManifestPage() {
                       </div>
 
                       {/* Assignment fields */}
-                      <div className="p-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        {/* Role dropdown */}
+                      <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Role */}
                         <div className="space-y-1.5">
                           <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Role</Label>
                           <Select
@@ -1912,8 +2058,8 @@ export default function EventManifestPage() {
                           </Select>
                         </div>
 
-                        {/* Table zone — FIX: dropdown of existing tables, multi-select via comma list */}
-                        {!isKitchen && (
+                        {/* Table zone / Station */}
+                        {!isKitchen ? (
                           <div className="space-y-1.5">
                             <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Table Zone</Label>
                             {tables.length > 0 ? (
@@ -1935,13 +2081,12 @@ export default function EventManifestPage() {
                               <Input
                                 placeholder="e.g. 1–4"
                                 defaultValue={(saved.tables || []).join(', ')}
-                                onChange={e => setStaffTableRanges(prev => ({ ...prev, [staffId]: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }))}
+                                onChange={e => setStaffTableRanges(prev => ({ ...prev, [staffId]: e.target.value.split(',').map((t: string) => t.trim()).filter(Boolean) }))}
                                 className="h-9 rounded-xl border-2 text-xs font-bold"
                               />
                             )}
                           </div>
-                        )}
-                        {isKitchen && (
+                        ) : (
                           <div className="space-y-1.5">
                             <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Station</Label>
                             <Select
@@ -1960,14 +2105,12 @@ export default function EventManifestPage() {
                           </div>
                         )}
 
-                        {/* Shift time */}
-                        <div className="space-y-1.5">
+                        {/* Shift picker — full width */}
+                        <div className="space-y-1.5 sm:col-span-2">
                           <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Shift</Label>
-                          <Input
-                            placeholder="e.g. 5pm–11pm"
-                            defaultValue={saved.shift || ''}
-                            onChange={e => setStaffShifts(prev => ({ ...prev, [staffId]: e.target.value }))}
-                            className="h-9 rounded-xl border-2 text-xs font-bold"
+                          <ShiftPicker
+                            value={staffShifts[staffId] ?? saved.shift ?? ''}
+                            onChange={v => setStaffShifts(prev => ({ ...prev, [staffId]: v }))}
                           />
                         </div>
                       </div>
@@ -2101,9 +2244,7 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* ── DIALOGS ──────────────────────────────────────────────────────── */}
-
-        {/* Meal override */}
+        {/* ── MEAL OVERRIDE ────────────────────────────────────────────────── */}
         <AnimatePresence>
           {mealOverrideGuest && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -2142,7 +2283,7 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* Confirm activate */}
+        {/* ── CONFIRM ACTIVATE ─────────────────────────────────────────────── */}
         <Dialog open={isConfirmActivateOpen} onOpenChange={setIsConfirmActivateOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500" /> Go Live</DialogTitle></DialogHeader>
@@ -2167,7 +2308,7 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* End event */}
+        {/* ── END EVENT ────────────────────────────────────────────────────── */}
         <Dialog open={isEndEventOpen} onOpenChange={setIsEndEventOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter">End Event</DialogTitle></DialogHeader>
@@ -2192,7 +2333,7 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Broadcast sheet */}
+        {/* ── BROADCAST ────────────────────────────────────────────────────── */}
         <Sheet open={broadcastOpen} onOpenChange={setBroadcastOpen}>
           <SheetContent side="bottom" className="rounded-t-3xl border-t-0 pb-safe">
             <SheetHeader className="pb-4">
@@ -2215,7 +2356,7 @@ export default function EventManifestPage() {
           </SheetContent>
         </Sheet>
 
-        {/* Course fire confirm */}
+        {/* ── COURSE FIRE CONFIRM ──────────────────────────────────────────── */}
         {fireConfirmCourse !== null && (
           <CourseFireConfirmDialog
             open={fireConfirmCourse !== null}
