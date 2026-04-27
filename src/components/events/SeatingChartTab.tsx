@@ -74,9 +74,6 @@ const getAvatarColor = (name: string) => {
 };
 
 // ─── CANVAS TABLE CARD ────────────────────────────────────────────────────────
-// FIX: Removed the overlay div approach. Instead, the drag handlers live directly
-// on the card element using setPointerCapture so pointermove/pointerup keep firing
-// even after the pointer leaves the element — no overlay needed.
 const CanvasTableCard = ({
   table, isSelected, isDragging, onSelect, onPointerDown, onPointerMove, onPointerUp,
   assignedGuests, staffList,
@@ -93,7 +90,6 @@ const CanvasTableCard = ({
   const filledSeats = assignedGuests.length;
   const pct         = table.seatCount > 0 ? (filledSeats / table.seatCount) * 100 : 0;
 
-  // Show up to 6 guest avatars, then +N overflow
   const visibleGuests = assignedGuests.slice(0, 6);
   const overflowCount = assignedGuests.length - visibleGuests.length;
 
@@ -126,7 +122,6 @@ const CanvasTableCard = ({
 
         {/* Body */}
         <div className="bg-white/95 px-3 py-2 space-y-2">
-          {/* Seat fill bar */}
           <div className="flex items-center justify-between">
             <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Seats</span>
             <span className="text-[10px] font-black text-slate-700">{filledSeats}/{table.seatCount}</span>
@@ -135,7 +130,6 @@ const CanvasTableCard = ({
             <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${pct}%` }} />
           </div>
 
-          {/* ── LIVE GUEST AVATARS ── */}
           {assignedGuests.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">
               {visibleGuests.map(({ guest }) => guest ? (
@@ -158,7 +152,6 @@ const CanvasTableCard = ({
             </div>
           )}
 
-          {/* Staff coverage dots */}
           {table.staffIds.length > 0 && (
             <div className="flex flex-wrap gap-0.5 pt-0.5 border-t border-slate-100">
               {table.staffIds.slice(0, 3).map(sid => {
@@ -199,7 +192,8 @@ const GuestAssignSheet = ({
     const allAssignedGuestIds = new Set(assignedGuests.filter(a => a.seatId !== seat?.id).map(a => a.guestId));
     const base = guests.filter(g => {
       if (allAssignedGuestIds.has(g.id)) return false;
-      if (g.tableNumber && g.tableNumber !== table?.id) return false;
+      // Compare against table name (human-readable), not table id
+      if (g.tableNumber && g.tableNumber !== table?.name) return false;
       return true;
     });
     if (!search.trim()) return base;
@@ -405,8 +399,7 @@ const TableConfigPanel = ({
                     <span className="text-sm font-black text-emerald-800 truncate flex-1">{assigned.guestName}</span>
                     <button
                       onClick={async () => {
-                        const g = guests.find(g => g.id === assigned.guestId);
-                        if (g) await onAssignGuest('__remove__', table.id, seat.id);
+                        await onAssignGuest('__remove__', table.id, seat.id);
                       }}
                       className="p-1 rounded-lg hover:bg-emerald-200 text-emerald-400 hover:text-emerald-700 transition-colors shrink-0"
                     >
@@ -494,9 +487,7 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
   const [saved,      setSaved]      = useState(false);
 
   const canvasRef     = useRef<HTMLDivElement>(null);
-  // Stores pointer offset within the card at drag start (in canvas-percentage units)
   const dragOffset    = useRef({ xPct: 0, yPct: 0 });
-  // Active pointer id for correct multi-touch handling
   const activePointer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -505,13 +496,22 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
 
   const selectedTable = tables.find(t => t.id === selectedId) || null;
 
+  // ── Guest assignments ──────────────────────────────────────────────────────
+  // Guests store tableNumber = table.name (human-readable) and seatNumber = seat.label.
+  // We map back to internal IDs here so the config panel can look up by seat.id.
   const guestAssignments = useMemo(() => {
     const map: Record<string, { seatId: string; guestId: string; guestName: string }[]> = {};
     for (const t of tables) map[t.id] = [];
+
     for (const g of guests) {
-      if (g.tableNumber && g.seatNumber && map[g.tableNumber]) {
-        map[g.tableNumber].push({ seatId: g.seatNumber, guestId: g.id, guestName: g.name });
-      }
+      if (!g.tableNumber || !g.seatNumber) continue;
+      // Find the table whose name matches the stored human-readable tableNumber
+      const table = tables.find(t => t.name === g.tableNumber);
+      if (!table) continue;
+      // Find the seat whose label matches the stored human-readable seatNumber
+      const seat = table.seats.find(s => s.label === g.seatNumber);
+      if (!seat) continue;
+      map[table.id].push({ seatId: seat.id, guestId: g.id, guestName: g.name });
     }
     return map;
   }, [tables, guests]);
@@ -541,11 +541,7 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
     if (selectedId === id) setSelectedId(null);
   };
 
-  // ── Pointer drag — FIX ────────────────────────────────────────────────────
-  // Key insight: we call setPointerCapture on the card element so all subsequent
-  // pointermove/pointerup events are delivered to that element even if the pointer
-  // moves outside it. This removes the need for the overlay div entirely.
-  // Handlers are passed down to CanvasTableCard and attached directly on its root div.
+  // ── Pointer drag ───────────────────────────────────────────────────────────
   const handlePointerDown = useCallback((e: React.PointerEvent, tableId: string) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
@@ -558,19 +554,15 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
     if (!table) return;
 
     const rect     = canvas.getBoundingClientRect();
-    // Current table centre in pixels relative to canvas
     const tableXpx = ((table.x ?? 20) / 100) * rect.width;
     const tableYpx = ((table.y ?? 20) / 100) * rect.height;
 
-    // Offset from pointer to table centre (in canvas-% units for resolution independence)
     dragOffset.current = {
       xPct: ((e.clientX - rect.left) - tableXpx) / rect.width  * 100,
       yPct: ((e.clientY - rect.top)  - tableYpx) / rect.height * 100,
     };
 
     activePointer.current = e.pointerId;
-
-    // Capture: all future events for this pointer go to this element
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
     setDraggingId(tableId);
@@ -621,11 +613,20 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
   };
 
   // ── Assign guest to seat ───────────────────────────────────────────────────
+  // Stores human-readable table.name → guest.tableNumber
+  // and human-readable seat.label  → guest.seatNumber
+  // so the rest of the app (dropdowns, display, exports) all see consistent values.
   const handleAssignGuest = async (guestId: string, tableId: string, seatId: string) => {
     if (!firestore || !tenantId) return;
     try {
+      const table = tables.find(t => t.id === tableId);
+      const seat  = table?.seats.find(s => s.id === seatId);
+
       if (guestId === '__remove__') {
-        const g = guests.find(g => g.tableNumber === tableId && g.seatNumber === seatId);
+        // Match the guest by human-readable labels (not raw IDs)
+        const g = guests.find(
+          g => g.tableNumber === table?.name && g.seatNumber === seat?.label
+        );
         if (g) {
           await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, g.id), {
             tableNumber: null,
@@ -635,9 +636,10 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
         }
         return;
       }
+
       await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, guestId), {
-        tableNumber: tableId,
-        seatNumber:  seatId,
+        tableNumber: table?.name ?? tableId,   // human-readable, e.g. "Table 1" or "Main"
+        seatNumber:  seat?.label ?? seatId,    // human-readable, e.g. "A" or "3"
       });
       toast({ title: 'Guest assigned to seat' });
     } catch (e) {
@@ -754,7 +756,6 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
                 staffList={staff}
               />
             ))}
-            {/* No overlay div needed — pointer capture handles this */}
           </div>
 
           {/* Table list below canvas */}
