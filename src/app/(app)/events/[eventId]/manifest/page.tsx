@@ -26,8 +26,7 @@ import {
   ChevronUp, X, UserCheck, Box, Check, Bell, ExternalLink,
   RefreshCw, ShieldAlert, Megaphone, Send, Package, FlaskConical,
   MoreHorizontal, MapPin, LayoutGrid, List, FileText, Layers,
-  CalendarCheck, ArrowRight, Clock, Info, Users2, ChefHat,
-  Armchair, Wine, Star, Zap, Timer, Eye,
+  CalendarCheck, ArrowRight, Clock, Info, Users2,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -47,113 +46,7 @@ const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(
 const safeNum  = (v: any) => Number(v) || 0;
 const NO_SELECTION = '**none**';
 
-// ─── STAFF ROLE CONFIG ────────────────────────────────────────────────────────
-const STAFF_ROLES = [
-  { id: 'floor',   label: 'Floor Service', icon: '🍽️' },
-  { id: 'kitchen', label: 'Kitchen',       icon: '👨‍🍳' },
-  { id: 'bar',     label: 'Bar',           icon: '🍸' },
-  { id: 'host',    label: 'Host / Door',   icon: '🎟️' },
-  { id: 'runner',  label: 'Runner',        icon: '🏃' },
-  { id: 'manager', label: 'Manager',       icon: '📋' },
-];
-
-// ─── SHIFT PRESETS ────────────────────────────────────────────────────────────
-const SHIFT_PRESETS = [
-  { id: 'morning',   label: 'Morning',    time: '8:00 AM – 2:00 PM' },
-  { id: 'lunch',     label: 'Lunch',      time: '11:00 AM – 4:00 PM' },
-  { id: 'afternoon', label: 'Afternoon',  time: '2:00 PM – 7:00 PM' },
-  { id: 'dinner',    label: 'Dinner',     time: '5:00 PM – 10:00 PM' },
-  { id: 'evening',   label: 'Evening',    time: '6:00 PM – 11:00 PM' },
-  { id: 'night',     label: 'Late Night', time: '10:00 PM – 3:00 AM' },
-  { id: 'split',     label: 'Split',      time: '11:00 AM – 3:00 PM / 6:00 PM – 10:00 PM' },
-];
-
-// ─── SHIFT PICKER ─────────────────────────────────────────────────────────────
-const ShiftPicker = ({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) => {
-  const isPreset   = SHIFT_PRESETS.some(p => p.time === value);
-  const [showCustom, setShowCustom] = React.useState(!!value && !isPreset);
-  const [customVal,  setCustomVal]  = React.useState(!isPreset ? value : '');
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        {SHIFT_PRESETS.map(p => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => { setShowCustom(false); onChange(p.time); }}
-            className={cn(
-              'px-2.5 py-1.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all leading-none',
-              value === p.time
-                ? 'bg-slate-900 border-slate-900 text-white'
-                : 'border-slate-100 text-slate-500 hover:border-slate-300 bg-white',
-            )}
-          >
-            {p.label}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => { setShowCustom(true); onChange(customVal); }}
-          className={cn(
-            'px-2.5 py-1.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all leading-none',
-            showCustom && !isPreset
-              ? 'bg-slate-900 border-slate-900 text-white'
-              : 'border-slate-100 text-slate-500 hover:border-slate-300 bg-white',
-          )}
-        >
-          Custom…
-        </button>
-      </div>
-      {showCustom && (
-        <Input
-          value={customVal}
-          onChange={e => { setCustomVal(e.target.value); onChange(e.target.value); }}
-          placeholder="e.g. 4pm – midnight"
-          className="h-9 rounded-xl border-2 text-xs font-bold"
-          autoFocus
-        />
-      )}
-      {value && (
-        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest truncate">
-          ⏰ {value}
-        </p>
-      )}
-    </div>
-  );
-};
-
-// ─── DERIVE TABLE + SEAT LISTS FROM GUESTS ────────────────────────────────────
-function useTableSeatOptions(guests: any[]) {
-  return useMemo(() => {
-    const tables = Array.from(
-      new Set(guests.map(g => g.tableNumber).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
-    const seatsByTable: Record<string, string[]> = {};
-    guests.forEach(g => {
-      if (!g.tableNumber || !g.seatNumber) return;
-      if (!seatsByTable[g.tableNumber]) seatsByTable[g.tableNumber] = [];
-      if (!seatsByTable[g.tableNumber].includes(g.seatNumber)) {
-        seatsByTable[g.tableNumber].push(g.seatNumber);
-      }
-    });
-    Object.values(seatsByTable).forEach(seats =>
-      seats.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    );
-
-    const tableOptions = tables.map(t => ({ value: t, label: `Table ${t}` }));
-    return { tables, seatsByTable, tableOptions };
-  }, [guests]);
-}
-
-// ─── ALLERGY PILL ─────────────────────────────────────────────────────────────
+// ─── ALLERGY PILL ──────────────────────────────────────────────────────────────
 const AllergyPill = ({ allergy }: { allergy: any }) => {
   const label    = typeof allergy === 'object' ? allergy.label    : allergy;
   const severity = typeof allergy === 'object' ? allergy.severity : 'preference';
@@ -174,7 +67,7 @@ const AllergyPill = ({ allergy }: { allergy: any }) => {
   );
 };
 
-// ─── CAPACITY RING ────────────────────────────────────────────────────────────
+// ─── CAPACITY RING ─────────────────────────────────────────────────────────────
 const CapacityRing = ({ checkedIn, total, capacity }: {
   checkedIn: number; total: number; capacity: number | null;
 }) => {
@@ -186,11 +79,12 @@ const CapacityRing = ({ checkedIn, total, capacity }: {
   const pct    = Math.min(checkedIn / cap, 1);
   const dash   = pct * circ;
   const color  = pct >= 1 ? '#10b981' : pct >= 0.7 ? '#3b82f6' : '#94a3b8';
+
   return (
     <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
           strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={circ - dash}
           className="transition-all duration-700" />
       </svg>
@@ -202,39 +96,27 @@ const CapacityRing = ({ checkedIn, total, capacity }: {
   );
 };
 
-// ─── KDS STATUS BADGE ─────────────────────────────────────────────────────────
-const KdsStatusBadge = ({ status }: { status: string }) => {
-  const map: Record<string, { label: string; cls: string }> = {
-    pending:   { label: 'Queued',    cls: 'bg-amber-50 border-amber-200 text-amber-700' },
-    preparing: { label: 'Cooking',   cls: 'bg-blue-50 border-blue-200 text-blue-700' },
-    ready:     { label: 'Ready',     cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-    delivered: { label: 'Delivered', cls: 'bg-slate-100 border-slate-200 text-slate-500' },
-    bumped:    { label: 'Bumped',    cls: 'bg-green-50 border-green-200 text-green-700' },
-  };
-  const cfg = map[status] || map.pending;
-  return (
-    <span className={cn('px-1.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-wide', cfg.cls)}>
-      {cfg.label}
-    </span>
-  );
-};
-
-// ─── ORDERING DEADLINE BANNER ─────────────────────────────────────────────────
+// ─── ORDERING DEADLINE BANNER ──────────────────────────────────────────────────
 const OrderingDeadlineBanner = ({ deadline, eventId, tenantId, firestore }: {
   deadline: string; eventId: string; tenantId: string; firestore: any;
 }) => {
   const [now, setNow] = useState(Date.now());
+  const { toast }     = useToast();
+
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 10000);
     return () => clearInterval(id);
   }, []);
+
   const deadlineMs = new Date(deadline).getTime();
   const msLeft     = deadlineMs - now;
   if (msLeft <= 0) return null;
+
   const hLeft = Math.floor(msLeft / 3600000);
   const mLeft = Math.floor((msLeft % 3600000) / 60000);
   const label  = hLeft > 0 ? `${hLeft}h ${mLeft}m` : `${mLeft}m`;
-  const urgent = msLeft < 3600000;
+  const urgent = msLeft < 3600000; // < 1 hour
+
   return (
     <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
       className={cn('rounded-2xl border-2 p-4 flex items-center justify-between gap-4',
@@ -258,7 +140,7 @@ const OrderingDeadlineBanner = ({ deadline, eventId, tenantId, firestore }: {
   );
 };
 
-// ─── MENU NOTE BANNER ─────────────────────────────────────────────────────────
+// ─── MENU NOTE BANNER ──────────────────────────────────────────────────────────
 const MenuNoteBanner = ({ note }: { note: string }) => (
   <div className="flex items-start gap-3 p-4 rounded-2xl bg-blue-50 border-2 border-blue-200">
     <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
@@ -269,18 +151,20 @@ const MenuNoteBanner = ({ note }: { note: string }) => (
   </div>
 );
 
-// ─── QUOTE LINK BADGE ─────────────────────────────────────────────────────────
+// ─── QUOTE LINK BADGE ──────────────────────────────────────────────────────────
 const QuoteLinkBadge = ({ quoteId, tenantId, firestore }: {
   quoteId: string; tenantId: string; firestore: any;
 }) => {
   const router = useRouter();
   const [quote, setQuote] = useState<any>(null);
+
   useEffect(() => {
     if (!quoteId || !firestore || !tenantId) return;
     getDoc(doc(firestore, `tenants/${tenantId}/quotes`, quoteId))
       .then(snap => { if (snap.exists()) setQuote({ id: snap.id, ...snap.data() }); })
       .catch(console.error);
   }, [quoteId, firestore, tenantId]);
+
   if (!quote) return null;
   const total = (quote.lineItems || []).reduce((a: number, i: any) => a + (i.price || 0) * (i.quantity || 1), 0);
   const STATUS_COLORS: Record<string, string> = {
@@ -289,16 +173,22 @@ const QuoteLinkBadge = ({ quoteId, tenantId, firestore }: {
     sent:     'bg-blue-50 border-blue-200 text-blue-700',
     viewed:   'bg-violet-50 border-violet-200 text-violet-700',
   };
+
   return (
-    <button onClick={() => router.push('/quotes')}
-      className={cn('flex items-center gap-2 h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all hover:shadow-md',
-        STATUS_COLORS[quote.status] || 'bg-slate-50 border-slate-200 text-slate-600')}>
-      <CalendarCheck className="w-3.5 h-3.5" /> Quote · ${total.toFixed(0)} <ArrowRight className="w-3 h-3" />
+    <button
+      onClick={() => router.push('/quotes')}
+      className={cn(
+        'flex items-center gap-2 h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all hover:shadow-md',
+        STATUS_COLORS[quote.status] || 'bg-slate-50 border-slate-200 text-slate-600',
+      )}>
+      <CalendarCheck className="w-3.5 h-3.5" />
+      Quote · ${total.toFixed(0)}
+      <ArrowRight className="w-3 h-3" />
     </button>
   );
 };
 
-// ─── ALL COURSES FIRED NUDGE ──────────────────────────────────────────────────
+// ─── ALL COURSES FIRED NUDGE ───────────────────────────────────────────────────
 const AllCoursesFiredNudge = ({ onEndEvent }: { onEndEvent: () => void }) => (
   <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
     className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-5 flex items-center justify-between gap-4">
@@ -318,7 +208,7 @@ const AllCoursesFiredNudge = ({ onEndEvent }: { onEndEvent: () => void }) => (
   </motion.div>
 );
 
-// ─── COURSE FIRE CONFIRM DIALOG ───────────────────────────────────────────────
+// ─── COURSE FIRE CONFIRM DIALOG ────────────────────────────────────────────────
 const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName, guests, menuItems, onConfirm, isFiring }: {
   open: boolean; onOpenChange: (v: boolean) => void;
   courseNumber: number; courseName: string;
@@ -328,19 +218,25 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
   const eligible = guests.filter(g =>
     g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
   );
-  const notIn = guests.filter(g =>
+  const notIn    = guests.filter(g =>
     !g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))
   );
+
+  // Counts by menu item
   const itemCounts: Record<string, { name: string; count: number; criticalCount: number }> = {};
   eligible.forEach(g => {
     const id   = g.courseSelections?.[courseNumber] || g.mealChoiceId;
-    const item = menuItems.find((m: any) => m.id === id);
+    const item = menuItems.find(m => m.id === id);
     if (!id) return;
     if (!itemCounts[id]) itemCounts[id] = { name: item?.name || 'Unknown', count: 0, criticalCount: 0 };
     itemCounts[id].count++;
     if ((g.allergies || []).some((a: any) => a.severity === 'critical')) itemCounts[id].criticalCount++;
   });
-  const criticalGuests = eligible.filter(g => (g.allergies || []).some((a: any) => a.severity === 'critical'));
+
+  const criticalGuests = eligible.filter(g =>
+    (g.allergies || []).some((a: any) => a.severity === 'critical')
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg rounded-[2rem] border-4 shadow-2xl">
@@ -350,6 +246,7 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
           </DialogTitle>
         </DialogHeader>
         <div className="p-6 space-y-4">
+          {/* Summary counts */}
           <div className="grid grid-cols-3 gap-3">
             <div className="text-center p-3 rounded-xl bg-primary/5 border border-primary/20">
               <p className="text-xl font-black text-primary">{eligible.length}</p>
@@ -364,6 +261,8 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
               <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Critical allergy</p>
             </div>
           </div>
+
+          {/* Order breakdown */}
           <div className="space-y-2">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Ticket Breakdown</p>
             {Object.entries(itemCounts).map(([id, data]) => (
@@ -380,12 +279,14 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
               </div>
             ))}
           </div>
+
+          {/* Critical allergy guest list */}
           {criticalGuests.length > 0 && (
             <div className="p-3 rounded-xl bg-red-50 border-2 border-red-200 space-y-2">
               <p className="text-[9px] font-black uppercase tracking-widest text-red-600">Critical Allergy Guests — Alert Kitchen</p>
               {criticalGuests.map(g => (
                 <div key={g.id} className="flex items-center justify-between gap-2">
-                  <p className="font-black text-xs text-red-900">{g.name}{g.tableNumber && ` · Table ${g.tableNumber}`}</p>
+                  <p className="font-black text-xs text-red-900">{g.name}{g.tableNumber && ` · T${g.tableNumber}`}</p>
                   <div className="flex flex-wrap gap-1">
                     {(g.allergies || []).filter((a: any) => a.severity === 'critical').map((a: any, i: number) => (
                       <span key={i} className="text-[8px] font-black uppercase text-red-700 bg-red-100 border border-red-300 px-1.5 py-0.5 rounded-full">{a.label}</span>
@@ -395,17 +296,22 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
               ))}
             </div>
           )}
+
           {notIn.length > 0 && (
             <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200">
               <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
               <p className="text-[10px] font-bold text-amber-700">
                 {notIn.length} guest{notIn.length !== 1 ? 's have' : ' has'} not checked in and will be skipped.
+                Use delta re-fire when they arrive.
               </p>
             </div>
           )}
+
           <div className="flex gap-3 pt-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}
-              className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+              className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
+              Cancel
+            </Button>
             <Button onClick={onConfirm} disabled={isFiring || eligible.length === 0}
               className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20 gap-2">
               {isFiring ? <Loader className="w-4 h-4 animate-spin" /> : <><Play className="w-4 h-4" /> Fire {eligible.length} Tickets</>}
@@ -417,68 +323,170 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
   );
 };
 
-// ─── KITCHEN PRINT MODAL ──────────────────────────────────────────────────────
+// ─── KITCHEN PRINT MODAL ───────────────────────────────────────────────────────
 const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, courseNumbers }: {
   open: boolean; onOpenChange: (v: boolean) => void;
   event: any; guests: any[]; menuItems: any[]; courseNumbers: number[];
 }) => {
   const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
+
   const handlePrint = () => {
     const win = window.open('', '_blank');
     if (!win) return;
+
     const rows = guests.filter(g => g.checkedIn).sort((a, b) => {
       if (a.tableNumber && b.tableNumber) return a.tableNumber.localeCompare(b.tableNumber);
       return a.name.localeCompare(b.name);
     });
-    const criticalAllergies = guests.filter(g => (g.allergies || []).some((a: any) => a.severity === 'critical'));
+
+    const criticalAllergies = guests.filter(g =>
+      (g.allergies || []).some((a: any) => a.severity === 'critical')
+    );
+
     const countsPerCourse = courseNumbers.map(n => {
       const counts: Record<string, number> = {};
       guests.filter(g => g.checkedIn).forEach(g => {
         const id = g.courseSelections?.[n] || (n === 1 ? g.mealChoiceId : null);
         if (!id) return;
-        const name = menuItems.find((m: any) => m.id === id)?.name || 'Unknown';
+        const name = menuItems.find(m => m.id === id)?.name || 'Unknown';
         counts[name] = (counts[name] || 0) + 1;
       });
       return { courseNumber: n, name: courseLabels[n] || `Course ${n}`, counts };
     });
+
     win.document.write(`<!DOCTYPE html><html><head>
       <title>Kitchen Run Sheet — ${event?.title || 'Event'}</title>
       <style>
         * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family:'Helvetica Neue',Arial,sans-serif; font-size:11px; color:#1e293b; padding:24px; }
-        h1 { font-size:22px; font-weight:900; text-transform:uppercase; letter-spacing:-0.5px; }
-        h2 { font-size:13px; font-weight:900; text-transform:uppercase; letter-spacing:1px; margin:20px 0 8px; border-bottom:2px solid #0f172a; padding-bottom:4px; }
-        h3 { font-size:11px; font-weight:700; text-transform:uppercase; margin:12px 0 4px; color:#64748b; }
-        .meta { color:#64748b; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; margin-top:4px; }
-        table { width:100%; border-collapse:collapse; margin-top:6px; }
-        th { background:#0f172a; color:white; font-weight:900; text-transform:uppercase; font-size:9px; letter-spacing:1px; padding:6px 8px; text-align:left; }
-        td { padding:6px 8px; border-bottom:1px solid #e2e8f0; vertical-align:top; }
-        tr:nth-child(even) td { background:#f8fafc; }
-        .allergy-critical { background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; padding:2px 6px; border-radius:99px; font-size:8px; font-weight:900; text-transform:uppercase; display:inline-block; margin:1px; }
-        .allergy-intolerance { background:#fffbeb; border:1px solid #fcd34d; color:#92400e; padding:2px 6px; border-radius:99px; font-size:8px; font-weight:900; text-transform:uppercase; display:inline-block; margin:1px; }
-        .allergy-pref { background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; padding:2px 6px; border-radius:99px; font-size:8px; font-weight:700; text-transform:uppercase; display:inline-block; margin:1px; }
-        .count-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:6px; }
-        .count-box { border:2px solid #e2e8f0; border-radius:8px; padding:8px; text-align:center; }
-        .count-box .num { font-size:24px; font-weight:900; color:#0f172a; }
-        .count-box .lbl { font-size:9px; font-weight:900; text-transform:uppercase; color:#94a3b8; margin-top:2px; }
-        .alert-box { background:#fef2f2; border:2px solid #fca5a5; border-radius:8px; padding:10px 12px; margin:8px 0; }
-        .alert-box p { color:#991b1b; font-weight:900; font-size:10px; text-transform:uppercase; }
-        @media print { @page { margin:0.4in; } }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11px; color: #1e293b; padding: 24px; }
+        h1 { font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: -0.5px; }
+        h2 { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; margin: 20px 0 8px; border-bottom: 2px solid #0f172a; padding-bottom: 4px; }
+        h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; margin: 12px 0 4px; color: #64748b; }
+        .meta { color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        th { background: #0f172a; color: white; font-weight: 900; text-transform: uppercase; font-size: 9px; letter-spacing: 1px; padding: 6px 8px; text-align: left; }
+        td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        tr:nth-child(even) td { background: #f8fafc; }
+        .allergy-critical { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; padding: 2px 6px; border-radius: 99px; font-size: 8px; font-weight: 900; text-transform: uppercase; display: inline-block; margin: 1px; }
+        .allergy-intolerance { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: 2px 6px; border-radius: 99px; font-size: 8px; font-weight: 900; text-transform: uppercase; display: inline-block; margin: 1px; }
+        .allergy-pref { background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 2px 6px; border-radius: 99px; font-size: 8px; font-weight: 700; text-transform: uppercase; display: inline-block; margin: 1px; }
+        .count-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
+        .count-box { border: 2px solid #e2e8f0; border-radius: 8px; padding: 8px; text-align: center; }
+        .count-box .num { font-size: 24px; font-weight: 900; color: #0f172a; }
+        .count-box .lbl { font-size: 9px; font-weight: 900; text-transform: uppercase; color: #94a3b8; margin-top: 2px; }
+        .alert-box { background: #fef2f2; border: 2px solid #fca5a5; border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+        .alert-box p { color: #991b1b; font-weight: 900; font-size: 10px; text-transform: uppercase; }
+        @media print { @page { margin: 0.4in; } }
       </style>
     </head><body>
       <h1>${event?.title || 'Event'} — Kitchen Run Sheet</h1>
       <p class="meta">${event?.date ? format(new Date(event.date), 'EEEE, MMMM d, yyyy') : ''} ${event?.time ? '· ' + event.time : ''} ${event?.venue ? '· ' + event.venue : ''}</p>
       <p class="meta">${guests.filter(g => g.checkedIn).length} of ${guests.length} guests checked in · Printed ${format(new Date(), 'MMM d, h:mm a')}</p>
+
       <h2>Course Summary</h2>
-      ${countsPerCourse.map(c => `<h3>${c.name}</h3><div class="count-grid">${Object.entries(c.counts).map(([name, count]) => `<div class="count-box"><div class="num">${count}</div><div class="lbl">${name}</div></div>`).join('')}</div>`).join('')}
-      ${criticalAllergies.length > 0 ? `<h2>⚠ Critical Allergies — ${criticalAllergies.length} Guest${criticalAllergies.length !== 1 ? 's' : ''}</h2>${criticalAllergies.map(g => `<div class="alert-box"><p>${g.name}${g.tableNumber ? ` · Table ${g.tableNumber}` : ''}${g.seatNumber ? ` · Seat ${g.seatNumber}` : ''}</p><div style="margin-top:4px">${(g.allergies || []).map((a: any) => { const label = typeof a === 'object' ? a.label : a; const sev = typeof a === 'object' ? a.severity : 'preference'; return `<span class="allergy-${sev === 'critical' ? 'critical' : sev === 'intolerance' ? 'intolerance' : 'pref'}">${label}</span>`; }).join('')}</div></div>`).join('')}` : ''}
+      ${countsPerCourse.map(c => `
+        <h3>${c.name}</h3>
+        <div class="count-grid">
+          ${Object.entries(c.counts).map(([name, count]) => `
+            <div class="count-box"><div class="num">${count}</div><div class="lbl">${name}</div></div>
+          `).join('')}
+        </div>
+      `).join('')}
+
+      ${criticalAllergies.length > 0 ? `
+        <h2>⚠ Critical Allergies — ${criticalAllergies.length} Guest${criticalAllergies.length !== 1 ? 's' : ''}</h2>
+        ${criticalAllergies.map(g => `
+          <div class="alert-box">
+            <p>${g.name}${g.tableNumber ? ` · Table ${g.tableNumber}` : ''}${g.seatNumber ? ` · Seat ${g.seatNumber}` : ''}</p>
+            <div style="margin-top:4px">${
+              (g.allergies || []).map((a: any) => {
+                const label = typeof a === 'object' ? a.label : a;
+                const sev   = typeof a === 'object' ? a.severity : 'preference';
+                return `<span class="allergy-${sev === 'critical' ? 'critical' : sev === 'intolerance' ? 'intolerance' : 'pref'}">${label}</span>`;
+              }).join('')
+            }</div>
+          </div>
+        `).join('')}
+      ` : ''}
+
       <h2>Full Guest List (Checked In)</h2>
-      <table><thead><tr><th>Guest</th><th>Table / Seat</th>${courseNumbers.map(n => `<th>${courseLabels[n] || 'Course ' + n}</th>`).join('')}<th>Allergies / Dietary</th></tr></thead>
-      <tbody>${rows.map(g => `<tr><td><strong>${g.name}</strong></td><td>${g.tableNumber ? 'Table ' + g.tableNumber : '—'}${g.seatNumber ? ' · Seat ' + g.seatNumber : ''}</td>${courseNumbers.map(n => { const id = g.courseSelections?.[n] || (n === 1 ? g.mealChoiceId : null); const name = id ? menuItems.find((m: any) => m.id === id)?.name || '—' : '—'; return `<td>${name}</td>`; }).join('')}<td>${(g.allergies || []).map((a: any) => { const label = typeof a === 'object' ? a.label : a; const sev = typeof a === 'object' ? a.severity : 'preference'; return `<span class="allergy-${sev === 'critical' ? 'critical' : sev === 'intolerance' ? 'intolerance' : 'pref'}">${label}</span>`; }).join('')}</td></tr>`).join('')}</tbody></table>
+      <table>
+        <thead><tr>
+          <th>Guest</th><th>Table / Seat</th>
+          ${courseNumbers.map(n => `<th>${courseLabels[n] || 'Course ' + n}</th>`).join('')}
+          <th>Allergies / Dietary</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(g => `<tr>
+            <td><strong>${g.name}</strong></td>
+            <td>${g.tableNumber ? 'T' + g.tableNumber : '—'}${g.seatNumber ? ' · ' + g.seatNumber : ''}</td>
+            ${courseNumbers.map(n => {
+              const id   = g.courseSelections?.[n] || (n === 1 ? g.mealChoiceId : null);
+              const name = id ? menuItems.find(m => m.id === id)?.name || '—' : '—';
+              return `<td>${name}</td>`;
+            }).join('')}
+            <td>${(g.allergies || []).map((a: any) => {
+              const label = typeof a === 'object' ? a.label : a;
+              const sev   = typeof a === 'object' ? a.severity : 'preference';
+              return `<span class="allergy-${sev === 'critical' ? 'critical' : sev === 'intolerance' ? 'intolerance' : 'pref'}">${label}</span>`;
+            }).join('')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
     </body></html>`);
     win.document.close();
     setTimeout(() => win.print(), 300);
   };
+
+  // Per-guest allergen cards
+  const handlePrintAllergenCards = () => {
+    const flaggedGuests = guests.filter(g =>
+      g.checkedIn && (g.allergies || []).length > 0
+    );
+    if (flaggedGuests.length === 0) return;
+
+    const win = window.open('', '_blank');
+    if (!win) return;
+
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>Allergen Cards — ${event?.title || 'Event'}</title>
+      <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 16px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .card { border: 3px solid #0f172a; border-radius: 12px; padding: 12px; page-break-inside: avoid; min-height: 100px; }
+        .card.critical { border-color: #dc2626; background: #fef2f2; }
+        .name { font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacing: -0.3px; }
+        .seat { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 2px 0 6px; }
+        .pill { display: inline-block; margin: 2px; padding: 3px 8px; border-radius: 99px; font-size: 10px; font-weight: 900; text-transform: uppercase; border: 1.5px solid; }
+        .critical-pill { background: #fef2f2; border-color: #ef4444; color: #991b1b; }
+        .intolerance-pill { background: #fffbeb; border-color: #f59e0b; color: #78350f; }
+        .pref-pill { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
+        @media print { @page { margin: 0.3in; } }
+      </style>
+    </head><body>
+      <div class="grid">
+        ${flaggedGuests.map(g => {
+          const hasCritical = (g.allergies || []).some((a: any) => a.severity === 'critical');
+          return `<div class="card ${hasCritical ? 'critical' : ''}">
+            <div class="name">${g.name}</div>
+            <div class="seat">${g.tableNumber ? 'Table ' + g.tableNumber : ''}${g.seatNumber ? ' · Seat ' + g.seatNumber : ''}</div>
+            ${(g.allergies || []).map((a: any) => {
+              const label = typeof a === 'object' ? a.label : a;
+              const sev   = typeof a === 'object' ? a.severity : 'preference';
+              const cls   = sev === 'critical' ? 'critical-pill' : sev === 'intolerance' ? 'intolerance-pill' : 'pref-pill';
+              return `<span class="pill ${cls}">${sev === 'critical' ? '⚠ ' : ''}${label}</span>`;
+            }).join('')}
+          </div>`;
+        }).join('')}
+      </div>
+    </body></html>`);
+    win.document.close();
+    setTimeout(() => win.print(), 300);
+  };
+
+  const allergenGuestCount = guests.filter(g => g.checkedIn && (g.allergies || []).length > 0).length;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 shadow-2xl">
@@ -498,15 +506,30 @@ const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, cours
               <p className="text-[10px] font-bold text-slate-400 mt-0.5">Full guest list · course counts · allergy summary</p>
             </div>
           </button>
+          <button onClick={handlePrintAllergenCards} disabled={allergenGuestCount === 0}
+            className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-slate-200 bg-white hover:border-red-200 hover:bg-red-50 transition-all text-left group disabled:opacity-40 disabled:cursor-not-allowed">
+            <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0 transition-colors">
+              <AlertTriangle className="w-5 h-5 text-slate-500 group-hover:text-red-500 transition-colors" />
+            </div>
+            <div>
+              <p className="font-black text-sm text-slate-900 uppercase tracking-tight">
+                Allergen Cards
+                {allergenGuestCount > 0 && <span className="ml-2 text-[9px] font-black text-red-500 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">{allergenGuestCount}</span>}
+              </p>
+              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Per-guest cards for kitchen · 3-up grid layout</p>
+            </div>
+          </button>
           <Button variant="outline" onClick={() => onOpenChange(false)}
-            className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 mt-2">Close</Button>
+            className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 mt-2">
+            Close
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 };
 
-// ─── TABLE GROUPED VIEW ───────────────────────────────────────────────────────
+// ─── TABLE GROUPED VIEW ────────────────────────────────────────────────────────
 const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOverride }: {
   guests: any[]; menuItems: any[];
   onCheckIn: (id: string, current: boolean) => void;
@@ -537,8 +560,7 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
           <div key={table} className={cn('rounded-2xl border-2 overflow-hidden', hasCritical ? 'border-red-200' : 'border-slate-200')}>
             <div className={cn('px-5 py-3 flex items-center justify-between', hasCritical ? 'bg-red-50' : 'bg-slate-50')}>
               <div className="flex items-center gap-3">
-                <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm',
-                  hasCritical ? 'bg-red-100 text-red-700' : 'bg-white text-slate-700 border border-slate-200')}>
+                <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm', hasCritical ? 'bg-red-100 text-red-700' : 'bg-white text-slate-700 border border-slate-200')}>
                   {table === '__unassigned__' ? '?' : table}
                 </div>
                 <div>
@@ -551,10 +573,13 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
                   </p>
                 </div>
               </div>
+              <div className="w-6 h-6 rounded-full border-2 border-slate-200 overflow-hidden shrink-0" title={`${checkedInCount}/${tableGuests.length} checked in`}>
+                <div className="bg-emerald-400 h-full transition-all" style={{ width: `${(checkedInCount / tableGuests.length) * 100}%` }} />
+              </div>
             </div>
             <div className="divide-y divide-slate-50">
               {tableGuests.map(g => {
-                const mealName = menuItems.find((m: any) => m.id === g.mealChoiceId)?.name || g.mealChoiceName;
+                const mealName = menuItems.find(m => m.id === g.mealChoiceId)?.name || g.mealChoiceName;
                 return (
                   <div key={g.id} className={cn('flex items-center gap-3 px-5 py-3 hover:bg-slate-50/50 transition-colors', !g.checkedIn && 'opacity-60')}>
                     <button onClick={() => onCheckIn(g.id, g.checkedIn)}
@@ -565,7 +590,7 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-black text-sm text-slate-900">{g.name}</p>
-                        {g.seatNumber && <span className="text-[9px] font-bold text-slate-400 uppercase">Seat {g.seatNumber}</span>}
+                        {g.seatNumber && <span className="text-[9px] font-bold text-slate-400 uppercase">S{g.seatNumber}</span>}
                         {(g.allergies || []).map((a: any, i: number) => <AllergyPill key={i} allergy={a} />)}
                       </div>
                       {mealName && <p className="text-[10px] font-bold text-slate-500 mt-0.5">{mealName}</p>}
@@ -586,7 +611,7 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
   );
 };
 
-// ─── STAT CARD ────────────────────────────────────────────────────────────────
+// ─── STAT CARD ─────────────────────────────────────────────────────────────────
 const StatCard = ({ label, value, sub, color = 'slate' }: {
   label: string; value: string | number; sub?: string; color?: string;
 }) => {
@@ -606,7 +631,7 @@ const StatCard = ({ label, value, sub, color = 'slate' }: {
   );
 };
 
-// ─── FLOOR REQUEST PANEL ──────────────────────────────────────────────────────
+// ─── FLOOR REQUEST PANEL ───────────────────────────────────────────────────────
 const FLOOR_REQUEST_ICONS: Record<string, string> = {
   water: '💧', napkins: '🧻', condiments: '🧂', utensils: '🍴',
   ice: '🧊', accessibility: '♿', temperature: '🌡️', cleaning: '🧹', other: '💬',
@@ -664,7 +689,7 @@ const FloorRequestPanel = ({ requests, onResolve, tenantId }: {
   );
 };
 
-// ─── DELTA REFIRE BANNER ──────────────────────────────────────────────────────
+// ─── DELTA REFIRE BANNER ───────────────────────────────────────────────────────
 const DeltaRefireBanner = ({ courseNumber, courseName, deltaGuests, onRefire, isFiring }: {
   courseNumber: number; courseName: string; deltaGuests: any[];
   onRefire: (n: number, guests: any[]) => Promise<void>; isFiring: boolean;
@@ -691,7 +716,30 @@ const DeltaRefireBanner = ({ courseNumber, courseName, deltaGuests, onRefire, is
   </motion.div>
 );
 
-// ─── COURSE INGREDIENTS PREVIEW ───────────────────────────────────────────────
+// ─── FORMULA BREAKDOWN ─────────────────────────────────────────────────────────
+const FormulaBreakdown = ({ formula }: {
+  formula: { id: string; name: string; quantityUsed: number; unit: string; costPerUnit?: number }[];
+}) => {
+  if (!formula?.length) return null;
+  return (
+    <div className="mt-2 pl-2 border-l-2 border-primary/20 space-y-1">
+      <p className="text-[8px] font-black uppercase tracking-[0.2em] text-primary/50 mb-1.5">Unit Decomposition</p>
+      {formula.map((f, i) => (
+        <div key={f.id || i} className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-bold text-slate-500 truncate">{f.name}</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] font-black text-slate-700">{f.quantityUsed} {f.unit}</span>
+            {f.costPerUnit != null && f.costPerUnit > 0 && (
+              <span className="text-[9px] font-bold text-slate-400">(${(f.quantityUsed * f.costPerUnit).toFixed(3)})</span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ─── COURSE INGREDIENTS PREVIEW ────────────────────────────────────────────────
 const CourseIngredientsPreview = ({ courseNumber, menuItems, guests, inventory }: {
   courseNumber: number; menuItems: any[]; guests: any[]; inventory: any[];
 }) => {
@@ -700,18 +748,19 @@ const CourseIngredientsPreview = ({ courseNumber, menuItems, guests, inventory }
     const map: Record<string, any> = {};
     guests.filter(g => g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId))).forEach(guest => {
       const id   = guest.courseSelections?.[courseNumber] || guest.mealChoiceId;
-      const item = menuItems.find((m: any) => m.id === id);
+      const item = menuItems.find(m => m.id === id);
       if (!item?.supplies) return;
       item.supplies.forEach((s: any) => {
-        const inv = (inventory || []).find((i: any) => i.id === s.inventoryId);
+        const inv       = (inventory || []).find((i: any) => i.id === s.inventoryId);
         if (!inv) return;
         const unitLabel = inv.costingMethod === 'size' ? (inv.containerUnit || inv.unit || 'units') : (inv.useUnit || 'uses');
-        if (!map[s.inventoryId]) map[s.inventoryId] = { name: inv.name, qty: 0, unit: unitLabel, inStock: safeNum(inv.totalStock) };
+        if (!map[s.inventoryId]) map[s.inventoryId] = { name: inv.name, qty: 0, unit: unitLabel, inStock: safeNum(inv.totalStock), imageUrl: inv.imageUrl, formula: inv.formula || [] };
         map[s.inventoryId].qty += safeNum(s.qty);
       });
     });
     return Object.entries(map).map(([id, d]) => ({ id, ...d as any, isShort: (d as any).qty > (d as any).inStock, remaining: (d as any).inStock - (d as any).qty }));
   }, [courseNumber, menuItems, guests, inventory]);
+
   if (deductionSummary.length === 0) return null;
   const hasShortage = deductionSummary.some(d => d.isShort);
   return (
@@ -744,52 +793,6 @@ const CourseIngredientsPreview = ({ courseNumber, menuItems, guests, inventory }
   );
 };
 
-// ─── LIVE KDS STATUS PANEL ────────────────────────────────────────────────────
-const LiveKdsStatusPanel = ({ courseNumber, courseName, kdsTickets, guests }: {
-  courseNumber: number; courseName: string; kdsTickets: any[]; guests: any[];
-}) => {
-  const courseTickets = kdsTickets.filter(t => t.courseNumber === courseNumber);
-  if (courseTickets.length === 0) return null;
-
-  const counts = { pending: 0, preparing: 0, ready: 0, delivered: 0, bumped: 0 };
-  courseTickets.forEach(t => { if (t.status in counts) counts[t.status as keyof typeof counts]++; });
-
-  const allDone  = courseTickets.every(t => ['delivered', 'bumped'].includes(t.status));
-  const anyReady = courseTickets.some(t => t.status === 'ready');
-
-  return (
-    <div className={cn('mt-3 p-3 rounded-xl border-2 space-y-2', allDone ? 'bg-emerald-50 border-emerald-200' : anyReady ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200')}>
-      <div className="flex items-center justify-between">
-        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">KDS Status — {courseName}</p>
-        {anyReady && !allDone && (
-          <span className="flex items-center gap-1 text-[9px] font-black uppercase text-blue-600 animate-pulse">
-            <Zap className="w-2.5 h-2.5" /> Plates Ready
-          </span>
-        )}
-        {allDone && <span className="text-[9px] font-black uppercase text-emerald-600">All Served ✓</span>}
-      </div>
-      <div className="flex gap-2 flex-wrap">
-        {counts.pending > 0   && <span className="px-2 py-0.5 rounded-full bg-amber-100 border border-amber-200 text-[8px] font-black text-amber-700">{counts.pending} queued</span>}
-        {counts.preparing > 0 && <span className="px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-[8px] font-black text-blue-700">{counts.preparing} cooking</span>}
-        {counts.ready > 0     && <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-200 text-[8px] font-black text-emerald-700">{counts.ready} ready</span>}
-        {counts.delivered > 0 && <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[8px] font-black text-slate-500">{counts.delivered} delivered</span>}
-      </div>
-      {anyReady && (
-        <div className="pt-1">
-          <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Ready Tables</p>
-          <div className="flex gap-1 flex-wrap">
-            {courseTickets.filter(t => t.status === 'ready' && t.tableNumber).map(t => (
-              <span key={t.id} className="px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-black">
-                Table {t.tableNumber}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ══════════════════════════════════════════════════════════════════════════════
@@ -809,9 +812,9 @@ export default function EventManifestPage() {
   const [menuItems,     setMenuItems]     = useState<any[]>([]);
   const [fires,         setFires]         = useState<any[]>([]);
   const [floorRequests, setFloorRequests] = useState<any[]>([]);
-  const [kdsTickets,    setKdsTickets]    = useState<any[]>([]);
   const [loading,       setLoading]       = useState(true);
 
+  // FIX: { ...d.data(), id: d.id } everywhere — Firestore doc ID always wins.
   useEffect(() => {
     if (!firestore || !tenantId || !eventId) return;
     const unsubs: (() => void)[] = [];
@@ -828,18 +831,8 @@ export default function EventManifestPage() {
     unsubs.push(onSnapshot(
       query(collection(firestore, `tenants/${tenantId}/floorRequests`), where('eventId', '==', eventId), where('status', 'in', ['new', 'acknowledged'])),
       snap => setFloorRequests(snap.docs.map(d => ({ ...d.data(), id: d.id })))));
-    unsubs.push(onSnapshot(
-      query(collection(firestore, `tenants/${tenantId}/kdsTickets`), where('eventId', '==', eventId)),
-      snap => setKdsTickets(snap.docs.map(d => ({ ...d.data(), id: d.id })))));
     return () => unsubs.forEach(u => u());
   }, [firestore, tenantId, eventId]);
-
-  // ── Table/seat options derived from guests ─────────────────────────────────
-  // NOTE: guests now store tableNumber as the human-readable table name (e.g. "1", "Main")
-  // and seatNumber as the human-readable seat label (e.g. "A", "1").
-  // This hook reads those values directly, so dropdowns will always be populated correctly
-  // regardless of whether guests were added manually or via the seating chart.
-  const { tables, seatsByTable, tableOptions } = useTableSeatOptions(guests);
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [search,         setSearch]         = useState('');
@@ -847,73 +840,71 @@ export default function EventManifestPage() {
   const [filterFlag,     setFilterFlag]     = useState('all');
   const [guestViewMode,  setGuestViewMode]  = useState<'list' | 'table'>('list');
   const [selectedGuests, setSelectedGuests] = useState<Set<string>>(new Set());
-  const [isFiring,             setIsFiring]             = useState<number | null>(null);
-  const [isRefiring,           setIsRefiring]           = useState<number | null>(null);
-  const [fireConfirmCourse,    setFireConfirmCourse]    = useState<number | null>(null);
-  const [isConfirmActivateOpen,setIsConfirmActivateOpen]= useState(false);
-  const [activatingNow,        setActivatingNow]        = useState(false);
-  const [undoWindowOpen,       setUndoWindowOpen]       = useState(false);
-  const [undoCountdown,        setUndoCountdown]        = useState(120);
-  const [showLink,             setShowLink]             = useState(false);
-  const [qrTables,             setQrTables]             = useState('');
-  const [qrSeatsPerTable,      setQrSeatsPerTable]      = useState('');
-  const [qrCodes,              setQrCodes]              = useState<{ label: string; dataUrl: string }[]>([]);
-  const [activeTab,            setActiveTab]            = useState('guests');
-  const [staffToAdd,           setStaffToAdd]           = useState('');
-  const [mealOverrideGuest,    setMealOverrideGuest]    = useState<any>(null);
-  const [mealOverrideId,       setMealOverrideId]       = useState<string>('');
-  const [savingOverride,       setSavingOverride]       = useState(false);
-  const [isEndEventOpen,       setIsEndEventOpen]       = useState(false);
-  const [broadcastOpen,        setBroadcastOpen]        = useState(false);
-  const [broadcastText,        setBroadcastText]        = useState('');
-  const [sendingBroadcast,     setSendingBroadcast]     = useState(false);
-  const [printModalOpen,       setPrintModalOpen]       = useState(false);
+
+  const [isFiring,          setIsFiring]          = useState<number | null>(null);
+  const [isRefiring,        setIsRefiring]         = useState<number | null>(null);
+  const [fireConfirmCourse, setFireConfirmCourse]  = useState<number | null>(null);
+  const [showForecast,      setShowForecast]       = useState(true);
+  const [isConfirmActivateOpen, setIsConfirmActivateOpen] = useState(false);
+  const [activatingNow,     setActivatingNow]      = useState(false);
+  const [undoWindowOpen,    setUndoWindowOpen]     = useState(false);
+  const [undoCountdown,     setUndoCountdown]      = useState(120);
+  const [showLink,          setShowLink]           = useState(false);
+  const [qrTables,          setQrTables]           = useState('');
+  const [qrSeatsPerTable,   setQrSeatsPerTable]    = useState('');
+  const [qrCodes,           setQrCodes]            = useState<{ label: string; dataUrl: string }[]>([]);
+  const [activeTab,         setActiveTab]          = useState('guests');
+  const [staffToAdd,        setStaffToAdd]         = useState('');
+  const [mealOverrideGuest, setMealOverrideGuest]  = useState<any>(null);
+  const [mealOverrideId,    setMealOverrideId]     = useState<string>('');
+  const [savingOverride,    setSavingOverride]     = useState(false);
+  const [isEndEventOpen,    setIsEndEventOpen]     = useState(false);
+  const [broadcastOpen,     setBroadcastOpen]      = useState(false);
+  const [broadcastText,     setBroadcastText]      = useState('');
+  const [sendingBroadcast,  setSendingBroadcast]   = useState(false);
+  const [printModalOpen,    setPrintModalOpen]     = useState(false);
 
   // Guest form
-  const [isAddingGuest,  setIsAddingGuest]  = useState(false);
-  const [editingGuest,   setEditingGuest]   = useState<any>(null);
-  const [guestForm,      setGuestForm]      = useState({
-    name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '',
-  });
-  const [tableInputMode, setTableInputMode] = useState<'existing' | 'new'>('existing');
-  const [newTableValue,  setNewTableValue]  = useState('');
-  const [clientSearch,   setClientSearch]   = useState('');
-  const [savingGuest,    setSavingGuest]    = useState(false);
+  const [isAddingGuest, setIsAddingGuest] = useState(false);
+  const [editingGuest,  setEditingGuest]  = useState<any>(null);
+  const [guestForm,     setGuestForm]     = useState({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
+  const [clientSearch,  setClientSearch]  = useState('');
+  const [savingGuest,   setSavingGuest]   = useState(false);
 
   // Menu form
-  const [isAddingMenu,           setIsAddingMenu]           = useState(false);
-  const [newMenuName,            setNewMenuName]            = useState('');
-  const [newMenuDesc,            setNewMenuDesc]            = useState('');
-  const [newMenuCourse,          setNewMenuCourse]          = useState(1);
-  const [newMenuVegan,           setNewMenuVegan]           = useState(false);
-  const [newMenuGF,              setNewMenuGF]              = useState(false);
-  const [menuSupplies,           setMenuSupplies]           = useState<{ inventoryId: string; qty: number }[]>([]);
+  const [isAddingMenu,      setIsAddingMenu]      = useState(false);
+  const [newMenuName,       setNewMenuName]       = useState('');
+  const [newMenuDesc,       setNewMenuDesc]       = useState('');
+  const [newMenuCourse,     setNewMenuCourse]     = useState(1);
+  const [newMenuVegan,      setNewMenuVegan]      = useState(false);
+  const [newMenuGF,         setNewMenuGF]         = useState(false);
+  const [menuSupplies,      setMenuSupplies]      = useState<{ inventoryId: string; qty: number }[]>([]);
   const [newMenuInventoryItemId, setNewMenuInventoryItemId] = useState('');
-  const [newMenuPrice,           setNewMenuPrice]           = useState(0);
-  const [inventorySearch,        setInventorySearch]        = useState('');
+  const [newMenuPrice,      setNewMenuPrice]      = useState(0);
+  const [inventorySearch,   setInventorySearch]   = useState('');
 
   const [firedGuestIdsByCourse, setFiredGuestIdsByCourse] = useState<Record<number, Set<string>>>({});
+
+  // Firing
   const firingInProgress = useRef<Set<number>>(new Set());
   const [firingBlockedSet, setFiringBlockedSet] = useState<Set<number>>(new Set());
 
-  // Staff state
-  const [staffZones,       setStaffZones]       = useState<Record<string, string>>({});
-  const [staffRoles,       setStaffRoles]       = useState<Record<string, string>>({});
-  const [staffShifts,      setStaffShifts]      = useState<Record<string, string>>({});
-  const [staffTableRanges, setStaffTableRanges] = useState<Record<string, string[]>>({});
+  // Staff zones
+  const [staffZones, setStaffZones] = useState<Record<string, string>>({});
 
+  // Request types
   const DEFAULT_REQUEST_TYPES = [
-    { id: 'water',      label: 'Water Refill',  emoji: '💧', enabled: true,  alwaysShow: true  },
-    { id: 'napkins',    label: 'Napkins',        emoji: '🧻', enabled: true,  alwaysShow: true  },
-    { id: 'utensils',   label: 'Extra Utensils', emoji: '🍴', enabled: true,  alwaysShow: true  },
-    { id: 'condiments', label: 'Condiments',     emoji: '🧂', enabled: true,  alwaysShow: true  },
-    { id: 'ice',        label: 'Ice',            emoji: '🧊', enabled: true,  alwaysShow: true  },
-    { id: 'menu',       label: 'Menu Question',  emoji: '📋', enabled: true,  alwaysShow: true  },
-    { id: 'temp',       label: 'Too Hot/Cold',   emoji: '🌡️', enabled: true,  alwaysShow: true  },
-    { id: 'spill',      label: 'Spill/Cleanup',  emoji: '🧹', enabled: true,  alwaysShow: true  },
-    { id: 'order',      label: 'Ready to Order', emoji: '✋', enabled: false, alwaysShow: false },
-    { id: 'bill',       label: 'Bill Please',    emoji: '💳', enabled: false, alwaysShow: false },
-    { id: 'other',      label: 'Something Else', emoji: '💬', enabled: true,  alwaysShow: true  },
+    { id: 'water',    label: 'Water Refill',  emoji: '💧', enabled: true,  alwaysShow: true  },
+    { id: 'napkins',  label: 'Napkins',        emoji: '🧻', enabled: true,  alwaysShow: true  },
+    { id: 'utensils', label: 'Extra Utensils', emoji: '🍴', enabled: true,  alwaysShow: true  },
+    { id: 'condiments',label:'Condiments',     emoji: '🧂', enabled: true,  alwaysShow: true  },
+    { id: 'ice',      label: 'Ice',            emoji: '🧊', enabled: true,  alwaysShow: true  },
+    { id: 'menu',     label: 'Menu Question',  emoji: '📋', enabled: true,  alwaysShow: true  },
+    { id: 'temp',     label: 'Too Hot/Cold',   emoji: '🌡️', enabled: true,  alwaysShow: true  },
+    { id: 'spill',    label: 'Spill/Cleanup',  emoji: '🧹', enabled: true,  alwaysShow: true  },
+    { id: 'order',    label: 'Ready to Order', emoji: '✋', enabled: false, alwaysShow: false },
+    { id: 'bill',     label: 'Bill Please',    emoji: '💳', enabled: false, alwaysShow: false },
+    { id: 'other',    label: 'Something Else', emoji: '💬', enabled: true,  alwaysShow: true  },
   ];
   const requestTypes: typeof DEFAULT_REQUEST_TYPES = event?.requestTypes || DEFAULT_REQUEST_TYPES;
   const [editingRequestTypes, setEditingRequestTypes] = useState(false);
@@ -942,9 +933,9 @@ export default function EventManifestPage() {
     return () => { cancelled = true; };
   }, [fires, firestore, tenantId, eventId]);
 
-  const courseNumbers   = useMemo(() => Array.from(new Set(menuItems.map(m => m.courseNumber))).sort() as number[], [menuItems]);
-  const firedCourses    = useMemo(() => new Set(fires.filter(f => f.status === 'fired').map(f => f.courseNumber)), [fires]);
-  const unfiredCourses  = useMemo(() => courseNumbers.filter(n => !firedCourses.has(n)), [courseNumbers, firedCourses]);
+  const courseNumbers  = useMemo(() => Array.from(new Set(menuItems.map(m => m.courseNumber))).sort() as number[], [menuItems]);
+  const firedCourses   = useMemo(() => new Set(fires.filter(f => f.status === 'fired').map(f => f.courseNumber)), [fires]);
+  const unfiredCourses = useMemo(() => courseNumbers.filter(n => !firedCourses.has(n)), [courseNumbers, firedCourses]);
   const allCoursesFired = courseNumbers.length > 0 && unfiredCourses.length === 0 && event?.status === 'active';
 
   const deltaGuestsByCourse = useMemo(() => {
@@ -974,14 +965,12 @@ export default function EventManifestPage() {
   const filtered = useMemo(() => guests.filter(g => {
     if (search && !g.name?.toLowerCase().includes(search.toLowerCase()) && !g.seatNumber?.includes(search) && !g.tableNumber?.includes(search)) return false;
     if (filterMeal !== 'all' && g.mealChoiceId !== filterMeal) return false;
-    if (filterFlag === 'allergies'      && (!g.allergies || !g.allergies.length)) return false;
-    if (filterFlag === 'dietary'        && (!g.dietaryRestrictions || !g.dietaryRestrictions.length)) return false;
+    if (filterFlag === 'allergies'     && (!g.allergies || !g.allergies.length)) return false;
+    if (filterFlag === 'dietary'       && (!g.dietaryRestrictions || !g.dietaryRestrictions.length)) return false;
     if (filterFlag === 'not-checked-in' && g.checkedIn) return false;
-    if (filterFlag === 'checked-in'     && !g.checkedIn) return false;
+    if (filterFlag === 'checked-in'    && !g.checkedIn) return false;
     return true;
-  }).sort((a, b) => a.tableNumber && b.tableNumber
-    ? a.tableNumber.localeCompare(b.tableNumber)
-    : (a.submittedAt || '').localeCompare(b.submittedAt || '')),
+  }).sort((a, b) => a.tableNumber && b.tableNumber ? a.tableNumber.localeCompare(b.tableNumber) : (a.submittedAt || '').localeCompare(b.submittedAt || '')),
     [guests, search, filterMeal, filterFlag]);
 
   const filteredClients = useMemo(() => {
@@ -989,6 +978,12 @@ export default function EventManifestPage() {
     const s = clientSearch.toLowerCase();
     return (clients || []).filter((c: any) => c.name?.toLowerCase().includes(s) || c.email?.toLowerCase().includes(s)).slice(0, 10);
   }, [clients, clientSearch]);
+
+  const filteredInventory = useMemo(() => {
+    if (!inventorySearch.trim()) return (inventory || []).slice(0, 12);
+    const s = inventorySearch.toLowerCase();
+    return (inventory || []).filter((i: any) => i.name?.toLowerCase().includes(s)).slice(0, 12);
+  }, [inventory, inventorySearch]);
 
   const crossContaminationWarnings = useMemo(() => {
     const warnings: { table: string; reason: string }[] = [];
@@ -1009,19 +1004,6 @@ export default function EventManifestPage() {
     });
     return warnings;
   }, [guests, menuItems]);
-
-  const availableSeats = useMemo(() => {
-    const tNum = tableInputMode === 'existing' ? guestForm.tableNumber : newTableValue;
-    if (!tNum) return [];
-    const takenSeats = guests
-      .filter(g => g.tableNumber === tNum && g.id !== editingGuest?.id)
-      .map(g => g.seatNumber)
-      .filter(Boolean);
-    const existingSeats = seatsByTable[tNum] || [];
-    const allPossibleSeats = ['A','B','C','D','E','F','G','H','I','J','K','L'];
-    const combined = Array.from(new Set([...existingSeats, ...allPossibleSeats]));
-    return combined.filter(s => !takenSeats.includes(s));
-  }, [guestForm.tableNumber, newTableValue, tableInputMode, guests, editingGuest, seatsByTable]);
 
   // ── Bulk select ────────────────────────────────────────────────────────────
   const toggleSelectGuest = (id: string) => {
@@ -1064,24 +1046,17 @@ export default function EventManifestPage() {
   const handleSaveGuest = async () => {
     if (!guestForm.name.trim() || !firestore || !tenantId) return;
     setSavingGuest(true);
-    const resolvedTable = tableInputMode === 'new' ? newTableValue.trim() : guestForm.tableNumber;
     const mealItem = menuItems.find(m => m.id === guestForm.mealChoiceId);
     try {
       if (editingGuest) {
         await updateDoc(doc(firestore, `tenants/${tenantId}/eventGuests`, editingGuest.id), {
-          ...guestForm,
-          tableNumber: resolvedTable || null,
-          mealChoiceId: guestForm.mealChoiceId || null,
-          mealChoiceName: mealItem?.name || null,
-          updatedAt: new Date().toISOString(),
+          ...guestForm, mealChoiceId: guestForm.mealChoiceId || null, mealChoiceName: mealItem?.name || null, updatedAt: new Date().toISOString(),
         });
         toast({ title: 'Guest Updated' });
       } else {
         await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
           id: nanoid(), eventId, tenantId, ...guestForm,
-          tableNumber: resolvedTable || null,
-          mealChoiceId: guestForm.mealChoiceId || null,
-          mealChoiceName: mealItem?.name || null,
+          mealChoiceId: guestForm.mealChoiceId || null, mealChoiceName: mealItem?.name || null,
           allergies: [], dietaryRestrictions: [], checkedIn: false, source: 'manual', submittedAt: new Date().toISOString(),
         });
         toast({ title: 'Guest Added' });
@@ -1092,7 +1067,6 @@ export default function EventManifestPage() {
     } finally {
       setSavingGuest(false); setIsAddingGuest(false); setEditingGuest(null);
       setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
-      setTableInputMode('existing'); setNewTableValue('');
     }
   };
 
@@ -1101,7 +1075,7 @@ export default function EventManifestPage() {
     if (guests.find(g => g.clientId === client.id)) { toast({ variant: 'destructive', title: 'Already on guest list' }); return; }
     await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
       id: nanoid(), eventId, tenantId, name: client.name, email: client.email || '', phone: client.phone || '',
-      tableNumber: null, seatNumber: null, mealChoiceId: null, mealChoiceName: null,
+      tableNumber: '', seatNumber: '', mealChoiceId: null, mealChoiceName: null,
       allergies: [], dietaryRestrictions: [], checkedIn: false, source: 'client_import', clientId: client.id, submittedAt: new Date().toISOString(),
     });
     toast({ title: `${client.name} added` });
@@ -1131,34 +1105,28 @@ export default function EventManifestPage() {
     if (!firestore || !tenantId) return;
     if (firingInProgress.current.has(courseNumber) || firingBlockedSet.has(courseNumber)) return;
     if (firedCourses.has(courseNumber)) { toast({ variant: 'destructive', title: `Course ${courseNumber} already fired` }); return; }
+    if (courseNumber > 1) {
+      const unfiredPrev = courseNumbers.filter(n => n < courseNumber && !firedCourses.has(n));
+      if (unfiredPrev.length > 0 && !window.confirm(`Course ${unfiredPrev.join(', ')} not fired yet. Continue?`)) return;
+    }
     firingInProgress.current.add(courseNumber);
     setFiringBlockedSet(prev => new Set(prev).add(courseNumber));
     setIsFiring(courseNumber);
     try {
+      const existing = await getDocs(query(collection(firestore, `tenants/${tenantId}/courseFires`), where('eventId', '==', eventId), where('courseNumber', '==', courseNumber), where('status', '==', 'fired')));
+      if (existing.docs.some(d => !d.data().isDelta)) { toast({ variant: 'destructive', title: 'Already fired' }); return; }
       const batch     = writeBatch(firestore);
       const fireId    = nanoid();
       const now       = new Date().toISOString();
       const labels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
       const forCourse = guests.filter(g => g.checkedIn && (g.courseSelections?.[courseNumber] || (courseNumber === 1 && g.mealChoiceId)));
       if (forCourse.length === 0) { toast({ variant: 'destructive', title: 'No checked-in guests' }); return; }
-      batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), {
-        id: fireId, eventId, tenantId, courseNumber, courseName: labels[courseNumber] || `Course ${courseNumber}`,
-        firedAt: now, firedBy: 'host', guestCount: forCourse.length, status: 'fired', isDelta: false,
-      });
+      batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), { id: fireId, eventId, tenantId, courseNumber, courseName: labels[courseNumber] || `Course ${courseNumber}`, firedAt: now, firedBy: 'host', guestCount: forCourse.length, status: 'fired', isDelta: false });
       forCourse.forEach(g => {
         const menuItemId = g.courseSelections?.[courseNumber] || g.mealChoiceId;
         const menuItem   = menuItems.find(m => m.id === menuItemId);
         const kdsId      = nanoid();
-        batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), {
-          id: kdsId, source: 'event', eventId, eventTitle: event?.title || '',
-          courseFireId: fireId, courseNumber, guestId: g.id, guestName: g.name,
-          seatNumber: g.seatNumber ? `Seat ${g.seatNumber}` : null,
-          tableNumber: g.tableNumber ? `Table ${g.tableNumber}` : null,
-          tableNumberRaw: g.tableNumber || null,
-          menuItemId, menuItemName: menuItem?.name || 'Item',
-          allergies: g.allergies || [], hasCriticalAllergy: (g.allergies || []).some((a: any) => a.severity === 'critical'),
-          notes: g.guestNote || null, status: 'pending', createdAt: now, tenantId, isDelta: false,
-        });
+        batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), { id: kdsId, source: 'event', eventId, eventTitle: event?.title || event?.name || '', courseFireId: fireId, courseNumber, guestId: g.id, guestName: g.name, seatNumber: g.seatNumber || null, tableNumber: g.tableNumber || null, menuItemId, menuItemName: menuItem?.name || 'Item', allergies: g.allergies || [], allergyNote: g.allergyNote || null, hasCriticalAllergy: (g.allergies || []).some((a: any) => a.severity === 'critical'), notes: g.guestNote || null, status: 'pending', createdAt: now, tenantId, isDelta: false });
       });
       const deductionMap: Record<string, number> = {};
       forCourse.forEach(g => { const item = menuItems.find(m => m.id === (g.courseSelections?.[courseNumber] || g.mealChoiceId)); if (!item?.supplies) return; item.supplies.forEach((s: any) => { deductionMap[s.inventoryId] = (deductionMap[s.inventoryId] || 0) + safeNum(s.qty); }); });
@@ -1185,21 +1153,10 @@ export default function EventManifestPage() {
       const now    = new Date().toISOString();
       const labels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), { id: fireId, eventId, tenantId, courseNumber, courseName: labels[courseNumber] || `Course ${courseNumber}`, firedAt: now, firedBy: 'host_delta', guestCount: deltaGuests.length, status: 'fired', isDelta: true });
-      deltaGuests.forEach(g => {
-        const menuItemId = g.courseSelections?.[courseNumber] || g.mealChoiceId;
-        const menuItem   = menuItems.find(m => m.id === menuItemId);
-        const kdsId      = nanoid();
-        batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), {
-          id: kdsId, source: 'event', eventId, eventTitle: event?.title || '',
-          courseFireId: fireId, courseNumber, guestId: g.id, guestName: g.name,
-          seatNumber: g.seatNumber ? `Seat ${g.seatNumber}` : null,
-          tableNumber: g.tableNumber ? `Table ${g.tableNumber}` : null,
-          tableNumberRaw: g.tableNumber || null,
-          menuItemId, menuItemName: menuItem?.name || 'Item',
-          allergies: g.allergies || [], hasCriticalAllergy: (g.allergies || []).some((a: any) => a.severity === 'critical'),
-          status: 'pending', createdAt: now, tenantId, isDelta: true,
-        });
-      });
+      deltaGuests.forEach(g => { const menuItemId = g.courseSelections?.[courseNumber] || g.mealChoiceId; const menuItem = menuItems.find(m => m.id === menuItemId); const kdsId = nanoid(); batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), { id: kdsId, source: 'event', eventId, eventTitle: event?.title || '', courseFireId: fireId, courseNumber, guestId: g.id, guestName: g.name, seatNumber: g.seatNumber || null, tableNumber: g.tableNumber || null, menuItemId, menuItemName: menuItem?.name || 'Item', allergies: g.allergies || [], hasCriticalAllergy: (g.allergies || []).some((a: any) => a.severity === 'critical'), status: 'pending', createdAt: now, tenantId, isDelta: true }); });
+      const deductionMap: Record<string, number> = {};
+      deltaGuests.forEach(g => { const item = menuItems.find(m => m.id === (g.courseSelections?.[courseNumber] || g.mealChoiceId)); if (!item?.supplies) return; item.supplies.forEach((s: any) => { deductionMap[s.inventoryId] = (deductionMap[s.inventoryId] || 0) + safeNum(s.qty); }); });
+      Object.entries(deductionMap).forEach(([invId, qty]) => { const inv = (inventory || []).find((i: any) => i.id === invId); if (!inv) return; batch.update(doc(firestore, `tenants/${tenantId}/inventory`, invId), { totalStock: increment(-qty) }); });
       await batch.commit();
       toast({ title: `Course ${courseNumber} re-fired`, description: `${deltaGuests.length} late arrival${deltaGuests.length !== 1 ? 's' : ''} sent to kitchen` });
     } catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Re-fire failed' }); }
@@ -1214,33 +1171,19 @@ export default function EventManifestPage() {
     if (!staffToAdd || !firestore || !tenantId) return;
     const current = event?.assignedStaffIds || [];
     if (current.includes(staffToAdd)) return;
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-      assignedStaffIds: [...current, staffToAdd],
-    });
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: [...current, staffToAdd] });
     setStaffToAdd(''); toast({ title: 'Staff assigned' });
   };
-
   const handleRemoveStaff = async (staffId: string) => {
     if (!firestore || !tenantId) return;
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-      assignedStaffIds: (event?.assignedStaffIds || []).filter((id: string) => id !== staffId),
-    });
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: (event?.assignedStaffIds || []).filter((id: string) => id !== staffId) });
     toast({ title: 'Staff removed' });
   };
-
-  const handleSaveStaffAssignment = async (staffId: string) => {
+  const handleSaveStaffZone = async (staffId: string) => {
     if (!firestore || !tenantId) return;
-    const assignments = {
-      ...(event?.staffAssignments || {}),
-      [staffId]: {
-        role:      staffRoles[staffId]       || 'floor',
-        tables:    staffTableRanges[staffId] || [],
-        shift:     staffShifts[staffId]      || '',
-        updatedAt: new Date().toISOString(),
-      },
-    };
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { staffAssignments: assignments });
-    toast({ title: 'Assignment saved' });
+    const zones = { ...(event?.staffZones || {}), [staffId]: staffZones[staffId] || '' };
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { staffZones: zones });
+    toast({ title: 'Zone saved' });
   };
 
   const handleActivateEvent = async () => {
@@ -1254,7 +1197,6 @@ export default function EventManifestPage() {
     } catch { toast({ variant: 'destructive', title: 'Activation failed' }); }
     finally { setActivatingNow(false); }
   };
-
   const handleDeactivateEvent = async () => {
     if (!firestore || !tenantId) return;
     await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { status: 'upcoming', activatedAt: null });
@@ -1279,15 +1221,12 @@ export default function EventManifestPage() {
     if (!broadcastText.trim() || !firestore) return;
     setSendingBroadcast(true);
     try {
-      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), {
-        broadcastMessage: broadcastText.trim(), broadcastSentAt: new Date().toISOString(), broadcastDismissed: false,
-      });
+      await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { broadcastMessage: broadcastText.trim(), broadcastSentAt: new Date().toISOString(), broadcastDismissed: false });
       toast({ title: 'Broadcast sent' });
       setBroadcastText(''); setBroadcastOpen(false);
     } catch { toast({ variant: 'destructive', title: 'Send failed' }); }
     finally { setSendingBroadcast(false); }
   };
-
   const handleClearBroadcast = async () => {
     if (!firestore) return;
     await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { broadcastMessage: null, broadcastDismissed: true });
@@ -1295,17 +1234,7 @@ export default function EventManifestPage() {
   };
 
   const handleExportCSV = () => {
-    const rows = [
-      ['Name','Email','Phone','Table','Seat','Meal Choice','Allergies','Dietary','Notes','Checked In'],
-      ...guests.map(g => [
-        g.name, g.email||'', g.phone||'',
-        g.tableNumber ? `Table ${g.tableNumber}` : '',
-        g.seatNumber  ? `Seat ${g.seatNumber}`  : '',
-        g.mealChoiceName||'',
-        (g.allergies||[]).map((a:any)=>typeof a==='object'?a.label:a).join(';'),
-        (g.dietaryRestrictions||[]).join(';'), g.notes||'', g.checkedIn?'Yes':'No',
-      ]),
-    ];
+    const rows = [['Name','Email','Phone','Table','Seat','Meal Choice','Allergies','Dietary','Notes','Checked In'], ...guests.map(g => [g.name, g.email||'', g.phone||'', g.tableNumber||'', g.seatNumber||'', g.mealChoiceName||'', (g.allergies||[]).map((a:any)=>typeof a==='object'?a.label:a).join(';'), (g.dietaryRestrictions||[]).join(';'), g.notes||'', g.checkedIn?'Yes':'No'])];
     const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a   = document.createElement('a'); a.href = url; a.download = `${event?.title||'event'}-manifest.csv`; a.click();
@@ -1314,12 +1243,13 @@ export default function EventManifestPage() {
 
   const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
   const shareableLink = typeof window !== 'undefined' ? `${window.location.origin}/event/${tenantId}/${eventId}` : '';
+
   const generateQRDataUrl = async (url: string) => `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
   const handleGenerateQRs = async () => {
-    const tableList = qrTables.split(',').map(t => t.trim()).filter(Boolean);
-    const seats     = parseInt(qrSeatsPerTable) || 4;
+    const tables = qrTables.split(',').map(t => t.trim()).filter(Boolean);
+    const seats  = parseInt(qrSeatsPerTable) || 4;
     const codes: { label: string; dataUrl: string }[] = [];
-    for (const t of tableList) for (let s = 1; s <= seats; s++) codes.push({ label: `Table ${t} · Seat ${s}`, dataUrl: await generateQRDataUrl(`${shareableLink}?table=${t}&seat=${s}`) });
+    for (const t of tables) for (let s = 1; s <= seats; s++) codes.push({ label: `T${t} · S${s}`, dataUrl: await generateQRDataUrl(`${shareableLink}?table=${t}&seat=${s}`) });
     setQrCodes(codes); toast({ title: `${codes.length} QR codes generated` });
   };
 
@@ -1341,10 +1271,11 @@ export default function EventManifestPage() {
     const linkedItem = newMenuInventoryItemId ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId) : null;
     const menuItem = { id, eventId, tenantId, name: newMenuName.trim(), description: newMenuDesc.trim() || null, courseNumber: newMenuCourse, isVegan: newMenuVegan, isGlutenFree: newMenuGF, inventoryItemId: newMenuInventoryItemId || null, pricePerGuest: newMenuPrice || 0, imageUrl: (linkedItem as any)?.imageUrl || null, supplies: menuSupplies.filter(s => s.inventoryId && s.qty > 0) };
     batch.set(doc(firestore, `tenants/${tenantId}/eventMenuItems`, id), menuItem);
-    const eRef = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
-    const eSnap = await getDoc(eRef);
+    const eRef    = doc(firestore, `tenants/${tenantId}/studioEvents`, eventId);
+    const eSnap   = await getDoc(eRef);
     const existing = eSnap.data()?.menuItems || [];
-    batch.update(eRef, { menuItems: [...existing.filter((m: any) => m.id !== id), menuItem] });
+    const updated  = [...existing.filter((m: any) => m.id !== id), menuItem];
+    batch.update(eRef, { menuItems: updated });
     await batch.commit(); resetMenuForm(); toast({ title: 'Menu item added' });
   };
 
@@ -1361,9 +1292,10 @@ export default function EventManifestPage() {
   if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin w-8 h-8 text-slate-400" /></div>;
   if (!event)  return <div className="flex h-screen items-center justify-center text-slate-400 font-bold">Event not found</div>;
 
-  const eventDisplayName    = event.title || event.name || 'Untitled Event';
-  const assignedStaffCount  = (event?.assignedStaffIds || []).length;
-  const currentBroadcast    = event?.broadcastMessage && !event?.broadcastDismissed ? event.broadcastMessage : null;
+  const eventDisplayName   = event.title || event.name || 'Untitled Event';
+  const assignedStaffCount = (event?.assignedStaffIds || []).length;
+  const currentBroadcast   = event?.broadcastMessage && !event?.broadcastDismissed ? event.broadcastMessage : null;
+  const linkedInvItem      = newMenuInventoryItemId ? (inventory || []).find((i: any) => i.id === newMenuInventoryItemId) : null;
   const hasOrderingDeadline = event?.orderingDeadline && !isPast(new Date(event.orderingDeadline));
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1372,102 +1304,151 @@ export default function EventManifestPage() {
       <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
 
-        {/* ── DESKTOP HEADER ──────────────────────────────────────────────── */}
-        <div className="hidden md:flex items-start justify-between gap-4">
-          <div className="flex items-start gap-6">
-            <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
-            <div>
-              <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{eventDisplayName}</h1>
-              {event.date  && <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
-              {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
-              {event.capacity && (
-                <div className="flex items-center gap-2 mt-2">
-                  <div className="w-32 h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                    <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min((stats.total / event.capacity) * 100, 100)}%` }} />
+        {/* ── HEADER ─────────────────────────────────────────────────────── */}
+        <>
+          {/* Desktop */}
+          <div className="hidden md:flex items-start justify-between gap-4">
+            <div className="flex items-start gap-6">
+              {/* Capacity ring */}
+              <CapacityRing
+                checkedIn={stats.checkedIn}
+                total={stats.total}
+                capacity={event.capacity || null}
+              />
+              <div>
+                <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{eventDisplayName}</h1>
+                {event.date  && <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
+                {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
+                {/* Capacity bar */}
+                {event.capacity && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="w-32 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                      <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min((stats.total / event.capacity) * 100, 100)}%` }} />
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{stats.total}/{event.capacity} capacity</span>
                   </div>
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{stats.total}/{event.capacity} capacity</span>
-                </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Quote badge */}
+              {event.quoteId && (
+                <QuoteLinkBadge quoteId={event.quoteId} tenantId={tenantId} firestore={firestore} />
               )}
+              {event?.status === 'active' ? (
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live
+                  </span>
+                  <Button onClick={() => setBroadcastOpen(true)} variant="outline"
+                    className="h-9 px-3 rounded-xl border-2 border-violet-200 text-violet-700 hover:bg-violet-50 font-black uppercase text-[9px] tracking-widest gap-1.5">
+                    <Megaphone className="w-3.5 h-3.5" /> Broadcast
+                  </Button>
+                  <Button onClick={() => setIsEndEventOpen(true)} variant="outline"
+                    className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                    End Event
+                  </Button>
+                </div>
+              ) : event?.status === 'completed' ? (
+                <span className="px-3 py-1.5 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest">Completed</span>
+              ) : (
+                <Button onClick={() => setIsConfirmActivateOpen(true)}
+                  className="h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200">
+                  <span className="w-2 h-2 rounded-full bg-white" /> Go Live
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setPrintModalOpen(true)}
+                className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
+                <Printer className="w-4 h-4" /> Print
+              </Button>
+              <Button variant="outline" onClick={() => setShowLink(!showLink)}
+                className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
+                <Link2 className="w-4 h-4" /> Guest Link
+              </Button>
+              <Button variant="outline" onClick={handleExportCSV}
+                className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
+                <Download className="w-4 h-4" /> CSV
+              </Button>
+              <Button variant="outline" onClick={() => router.push(`/events/${eventId}/reconciliation`)}
+                className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
+                <BarChart2 className="w-4 h-4" /> Post-Event
+              </Button>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {event.quoteId && <QuoteLinkBadge quoteId={event.quoteId} tenantId={tenantId} firestore={firestore} />}
-            {event?.status === 'active' ? (
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest">
+
+          {/* Mobile */}
+          <div className="md:hidden space-y-3">
+            <div className="flex items-center gap-4">
+              <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
+              <div className="min-w-0">
+                <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-tight">{eventDisplayName}</h1>
+                {event.date  && <p className="text-xs text-slate-500 mt-0.5">{format(new Date(event.date), 'EEE, MMM d')}</p>}
+                {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{event.venue}</p>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {event.quoteId && <QuoteLinkBadge quoteId={event.quoteId} tenantId={tenantId} firestore={firestore} />}
+              {event?.status === 'active' ? (
+                <span className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest shrink-0">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live
                 </span>
-                <Button onClick={() => setBroadcastOpen(true)} variant="outline" className="h-9 px-3 rounded-xl border-2 border-violet-200 text-violet-700 hover:bg-violet-50 font-black uppercase text-[9px] tracking-widest gap-1.5">
-                  <Megaphone className="w-3.5 h-3.5" /> Broadcast
+              ) : event?.status !== 'completed' && (
+                <Button onClick={() => setIsConfirmActivateOpen(true)} size="sm"
+                  className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest gap-1.5 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-white" /> Go Live
                 </Button>
-                <Button onClick={() => setIsEndEventOpen(true)} variant="outline" className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">End Event</Button>
-              </div>
-            ) : event?.status === 'completed' ? (
-              <span className="px-3 py-1.5 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest">Completed</span>
-            ) : (
-              <Button onClick={() => setIsConfirmActivateOpen(true)}
-                className="h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200">
-                <span className="w-2 h-2 rounded-full bg-white" /> Go Live
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setPrintModalOpen(true)} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
-              <Printer className="w-4 h-4" /> Print
-            </Button>
-            <Button variant="outline" onClick={() => setShowLink(!showLink)} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
-              <Link2 className="w-4 h-4" /> Guest Link
-            </Button>
-            <Button variant="outline" onClick={handleExportCSV} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
-              <Download className="w-4 h-4" /> CSV
-            </Button>
-            <Button variant="outline" onClick={() => router.push(`/events/${eventId}/reconciliation`)} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest gap-2">
-              <BarChart2 className="w-4 h-4" /> Post-Event
-            </Button>
-          </div>
-        </div>
-
-        {/* ── MOBILE HEADER ───────────────────────────────────────────────── */}
-        <div className="md:hidden space-y-3">
-          <div className="flex items-center gap-4">
-            <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
-            <div className="min-w-0">
-              <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-tight">{eventDisplayName}</h1>
-              {event.date  && <p className="text-xs text-slate-500 mt-0.5">{format(new Date(event.date), 'EEE, MMM d')}</p>}
-              {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{event.venue}</p>}
+              )}
+              {event?.status === 'active' && (
+                <Button onClick={() => setBroadcastOpen(true)} variant="outline" size="sm"
+                  className="h-9 px-3 rounded-xl border-2 border-violet-200 text-violet-700 shrink-0">
+                  <Megaphone className="w-3.5 h-3.5" />
+                </Button>
+              )}
+              <button onClick={() => setPrintModalOpen(true)}
+                className="flex items-center gap-1 h-9 px-3 rounded-xl border-2 border-slate-200 font-black uppercase text-[9px] tracking-widest text-slate-600 hover:border-slate-300 shrink-0">
+                <Printer className="w-3.5 h-3.5" />
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9 w-9 p-0 rounded-xl border-2 shrink-0">
+                    <MoreHorizontal className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[180px]">
+                  <DropdownMenuItem onClick={() => setShowLink(!showLink)} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2">
+                    <Link2 className="w-3.5 h-3.5" /> Guest Link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportCSV} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2">
+                    <Download className="w-3.5 h-3.5" /> Export CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push(`/events/${eventId}/reconciliation`)} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2">
+                    <BarChart2 className="w-3.5 h-3.5" /> Post-Event Report
+                  </DropdownMenuItem>
+                  {event?.status === 'active' && (
+                    <DropdownMenuItem onClick={() => setIsEndEventOpen(true)} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 text-red-500">
+                      <X className="w-3.5 h-3.5" /> End Event
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {event?.status === 'active' ? (
-              <span className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black uppercase text-[9px] tracking-widest shrink-0">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live
-              </span>
-            ) : event?.status !== 'completed' && (
-              <Button onClick={() => setIsConfirmActivateOpen(true)} size="sm" className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest gap-1.5 bg-emerald-600 hover:bg-emerald-700 shrink-0">
-                <span className="w-2 h-2 rounded-full bg-white" /> Go Live
-              </Button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 w-9 p-0 rounded-xl border-2 shrink-0">
-                  <MoreHorizontal className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[180px]">
-                <DropdownMenuItem onClick={() => setPrintModalOpen(true)} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2"><Printer className="w-3.5 h-3.5" /> Print</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowLink(!showLink)} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2"><Link2 className="w-3.5 h-3.5" /> Guest Link</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportCSV} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2"><Download className="w-3.5 h-3.5" /> Export CSV</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push(`/events/${eventId}/reconciliation`)} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2"><BarChart2 className="w-3.5 h-3.5" /> Post-Event</DropdownMenuItem>
-                {event?.status === 'active' && <>
-                  <DropdownMenuItem onClick={() => setBroadcastOpen(true)} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2"><Megaphone className="w-3.5 h-3.5" /> Broadcast</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setIsEndEventOpen(true)} className="rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 text-red-500"><X className="w-3.5 h-3.5" /> End Event</DropdownMenuItem>
-                </>}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
+        </>
 
-        {/* ── BANNERS ──────────────────────────────────────────────────────── */}
-        {event?.menuNote       && <MenuNoteBanner note={event.menuNote} />}
-        {hasOrderingDeadline   && <OrderingDeadlineBanner deadline={event.orderingDeadline} eventId={eventId} tenantId={tenantId} firestore={firestore} />}
+        {/* ── BANNERS ─────────────────────────────────────────────────────── */}
+
+        {/* Menu note */}
+        {event?.menuNote && <MenuNoteBanner note={event.menuNote} />}
+
+        {/* Ordering deadline */}
+        {hasOrderingDeadline && (
+          <OrderingDeadlineBanner
+            deadline={event.orderingDeadline}
+            eventId={eventId} tenantId={tenantId} firestore={firestore}
+          />
+        )}
+
+        {/* Active broadcast */}
         {currentBroadcast && (
           <div className="flex items-center justify-between p-3 rounded-2xl bg-violet-50 border-2 border-violet-200">
             <div className="flex items-center gap-2">
@@ -1479,6 +1460,8 @@ export default function EventManifestPage() {
             </button>
           </div>
         )}
+
+        {/* Undo */}
         <AnimatePresence>
           {undoWindowOpen && (
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
@@ -1491,19 +1474,25 @@ export default function EventManifestPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Delta banners */}
         <AnimatePresence>
           {Object.entries(deltaGuestsByCourse).map(([n, dg]) => (
             <DeltaRefireBanner key={n} courseNumber={Number(n)} courseName={courseLabels[Number(n)] || `Course ${n}`}
               deltaGuests={dg} onRefire={handleRefireDelta} isFiring={isRefiring === Number(n)} />
           ))}
         </AnimatePresence>
+
+        {/* All-courses-fired nudge */}
         <AnimatePresence>
-          {allCoursesFired && <AllCoursesFiredNudge onEndEvent={() => setIsEndEventOpen(true)} />}
+          {allCoursesFired && (
+            <AllCoursesFiredNudge onEndEvent={() => setIsEndEventOpen(true)} />
+          )}
         </AnimatePresence>
 
-        {/* ── STATS ────────────────────────────────────────────────────────── */}
+        {/* ── STATS ───────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Responses"     value={stats.total}        sub={`${stats.checkedIn} checked in`} />
+          <StatCard label="Responses" value={stats.total} sub={`${stats.checkedIn} checked in`} />
           <StatCard label="Allergy Flags" value={stats.allergyCount} sub={stats.uniqueAllergies.slice(0, 2).join(', ') || 'None'} color="amber" />
           {Object.entries(stats.mealCounts).slice(0, 2).map(([meal, count]) => (
             <StatCard key={meal} label={meal} value={count as number} sub={`${Math.round((count as number) / Math.max(stats.total, 1) * 100)}%`} color="emerald" />
@@ -1513,30 +1502,21 @@ export default function EventManifestPage() {
         {/* Cross-contamination warnings */}
         {crossContaminationWarnings.length > 0 && (
           <div className="bg-red-50 rounded-2xl border-2 border-red-300 p-5 space-y-3">
-            <div className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-600" /><h2 className="text-sm font-black uppercase tracking-[0.2em] text-red-800">Cross-Contamination Risk</h2></div>
-            <div className="space-y-2">{crossContaminationWarnings.map((w, i) => (
-              <div key={i} className="flex items-start gap-2 p-3 rounded-xl bg-white border border-red-200">
-                <span className="text-red-500 font-black text-sm shrink-0">Table {w.table}</span>
-                <p className="text-[11px] font-bold text-red-700">{w.reason}</p>
-              </div>
-            ))}</div>
+            <div className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-600" /><h2 className="text-sm font-black uppercase tracking-[0.2em] text-red-800">Cross-Contamination Risk — {crossContaminationWarnings.length} Table{crossContaminationWarnings.length !== 1 ? 's' : ''}</h2></div>
+            <div className="space-y-2">{crossContaminationWarnings.map((w, i) => (<div key={i} className="flex items-start gap-2 p-3 rounded-xl bg-white border border-red-200"><span className="text-red-500 font-black text-sm shrink-0">T{w.table}</span><p className="text-[11px] font-bold text-red-700">{w.reason}</p></div>))}</div>
           </div>
         )}
 
         {/* ── COURSE FIRING ───────────────────────────────────────────────── */}
         {courseNumbers.length > 0 && (
           <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-            <div className="p-5 border-b border-slate-100">
-              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
-                <Utensils className="w-4 h-4 text-primary" /> Course Firing
-              </h2>
-            </div>
+            <div className="p-5 border-b border-slate-100"><h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2"><Utensils className="w-4 h-4 text-primary" /> Course Firing</h2></div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
-                const fired      = firedCourses.has(n);
-                const isBlocked  = firingBlockedSet.has(n);
-                const count      = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
-                const inCount    = guests.filter(g => g.checkedIn && (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId))).length;
+                const fired     = firedCourses.has(n);
+                const isBlocked = firingBlockedSet.has(n);
+                const count     = guests.filter(g => g.courseSelections?.[n] || (n === 1 && g.mealChoiceId)).length;
+                const inCount   = guests.filter(g => g.checkedIn && (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId))).length;
                 const deltaCount = deltaGuestsByCourse[n]?.length || 0;
                 return (
                   <div key={n} className={cn('p-4 rounded-2xl border-2', fired ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50')}>
@@ -1550,12 +1530,10 @@ export default function EventManifestPage() {
                       {fired && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
                     </div>
                     <CourseIngredientsPreview courseNumber={n} menuItems={menuItems} guests={guests} inventory={inventory || []} />
-                    {fired && <LiveKdsStatusPanel courseNumber={n} courseName={courseLabels[n] || `Course ${n}`} kdsTickets={kdsTickets} guests={guests} />}
                     <Button
                       onClick={() => setFireConfirmCourse(n)}
                       disabled={isBlocked || !!isFiring || fired || count === 0}
-                      className={cn('w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 mt-3',
-                        fired ? 'bg-emerald-500 hover:bg-emerald-500 opacity-60 cursor-not-allowed' : 'shadow-lg shadow-primary/20')}>
+                      className={cn('w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 mt-3', fired ? 'bg-emerald-500 hover:bg-emerald-500 opacity-60 cursor-not-allowed' : 'shadow-lg shadow-primary/20')}>
                       {isFiring === n || isBlocked ? <Loader className="w-4 h-4 animate-spin" /> : fired ? <><CheckCircle2 className="w-4 h-4" /> Fired</> : <><Play className="w-4 h-4" /> Fire Course</>}
                     </Button>
                   </div>
@@ -1565,7 +1543,7 @@ export default function EventManifestPage() {
           </div>
         )}
 
-        {/* ── MAIN TABS ────────────────────────────────────────────────────── */}
+        {/* ── MAIN TABS ───────────────────────────────────────────────────── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
             <TabsList className="h-11 rounded-2xl border-2 bg-slate-100 p-1 gap-1 w-max md:w-full">
@@ -1574,25 +1552,19 @@ export default function EventManifestPage() {
                 { value: 'menu',     label: `Menu (${menuItems.length})` },
                 { value: 'seating',  label: 'Seating' },
                 { value: 'staff',    label: 'Staff' },
-                { value: 'requests', label: floorRequests.length > 0 ? `Requests (${floorRequests.length})` : 'Requests' },
+                { value: 'requests', label: floorRequests.filter(r => r.status === 'new' || r.status === 'acknowledged').length > 0 ? `Requests (${floorRequests.filter(r => r.status === 'new' || r.status === 'acknowledged').length})` : 'Requests' },
               ].map(t => (
-                <TabsTrigger key={t.value} value={t.value}
-                  className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-4 whitespace-nowrap">
+                <TabsTrigger key={t.value} value={t.value} className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-4 whitespace-nowrap">
                   {t.label}
                 </TabsTrigger>
               ))}
             </TabsList>
           </div>
 
-          {/* ── GUESTS TAB ────────────────────────────────────────────────── */}
+          {/* ── GUESTS TAB ─────────────────────────────────────────────── */}
           <TabsContent value="guests" className="mt-4 space-y-4">
-            {/* Toolbar */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Button onClick={() => {
-                setIsAddingGuest(true); setEditingGuest(null);
-                setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' });
-                setTableInputMode('existing'); setNewTableValue('');
-              }}
+              <Button onClick={() => { setIsAddingGuest(true); setEditingGuest(null); setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' }); }}
                 className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
                 <UserPlus className="w-4 h-4" /> Add Guest
               </Button>
@@ -1614,6 +1586,7 @@ export default function EventManifestPage() {
                   <SelectItem value="dietary">Dietary Req.</SelectItem>
                 </SelectContent>
               </Select>
+              {/* View toggle */}
               <div className="flex items-center rounded-xl border-2 border-slate-200 overflow-hidden h-10 ml-auto">
                 <button onClick={() => setGuestViewMode('list')}
                   className={cn('flex items-center justify-center w-10 h-full transition-colors', guestViewMode === 'list' ? 'bg-primary text-white' : 'hover:bg-slate-50 text-slate-400')}>
@@ -1635,10 +1608,13 @@ export default function EventManifestPage() {
                   <p className="font-black text-sm text-slate-900 uppercase tracking-tight">Guest{selectedGuests.size !== 1 ? 's' : ''} selected</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button onClick={handleBulkCheckIn} size="sm" className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest gap-1.5">
+                  <Button onClick={handleBulkCheckIn} size="sm"
+                    className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest gap-1.5">
                     <UserCheck className="w-3.5 h-3.5" /> Check In All
                   </Button>
-                  <button onClick={deselectAll} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
+                  <button onClick={deselectAll} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
               </motion.div>
             )}
@@ -1665,18 +1641,9 @@ export default function EventManifestPage() {
                       </div>
                     )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label>
-                        <Input value={guestForm.name} onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className="h-11 rounded-xl border-2" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email</Label>
-                        <Input value={guestForm.email} onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" className="h-11 rounded-xl border-2" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone</Label>
-                        <Input value={guestForm.phone} onChange={e => setGuestForm(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 000-0000" className="h-11 rounded-xl border-2" />
-                      </div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label><Input value={guestForm.name} onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email</Label><Input value={guestForm.email} onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone</Label><Input value={guestForm.phone} onChange={e => setGuestForm(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 000-0000" className="h-11 rounded-xl border-2" /></div>
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
                         <Select value={guestForm.mealChoiceId || NO_SELECTION} onValueChange={v => setGuestForm(p => ({ ...p, mealChoiceId: v === NO_SELECTION ? '' : v }))}>
@@ -1684,58 +1651,8 @@ export default function EventManifestPage() {
                           <SelectContent><SelectItem value={NO_SELECTION}>No selection</SelectItem>{menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
-
-                      {/* Table dropdown — populated from all guests' tableNumber values (human-readable) */}
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label>
-                        {tables.length > 0 ? (
-                          <Select
-                            value={tableInputMode === 'new' ? '__new__' : (guestForm.tableNumber || NO_SELECTION)}
-                            onValueChange={v => {
-                              if (v === '__new__') {
-                                setTableInputMode('new');
-                                setGuestForm(p => ({ ...p, tableNumber: '', seatNumber: '' }));
-                              } else {
-                                setTableInputMode('existing');
-                                setGuestForm(p => ({ ...p, tableNumber: v === NO_SELECTION ? '' : v, seatNumber: '' }));
-                              }
-                            }}>
-                            <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px]">
-                              <SelectValue placeholder="Select table…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={NO_SELECTION}>No table</SelectItem>
-                              {tables.map(t => <SelectItem key={t} value={t}>Table {t}</SelectItem>)}
-                              <SelectItem value="__new__">+ New table…</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input value={guestForm.tableNumber} onChange={e => setGuestForm(p => ({ ...p, tableNumber: e.target.value }))} placeholder="Table number" className="h-11 rounded-xl border-2" />
-                        )}
-                        {tableInputMode === 'new' && (
-                          <Input value={newTableValue} onChange={e => setNewTableValue(e.target.value)} placeholder="Enter new table number" className="h-9 rounded-xl border-2 text-sm mt-1.5" autoFocus />
-                        )}
-                      </div>
-
-                      {/* Seat dropdown — populated from seatsByTable[selectedTable] */}
-                      <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</Label>
-                        {(tableInputMode === 'existing' && guestForm.tableNumber) || (tableInputMode === 'new' && newTableValue) ? (
-                          <Select value={guestForm.seatNumber || NO_SELECTION} onValueChange={v => setGuestForm(p => ({ ...p, seatNumber: v === NO_SELECTION ? '' : v }))}>
-                            <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px]">
-                              <SelectValue placeholder="Select seat…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={NO_SELECTION}>No seat</SelectItem>
-                              {availableSeats.map(s => <SelectItem key={s} value={s}>Seat {s}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <div className="h-11 rounded-xl border-2 border-slate-100 bg-slate-50 flex items-center px-3">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">Select a table first</span>
-                          </div>
-                        )}
-                      </div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label><Input value={guestForm.tableNumber} onChange={e => setGuestForm(p => ({ ...p, tableNumber: e.target.value }))} placeholder="Table #" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</Label><Input value={guestForm.seatNumber} onChange={e => setGuestForm(p => ({ ...p, seatNumber: e.target.value }))} placeholder="Seat #" className="h-11 rounded-xl border-2" /></div>
                     </div>
                     <div className="flex gap-3">
                       <Button onClick={() => { setIsAddingGuest(false); setEditingGuest(null); }} variant="outline" className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
@@ -1748,104 +1665,19 @@ export default function EventManifestPage() {
               )}
             </AnimatePresence>
 
-            {/* Guest list / table view */}
+            {/* Table grouped view */}
             {guestViewMode === 'table' ? (
               <TableGroupedView
                 guests={filtered} menuItems={menuItems}
                 onCheckIn={handleCheckInGuest}
-                onEdit={g => {
-                  setEditingGuest(g); setIsAddingGuest(false);
-                  setGuestForm({ name: g.name, email: g.email || '', phone: g.phone || '', tableNumber: g.tableNumber || '', seatNumber: g.seatNumber || '', mealChoiceId: g.mealChoiceId || '', notes: g.notes || '' });
-                  setTableInputMode('existing'); setNewTableValue('');
-                }}
+                onEdit={g => { setEditingGuest(g); setIsAddingGuest(false); setGuestForm({ name: g.name, email: g.email || '', phone: g.phone || '', tableNumber: g.tableNumber || '', seatNumber: g.seatNumber || '', mealChoiceId: g.mealChoiceId || '', notes: g.notes || '' }); }}
                 onDelete={handleDeleteGuest}
                 onOverride={g => { setMealOverrideGuest(g); setMealOverrideId(g.mealChoiceId || NO_SELECTION); }}
               />
             ) : (
+              /* Flat list view */
               <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-
-                {/* ── MOBILE CARD LIST ── */}
-                <div className="block md:hidden divide-y divide-slate-100">
-                  {filtered.map(guest => {
-                    const mealName = menuItems.find(m => m.id === guest.mealChoiceId)?.name || guest.mealChoiceName;
-                    return (
-                      <div key={guest.id} className={cn('flex items-start gap-3 p-4', !guest.checkedIn && 'opacity-70')}>
-                        <button
-                          onClick={() => handleCheckInGuest(guest.id, guest.checkedIn)}
-                          className={cn(
-                            'mt-0.5 w-8 h-8 rounded-xl border-2 flex items-center justify-center shrink-0 transition-all',
-                            guest.checkedIn
-                              ? 'bg-emerald-500 border-emerald-500 text-white'
-                              : 'border-slate-200 text-transparent hover:border-emerald-300',
-                          )}
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-black text-sm text-slate-900">{guest.name}</p>
-                            {guest.checkedIn && (
-                              <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">In</span>
-                            )}
-                            {guest.hasCriticalAllergy && (
-                              <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5">
-                                <AlertTriangle className="w-2.5 h-2.5" /> Allergy
-                              </span>
-                            )}
-                          </div>
-                          {(guest.tableNumber || guest.seatNumber) && (
-                            <p className="text-[10px] font-bold text-slate-500 mt-0.5 uppercase tracking-wide">
-                              {guest.tableNumber && `Table ${guest.tableNumber}`}
-                              {guest.seatNumber  && ` · Seat ${guest.seatNumber}`}
-                            </p>
-                          )}
-                          {mealName && (
-                            <p className="text-[10px] font-bold text-slate-400 mt-0.5">{mealName}</p>
-                          )}
-                          {(guest.allergies || []).length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1.5">
-                              {(guest.allergies || []).map((a: any, i: number) => (
-                                <AllergyPill key={i} allergy={a} />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-1 shrink-0">
-                          <button
-                            onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || NO_SELECTION); }}
-                            className="p-2 rounded-xl hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors"
-                          >
-                            <Utensils className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingGuest(guest); setIsAddingGuest(false);
-                              setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' });
-                              setTableInputMode('existing'); setNewTableValue('');
-                            }}
-                            className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteGuest(guest.id)}
-                            className="p-2 rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {filtered.length === 0 && (
-                    <div className="px-4 py-12 text-center text-sm text-slate-400 font-bold uppercase tracking-widest">
-                      {guests.length === 0 ? 'No guests yet — add manually or share the guest link' : 'No guests match your filters'}
-                    </div>
-                  )}
-                </div>
-
-                {/* ── DESKTOP TABLE ── */}
-                <div className="hidden md:block overflow-x-auto">
+                <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50">
@@ -1863,7 +1695,7 @@ export default function EventManifestPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {filtered.map(guest => (
-                        <tr key={guest.id} className="hover:bg-slate-50/50 transition-colors">
+                        <tr key={guest.id} className={cn('hover:bg-slate-50/50 transition-colors', !guest.checkedIn && filterFlag === 'not-checked-in' && 'bg-amber-50/30')}>
                           <td className="px-4 py-3">
                             <button onClick={() => toggleSelectGuest(guest.id)}
                               className={cn('w-5 h-5 rounded border-2 flex items-center justify-center transition-colors',
@@ -1873,12 +1705,13 @@ export default function EventManifestPage() {
                           </td>
                           <td className="px-4 py-3">
                             <p className="font-black text-sm text-slate-900">{guest.name}</p>
-                            <p className="text-[10px] text-slate-400">{guest.email || ''}</p>
+                            <p className="text-[10px] text-slate-400">{guest.email || ''}{guest.phone ? ` · ${guest.phone}` : ''}</p>
                             {guest.hasCriticalAllergy && <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5 mt-0.5"><AlertTriangle className="w-2.5 h-2.5" /> Critical Allergy</span>}
+                            {guest.mealClearedReason && <span className="text-[8px] font-bold text-amber-600 block mt-0.5">⚠ Meal cleared</span>}
                           </td>
                           <td className="px-4 py-3">
-                            {guest.tableNumber && <span className="text-[10px] font-black uppercase text-slate-700">Table {guest.tableNumber}</span>}
-                            {guest.seatNumber  && <span className="text-[10px] font-black uppercase text-slate-500"> · Seat {guest.seatNumber}</span>}
+                            {guest.tableNumber && <span className="text-[10px] font-black uppercase text-slate-500">T{guest.tableNumber}</span>}
+                            {guest.seatNumber  && <span className="text-[10px] font-black uppercase text-slate-400"> · {guest.seatNumber}</span>}
                           </td>
                           <td className="px-4 py-3">
                             <p className="text-sm font-bold text-slate-700">{guest.mealChoiceName || <span className="text-slate-300 italic text-xs">—</span>}</p>
@@ -1901,7 +1734,7 @@ export default function EventManifestPage() {
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
                               <button onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || NO_SELECTION); }} className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors"><Utensils className="w-3.5 h-3.5" /></button>
-                              <button onClick={() => { setEditingGuest(guest); setIsAddingGuest(false); setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' }); setTableInputMode('existing'); setNewTableValue(''); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => { setEditingGuest(guest); setIsAddingGuest(false); setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' }); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                               <button onClick={() => handleDeleteGuest(guest.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                           </td>
@@ -1981,6 +1814,12 @@ export default function EventManifestPage() {
                 )}
               </AnimatePresence>
             </div>
+            {menuItems.length === 0 && !isAddingMenu && (
+              <div className="text-center py-10 border-2 border-dashed rounded-3xl">
+                <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+                <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p>
+              </div>
+            )}
           </TabsContent>
 
           {/* ── SEATING TAB ───────────────────────────────────────────────── */}
@@ -1993,13 +1832,11 @@ export default function EventManifestPage() {
             <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
               <div className="p-5 border-b border-slate-100">
                 <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" /> Staff Assignments
+                  <Users className="w-4 h-4 text-primary" /> Assigned Staff
                 </h2>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                  Assign roles, table zones, and shift times
-                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Assign table zones so staff know their section</p>
               </div>
-              <div className="p-5 space-y-4">
+              <div className="p-5 space-y-3">
                 {(event?.assignedStaffIds || []).length === 0 && (
                   <div className="text-center py-8 border-2 border-dashed rounded-2xl">
                     <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No staff assigned yet</p>
@@ -2008,113 +1845,34 @@ export default function EventManifestPage() {
                 {(event?.assignedStaffIds || []).map((staffId: string) => {
                   const member      = (staffFromContext || []).find((s: any) => s.id === staffId);
                   if (!member) return null;
-                  const saved       = event?.staffAssignments?.[staffId] || {};
-                  const currentRole = staffRoles[staffId] ?? saved.role ?? 'floor';
-                  const isKitchen   = currentRole === 'kitchen';
+                  const currentZone = event?.staffZones?.[staffId] || '';
                   return (
-                    <div key={staffId} className={cn('rounded-2xl border-2 overflow-hidden', isKitchen ? 'border-orange-200' : 'border-slate-200')}>
-                      <div className={cn('flex items-center justify-between gap-3 p-3', isKitchen ? 'bg-orange-50' : 'bg-slate-50')}>
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0',
-                            isKitchen ? 'bg-orange-100 text-orange-700' : 'bg-primary/10 text-primary')}>
-                            {(member as any).name?.charAt(0)}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-black text-sm text-slate-900">{(member as any).name}</p>
-                            <p className="text-[9px] font-bold uppercase text-slate-400">{(member as any).role}</p>
-                          </div>
+                    <div key={staffId} className="flex items-center justify-between gap-3 p-3 rounded-2xl border-2 border-slate-200">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center font-black text-primary text-sm shrink-0">
+                          {(member as any).name?.charAt(0)}
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button onClick={() => handleSaveStaffAssignment(staffId)}
-                            className="h-8 w-8 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary flex items-center justify-center transition-colors">
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => handleRemoveStaff(staffId)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
+                        <div className="min-w-0">
+                          <p className="font-black text-sm text-slate-900">{(member as any).name}</p>
+                          <p className="text-[9px] font-bold uppercase text-slate-400">{(member as any).role}</p>
                         </div>
                       </div>
-                      <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                          <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Role</Label>
-                          <Select
-                            value={currentRole}
-                            onValueChange={v => setStaffRoles(prev => ({ ...prev, [staffId]: v }))}>
-                            <SelectTrigger className="h-9 rounded-xl border-2 font-bold text-[10px] uppercase">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {STAFF_ROLES.map(r => (
-                                <SelectItem key={r.id} value={r.id} className="font-bold uppercase text-[10px] tracking-widest">
-                                  {r.icon} {r.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        {!isKitchen ? (
-                          <div className="space-y-1.5">
-                            <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Table Zone</Label>
-                            {tables.length > 0 ? (
-                              <Select
-                                value={(staffTableRanges[staffId] ?? saved.tables ?? [])[0] || NO_SELECTION}
-                                onValueChange={v => setStaffTableRanges(prev => ({
-                                  ...prev,
-                                  [staffId]: v === NO_SELECTION ? [] : [v],
-                                }))}>
-                                <SelectTrigger className="h-9 rounded-xl border-2 font-bold text-[10px] uppercase">
-                                  <SelectValue placeholder="Select table…" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value={NO_SELECTION}>No zone</SelectItem>
-                                  {tables.map(t => <SelectItem key={t} value={t}>Table {t}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Input
-                                placeholder="e.g. 1–4"
-                                defaultValue={(saved.tables || []).join(', ')}
-                                onChange={e => setStaffTableRanges(prev => ({ ...prev, [staffId]: e.target.value.split(',').map((t: string) => t.trim()).filter(Boolean) }))}
-                                className="h-9 rounded-xl border-2 text-xs font-bold"
-                              />
-                            )}
-                          </div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Station</Label>
-                            <Select
-                              value={staffZones[staffId] ?? saved.station ?? NO_SELECTION}
-                              onValueChange={v => setStaffZones(prev => ({ ...prev, [staffId]: v === NO_SELECTION ? '' : v }))}>
-                              <SelectTrigger className="h-9 rounded-xl border-2 font-bold text-[10px] uppercase">
-                                <SelectValue placeholder="Station…" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value={NO_SELECTION}>No station</SelectItem>
-                                {['Hot Line','Cold Line','Grill','Pastry','Plating','Expo','Dishwash'].map(s => (
-                                  <SelectItem key={s} value={s} className="font-bold uppercase text-[10px]">{s}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-                        <div className="space-y-1.5 sm:col-span-2">
-                          <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Shift</Label>
-                          <ShiftPicker
-                            value={staffShifts[staffId] ?? saved.shift ?? ''}
-                            onChange={v => setStaffShifts(prev => ({ ...prev, [staffId]: v }))}
-                          />
-                        </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Input
+                          placeholder="Zone / tables (e.g. T1–4)"
+                          defaultValue={currentZone}
+                          onChange={e => setStaffZones(prev => ({ ...prev, [staffId]: e.target.value }))}
+                          className="h-8 w-36 rounded-xl border-2 text-xs font-bold"
+                        />
+                        <button onClick={() => handleSaveStaffZone(staffId)}
+                          className="h-8 w-8 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary flex items-center justify-center transition-colors shrink-0">
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => handleRemoveStaff(staffId)}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      {saved.role && (
-                        <div className="px-3 pb-3">
-                          <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-                            Saved: {STAFF_ROLES.find(r => r.id === saved.role)?.label || saved.role}
-                            {saved.tables?.length > 0 && ` · Tables ${saved.tables.map((t: string) => `Table ${t}`).join(', ')}`}
-                            {saved.station && ` · ${saved.station}`}
-                            {saved.shift && ` · ${saved.shift}`}
-                          </p>
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -2125,9 +1883,9 @@ export default function EventManifestPage() {
                       <SelectTrigger className="flex-1 h-11 rounded-xl border-2 font-bold text-sm"><SelectValue placeholder="Select staff member…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NO_SELECTION}>Select staff member…</SelectItem>
-                        {(staffFromContext || [])
-                          .filter((s: any) => !(event?.assignedStaffIds || []).includes(s.id))
-                          .map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                        {(staffFromContext || []).filter((s: any) => !(event?.assignedStaffIds || []).includes(s.id)).map((s: any) => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <Button onClick={handleAddStaff} disabled={!staffToAdd || staffToAdd === NO_SELECTION}
@@ -2187,7 +1945,7 @@ export default function EventManifestPage() {
               }}
               tenantId={tenantId}
             />
-            {floorRequests.length === 0 && (
+            {floorRequests.filter(r => r.status === 'new' || r.status === 'acknowledged').length === 0 && (
               <div className="text-center py-12 border-2 border-dashed rounded-3xl">
                 <CheckCircle2 className="w-8 h-8 text-slate-300 mx-auto mb-3" />
                 <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No active floor requests</p>
@@ -2196,7 +1954,7 @@ export default function EventManifestPage() {
           </TabsContent>
         </Tabs>
 
-        {/* ── GUEST LINK ───────────────────────────────────────────────────── */}
+        {/* ── GUEST LINK ──────────────────────────────────────────────────── */}
         <AnimatePresence>
           {showLink && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
@@ -2217,7 +1975,7 @@ export default function EventManifestPage() {
                   <Button onClick={handleGenerateQRs} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shrink-0"><QrCode className="w-4 h-4" /> Generate</Button>
                 </div>
                 {qrCodes.length > 0 && (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-64 overflow-y-auto">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-64 overflow-y-auto" id="qr-print-area">
                     {qrCodes.map(qr => (
                       <div key={qr.label} className="flex flex-col items-center gap-1 p-3 border-2 rounded-xl bg-white">
                         <img src={qr.dataUrl} alt={qr.label} className="w-16 h-16" />
@@ -2231,7 +1989,9 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* ── MEAL OVERRIDE ────────────────────────────────────────────────── */}
+        {/* ── DIALOGS ─────────────────────────────────────────────────────── */}
+
+        {/* Meal override */}
         <AnimatePresence>
           {mealOverrideGuest && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -2260,8 +2020,10 @@ export default function EventManifestPage() {
                   ))}
                 </div>
                 <div className="p-4 flex gap-3 border-t border-slate-100">
-                  <Button variant="outline" onClick={() => { setMealOverrideGuest(null); setMealOverrideId(''); }} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                  <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                  <Button variant="outline" onClick={() => { setMealOverrideGuest(null); setMealOverrideId(''); }}
+                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+                  <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId}
+                    className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
                     {savingOverride ? <Loader className="w-4 h-4 animate-spin" /> : 'Save Override →'}
                   </Button>
                 </div>
@@ -2270,7 +2032,7 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* ── CONFIRM ACTIVATE ─────────────────────────────────────────────── */}
+        {/* Confirm activate */}
         <Dialog open={isConfirmActivateOpen} onOpenChange={setIsConfirmActivateOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500" /> Go Live</DialogTitle></DialogHeader>
@@ -2295,7 +2057,7 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* ── END EVENT ────────────────────────────────────────────────────── */}
+        {/* End event */}
         <Dialog open={isEndEventOpen} onOpenChange={setIsEndEventOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter">End Event</DialogTitle></DialogHeader>
@@ -2303,7 +2065,7 @@ export default function EventManifestPage() {
               {unfiredCourses.length > 0 && (
                 <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
                   <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                  <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{unfiredCourses.length} Course{unfiredCourses.length !== 1 ? 's' : ''} not fired</p>
+                  <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{unfiredCourses.length} Course{unfiredCourses.length !== 1 ? 's' : ''} not fired — {unfiredCourses.map(n => courseLabels[n] || `Course ${n}`).join(', ')}</p>
                 </div>
               )}
               {floorRequests.length > 0 && (
@@ -2312,6 +2074,11 @@ export default function EventManifestPage() {
                   <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{floorRequests.length} unresolved floor request{floorRequests.length !== 1 ? 's' : ''}</p>
                 </div>
               )}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Event Summary</p>
+                <p className="font-black text-slate-900">{eventDisplayName}</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{stats.checkedIn} of {stats.total} guests · {fires.filter(f => f.status === 'fired' && !f.isDelta).length} of {courseNumbers.length} courses fired</p>
+              </div>
               <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setIsEndEventOpen(false)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
                 <Button onClick={handleConfirmEndEvent} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-slate-800 hover:bg-slate-900 gap-2">End Event →</Button>
@@ -2320,7 +2087,7 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* ── BROADCAST ────────────────────────────────────────────────────── */}
+        {/* Broadcast sheet */}
         <Sheet open={broadcastOpen} onOpenChange={setBroadcastOpen}>
           <SheetContent side="bottom" className="rounded-t-3xl border-t-0 pb-safe">
             <SheetHeader className="pb-4">
@@ -2343,7 +2110,7 @@ export default function EventManifestPage() {
           </SheetContent>
         </Sheet>
 
-        {/* ── COURSE FIRE CONFIRM ──────────────────────────────────────────── */}
+        {/* Course fire confirm */}
         {fireConfirmCourse !== null && (
           <CourseFireConfirmDialog
             open={fireConfirmCourse !== null}
@@ -2353,17 +2120,30 @@ export default function EventManifestPage() {
             guests={guests}
             menuItems={menuItems}
             isFiring={isFiring === fireConfirmCourse}
-            onConfirm={() => { const n = fireConfirmCourse; setFireConfirmCourse(null); handleFireCourse(n); }}
+            onConfirm={() => {
+              const n = fireConfirmCourse;
+              setFireConfirmCourse(null);
+              handleFireCourse(n);
+            }}
           />
         )}
 
-        <KitchenPrintModal open={printModalOpen} onOpenChange={setPrintModalOpen} event={event} guests={guests} menuItems={menuItems} courseNumbers={courseNumbers} />
+        {/* Print modal */}
+        <KitchenPrintModal
+          open={printModalOpen}
+          onOpenChange={setPrintModalOpen}
+          event={event}
+          guests={guests}
+          menuItems={menuItems}
+          courseNumbers={courseNumbers}
+        />
 
       </main>
     </div>
   );
 }
 
+// Small helper used by ordering deadline banner
 function isPast(date: Date) {
   return date.getTime() < Date.now();
 }
