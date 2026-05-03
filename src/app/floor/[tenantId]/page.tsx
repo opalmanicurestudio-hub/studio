@@ -524,15 +524,22 @@ const VisualChart = ({
   const unpositioned = tables.filter(t => t.x == null || t.y == null);
   const positioned = tables.filter(t => t.x != null && t.y != null);
 
-  const getTableRequests = (tableId: string) =>
-    requests.filter(r => (r.tableId === tableId || r.tableNumber === tableId) && r.status !== 'done');
+  // Requests from QR scans set tableId (internal id); requests typed by staff
+  // may set tableNumber to the human-readable table name. Match both.
+  const getTableRequests = (table: SeatingTable) =>
+    requests.filter(r =>
+      (r.tableId === table.id || r.tableNumber === table.id || r.tableNumber === table.name)
+      && r.status !== 'done'
+    );
 
-  const getGuestAtSeat = (tableId: string, seatId: string) =>
-    guests.find(g => g.tableNumber === tableId && g.seatNumber === seatId);
+  // SeatingChartTab stores tableNumber = table.name and seatNumber = seat.label
+  // on each guest document, so we match on human-readable values here.
+  const getGuestAtSeat = (tableName: string, seatLabel: string) =>
+    guests.find(g => g.tableNumber === tableName && g.seatNumber === seatLabel);
 
   const renderTable = (table: SeatingTable, style?: React.CSSProperties) => {
     const color = TABLE_COLORS[table.color] || '#1e293b';
-    const reqs = getTableRequests(table.id);
+    const reqs = getTableRequests(table);
     const isMyT = myTableIds.length === 0 || myTableIds.includes(table.id);
     const hasLate = reqs.some(r => elapsedMins(r.createdAt) >= 5);
     const hasNew = reqs.some(r => r.status === 'new');
@@ -562,7 +569,7 @@ const VisualChart = ({
           {/* Seat dots */}
           <div className="flex flex-wrap gap-0.5 justify-center mt-1.5">
             {table.seats.slice(0, 8).map(seat => {
-              const g = getGuestAtSeat(table.id, seat.id);
+              const g = getGuestAtSeat(table.name, seat.label);
               const seatReq = requests.find(
                 r => (r.seatId === seat.id || r.seatNumber === seat.id) && r.status !== 'done'
               );
@@ -635,7 +642,7 @@ const VisualChart = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {unpositioned.map(table => {
             const color = TABLE_COLORS[table.color] || '#1e293b';
-            const reqs = getTableRequests(table.id);
+            const reqs = getTableRequests(table);
             const isMyT = myTableIds.length === 0 || myTableIds.includes(table.id);
             const hasLate = reqs.some(r => elapsedMins(r.createdAt) >= 5);
             return (
@@ -888,21 +895,30 @@ export default function FloorStaffPage() {
     return unsub;
   }, [firestore, tenantId]);
 
-  // ── Seating tables + guests ───────────────────────────────────────────────
+  // ── Seating tables ────────────────────────────────────────────────────────
+  // The manifest (SeatingChartTab) saves tables as an array field on the event
+  // document: tenants/{tenantId}/studioEvents/{eventId}.seatingTables
+  // The active event listener already spreads that document into `activeEvent`,
+  // so activeEvent.seatingTables is always fresh — no separate listener needed.
+  useEffect(() => {
+    if (!activeEvent?.id) {
+      setSeatingTables([]);
+      return;
+    }
+    const tables = Array.isArray(activeEvent.seatingTables)
+      ? (activeEvent.seatingTables as SeatingTable[])
+      : [];
+    setSeatingTables(tables);
+  }, [activeEvent]);
+
+  // ── Event guests ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!firestore || !tenantId || !activeEvent?.id) return;
-    const unsubs: (() => void)[] = [];
-
-    unsubs.push(onSnapshot(
-      collection(firestore, `tenants/${tenantId}/studioEvents/${activeEvent.id}/seatingTables`),
-      snap => setSeatingTables(snap.docs.map(d => ({ id: d.id, ...d.data() } as SeatingTable)))
-    ));
-    unsubs.push(onSnapshot(
+    const unsub = onSnapshot(
       query(collection(firestore, `tenants/${tenantId}/eventGuests`), where('eventId', '==', activeEvent.id)),
       snap => setEventGuests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    ));
-
-    return () => unsubs.forEach(u => u());
+    );
+    return unsub;
   }, [firestore, tenantId, activeEvent?.id]);
 
   // ── Auto-switch to visual mode when positioned tables load ───────────────
