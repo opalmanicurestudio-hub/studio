@@ -3,73 +3,36 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardFooter,
+  Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter,
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  DollarSign,
-  PlusCircle,
-  Home,
-  Car,
-  ShoppingCart,
-  Sparkles,
-  Building,
-  Monitor,
-  Briefcase,
-  Wifi,
-  MoreHorizontal,
-  PiggyBank,
-  Trash2,
-  Receipt,
-  Package,
-  Save,
-  Check,
-  Link as LinkIcon,
-  Calendar,
-  AlertTriangle,
-  Target,
-  ListChecks,
-  Clock,
-  Film,
-  Landmark,
-  Percent,
-  Pencil,
+  DollarSign, PlusCircle, Home, Car, ShoppingCart, Sparkles,
+  Building, Monitor, Briefcase, Wifi, MoreHorizontal, PiggyBank,
+  Trash2, Receipt, Package, Save, Check, Link as LinkIcon,
+  Calendar, AlertTriangle, Target, ListChecks, Clock, Film,
+  Landmark, Percent, Pencil, RotateCcw,
 } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  useFirebase,
-  useCollection,
-  useMemoFirebase,
-  setDocumentNonBlocking,
-  deleteDocumentNonBlocking,
-  updateDocumentNonBlocking,
+  useFirebase, useCollection, useMemoFirebase,
+  deleteDocumentNonBlocking, updateDocumentNonBlocking,
 } from '@/firebase';
-import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, where, setDoc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 
-// ─── ICON MAP ──────────────────────────────────────────────────────────────────
-// Icons are JSX and cannot survive a Firestore round-trip (they get stripped by
-// deepCopyTemplate before being written).  This lookup map re-injects the correct
-// icon at render time based solely on the category name string that IS stored.
+// ─── ICON MAP ─────────────────────────────────────────────────────────────────
+// Icons can't be stored in Firestore so they're injected at render time by name.
 const CATEGORY_ICON_MAP: Record<string, React.ReactNode> = {
-  // Lifestyle categories
   'Housing':                   <Home         className="w-5 h-5 text-primary" />,
   'Utilities':                 <Receipt      className="w-5 h-5 text-primary" />,
   'Internet & Phone':          <Wifi         className="w-5 h-5 text-primary" />,
@@ -77,27 +40,25 @@ const CATEGORY_ICON_MAP: Record<string, React.ReactNode> = {
   'Food & Essentials':         <ShoppingCart className="w-5 h-5 text-primary" />,
   'Transportation':            <Car          className="w-5 h-5 text-primary" />,
   'Debt & Goals':              <PiggyBank    className="w-5 h-5 text-primary" />,
-  // Business categories
   'Rent & Facility':           <Building     className="w-5 h-5 text-primary" />,
   'Systems & Admin':           <Monitor      className="w-5 h-5 text-primary" />,
   'Supplies & Inventory':      <Package      className="w-5 h-5 text-primary" />,
   'Business Debt':             <Landmark     className="w-5 h-5 text-primary" />,
 };
-
 const getCategoryIcon = (name: string): React.ReactNode =>
   CATEGORY_ICON_MAP[name] ?? <ListChecks className="w-5 h-5 text-primary" />;
 
 // ─── TEMPLATES ────────────────────────────────────────────────────────────────
-// No icon fields here — these objects must be serialisable for Firestore.
+// Plain objects only — no JSX, safe for Firestore.
 
-const lifestyleCategoriesTemplate = [
+const LIFESTYLE_TEMPLATE = [
   {
     name: 'Housing',
     bills: [
-      { title: 'Rent/Mortgage',         amount: 0, dueDay: 1  },
+      { title: 'Rent / Mortgage',       amount: 0, dueDay: 1  },
+      { title: 'Renters / Home Insurance', amount: 0, dueDay: 10 },
       { title: 'Property Taxes',        amount: 0, dueDay: 15 },
       { title: 'HOA Fees',              amount: 0, dueDay: 1  },
-      { title: 'Insurance',             amount: 0, dueDay: 10 },
     ],
   },
   {
@@ -105,7 +66,7 @@ const lifestyleCategoriesTemplate = [
     bills: [
       { title: 'Electric',              amount: 0, dueDay: 20 },
       { title: 'Water',                 amount: 0, dueDay: 20 },
-      { title: 'Gas',                   amount: 0, dueDay: 20 },
+      { title: 'Gas / Heat',            amount: 0, dueDay: 20 },
       { title: 'Waste Management',      amount: 0, dueDay: 20 },
     ],
   },
@@ -119,16 +80,18 @@ const lifestyleCategoriesTemplate = [
   {
     name: 'Lifestyle & Subscriptions',
     bills: [
-      { title: 'Entertainment',         amount: 0, dueDay: 1 },
-      { title: 'Streaming',             amount: 0, dueDay: 1 },
-      { title: 'Gym/Health',            amount: 0, dueDay: 1 },
+      { title: 'Streaming (Netflix / Hulu etc)', amount: 0, dueDay: 1 },
+      { title: 'Gym / Health Membership',        amount: 0, dueDay: 1 },
+      { title: 'Entertainment / Hobbies',        amount: 0, dueDay: 1 },
+      { title: 'Amazon / Other Shopping',        amount: 0, dueDay: 1 },
     ],
   },
   {
     name: 'Food & Essentials',
     bills: [
       { title: 'Groceries',             amount: 0, dueDay: 1 },
-      { title: 'Dining',                amount: 0, dueDay: 1 },
+      { title: 'Dining Out',            amount: 0, dueDay: 1 },
+      { title: 'Personal Care',         amount: 0, dueDay: 1 },
     ],
   },
   {
@@ -136,24 +99,28 @@ const lifestyleCategoriesTemplate = [
     bills: [
       { title: 'Car Payment',           amount: 0, dueDay: 25 },
       { title: 'Car Insurance',         amount: 0, dueDay: 15 },
-      { title: 'Gas/Fuel',              amount: 0, dueDay: 1  },
+      { title: 'Gas / Fuel',            amount: 0, dueDay: 1  },
+      { title: 'Parking / Tolls',       amount: 0, dueDay: 1  },
     ],
   },
   {
     name: 'Debt & Goals',
     bills: [
-      { title: 'Debt Repayment',        amount: 0, dueDay: 25 },
-      { title: 'Savings Contributions', amount: 0, dueDay: 1  },
+      { title: 'Student Loan',          amount: 0, dueDay: 1  },
+      { title: 'Credit Card Min.',      amount: 0, dueDay: 25 },
+      { title: 'Savings Contribution',  amount: 0, dueDay: 1  },
+      { title: 'Emergency Fund',        amount: 0, dueDay: 1  },
     ],
   },
 ];
 
-const businessCategoriesTemplate = [
+const BUSINESS_TEMPLATE = [
   {
     name: 'Rent & Facility',
     bills: [
       { title: 'Studio Rent',           amount: 0, dueDay: 1  },
       { title: 'Business Insurance',    amount: 0, dueDay: 20 },
+      { title: 'Parking / Building Fees', amount: 0, dueDay: 1 },
     ],
   },
   {
@@ -168,44 +135,74 @@ const businessCategoriesTemplate = [
     name: 'Systems & Admin',
     bills: [
       { title: 'Booking Software',      amount: 0, dueDay: 5 },
-      { title: 'Marketing',             amount: 0, dueDay: 1 },
-      { title: 'Admin/Professional',    amount: 0, dueDay: 1 },
+      { title: 'Point of Sale / POS',   amount: 0, dueDay: 1 },
+      { title: 'Marketing / Ads',       amount: 0, dueDay: 1 },
+      { title: 'Accounting Software',   amount: 0, dueDay: 1 },
+      { title: 'Website / Domain',      amount: 0, dueDay: 1 },
     ],
   },
   {
     name: 'Supplies & Inventory',
     bills: [
-      { title: 'Backbar Reserve',       amount: 0, dueDay: 1 },
+      { title: 'Backbar / Product Reserve', amount: 0, dueDay: 1 },
+      { title: 'Tools & Equipment',      amount: 0, dueDay: 1 },
+      { title: 'Sanitation Supplies',    amount: 0, dueDay: 1 },
     ],
   },
   {
     name: 'Business Debt',
     bills: [
-      { title: 'Loans',                 amount: 0, dueDay: 1 },
-      { title: 'Tax Reserve',           amount: 0, dueDay: 1 },
+      { title: 'Business Loan',         amount: 0, dueDay: 1  },
+      { title: 'Tax Reserve (set aside)', amount: 0, dueDay: 1 },
+      { title: 'Credit Card (biz)',     amount: 0, dueDay: 25 },
     ],
   },
 ];
 
-/** Deep-copies a template with fresh nanoid for every bill.
- *  Safe to write to Firestore (no JSX / functions). */
-const deepCopyTemplate = (template: typeof lifestyleCategoriesTemplate) =>
-  template.map((category) => ({
-    ...category,
-    bills: category.bills.map((bill) => ({ ...bill, id: nanoid() })),
+/** Stamps every bill with a fresh id. Returns plain Firestore-safe objects. */
+const stampIds = (template: typeof LIFESTYLE_TEMPLATE) =>
+  template.map((cat) => ({
+    ...cat,
+    bills: cat.bills.map((bill) => ({ ...bill, id: nanoid() })),
   }));
+
+/** Builds a brand-new default profile object (never saved until user hits Save). */
+const makeDefaultLifestyle = () => ({
+  id: nanoid(),
+  name: 'Core Lifestyle',
+  isActive: true,
+  categories: stampIds(LIFESTYLE_TEMPLATE),
+});
+
+const makeDefaultBusiness = () => ({
+  id: nanoid(),
+  name: 'Studio Overhead',
+  isActive: true,
+  categories: stampIds(BUSINESS_TEMPLATE),
+});
+
+/** Ensures every bill in a loaded profile list has an id. */
+const ensureBillIds = (list: any[]) =>
+  (list || []).map((p) => ({
+    ...p,
+    categories: (p.categories || []).map((cat: any) => ({
+      ...cat,
+      bills: (cat.bills || []).map((bill: any) => ({
+        ...bill,
+        id: bill.id || nanoid(),
+      })),
+    })),
+  }));
+
+/** Returns true if a profile list has at least one profile with at least one category with bills. */
+const hasValidData = (list: any[]) =>
+  list?.some((p) => (p.categories || []).some((c: any) => (c.bills || []).length > 0));
 
 // ─── BILL ITEM ROW ─────────────────────────────────────────────────────────────
 const BillItemRow = ({
-  bill,
-  isEditing = false,
-  onBillChange,
-  onDelete,
+  bill, isEditing = false, onBillChange, onDelete,
 }: {
-  bill: {
-    id: string; title: string; amount: number; isCustom?: boolean;
-    dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number;
-  };
+  bill: { id: string; title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number };
   isEditing?: boolean;
   onBillChange: (billId: string, field: string, value: any) => void;
   onDelete: (billId: string) => void;
@@ -225,16 +222,16 @@ const BillItemRow = ({
               {bill.title}
             </Label>
             {!isEditing && (
-              <div className="flex items-center gap-2 text-muted-foreground mt-0.5 sm:mt-1 opacity-40">
+              <div className="flex items-center gap-2 text-muted-foreground mt-0.5 opacity-40">
                 {bill.dueDay && (
-                  <div className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase">
+                  <span className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase">
                     <Calendar className="w-2 h-2 sm:w-2.5 sm:h-2.5" /> Day {bill.dueDay}
-                  </div>
+                  </span>
                 )}
-                {bill.lateFee && (
-                  <div className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase text-destructive">
-                    <AlertTriangle className="w-2 h-2 sm:w-2.5 sm:h-2.5" /> ${bill.lateFee}
-                  </div>
+                {!!bill.lateFee && (
+                  <span className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase text-destructive">
+                    <AlertTriangle className="w-2 h-2 sm:w-2.5 sm:h-2.5" /> ${bill.lateFee} late fee
+                  </span>
                 )}
               </div>
             )}
@@ -245,8 +242,7 @@ const BillItemRow = ({
         <div className="relative flex-1">
           <DollarSign className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary opacity-40" />
           <Input
-            type="number"
-            placeholder="0.00"
+            type="number" placeholder="0.00"
             className="pl-6 sm:pl-8 h-9 sm:h-10 rounded-xl border-2 font-black font-mono text-[11px] sm:text-sm text-right bg-muted/5 shadow-inner"
             disabled={!isEditing}
             value={bill.amount || ''}
@@ -264,20 +260,20 @@ const BillItemRow = ({
           <AccordionContent className="pt-4 space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-1.5 text-left">
-                <Label htmlFor={`dueDay-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Due Day</Label>
+                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Due Day of Month</Label>
                 <Input
-                  id={`dueDay-${bill.id}`} type="number" placeholder="1"
+                  type="number" placeholder="1"
                   value={bill.dueDay || ''}
                   onChange={(e) => onBillChange(bill.id, 'dueDay', parseInt(e.target.value) || undefined)}
                   className="h-9 rounded-lg border-2 font-black text-center text-xs"
                 />
               </div>
               <div className="space-y-1.5 text-left">
-                <Label htmlFor={`paymentUrl-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Payment URL</Label>
+                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Payment URL</Label>
                 <div className="relative">
                   <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
                   <Input
-                    id={`paymentUrl-${bill.id}`} placeholder="https://..."
+                    placeholder="https://..."
                     value={bill.paymentUrl || ''}
                     onChange={(e) => onBillChange(bill.id, 'paymentUrl', e.target.value)}
                     className="pl-7 h-9 rounded-lg border-2 font-medium text-[9px] sm:text-[10px]"
@@ -287,11 +283,11 @@ const BillItemRow = ({
             </div>
             <div className="grid grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-1.5 text-left">
-                <Label htmlFor={`lateFee-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late Penalty ($)</Label>
+                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late Penalty ($)</Label>
                 <div className="relative">
                   <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
                   <Input
-                    id={`lateFee-${bill.id}`} type="number" placeholder="0.00"
+                    type="number" placeholder="0.00"
                     value={bill.lateFee || ''}
                     onChange={(e) => onBillChange(bill.id, 'lateFee', parseFloat(e.target.value) || 0)}
                     className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white"
@@ -299,11 +295,11 @@ const BillItemRow = ({
                 </div>
               </div>
               <div className="space-y-1.5 text-left">
-                <Label htmlFor={`lateByDay-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late After (Days)</Label>
+                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late After (Days)</Label>
                 <div className="relative">
                   <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
                   <Input
-                    id={`lateByDay-${bill.id}`} type="number" placeholder="0"
+                    type="number" placeholder="0"
                     value={bill.lateByDay || ''}
                     onChange={(e) => onBillChange(bill.id, 'lateByDay', parseInt(e.target.value) || 0)}
                     className="h-9 rounded-lg border-2 font-black text-xs bg-white text-center"
@@ -311,15 +307,13 @@ const BillItemRow = ({
                 </div>
               </div>
             </div>
-            <div className="pt-2">
-              <Button
-                variant="ghost" size="sm"
-                className="text-destructive font-black uppercase text-[8px] sm:text-[9px] tracking-widest w-full hover:bg-destructive/5"
-                onClick={() => onDelete(bill.id)}
-              >
-                <Trash2 className="w-3 h-3 mr-2" /> Terminate Record
-              </Button>
-            </div>
+            <Button
+              variant="ghost" size="sm"
+              className="text-destructive font-black uppercase text-[8px] sm:text-[9px] tracking-widest w-full hover:bg-destructive/5 mt-2"
+              onClick={() => onDelete(bill.id)}
+            >
+              <Trash2 className="w-3 h-3 mr-2" /> Remove Line Item
+            </Button>
           </AccordionContent>
         </AccordionItem>
       </Accordion>
@@ -329,26 +323,16 @@ const BillItemRow = ({
 
 // ─── BILL EDITOR ───────────────────────────────────────────────────────────────
 const BillEditor = ({
-  categories,
-  isEditing,
-  onBillChange,
-  onAddBillItem,
-  onDeleteBillItem,
+  categories, isEditing, onBillChange, onAddBillItem, onDeleteBillItem,
 }: {
-  categories: {
-    name: string;
-    bills: {
-      id: string; title: string; amount: number; isCustom?: boolean;
-      dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number;
-    }[];
-  }[];
+  categories: { name: string; bills: any[] }[];
   isEditing: boolean;
-  onBillChange: (categoryName: string, billId: string, field: string, value: any) => void;
-  onAddBillItem: (categoryName: string) => void;
-  onDeleteBillItem: (categoryName: string, billId: string) => void;
+  onBillChange: (cat: string, billId: string, field: string, value: any) => void;
+  onAddBillItem: (cat: string) => void;
+  onDeleteBillItem: (cat: string, billId: string) => void;
 }) => {
   const total = useMemo(
-    () => categories.reduce((acc, cat) => acc + (cat.bills || []).reduce((b, bill) => b + (bill.amount || 0), 0), 0),
+    () => categories.reduce((a, c) => a + (c.bills || []).reduce((b, bill) => b + (bill.amount || 0), 0), 0),
     [categories],
   );
 
@@ -359,63 +343,60 @@ const BillEditor = ({
           <ListChecks className="w-4 h-4 text-primary" /> Manifest Entry
         </CardTitle>
         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
-          Quantify your monthly recurring load.
+          Enter your monthly recurring amounts in each category.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-3 sm:p-8">
-        {categories.length === 0 ? (
-          <div className="text-center py-16 border-2 border-dashed rounded-2xl">
-            <ListChecks className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-            <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">
-              Loading categories…
-            </p>
-          </div>
-        ) : (
-          <Accordion type="multiple" defaultValue={['category-0']} className="w-full space-y-3 sm:space-y-4">
-            {categories.map((category, index) => (
-              <AccordionItem
-                key={`category-${category.name}-${index}`}
-                value={`category-${index}`}
-                className="border-2 rounded-2xl overflow-hidden bg-white"
-              >
-                <AccordionTrigger className="p-3 sm:p-4 bg-muted/30 hover:no-underline font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-900 group">
-                  <div className="flex items-center gap-3">
-                    {/* Icon injected from CATEGORY_ICON_MAP — never relies on
-                        the Firestore-stored category object which has no icon. */}
-                    <div className="p-2 bg-white rounded-xl shadow-inner border border-border/50 group-data-[state=open]:bg-primary group-data-[state=open]:text-white transition-all duration-500">
-                      {getCategoryIcon(category.name)}
-                    </div>
-                    <span className="truncate max-w-[150px] sm:max-w-none">{category.name}</span>
+        <Accordion type="multiple" defaultValue={categories.map((_, i) => `category-${i}`)} className="w-full space-y-3 sm:space-y-4">
+          {categories.map((category, index) => (
+            <AccordionItem
+              key={`${category.name}-${index}`}
+              value={`category-${index}`}
+              className="border-2 rounded-2xl overflow-hidden bg-white"
+            >
+              <AccordionTrigger className="p-3 sm:p-4 bg-muted/30 hover:no-underline font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-900 group">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white rounded-xl shadow-inner border border-border/50 group-data-[state=open]:bg-primary group-data-[state=open]:text-white transition-all duration-300">
+                    {getCategoryIcon(category.name)}
                   </div>
-                </AccordionTrigger>
-                <AccordionContent className="p-3 sm:p-4 space-y-3">
-                  {(category.bills || []).map((bill, billIndex) => (
-                    <BillItemRow
-                      key={`bill-${bill.id || `virtual-${index}-${billIndex}`}`}
-                      bill={bill}
-                      isEditing={isEditing}
-                      onBillChange={(billId, field, value) => onBillChange(category.name, billId, field, value)}
-                      onDelete={(billId) => onDeleteBillItem(category.name, billId)}
-                    />
-                  ))}
-                  {isEditing && (
-                    <Button
-                      variant="outline" size="sm"
-                      className="w-full h-10 rounded-xl border-dashed border-2 font-black uppercase text-[8px] sm:text-[9px] tracking-widest bg-muted/5 hover:bg-muted/10 transition-all mt-2"
-                      onClick={() => onAddBillItem(category.name)}
-                    >
-                      <PlusCircle className="mr-2 h-3.5 w-3.5 opacity-40" /> Append Custom Item
-                    </Button>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        )}
+                  <div className="flex items-center gap-3">
+                    <span className="truncate max-w-[140px] sm:max-w-none">{category.name}</span>
+                    {/* Running sub-total per category */}
+                    {(category.bills || []).some(b => b.amount > 0) && (
+                      <span className="font-mono text-[9px] font-black text-primary/60">
+                        ${(category.bills || []).reduce((a, b) => a + (b.amount || 0), 0).toFixed(0)}/mo
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="p-3 sm:p-4 space-y-2.5">
+                {(category.bills || []).map((bill, bi) => (
+                  <BillItemRow
+                    key={bill.id || `${index}-${bi}`}
+                    bill={bill}
+                    isEditing={isEditing}
+                    onBillChange={(id, field, val) => onBillChange(category.name, id, field, val)}
+                    onDelete={(id) => onDeleteBillItem(category.name, id)}
+                  />
+                ))}
+                {isEditing && (
+                  <Button
+                    variant="outline" size="sm"
+                    className="w-full h-10 rounded-xl border-dashed border-2 font-black uppercase text-[8px] sm:text-[9px] tracking-widest bg-muted/5 hover:bg-muted/10 mt-1"
+                    onClick={() => onAddBillItem(category.name)}
+                  >
+                    <PlusCircle className="mr-2 h-3.5 w-3.5 opacity-40" /> Add Custom Line Item
+                  </Button>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
       </CardContent>
       <CardFooter className="bg-primary/5 p-5 sm:p-8 border-t-2 border-primary/10 flex justify-between items-center">
         <div className="text-left">
-          <p className="text-[9px] sm:text-[10px] font-black uppercase text-primary tracking-widest opacity-60">Cycle Cumulative</p>
+          <p className="text-[9px] sm:text-[10px] font-black uppercase text-primary tracking-widest opacity-60">Monthly Total</p>
           <p className="text-2xl font-black font-mono tracking-tighter text-primary">${total.toFixed(2)}</p>
         </div>
         <div className="text-right">
@@ -429,13 +410,8 @@ const BillEditor = ({
 
 // ─── FINANCIAL PROFILE MANAGER ────────────────────────────────────────────────
 const FinancialProfileManager = ({
-  activeTab,
-  profiles,
-  setProfiles,
-  isEditing,
-  renamingProfileId,
-  setRenamingProfileId,
-  onDeleteProfile,
+  activeTab, profiles, setProfiles, isEditing,
+  renamingProfileId, setRenamingProfileId, onDeleteProfile, onResetToDefaults,
 }: any) => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -445,13 +421,14 @@ const FinancialProfileManager = ({
   const [tempName, setTempName] = useState('');
 
   const handleAddProfile = () => {
-    const name = `New ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Scenario`;
-    const data =
-      activeTab === 'lifestyle'
-        ? { categories: deepCopyTemplate(lifestyleCategoriesTemplate) }
-        : { categories: deepCopyTemplate(businessCategoriesTemplate) };
-    const newProfile = { id: `${activeTab.slice(0, 2)}${Date.now()}`, name, isActive: false, ...data };
-    setProfiles((prev: any) => ({ ...prev, [profileKey]: [...prev[profileKey], newProfile] }));
+    const name = `New ${activeTab === 'lifestyle' ? 'Lifestyle' : 'Business'} Scenario`;
+    const categories = activeTab === 'lifestyle'
+      ? stampIds(LIFESTYLE_TEMPLATE)
+      : stampIds(BUSINESS_TEMPLATE);
+    setProfiles((prev: any) => ({
+      ...prev,
+      [profileKey]: [...prev[profileKey], { id: nanoid(), name, isActive: false, categories }],
+    }));
   };
 
   const handleSetActive = async (id: string) => {
@@ -467,16 +444,17 @@ const FinancialProfileManager = ({
     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
       <CardHeader className="bg-muted/5 border-b p-5 sm:p-6 text-left">
         <CardTitle className="text-xs sm:text-sm font-black uppercase tracking-widest flex items-center gap-2">
-          <Briefcase className="w-4 h-4 text-primary" /> {activeTab} Portfolios
+          <Briefcase className="w-4 h-4 text-primary" />
+          {activeTab === 'lifestyle' ? 'Lifestyle' : 'Business'} Portfolios
         </CardTitle>
         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
-          Manage your financial scenarios.
+          Switch between financial scenarios.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-3 sm:p-4 space-y-2">
         {currentProfiles.map((profile: any) => (
           <div
-            key={`profile-mgr-${profile.id}`}
+            key={profile.id}
             className={cn(
               'relative group transition-all rounded-2xl border-2 p-2.5 sm:p-3 flex items-center justify-between',
               profile.isActive ? 'border-primary bg-primary/5 shadow-sm' : 'border-transparent bg-background hover:bg-muted/30',
@@ -487,10 +465,29 @@ const FinancialProfileManager = ({
                 <Input
                   value={tempName} autoFocus
                   onChange={(e) => setTempName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && setRenamingProfileId(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setProfiles((prev: any) => ({
+                        ...prev,
+                        [profileKey]: prev[profileKey].map((p: any) =>
+                          p.id === profile.id ? { ...p, name: tempName } : p
+                        ),
+                      }));
+                      setRenamingProfileId(null);
+                    }
+                  }}
                   className="h-9 rounded-xl border-2 font-bold uppercase text-[10px] sm:text-xs"
                 />
-                <Button size="icon" className="h-9 w-9 rounded-xl shadow-lg shrink-0" onClick={() => setRenamingProfileId(null)}>
+                <Button size="icon" className="h-9 w-9 rounded-xl shadow-lg shrink-0"
+                  onClick={() => {
+                    setProfiles((prev: any) => ({
+                      ...prev,
+                      [profileKey]: prev[profileKey].map((p: any) =>
+                        p.id === profile.id ? { ...p, name: tempName } : p
+                      ),
+                    }));
+                    setRenamingProfileId(null);
+                  }}>
                   <Check className="h-4 w-4" />
                 </Button>
               </div>
@@ -499,7 +496,7 @@ const FinancialProfileManager = ({
                 <p className={cn('font-black uppercase tracking-tight text-[10px] sm:text-[11px] truncate', profile.isActive ? 'text-primary' : 'text-slate-900')}>
                   {profile.name}
                 </p>
-                {profile.isActive && <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Active Matrix</p>}
+                {profile.isActive && <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Active</p>}
               </button>
             )}
             {!isEditing && renamingProfileId !== profile.id && (
@@ -510,14 +507,13 @@ const FinancialProfileManager = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
-                  <DropdownMenuItem
-                    onClick={() => { setRenamingProfileId(profile.id); setTempName(profile.name); }}
-                    className="font-bold text-[10px] uppercase tracking-widest"
-                  >
+                  <DropdownMenuItem onClick={() => { setRenamingProfileId(profile.id); setTempName(profile.name); }}
+                    className="font-bold text-[10px] uppercase tracking-widest">
                     Rename
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onDeleteProfile(profile.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest">
-                    Terminate
+                  <DropdownMenuItem onClick={() => onDeleteProfile(profile.id)}
+                    className="text-destructive font-bold text-[10px] uppercase tracking-widest">
+                    Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -525,22 +521,25 @@ const FinancialProfileManager = ({
           </div>
         ))}
       </CardContent>
-      {isEditing && (
-        <CardFooter className="p-3 sm:p-4 pt-0">
-          <Button
-            variant="outline"
-            className="w-full h-10 sm:h-11 rounded-xl border-2 border-dashed font-black uppercase text-[9px] sm:text-[10px] tracking-widest shadow-inner bg-muted/5"
-            onClick={handleAddProfile}
-          >
+      <CardFooter className="p-3 sm:p-4 pt-0 flex flex-col gap-2">
+        {isEditing && (
+          <Button variant="outline"
+            className="w-full h-10 sm:h-11 rounded-xl border-2 border-dashed font-black uppercase text-[9px] sm:text-[10px] tracking-widest bg-muted/5"
+            onClick={handleAddProfile}>
             <PlusCircle className="mr-2 h-4 w-4 text-primary opacity-40" /> New Scenario
           </Button>
-        </CardFooter>
-      )}
+        )}
+        <Button variant="ghost" size="sm"
+          className="w-full h-9 rounded-xl font-black uppercase text-[8px] tracking-widest text-muted-foreground hover:text-destructive hover:bg-destructive/5"
+          onClick={() => onResetToDefaults(activeTab)}>
+          <RotateCcw className="w-3 h-3 mr-2" /> Reset to Defaults
+        </Button>
+      </CardFooter>
     </Card>
   );
 };
 
-// ─── TMHR BREAKDOWN CARD ───────────────────────────────────────────────────────
+// ─── TMHR CARD ─────────────────────────────────────────────────────────────────
 const TmhrBreakdownCard = ({
   lifestyleTotal, businessTotal, totalHours,
   firestore, selectedTenant, taxBurden, setTaxBurden, isEditing,
@@ -548,15 +547,9 @@ const TmhrBreakdownCard = ({
   const { toast } = useToast();
   const tmhr = totalHours > 0 ? (lifestyleTotal + businessTotal) / totalHours : 0;
 
-  const handleSetDefaultRate = () => {
-    if (!selectedTenant || !firestore) return;
-    updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id), { tmhr, employerTaxBurdenPct: taxBurden });
-    toast({ title: 'Foundation Synchronized', description: `TMHR of $${tmhr.toFixed(2)}/hr and ${taxBurden}% Tax Burden set.` });
-  };
-
   return (
     <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
-      <div className="absolute top-0 right-0 p-8 opacity-5 transition-opacity group-hover:opacity-10">
+      <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
         <Sparkles className="w-32 h-32 text-primary" />
       </div>
       <CardHeader className="p-5 sm:p-8 pb-4 text-left">
@@ -573,18 +566,21 @@ const TmhrBreakdownCard = ({
           <p className="text-4xl sm:text-7xl font-black text-primary tracking-tighter font-mono leading-none">
             ${tmhr.toFixed(2)}
           </p>
+          {totalHours === 0 && (
+            <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest">
+              Set a schedule profile to calculate
+            </p>
+          )}
         </div>
         <div className="p-5 rounded-[1.5rem] border-2 border-primary/10 bg-white/50 space-y-4 shadow-inner">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label htmlFor="tax-burden" className="text-[10px] font-black uppercase tracking-widest text-primary leading-none">
-                Labor Tax Burden
-              </Label>
-              <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">FICA, SUI, Benefits Multiplier</p>
+              <Label className="text-[10px] font-black uppercase tracking-widest text-primary leading-none">Labor Tax Burden</Label>
+              <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">FICA, SUI, Benefits</p>
             </div>
             <div className="relative w-20">
               <Input
-                id="tax-burden" type="number"
+                type="number"
                 value={taxBurden || ''}
                 onChange={(e) => setTaxBurden(parseFloat(e.target.value) || 0)}
                 disabled={!isEditing}
@@ -594,25 +590,28 @@ const TmhrBreakdownCard = ({
             </div>
           </div>
         </div>
-        <div className="space-y-3 sm:space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
-          <div className="flex justify-between items-center text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+        <div className="space-y-3 pt-4 border-t-2 border-dashed border-primary/10">
+          <div className="flex justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
             <span>Personal Draw / Hr</span>
             <span className="font-mono text-slate-900">${(totalHours > 0 ? lifestyleTotal / totalHours : 0).toFixed(2)}</span>
           </div>
-          <div className="flex justify-between items-center text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+          <div className="flex justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
             <span>OpEx Load / Hr</span>
             <span className="font-mono text-slate-900">${(totalHours > 0 ? businessTotal / totalHours : 0).toFixed(2)}</span>
           </div>
-          <div className="flex justify-between items-center text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">
-            <span>Billable Load</span>
-            <span className="font-mono text-[10px] sm:text-xs">{totalHours.toFixed(1)}h/mo</span>
+          <div className="flex justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">
+            <span>Billable Hours / Mo</span>
+            <span className="font-mono text-[10px] sm:text-xs">{totalHours.toFixed(1)}h</span>
           </div>
         </div>
       </CardContent>
       <CardFooter className="p-5 sm:p-8 pt-0">
         <Button
-          className="w-full h-12 sm:h-14 rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-xl shadow-primary/20 transition-all active:scale-95"
-          onClick={handleSetDefaultRate}
+          className="w-full h-12 sm:h-14 rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95"
+          onClick={() => {
+            if (!selectedTenant || !firestore) return;
+            updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id), { tmhr, employerTaxBurdenPct: taxBurden });
+          }}
         >
           Commit as Studio Standard
         </Button>
@@ -633,126 +632,107 @@ export default function FinancialFoundationPage() {
   const { toast } = useToast();
 
   // ── Firestore queries ──────────────────────────────────────────────────────
-  const lifestyleProfilesQuery = useMemoFirebase(
+  const lifestyleQ = useMemoFirebase(
     () => (tenantId ? collection(firestore, `tenants/${tenantId}/lifestyleProfiles`) : null),
     [firestore, tenantId],
   );
-  const businessProfilesQuery = useMemoFirebase(
+  const businessQ = useMemoFirebase(
     () => (tenantId ? collection(firestore, `tenants/${tenantId}/businessProfiles`) : null),
     [firestore, tenantId],
   );
-  const scheduleProfilesQuery = useMemoFirebase(
+  const scheduleQ = useMemoFirebase(
     () => (tenantId ? query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where('isActive', '==', true)) : null),
     [firestore, tenantId],
   );
 
-  const { data: lifestyleProfilesData, isLoading: lifestyleProfilesLoading } = useCollection(lifestyleProfilesQuery);
-  const { data: businessProfilesData,  isLoading: businessProfilesLoading  } = useCollection(businessProfilesQuery);
-  const { data: scheduleProfilesData                                         } = useCollection(scheduleProfilesQuery);
+  const { data: lifestyleData, isLoading: lLoading } = useCollection(lifestyleQ);
+  const { data: businessData,  isLoading: bLoading  } = useCollection(businessQ);
+  const { data: scheduleData                         } = useCollection(scheduleQ);
 
-  const [profiles, setProfiles] = useState<any>({
-    lifestyleProfiles: [],
-    businessProfiles:  [],
+  // ── Local state — starts with template data immediately so UI is never empty.
+  // When Firestore loads valid saved data it replaces the defaults. ───────────
+  const [profiles, setProfiles] = useState<any>(() => ({
+    lifestyleProfiles: [makeDefaultLifestyle()],
+    businessProfiles:  [makeDefaultBusiness()],
     scheduleProfiles:  [],
-  });
+  }));
 
-  // Sync tenant tax burden
   useEffect(() => {
     if (selectedTenant) setTaxBurden(selectedTenant.employerTaxBurdenPct || 10);
   }, [selectedTenant]);
 
-  // Seed lifestyle profiles when Firestore collection is empty
+  // Replace local defaults with Firestore data only when it arrives and is valid.
   useEffect(() => {
-    if (lifestyleProfilesLoading || !firestore || !user || !tenantId) return;
-    if (lifestyleProfilesData && lifestyleProfilesData.length === 0) {
-      const id = nanoid();
-      setDocumentNonBlocking(
-        doc(firestore, `tenants/${tenantId}/lifestyleProfiles/${id}`),
-        { id, name: 'Core Lifestyle', isActive: true, categories: deepCopyTemplate(lifestyleCategoriesTemplate) },
-        {},
-      );
-    }
-  }, [lifestyleProfilesLoading, lifestyleProfilesData, firestore, user, tenantId]);
+    if (lLoading || bLoading) return; // wait until both have resolved
 
-  // Seed business profiles when Firestore collection is empty
-  useEffect(() => {
-    if (businessProfilesLoading || !firestore || !user || !tenantId) return;
-    if (businessProfilesData && businessProfilesData.length === 0) {
-      const id = nanoid();
-      setDocumentNonBlocking(
-        doc(firestore, `tenants/${tenantId}/businessProfiles/${id}`),
-        { id, name: 'Studio Overhead', isActive: true, categories: deepCopyTemplate(businessCategoriesTemplate) },
-        {},
-      );
-    }
-  }, [businessProfilesLoading, businessProfilesData, firestore, user, tenantId]);
+    const firestoreLifestyle = ensureBillIds(lifestyleData || []);
+    const firestoreBusiness  = ensureBillIds(businessData  || []);
 
-  // Sync Firestore → local state, ensuring every bill has an id
-  useEffect(() => {
-    const ensureBillIds = (list: any[]) =>
-      (list || []).map((p) => ({
-        ...p,
-        categories: (p.categories || []).map((cat: any) => ({
-          ...cat,
-          bills: (cat.bills || []).map((bill: any) => ({ ...bill, id: bill.id || nanoid() })),
-        })),
-      }));
-
-    setProfiles({
-      lifestyleProfiles: ensureBillIds(lifestyleProfilesData || []),
-      businessProfiles:  ensureBillIds(businessProfilesData  || []),
-      scheduleProfiles:  scheduleProfilesData || [],
-    });
-  }, [lifestyleProfilesData, businessProfilesData, scheduleProfilesData]);
+    setProfiles((prev: any) => ({
+      ...prev,
+      lifestyleProfiles: hasValidData(firestoreLifestyle) ? firestoreLifestyle : prev.lifestyleProfiles,
+      businessProfiles:  hasValidData(firestoreBusiness)  ? firestoreBusiness  : prev.businessProfiles,
+      scheduleProfiles:  scheduleData || [],
+    }));
+  }, [lifestyleData, businessData, scheduleData, lLoading, bLoading]);
 
   // Active profiles
-  const activeLifestyleProfile = useMemo(() => profiles.lifestyleProfiles.find((p: any) => p.isActive), [profiles.lifestyleProfiles]);
-  const activeBusinessProfile  = useMemo(() => profiles.businessProfiles.find((p: any) => p.isActive),  [profiles.businessProfiles]);
-  const activeScheduleProfile  = useMemo(() => profiles.scheduleProfiles.find((p: any) => p.isActive),  [profiles.scheduleProfiles]);
+  const activeLifestyle = useMemo(() => profiles.lifestyleProfiles.find((p: any) => p.isActive), [profiles.lifestyleProfiles]);
+  const activeBusiness  = useMemo(() => profiles.businessProfiles.find((p: any) => p.isActive),  [profiles.businessProfiles]);
+  const activeSchedule  = useMemo(() => profiles.scheduleProfiles.find((p: any) => p.isActive),  [profiles.scheduleProfiles]);
 
-  // Bill mutations
-  const handleBillChange = useCallback(
-    (profileType: 'lifestyle' | 'business', categoryName: string, billId: string, field: string, value: any) => {
-      const key = `${profileType}Profiles`;
-      setProfiles((prev: any) => ({
-        ...prev,
-        [key]: prev[key].map((p: any) =>
-          p.isActive
-            ? { ...p, categories: p.categories.map((cat: any) => cat.name === categoryName ? { ...cat, bills: cat.bills.map((b: any) => b.id === billId ? { ...b, [field]: value } : b) } : cat) }
-            : p,
-        ),
-      }));
-    },
-    [],
-  );
-
-  const handleAddBillItem = useCallback((profileType: 'lifestyle' | 'business', categoryName: string) => {
-    const key = `${profileType}Profiles`;
+  // ── Bill mutations ─────────────────────────────────────────────────────────
+  const handleBillChange = useCallback((type: 'lifestyle' | 'business', cat: string, billId: string, field: string, val: any) => {
+    const key = `${type}Profiles`;
     setProfiles((prev: any) => ({
       ...prev,
       [key]: prev[key].map((p: any) =>
         p.isActive
-          ? { ...p, categories: p.categories.map((cat: any) => cat.name === categoryName ? { ...cat, bills: [...(cat.bills || []), { id: nanoid(), title: 'NEW ITEM', amount: 0, isCustom: true, dueDay: 1 }] } : cat) }
+          ? { ...p, categories: p.categories.map((c: any) => c.name === cat ? { ...c, bills: c.bills.map((b: any) => b.id === billId ? { ...b, [field]: val } : b) } : c) }
           : p,
       ),
     }));
   }, []);
 
-  const handleDeleteBillItem = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billId: string) => {
-    const key = `${profileType}Profiles`;
+  const handleAddBillItem = useCallback((type: 'lifestyle' | 'business', cat: string) => {
+    const key = `${type}Profiles`;
     setProfiles((prev: any) => ({
       ...prev,
       [key]: prev[key].map((p: any) =>
         p.isActive
-          ? { ...p, categories: p.categories.map((cat: any) => cat.name === categoryName ? { ...cat, bills: cat.bills.filter((b: any) => b.id !== billId) } : cat) }
+          ? { ...p, categories: p.categories.map((c: any) => c.name === cat ? { ...c, bills: [...(c.bills || []), { id: nanoid(), title: 'NEW ITEM', amount: 0, isCustom: true, dueDay: 1 }] } : c) }
           : p,
       ),
     }));
   }, []);
 
-  // Billable hours from active schedule
+  const handleDeleteBillItem = useCallback((type: 'lifestyle' | 'business', cat: string, billId: string) => {
+    const key = `${type}Profiles`;
+    setProfiles((prev: any) => ({
+      ...prev,
+      [key]: prev[key].map((p: any) =>
+        p.isActive
+          ? { ...p, categories: p.categories.map((c: any) => c.name === cat ? { ...c, bills: c.bills.filter((b: any) => b.id !== billId) } : c) }
+          : p,
+      ),
+    }));
+  }, []);
+
+  // Reset a tab's active profile back to the built-in template
+  const handleResetToDefaults = useCallback((tab: string) => {
+    if (!window.confirm(`Reset ${tab} profile to defaults? Your current amounts will be cleared.`)) return;
+    const key = `${tab}Profiles`;
+    const fresh = tab === 'lifestyle' ? makeDefaultLifestyle() : makeDefaultBusiness();
+    setProfiles((prev: any) => ({
+      ...prev,
+      [key]: [fresh],
+    }));
+    toast({ title: `${tab === 'lifestyle' ? 'Lifestyle' : 'Business'} profile reset to defaults` });
+  }, [toast]);
+
+  // ── Billable hours ─────────────────────────────────────────────────────────
   const totalBillableHours = useMemo(() => {
-    if (!activeScheduleProfile) return 0;
+    if (!activeSchedule) return 0;
     const toMin = (t: string) => {
       if (!t) return 0;
       const [time, p] = t.split(' ');
@@ -761,40 +741,50 @@ export default function FinancialFoundationPage() {
       if (p === 'AM' && h === 12) h = 0;
       return h * 60 + m;
     };
-    const weekMin    = Object.values(activeScheduleProfile.week || {}).reduce((a: number, d: any) => d.enabled ? a + toMin(d.end) - toMin(d.start) : a, 0);
-    const weekHours  = (weekMin as number) / 60;
-    const enabledDays = Object.values(activeScheduleProfile.week || {}).filter((d: any) => d.enabled).length;
-    const totalDays  = 52 * enabledDays;
-    const daysOff    = (activeScheduleProfile.timeOff?.vacationDays || 0) + (activeScheduleProfile.timeOff?.holidays || 0);
-    const pct        = totalDays > 0 ? (totalDays - daysOff) / totalDays : 0;
-    return (weekHours * 52 / 12) * pct;
-  }, [activeScheduleProfile]);
+    const weekMin    = (Object.values(activeSchedule.week || {}) as any[]).reduce((a, d) => d.enabled ? a + toMin(d.end) - toMin(d.start) : a, 0);
+    const enabledDays = (Object.values(activeSchedule.week || {}) as any[]).filter(d => d.enabled).length;
+    const daysOff    = (activeSchedule.timeOff?.vacationDays || 0) + (activeSchedule.timeOff?.holidays || 0);
+    const pct        = enabledDays > 0 ? ((52 * enabledDays) - daysOff) / (52 * enabledDays) : 0;
+    return ((weekMin / 60) * 52 / 12) * pct;
+  }, [activeSchedule]);
 
-  // Save / edit toggle
-  const handleEditToggle = () => {
-    if (isEditing) {
-      if (firestore && tenantId) {
-        Object.entries(profiles).forEach(([key, list]) => {
-          (list as any[]).forEach((p: any) => {
-            updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/${key}/${p.id}`), p);
-          });
-        });
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { employerTaxBurdenPct: taxBurden });
-      }
-      toast({ title: 'Foundation Updated' });
+  // ── Save ───────────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!firestore || !tenantId) { setIsEditing(false); return; }
+
+    // Write every profile to Firestore using setDoc (creates or overwrites)
+    const allWrites: Promise<any>[] = [];
+    ['lifestyleProfiles', 'businessProfiles'].forEach((key) => {
+      (profiles[key] as any[]).forEach((p: any) => {
+        allWrites.push(
+          setDoc(doc(firestore, `tenants/${tenantId}/${key}/${p.id}`), p)
+        );
+      });
+    });
+    allWrites.push(
+      setDoc(doc(firestore, 'tenants', tenantId), { employerTaxBurdenPct: taxBurden }, { merge: true })
+    );
+
+    try {
+      await Promise.all(allWrites);
+      toast({ title: 'Foundation saved ✓' });
+    } catch (e) {
+      console.error(e);
+      toast({ variant: 'destructive', title: 'Save failed — please try again' });
     }
-    setIsEditing((v) => !v);
+    setIsEditing(false);
   };
 
   const lifestyleTotal = useMemo(
-    () => (activeLifestyleProfile?.categories || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + (bill.amount || 0), 0), 0),
-    [activeLifestyleProfile],
+    () => (activeLifestyle?.categories || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + (bill.amount || 0), 0), 0),
+    [activeLifestyle],
   );
   const businessTotal = useMemo(
-    () => (activeBusinessProfile?.categories || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + (bill.amount || 0), 0), 0),
-    [activeBusinessProfile],
+    () => (activeBusiness?.categories || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + (bill.amount || 0), 0), 0),
+    [activeBusiness],
   );
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Foundation Analysis" />
@@ -813,14 +803,19 @@ export default function FinancialFoundationPage() {
           <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
             {isEditing ? (
               <>
-                <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:w-auto h-12 sm:h-14 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
-                <Button onClick={handleEditToggle} className="flex-[2] sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase text-[9px] sm:text-[10px] tracking-widest shadow-primary/20">
-                  <Save className="mr-2 h-4 w-4" /> Save Archive
+                <Button variant="ghost" onClick={() => setIsEditing(false)}
+                  className="flex-1 sm:w-auto h-12 sm:h-14 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">
+                  Cancel
+                </Button>
+                <Button onClick={handleSave}
+                  className="flex-[2] sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase text-[9px] sm:text-[10px] tracking-widest shadow-primary/20">
+                  <Save className="mr-2 h-4 w-4" /> Save
                 </Button>
               </>
             ) : (
-              <Button onClick={handleEditToggle} className="w-full sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20">
-                <Pencil className="mr-2 h-4 w-4" /> Modify Profiles
+              <Button onClick={() => setIsEditing(true)}
+                className="w-full sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20">
+                <Pencil className="mr-2 h-4 w-4" /> Edit Profiles
               </Button>
             )}
           </div>
@@ -829,12 +824,14 @@ export default function FinancialFoundationPage() {
         {/* Tabs */}
         <Tabs defaultValue="lifestyle" className="w-full" onValueChange={setActiveTab}>
           <div className="flex flex-col space-y-6 sm:space-y-8">
-            <div className="w-full overflow-x-auto pb-2 scrollbar-hide">
-              <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5 mb-2">
-                <TabsTrigger value="lifestyle" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+            <div className="w-full overflow-x-auto pb-2">
+              <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5">
+                <TabsTrigger value="lifestyle"
+                  className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
                   1. Lifestyle Target
                 </TabsTrigger>
-                <TabsTrigger value="business" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
+                <TabsTrigger value="business"
+                  className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">
                   2. Studio Overhead
                 </TabsTrigger>
               </TabsList>
@@ -850,9 +847,19 @@ export default function FinancialFoundationPage() {
                   isEditing={isEditing}
                   renamingProfileId={renamingProfileId}
                   setRenamingProfileId={setRenamingProfileId}
+                  onResetToDefaults={handleResetToDefaults}
                   onDeleteProfile={(id: string) => {
                     if (!tenantId) return;
                     deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/${activeTab}Profiles/${id}`));
+                    setProfiles((prev: any) => {
+                      const key = `${activeTab}Profiles`;
+                      const remaining = prev[key].filter((p: any) => p.id !== id);
+                      // Keep at least one profile
+                      if (remaining.length === 0) return prev;
+                      // Ensure one is active
+                      const hasActive = remaining.some((p: any) => p.isActive);
+                      return { ...prev, [key]: hasActive ? remaining : remaining.map((p: any, i: number) => ({ ...p, isActive: i === 0 })) };
+                    });
                   }}
                 />
                 <TmhrBreakdownCard
@@ -869,18 +876,18 @@ export default function FinancialFoundationPage() {
 
               {/* Bill editors */}
               <div className="lg:col-span-2 xl:col-span-3">
-                <TabsContent value="lifestyle" className="m-0 animate-in fade-in duration-500">
+                <TabsContent value="lifestyle" className="m-0 animate-in fade-in duration-300">
                   <BillEditor
-                    categories={activeLifestyleProfile?.categories || []}
+                    categories={activeLifestyle?.categories || []}
                     isEditing={isEditing}
                     onBillChange={(cat, bid, field, val) => handleBillChange('lifestyle', cat, bid, field, val)}
                     onAddBillItem={(cat) => handleAddBillItem('lifestyle', cat)}
                     onDeleteBillItem={(cat, bid) => handleDeleteBillItem('lifestyle', cat, bid)}
                   />
                 </TabsContent>
-                <TabsContent value="business" className="m-0 animate-in fade-in duration-500">
+                <TabsContent value="business" className="m-0 animate-in fade-in duration-300">
                   <BillEditor
-                    categories={activeBusinessProfile?.categories || []}
+                    categories={activeBusiness?.categories || []}
                     isEditing={isEditing}
                     onBillChange={(cat, bid, field, val) => handleBillChange('business', cat, bid, field, val)}
                     onAddBillItem={(cat) => handleAddBillItem('business', cat)}
