@@ -1,13 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { InventoryDialogShell } from '@/components/inventory/InventoryDialogShell';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  PlusCircle, Calendar as CalendarIcon, DollarSign, Recycle, Sparkles,
-  ArrowRight, Pipette, CheckCircle, Check, Building,
+  PlusCircle, Calendar as CalendarIcon, DollarSign, Recycle, Sparkles, ArrowRight,
+  Pipette, CheckCircle, Check, Building,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,31 +16,30 @@ import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-fo
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type InventoryItem, type Location } from '@/lib/data';
-import { Calendar } from '../ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { ScrollArea } from '../ui/scroll-area';
-import { Progress } from '../ui/progress';
-import { Textarea } from '../ui/textarea';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Progress } from '@/components/ui/progress';
+import { Textarea } from '@/components/ui/textarea';
 import { nanoid } from 'nanoid';
 
 const overheadSchema = z.object({
-  name:              z.string().min(1, 'Item name is required.'),
-  category:          z.string().min(1, 'Category is required.'),
-  description:       z.string().optional(),
-  purchaseCost:      z.coerce.number().min(0),
-  purchaseDate:      z.date({ required_error: 'A purchase date is required.' }),
-  costingMethod:     z.enum(['size', 'uses']),
-  containerSize:     z.coerce.number().optional(),
-  containerUnit:     z.string().optional(),
-  usesPerContainer:  z.coerce.number().optional(),
-  initialStock:      z.coerce.number().min(1, 'Initial stock must be at least 1.'),
-  supplier:          z.string().optional(),
+  name: z.string().min(1, 'Item name is required.'),
+  category: z.string().min(1, 'Category is required.'),
+  description: z.string().optional(),
+  purchaseCost: z.coerce.number().min(0, 'Purchase cost must be a positive number.'),
+  purchaseDate: z.date({ required_error: 'A purchase date is required.' }),
+  costingMethod: z.enum(['size', 'uses']),
+  containerSize: z.coerce.number().optional(),
+  containerUnit: z.string().optional(),
+  usesPerContainer: z.coerce.number().optional(),
+  initialStock: z.coerce.number().min(1, 'Initial stock must be at least 1.'),
+  supplier: z.string().optional(),
   primaryLocationId: z.string().optional(),
 });
-
 type OverheadFormData = z.infer<typeof overheadSchema>;
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; step: number }) => (
@@ -63,7 +59,7 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
-  const handleAddNewCategory = () => {
+  const handleAdd = () => {
     if (newCategoryName.trim()) {
       onNewCategory(newCategoryName.trim());
       setValue('category', newCategoryName.trim());
@@ -85,30 +81,20 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Department</Label>
           {isAddingCategory ? (
             <div className="flex gap-2">
-              <Input placeholder="New category..." value={newCategoryName}
-                onChange={e => setNewCategoryName(e.target.value)}
-                className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
-              <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl">
-                <Check className="h-5 w-5" />
-              </Button>
+              <Input placeholder="New category..." value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+              <Button onClick={handleAdd} type="button" className="h-12 w-12 rounded-xl"><Check className="h-5 w-5" /></Button>
             </div>
           ) : (
             <div className="flex gap-2">
               <Controller name="category" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} value={field.value}>
-                  <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5">
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
+                  <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5"><SelectValue placeholder="Select category" /></SelectTrigger>
                   <SelectContent className="rounded-xl border-2 shadow-2xl">
-                    {categories.map(cat => (
-                      <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem>
-                    ))}
+                    {categories.map(cat => <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem>)}
                   </SelectContent>
                 </Select>
               )} />
-              <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2">
-                <PlusCircle className="h-5 w-5" />
-              </Button>
+              <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2"><PlusCircle className="h-5 w-5" /></Button>
             </div>
           )}
         </div>
@@ -146,25 +132,20 @@ const Step2 = () => {
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Consumption Logic</Label>
             <Controller name="costingMethod" control={control} render={({ field }) => (
               <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                <label htmlFor="size-ov" className="cursor-pointer">
-                  <div className={cn('p-3 rounded-xl border-2 text-center transition-all', field.value === 'size' ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-background')}>
-                    <Pipette className={cn('w-4 h-4 mx-auto mb-1.5', field.value === 'size' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">By Volume</span>
-                    <RadioGroupItem value="size" id="size-ov" className="sr-only" />
-                  </div>
-                </label>
-                <label htmlFor="uses-ov" className="cursor-pointer">
-                  <div className={cn('p-3 rounded-xl border-2 text-center transition-all', field.value === 'uses' ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-background')}>
-                    <CheckCircle className={cn('w-4 h-4 mx-auto mb-1.5', field.value === 'uses' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">By Uses</span>
-                    <RadioGroupItem value="uses" id="uses-ov" className="sr-only" />
-                  </div>
-                </label>
+                {[{ value: 'size', icon: Pipette, label: 'By Volume' }, { value: 'uses', icon: CheckCircle, label: 'By Uses' }].map(opt => (
+                  <label key={opt.value} htmlFor={`ov-${opt.value}`} className="cursor-pointer">
+                    <div className={cn('p-3 rounded-xl border-2 text-center transition-all', field.value === opt.value ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-background')}>
+                      <opt.icon className={cn('w-4 h-4 mx-auto mb-1.5', field.value === opt.value ? 'text-primary' : 'text-muted-foreground opacity-40')} />
+                      <span className="text-[10px] font-black uppercase tracking-widest">{opt.label}</span>
+                      <RadioGroupItem value={opt.value} id={`ov-${opt.value}`} className="sr-only" />
+                    </div>
+                  </label>
+                ))}
               </RadioGroup>
             )} />
           </div>
           {costingMethod === 'size' ? (
-            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 text-left">
+            <div className="grid grid-cols-2 gap-4 text-left">
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label>
                 <Input type="number" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" />
@@ -175,17 +156,14 @@ const Step2 = () => {
                   <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger>
                     <SelectContent className="rounded-xl shadow-xl border-2">
-                      <SelectItem value="ml" className="font-bold">ML</SelectItem>
-                      <SelectItem value="oz" className="font-bold">OZ</SelectItem>
-                      <SelectItem value="g" className="font-bold">G</SelectItem>
-                      <SelectItem value="sheets" className="font-bold">SHEETS</SelectItem>
+                      {['ml', 'oz', 'g', 'sheets'].map(u => <SelectItem key={u} value={u} className="font-bold uppercase">{u}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 )} />
               </div>
             </div>
           ) : (
-            <div className="space-y-1.5 animate-in slide-in-from-top-2 text-left">
+            <div className="space-y-1.5 text-left">
               <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Est. Uses / Container</Label>
               <Input type="number" placeholder="e.g., 100 wipes" {...register('usesPerContainer')} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
             </div>
@@ -207,13 +185,9 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
             <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
             <Controller name="primaryLocationId" control={control} render={({ field }) => (
               <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner">
-                  <SelectValue placeholder="Select Zone" />
-                </SelectTrigger>
+                <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner"><SelectValue placeholder="Select Zone" /></SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-2xl">
-                  {locations.map(loc => (
-                    <SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>
-                  ))}
+                  {locations.map(loc => <SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             )} />
@@ -251,11 +225,11 @@ export const AddOverheadDialog = ({
 }: {
   open: boolean; onOpenChange: (open: boolean) => void;
   categories: string[]; onNewCategory: (category: string) => void;
-  onOverheadAdded: (overhead: InventoryItem) => void; locations: Location[];
+  onOverheadAdded: (overhead: InventoryItem) => void;
+  locations: Location[];
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
-  const isMobile = useIsMobile();
 
   const methods = useForm<OverheadFormData>({
     resolver: zodResolver(overheadSchema),
@@ -270,11 +244,10 @@ export const AddOverheadDialog = ({
   const onSubmit = (data: OverheadFormData) => {
     const unitPrice = data.initialStock > 0 ? data.purchaseCost / data.initialStock : 0;
     onOverheadAdded({
-      id: `ovhd-${nanoid(8)}`, name: data.name, description: data.description,
-      type: 'overhead', category: data.category, totalStock: data.initialStock,
-      costPerUnit: unitPrice, supplier: data.supplier || '',
-      primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod,
-      size: data.containerSize, unit: data.containerUnit as any,
+      id: `ovhd-${nanoid(8)}`, name: data.name, description: data.description, type: 'overhead',
+      category: data.category, totalStock: data.initialStock, costPerUnit: unitPrice,
+      supplier: data.supplier || '', primaryLocationId: data.primaryLocationId,
+      costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any,
       estimatedUses: data.usesPerContainer,
       batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock, costPerUnit: unitPrice, receivedDate: data.purchaseDate.toISOString() }],
     });
@@ -287,74 +260,61 @@ export const AddOverheadDialog = ({
   };
   const handleBack = (e: React.MouseEvent) => { e.preventDefault(); setStep(s => s - 1); };
 
-  return (
-    // ── FIX: always Dialog + DialogContent — no Sheet nesting.
-    // Mobile gets bottom-sheet appearance via CSS overrides.
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn(
-        'p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden',
-        'sm:rounded-[2.5rem] sm:max-w-4xl sm:max-h-[90dvh]',
-        '!rounded-t-[2.5rem] !rounded-b-none',
-        '!top-auto !bottom-0 !left-0 !right-0 !w-full !translate-x-0 !translate-y-0 !max-w-full',
-        'h-[92dvh] sm:!h-auto sm:!max-h-[90dvh]',
-        'sm:!top-[50%] sm:!translate-y-[-50%] sm:!left-[50%] sm:!translate-x-[-50%] sm:!w-auto sm:!rounded-[2.5rem]',
-      )}>
-      <FormProvider {...methods}>
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
-          <DialogHeader className={cn('flex-shrink-0 text-left border-b bg-muted/5', isMobile ? 'p-6' : 'p-8 pb-6')}>
-            <div className="flex items-center gap-3 mb-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
-            </div>
-            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-              Register Overhead Supply
-            </DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-              Log consumable studio supplies into the manifest.
-            </DialogDescription>
-            <div className="pt-6">
-              <Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" />
-            </div>
-          </DialogHeader>
+  const formBody = (
+    <FormProvider {...methods}>
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+        <div className="flex-shrink-0 text-left border-b bg-muted/5 p-6 sm:p-8 sm:pb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Overhead Supply</h2>
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Log consumable studio supplies into the manifest.</p>
+          <div className="pt-6"><Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" /></div>
+        </div>
 
-          <ScrollArea className="flex-1">
-            <div className={cn('pb-32', isMobile ? 'p-6' : 'p-8')}>
-              {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
-              {step === 2 && <Step2 />}
-              {step === 3 && <Step3 locations={locations} />}
-            </div>
-          </ScrollArea>
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="p-6 sm:p-8 pb-32">
+            {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
+            {step === 2 && <Step2 />}
+            {step === 3 && <Step3 locations={locations} />}
+          </div>
+        </ScrollArea>
 
-          <DialogFooter className={cn('border-t bg-background flex-shrink-0 shadow-2xl', isMobile ? 'p-4' : 'p-6 sm:p-8 pt-4')}>
-            <div className="flex w-full gap-4">
-              {step > 1 && (
-                <Button variant="ghost" onClick={handleBack} type="button"
-                  className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">
-                  Back
+        <div className="border-t bg-background flex-shrink-0 shadow-2xl p-4 sm:p-6 sm:pt-4">
+          <div className="flex w-full gap-4">
+            {step > 1 && (
+              <Button variant="ghost" onClick={handleBack} type="button"
+                className="flex-1 h-12 sm:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] sm:text-2xl text-slate-400">
+                Back
+              </Button>
+            )}
+            <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
+              <Button variant="outline" onClick={() => onOpenChange(false)} type="button"
+                className="flex-1 h-12 sm:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] sm:text-xl border-2">
+                Cancel
+              </Button>
+              {step < totalSteps ? (
+                <Button onClick={handleNext} type="button"
+                  className="flex-[1.5] h-12 sm:h-16 font-black uppercase tracking-widest text-[10px] sm:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group">
+                  Continue <ArrowRight className="ml-3 w-4 h-4 sm:w-8 sm:h-8 transition-transform group-hover:translate-x-1" />
+                </Button>
+              ) : (
+                <Button type="submit"
+                  className="flex-[1.5] h-12 sm:h-16 font-black uppercase tracking-widest text-[10px] sm:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">
+                  Save Asset
                 </Button>
               )}
-              <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
-                <Button variant="outline" onClick={() => onOpenChange(false)} type="button"
-                  className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2">
-                  Cancel
-                </Button>
-                {step < totalSteps ? (
-                  <Button onClick={handleNext} type="button"
-                    className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group">
-                    Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
-                  </Button>
-                ) : (
-                  <Button type="submit"
-                    className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">
-                    Save Asset
-                  </Button>
-                )}
-              </div>
             </div>
-          </DialogFooter>
-        </form>
-      </FormProvider>
-      </DialogContent>
-    </Dialog>
+          </div>
+        </div>
+      </form>
+    </FormProvider>
+  );
+
+  return (
+    <InventoryDialogShell open={open} onOpenChange={onOpenChange}>
+      {formBody}
+    </InventoryDialogShell>
   );
 };
