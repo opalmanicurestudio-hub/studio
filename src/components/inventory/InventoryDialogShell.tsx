@@ -90,8 +90,13 @@ export function InventoryDialogShell({
           maxWidth,
           'max-h-[90dvh]',
           'p-0 border-4 rounded-[2.5rem]',
-          'flex flex-col',
-          'overflow-hidden',   // ← prevents body scroll leak
+          // shadcn DialogContent has `grid` in its default classes.
+          // In Tailwind's generated CSS, `.grid` appears after `.flex`, so
+          // `grid` wins on specificity and `flex-1` on children never activates.
+          // `!flex` generates `display: flex !important` which beats grid
+          // regardless of stylesheet order.
+          '!flex flex-col',
+          'overflow-hidden',
           'shadow-2xl',
           desktopClassName,
         )}
