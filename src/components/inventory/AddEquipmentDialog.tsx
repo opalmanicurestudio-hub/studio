@@ -1,19 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useIsMobile } from '@/hooks/use-mobile';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
+  DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  ArrowRight, PlusCircle, DollarSign, Calendar as CalendarIcon,
-  Hammer, Sparkles, Check, Link as LinkIcon, Building,
-} from 'lucide-react';
+import { InventoryDialogShell } from '@/components/inventory/InventoryDialogShell';
+import { ArrowRight, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, Check, Link as LinkIcon, Building } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,24 +21,25 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { ScrollArea } from '../ui/scroll-area';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { nanoid } from 'nanoid';
 import { Progress } from '@/components/ui/progress';
-import { Textarea } from '../ui/textarea';
+import { Textarea } from '@/components/ui/textarea';
+import { AlertTriangle, Clock } from 'lucide-react';
 
 const equipmentSchema = z.object({
-  name:              z.string().min(1, 'Equipment name is required.'),
-  category:          z.string().min(1, 'Category is required.'),
-  description:       z.string().optional(),
-  purchaseCost:      z.coerce.number().min(0),
-  lifespanYears:     z.coerce.number().min(0),
-  purchaseDate:      z.date({ required_error: 'A purchase date is required.' }),
-  quantity:          z.coerce.number().min(1).default(1),
-  supplier:          z.string().optional(),
-  supplierUrl:       z.string().optional(),
+  name: z.string().min(1, 'Equipment name is required.'),
+  category: z.string().min(1, 'Category is required.'),
+  description: z.string().optional(),
+  purchaseCost: z.coerce.number().min(0, 'Purchase cost must be a positive number.'),
+  lifespanYears: z.coerce.number().min(0, 'Lifespan must be a positive number.'),
+  purchaseDate: z.date({ required_error: 'A purchase date is required.' }),
+  quantity: z.coerce.number().min(1, 'Quantity must be at least 1.').default(1),
+  supplier: z.string().optional(),
+  supplierUrl: z.string().optional(),
   primaryLocationId: z.string().optional(),
-  imageUrl:          z.string().optional(),
-  sku:               z.string().optional(),
+  imageUrl: z.string().optional(),
+  sku: z.string().optional(),
 });
 
 type EquipmentFormData = z.infer<typeof equipmentSchema>;
@@ -63,9 +56,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
   </div>
 );
 
-const Step1 = ({ equipmentCategories, onNewCategory }: {
-  equipmentCategories: string[]; onNewCategory: (cat: string) => void;
-}) => {
+const Step1 = ({ equipmentCategories, onNewCategory }: { equipmentCategories: string[]; onNewCategory: (cat: string) => void }) => {
   const { control, register, setValue, formState: { errors } } = useFormContext<EquipmentFormData>();
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -92,46 +83,34 @@ const Step1 = ({ equipmentCategories, onNewCategory }: {
           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Department</Label>
           {isAddingCategory ? (
             <div className="flex gap-2">
-              <Input placeholder="New category..." value={newCategoryName}
-                onChange={e => setNewCategoryName(e.target.value)}
-                className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
-              <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl">
-                <Check className="h-5 w-5" />
-              </Button>
+              <Input placeholder="New category..." value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+              <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl"><Check className="h-5 w-5" /></Button>
             </div>
           ) : (
             <div className="flex gap-2">
               <Controller name="category" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} value={field.value}>
-                  <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5">
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
+                  <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5"><SelectValue placeholder="Select category" /></SelectTrigger>
                   <SelectContent className="rounded-xl border-2 shadow-2xl">
-                    {equipmentCategories.map(cat => (
-                      <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem>
-                    ))}
+                    {equipmentCategories.map(cat => <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem>)}
                   </SelectContent>
                 </Select>
               )} />
-              <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2">
-                <PlusCircle className="h-5 w-5" />
-              </Button>
+              <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2"><PlusCircle className="h-5 w-5" /></Button>
             </div>
           )}
         </div>
         <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Public Description</Label>
-          <Textarea placeholder="Guest-facing details..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] p-4 font-medium" />
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Description</Label>
+          <Textarea placeholder="Guest-facing details for premium bookable assets..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] p-4 font-medium" />
         </div>
         <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Identity (SKU)</Label>
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">SKU</Label>
           <Input placeholder="Hardware identifier..." {...register('sku')} className="h-12 rounded-xl border-2 font-mono font-black uppercase text-sm" />
         </div>
         <div className="space-y-2">
           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Visual</Label>
-          <Controller name="imageUrl" control={control} render={({ field }) => (
-            <ImageUpload onImageUploaded={field.onChange} />
-          )} />
+          <Controller name="imageUrl" control={control} render={({ field }) => <ImageUpload onImageUploaded={field.onChange} />} />
         </div>
       </div>
     </div>
@@ -162,9 +141,10 @@ const Step2 = () => {
           <div className="space-y-2">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Depreciation Lifecycle (Years)</Label>
             <Input type="number" placeholder="e.g., 5" {...register('lifespanYears')} className="h-14 rounded-2xl border-2 font-black text-xl" />
+            {errors.lifespanYears && <p className="text-[8px] font-black text-destructive uppercase ml-1">{errors.lifespanYears.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label className="text-[10px] font-black uppercase text-muted-foreground ml-1">Investment Date</Label>
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Investment Date</Label>
             <Controller name="purchaseDate" control={control} render={({ field }) => (
               <Popover>
                 <PopoverTrigger asChild>
@@ -198,10 +178,7 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
           </div>
           <div className="space-y-1.5">
             <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder URL</Label>
-            <div className="relative">
-              <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
-              <Input placeholder="https://..." {...register('supplierUrl')} className="pl-7 h-11 rounded-xl border-2 font-bold text-xs" />
-            </div>
+            <Input placeholder="https://..." {...register('supplierUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" />
           </div>
         </div>
         <div className="space-y-6">
@@ -213,9 +190,7 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
                   <SelectValue placeholder="Select Zone" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-2xl">
-                  {locations.map(loc => (
-                    <SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>
-                  ))}
+                  {locations.map(loc => <SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             )} />
@@ -229,14 +204,15 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
 export const AddEquipmentDialog = ({
   open, onOpenChange, onEquipmentAdded, equipmentCategories, onNewCategory, locations,
 }: {
-  open: boolean; onOpenChange: (open: boolean) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onEquipmentAdded: (equipment: InventoryItem) => void;
-  equipmentCategories: string[]; onNewCategory: (category: string) => void;
+  equipmentCategories: string[];
+  onNewCategory: (category: string) => void;
   locations: Location[];
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
-  const isMobile = useIsMobile();
 
   const methods = useForm<EquipmentFormData>({
     resolver: zodResolver(equipmentSchema),
@@ -244,21 +220,21 @@ export const AddEquipmentDialog = ({
   });
   const { handleSubmit, reset, trigger } = methods;
 
+  // Reset form + step when dialog opens
   useEffect(() => {
-    if (open) { reset(); setStep(1); }
+    if (open) { reset({ lifespanYears: 5, purchaseDate: new Date(), quantity: 1 }); setStep(1); }
   }, [open, reset]);
 
   const onSubmit = (data: EquipmentFormData) => {
     const quantity = data.quantity || 1;
     for (let i = 0; i < quantity; i++) {
-      const uniqueId = `equip-${nanoid()}`;
-      const equipmentName = quantity > 1 ? `${data.name} #${i + 1}` : data.name;
+      const id   = `equip-${nanoid()}`;
+      const name = quantity > 1 ? `${data.name} #${i + 1}` : data.name;
       onEquipmentAdded({
-        id: uniqueId, name: equipmentName, type: 'equipment', category: data.category,
-        description: data.description, totalStock: 1, costPerUnit: data.purchaseCost,
-        lifespanYears: data.lifespanYears, supplier: data.supplier || '',
-        supplierUrl: data.supplierUrl, primaryLocationId: data.primaryLocationId,
-        imageUrl: data.imageUrl, sku: data.sku,
+        id, name, type: 'equipment', category: data.category, description: data.description,
+        totalStock: 1, costPerUnit: data.purchaseCost, lifespanYears: data.lifespanYears,
+        supplier: data.supplier || '', supplierUrl: data.supplierUrl,
+        primaryLocationId: data.primaryLocationId, imageUrl: data.imageUrl, sku: data.sku,
         batches: [{ id: `batch-${nanoid()}`, stock: 1, costPerUnit: data.purchaseCost, receivedDate: data.purchaseDate.toISOString() }],
       });
     }
@@ -267,80 +243,76 @@ export const AddEquipmentDialog = ({
 
   const handleNext = async (e: React.MouseEvent) => {
     e.preventDefault();
-    if (await trigger(step === 1 ? ['name', 'category'] : [])) setStep(s => s + 1);
+    const valid = await trigger(step === 1 ? ['name', 'category'] : []);
+    if (valid) setStep(s => s + 1);
   };
   const handleBack = (e: React.MouseEvent) => { e.preventDefault(); setStep(s => s - 1); };
 
-  return (
-    // ── FIX: always Dialog + DialogContent — no Sheet nesting.
-    // On mobile we override Radix's centering to produce a bottom-sheet appearance.
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn(
-        'p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden',
-        // Desktop — centred dialog
-        'sm:rounded-[2.5rem] sm:max-w-4xl sm:max-h-[90dvh] sm:top-[50%] sm:translate-y-[-50%]',
-        // Mobile — bottom sheet: override Radix centering with !important
-        '!rounded-t-[2.5rem] !rounded-b-none',
-        '!top-auto !bottom-0 !left-0 !right-0 !w-full !translate-x-0 !translate-y-0 !max-w-full',
-        'h-[92dvh] sm:!h-auto sm:!max-h-[90dvh]',
-        'sm:!top-[50%] sm:!translate-y-[-50%] sm:!left-[50%] sm:!translate-x-[-50%] sm:!w-auto sm:!rounded-[2.5rem]',
-      )}>
-      <FormProvider {...methods}>
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
-          <DialogHeader className={cn('flex-shrink-0 text-left border-b bg-muted/5', isMobile ? 'p-6' : 'p-8 pb-6')}>
-            <div className="flex items-center gap-3 mb-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
-            </div>
-            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-              Register Capital Asset
-            </DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-              Log hardware and fixtures into the studio record.
-            </DialogDescription>
-            <div className="pt-6">
-              <Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" />
-            </div>
-          </DialogHeader>
+  // ── FIX: form body extracted so the correct shell handles the container ──
+  const formBody = (
+    <FormProvider {...methods}>
+      <form
+        id="add-equipment-form"
+        onSubmit={handleSubmit(onSubmit)}
+        className="flex flex-col flex-1 min-h-0"   // ← min-h-0 is critical for scroll
+      >
+        {/* Header */}
+        <div className="flex-shrink-0 text-left border-b bg-muted/5 p-6 sm:p-8 sm:pb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Capital Asset</h2>
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Log hardware and fixtures into the studio record.</p>
+          <div className="pt-6"><Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" /></div>
+        </div>
 
-          <ScrollArea className="flex-1">
-            <div className={cn('pb-32', isMobile ? 'p-6' : 'p-8')}>
-              {step === 1 && <Step1 equipmentCategories={equipmentCategories} onNewCategory={onNewCategory} />}
-              {step === 2 && <Step2 />}
-              {step === 3 && <Step3 locations={locations} />}
-            </div>
-          </ScrollArea>
+        {/* Scrollable body — flex-1 min-h-0 lets ScrollArea fill remaining space */}
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="p-6 sm:p-8 pb-32">
+            {step === 1 && <Step1 equipmentCategories={equipmentCategories} onNewCategory={onNewCategory} />}
+            {step === 2 && <Step2 />}
+            {step === 3 && <Step3 locations={locations} />}
+          </div>
+        </ScrollArea>
 
-          <DialogFooter className={cn('border-t bg-background flex-shrink-0 shadow-2xl', isMobile ? 'p-4' : 'p-6 sm:p-8 pt-4')}>
-            <div className="flex w-full gap-4">
-              {step > 1 && (
-                <Button variant="ghost" onClick={handleBack} type="button"
-                  className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">
-                  Back
+        {/* Footer */}
+        <div className="border-t bg-background flex-shrink-0 shadow-2xl p-4 sm:p-6 sm:pt-4">
+          <div className="flex w-full gap-4">
+            {step > 1 && (
+              <Button variant="ghost" onClick={handleBack} type="button"
+                className="flex-1 h-12 sm:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] sm:text-2xl text-slate-400">
+                Back
+              </Button>
+            )}
+            <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
+              <Button variant="outline" onClick={() => onOpenChange(false)} type="button"
+                className="flex-1 h-12 sm:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] sm:text-xl border-2">
+                Cancel
+              </Button>
+              {step < totalSteps ? (
+                <Button onClick={handleNext} type="button"
+                  className="flex-[1.5] h-12 sm:h-16 font-black uppercase tracking-widest text-[10px] sm:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group">
+                  Continue <ArrowRight className="ml-3 w-4 h-4 sm:w-8 sm:h-8 transition-transform group-hover:translate-x-1" />
+                </Button>
+              ) : (
+                <Button type="submit"
+                  className="flex-[1.5] h-12 sm:h-16 font-black uppercase tracking-widest text-[10px] sm:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">
+                  Save Asset
                 </Button>
               )}
-              <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
-                <Button variant="outline" onClick={() => onOpenChange(false)} type="button"
-                  className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2">
-                  Cancel
-                </Button>
-                {step < totalSteps ? (
-                  <Button onClick={handleNext} type="button"
-                    className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group">
-                    Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
-                  </Button>
-                ) : (
-                  <Button type="submit"
-                    className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">
-                    Save Asset
-                  </Button>
-                )}
-              </div>
             </div>
-          </DialogFooter>
-        </form>
-      </FormProvider>
-      </DialogContent>
-    </Dialog>
+          </div>
+        </div>
+      </form>
+    </FormProvider>
+  );
+
+  // ── FIX: InventoryDialogShell handles mobile/desktop split correctly ──
+  // No more `side` prop being passed to DialogContent.
+  return (
+    <InventoryDialogShell open={open} onOpenChange={onOpenChange}>
+      {formBody}
+    </InventoryDialogShell>
   );
 };
