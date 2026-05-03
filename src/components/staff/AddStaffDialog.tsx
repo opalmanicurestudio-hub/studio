@@ -10,8 +10,7 @@ import {
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Sheet, SheetContent, SheetHeader, SheetTitle,
-  SheetDescription, SheetFooter,
+  Sheet, SheetContent,
 } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,7 +86,10 @@ const addStaffSchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Payout frequency is required.', path: ['payoutFrequency'] });
     }
   }
-  if ((data.payStructure === 'hourly' || data.payStructure === 'hourly_plus_commission') && (data.hourlyRate === undefined || data.hourlyRate === null)) {
+  if (
+    (data.payStructure === 'hourly' || data.payStructure === 'hourly_plus_commission') &&
+    (data.hourlyRate === undefined || data.hourlyRate === null)
+  ) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Hourly rate is required.', path: ['hourlyRate'] });
   }
 });
@@ -119,7 +121,6 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
 // ─── STEP 1 ───────────────────────────────────────────────────────────────────
 const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
   const { register, control, watch, setValue, formState: { errors } } = useFormContext<AddStaffFormData>();
-  const pin = watch('pin') || '';
 
   const handleRegeneratePin = () => {
     const newPin = Math.floor(1000 + Math.random() * 9000).toString();
@@ -131,7 +132,6 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
       <SectionHeader icon={Fingerprint} title="Identity & Access" step={1} />
       <div className="space-y-6">
 
-        {/* Name */}
         <div className="space-y-2 text-left">
           <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Full Name</Label>
           <Input
@@ -143,7 +143,6 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
           {errors.name && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
         </div>
 
-        {/* Email */}
         <div className="space-y-2 text-left">
           <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Email</Label>
           <Input
@@ -156,7 +155,6 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
           {errors.email && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.email.message}</p>}
         </div>
 
-        {/* Phone */}
         <div className="space-y-2 text-left">
           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Phone (Optional)</Label>
           <PhoneInput name="phone" label="" />
@@ -171,14 +169,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
             </div>
             <Badge className="bg-primary text-white border-none font-black text-[9px] uppercase h-6 px-3">Unique PIN</Badge>
           </div>
-
           <div className="flex flex-col items-center gap-3">
-            {/*
-              The PIN input is registered with RHF via {...register('pin')}.
-              We use tabIndex={-1} + onKeyDown preventDefault to prevent manual
-              editing while still allowing RHF to read and validate the value.
-              The value is set programmatically via setValue() only.
-            */}
             <div className="relative w-full">
               <Input
                 {...register('pin')}
@@ -210,7 +201,6 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
           </div>
         </div>
 
-        {/* Role + Tier */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
           <div className="space-y-2">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Role</Label>
@@ -245,7 +235,6 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
           </div>
         </div>
 
-        {/* Public directory toggle */}
         <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
           <div className="space-y-1 text-left">
             <Label htmlFor="showOnPublicPage" className="text-base font-black uppercase tracking-tight">Public Directory</Label>
@@ -277,7 +266,6 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
       <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
       <div className="space-y-8">
 
-        {/* Avatar upload */}
         <div className="flex flex-col items-center gap-6 mb-6">
           <Controller name="avatarUrl" control={control} render={({ field }) => (
             <div className="relative group">
@@ -295,7 +283,6 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Provider Portrait</p>
         </div>
 
-        {/* Bio */}
         <div className="space-y-2 text-left">
           <Label htmlFor="bio" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Bio</Label>
           <Textarea
@@ -306,7 +293,6 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
           />
         </div>
 
-        {/* Specialties */}
         <div className="space-y-2 text-left">
           <Label htmlFor="specialties" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Signature Specialties</Label>
           <Input
@@ -318,18 +304,13 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
           <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 ml-1">Delimited by commas</p>
         </div>
 
-        {/* Services */}
         <div className="space-y-4 pt-4 border-t border-dashed text-left">
           <div className="flex items-center justify-between px-1">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <List className="w-3.5 h-3.5 opacity-40" /> Treatment Catalog
             </Label>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsServicesDialogOpen(true)}
-              className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"
-            >
+            <Button variant="ghost" size="sm" onClick={() => setIsServicesDialogOpen(true)}
+              className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
               <PlusCircle className="w-3 h-3 mr-1.5" /> Define Skills
             </Button>
           </div>
@@ -338,12 +319,8 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
               {selectedServices.map(service => (
                 <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                   <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{service.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}
-                  >
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}>
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -357,18 +334,13 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
           )}
         </div>
 
-        {/* Consent forms */}
         <div className="space-y-4 text-left">
           <div className="flex items-center justify-between px-1">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <FileText className="w-3.5 h-3.5 opacity-40" /> Associated Documents
             </Label>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsConsentFormDialogOpen(true)}
-              className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"
-            >
+            <Button variant="ghost" size="sm" onClick={() => setIsConsentFormDialogOpen(true)}
+              className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
               <PlusCircle className="w-3 h-3 mr-1.5" /> Assign Forms
             </Button>
           </div>
@@ -377,12 +349,8 @@ const Step2 = ({ services, consentForms }: { services: Service[]; consentForms: 
               {assignedForms.map(form => (
                 <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
                   <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive group-hover:opacity-100 transition-opacity"
-                    onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}
-                  >
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive group-hover:opacity-100 transition-opacity"
+                    onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}>
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -427,7 +395,6 @@ const Step3 = () => {
       <div className="space-y-8">
         <div className="space-y-6 text-left">
 
-          {/* Pay structure + payout cadence */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Pay Structure</Label>
@@ -445,7 +412,6 @@ const Step3 = () => {
                 </Select>
               )} />
             </div>
-
             {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
               <div className="space-y-2 text-left">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Cadence</Label>
@@ -467,19 +433,13 @@ const Step3 = () => {
             )}
           </div>
 
-          {/* Commission rates */}
           {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="commissionRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service %</Label>
                 <div className="relative">
-                  <Input
-                    id="commissionRate"
-                    type="number"
-                    placeholder="40"
-                    {...register('commissionRate')}
-                    className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner"
-                  />
+                  <Input id="commissionRate" type="number" placeholder="40" {...register('commissionRate')}
+                    className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
                   <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
                 </div>
                 {errors.commissionRate && (
@@ -489,32 +449,21 @@ const Step3 = () => {
               <div className="space-y-2">
                 <Label htmlFor="retailCommissionRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail %</Label>
                 <div className="relative">
-                  <Input
-                    id="retailCommissionRate"
-                    type="number"
-                    placeholder="10"
-                    {...register('retailCommissionRate')}
-                    className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner"
-                  />
+                  <Input id="retailCommissionRate" type="number" placeholder="10" {...register('retailCommissionRate')}
+                    className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
                   <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
                 </div>
               </div>
             </div>
           )}
 
-          {/* Hourly rate */}
           {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
             <div className="space-y-2">
               <Label htmlFor="hourlyRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                <Input
-                  id="hourlyRate"
-                  type="number"
-                  placeholder="25.00"
-                  {...register('hourlyRate')}
-                  className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner"
-                />
+                <Input id="hourlyRate" type="number" placeholder="25.00" {...register('hourlyRate')}
+                  className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" />
               </div>
               {errors.hourlyRate && (
                 <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.hourlyRate.message}</p>
@@ -525,7 +474,6 @@ const Step3 = () => {
 
         <Separator className="border-dashed" />
 
-        {/* Emergency contact */}
         <div className="space-y-6">
           <div className="space-y-4">
             <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60 text-left">
@@ -534,11 +482,7 @@ const Step3 = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5 text-left">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label>
-                <Input
-                  placeholder="EMERGENCY CONTACT"
-                  {...register('emergencyContact.name')}
-                  className="h-11 rounded-xl border-2 font-bold text-xs uppercase"
-                />
+                <Input placeholder="EMERGENCY CONTACT" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase" />
               </div>
               <div className="space-y-1.5 text-left">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
@@ -549,9 +493,7 @@ const Step3 = () => {
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-2 shadow-2xl">
                       {['Spouse', 'Partner', 'Parent', 'Guardian', 'Sibling', 'Child', 'Friend', 'Other'].map(r => (
-                        <SelectItem key={r} value={r} className="font-bold uppercase text-[9px] tracking-widest">
-                          {r.toUpperCase()}
-                        </SelectItem>
+                        <SelectItem key={r} value={r} className="font-bold uppercase text-[9px] tracking-widest">{r.toUpperCase()}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -563,7 +505,6 @@ const Step3 = () => {
             </div>
           </div>
 
-          {/* Licensing */}
           <div className="space-y-4 pt-4 border-t border-dashed text-left">
             <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
               <ShieldCheck className="w-3 h-3" /> Licensing Record
@@ -571,11 +512,7 @@ const Step3 = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label>
-                <Input
-                  placeholder="STATE-ID-XXXX"
-                  {...register('compliance.licenseNumber')}
-                  className="h-11 rounded-xl border-2 font-mono font-black text-xs"
-                />
+                <Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Expiry Date</Label>
@@ -594,6 +531,102 @@ const Step3 = () => {
     </div>
   );
 };
+
+// ─── SHARED FORM BODY ─────────────────────────────────────────────────────────
+// Extracted so it renders identically inside both Dialog and Sheet containers.
+const WizardFormBody = ({
+  step,
+  totalSteps,
+  isMobile,
+  pricingTiers,
+  services,
+  consentForms,
+  onBack,
+  onNext,
+  onClose,
+}: {
+  step: number;
+  totalSteps: number;
+  isMobile: boolean;
+  pricingTiers: PricingTier[];
+  services: Service[];
+  consentForms: ConsentForm[];
+  onBack: (e: React.MouseEvent) => void;
+  onNext: (e: React.MouseEvent) => void;
+  onClose: () => void;
+}) => (
+  <>
+    <DialogHeader className={cn('flex-shrink-0 text-left border-b bg-muted/5', isMobile ? 'p-6' : 'p-8 pb-6')}>
+      <div className="flex items-center gap-3 mb-2">
+        <Sparkles className="w-5 h-5 text-primary" />
+        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
+      </div>
+      <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+        Register Provider
+      </DialogTitle>
+      <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+        Onboard a new technician and secure their studio credentials.
+      </DialogDescription>
+      <div className="pt-6">
+        <Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" />
+      </div>
+    </DialogHeader>
+
+    {/*
+      KEY FIX: min-h-0 on ScrollArea is required for scroll to work inside
+      a flex column. Without it the flex item won't shrink below its content
+      height, so overflow is never triggered and the scroll never appears.
+    */}
+    <ScrollArea className="flex-1 min-h-0">
+      <div className={cn('pb-8', isMobile ? 'p-6' : 'p-8')}>
+        {step === 1 && <Step1 pricingTiers={pricingTiers} />}
+        {step === 2 && <Step2 services={services} consentForms={consentForms} />}
+        {step === 3 && <Step3 />}
+      </div>
+    </ScrollArea>
+
+    <DialogFooter className={cn('border-t bg-background flex-shrink-0 shadow-2xl', isMobile ? 'p-4' : 'p-6 sm:p-8 pt-4')}>
+      <div className="flex w-full gap-4">
+        {step > 1 && (
+          <Button
+            variant="ghost"
+            onClick={onBack}
+            type="button"
+            className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400"
+          >
+            Back
+          </Button>
+        )}
+        <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
+          <Button
+            variant="outline"
+            onClick={onClose}
+            type="button"
+            className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2"
+          >
+            Cancel
+          </Button>
+          {step < totalSteps ? (
+            <Button
+              onClick={onNext}
+              type="button"
+              className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group"
+            >
+              Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30"
+            >
+              Save Provider
+            </Button>
+          )}
+        </div>
+      </div>
+    </DialogFooter>
+  </>
+);
 
 // ─── MAIN DIALOG ──────────────────────────────────────────────────────────────
 export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
@@ -636,9 +669,6 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   useEffect(() => {
     if (open) {
       const newPin = generateUniquePin(existingStaff || []);
-
-      // reset() handles everything in one call — no setTimeout needed.
-      // The PIN is included directly so RHF has it from the first render.
       methods.reset({
         name: '',
         email: '',
@@ -653,19 +683,16 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         showOnPublicPage: true,
         pin: newPin,
       });
-
       setStep(1);
     }
   }, [open, pricingTiers, existingStaff, methods]);
 
   const handleNext = async (e: React.MouseEvent) => {
     e.preventDefault();
-
     const fieldsToValidate =
       step === 1 ? (['name', 'email', 'role', 'pin'] as const) :
       step === 2 ? (['services'] as const) :
       (['payStructure', 'payoutFrequency', 'commissionRate'] as const);
-
     const valid = await methods.trigger(fieldsToValidate as any);
     if (valid) setStep(prev => prev + 1);
   };
@@ -676,9 +703,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   };
 
   const handleFormSubmit = methods.handleSubmit(
-    (data) => {
-      onSave(data);
-    },
+    (data) => { onSave(data); },
     (errors) => {
       if (process.env.NODE_ENV === 'development') {
         console.warn('[AddStaffDialog] Form validation errors:', errors);
@@ -686,92 +711,59 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     }
   );
 
-  const formBody = (
-    <FormProvider {...methods}>
-      <form id="add-staff-wizard-form" onSubmit={handleFormSubmit} className="flex flex-col flex-1 min-h-0">
+  const sharedProps = {
+    step,
+    totalSteps,
+    isMobile,
+    pricingTiers,
+    services,
+    consentForms,
+    onBack: handleBack,
+    onNext: handleNext,
+    onClose: () => onOpenChange(false),
+  };
 
-        <DialogHeader className={cn('flex-shrink-0 text-left border-b bg-muted/5', isMobile ? 'p-6' : 'p-8 pb-6')}>
-          <div className="flex items-center gap-3 mb-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
-          </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-            Register Provider
-          </DialogTitle>
-          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-            Onboard a new technician and secure their studio credentials.
-          </DialogDescription>
-          <div className="pt-6">
-            <Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" />
-          </div>
-        </DialogHeader>
+  // ── Mobile: Sheet from bottom ──────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="bottom"
+          className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden h-[92dvh] rounded-t-[2.5rem]"
+        >
+          <FormProvider {...methods}>
+            <form
+              id="add-staff-wizard-form"
+              onSubmit={handleFormSubmit}
+              className="flex flex-col flex-1 min-h-0"
+            >
+              <WizardFormBody {...sharedProps} />
+            </form>
+          </FormProvider>
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
-        <ScrollArea className="flex-1">
-          <div className={cn('pb-32', isMobile ? 'p-6' : 'p-8')}>
-            {step === 1 && <Step1 pricingTiers={pricingTiers} />}
-            {step === 2 && <Step2 services={services} consentForms={consentForms} />}
-            {step === 3 && <Step3 />}
-          </div>
-        </ScrollArea>
-
-        <DialogFooter className={cn('border-t bg-background flex-shrink-0 shadow-2xl', isMobile ? 'p-4' : 'p-6 sm:p-8 pt-4')}>
-          <div className="flex w-full gap-4">
-            {step > 1 && (
-              <Button
-                variant="ghost"
-                onClick={handleBack}
-                type="button"
-                className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400"
-              >
-                Back
-              </Button>
-            )}
-            <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
-              <Button
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                type="button"
-                className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2"
-              >
-                Cancel
-              </Button>
-              {step < totalSteps ? (
-                <Button
-                  onClick={handleNext}
-                  type="button"
-                  className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group"
-                >
-                  Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30"
-                >
-                  Save Provider
-                </Button>
-              )}
-            </div>
-          </div>
-        </DialogFooter>
-
-      </form>
-    </FormProvider>
-  );
-
-  const DialogContainer = isMobile ? Sheet : Dialog;
-
+  // ── Desktop: Dialog ────────────────────────────────────────────────────────
   return (
-    <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={cn(
-          'p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden',
-          isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-4xl max-h-[90dvh]'
-        )}
-        side={isMobile ? 'bottom' : undefined}
-      >
-        {formBody}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {/*
+        KEY FIX: h-[90dvh] gives DialogContent a concrete height so the flex
+        children can divide space. ScrollArea's flex-1 only works when its
+        parent has a defined height — max-h alone doesn't provide that.
+      */}
+      <DialogContent className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden sm:max-w-4xl h-[90dvh]">
+        <FormProvider {...methods}>
+          <form
+            id="add-staff-wizard-form"
+            onSubmit={handleFormSubmit}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <WizardFormBody {...sharedProps} />
+          </form>
+        </FormProvider>
       </DialogContent>
-    </DialogContainer>
+    </Dialog>
   );
 };
