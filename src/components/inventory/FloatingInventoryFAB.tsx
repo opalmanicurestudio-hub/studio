@@ -183,8 +183,8 @@ export function FloatingInventoryFAB({
                   )}
                 >
                   {/* Icon bubble */}
-                  <span className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                    <Icon className="w-4.5 h-4.5" />
+                  <span className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                    <Icon className="w-3.5 h-3.5" />
                   </span>
                   {/* Labels */}
                   <span className="flex flex-col items-start leading-none">
