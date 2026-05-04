@@ -1,117 +1,103 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { InventoryDialogShell } from '@/components/inventory/InventoryDialogShell';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  ArrowRight, PlusCircle, DollarSign, Calendar as CalendarIcon,
+  Hammer, Sparkles, Check, Building,
+} from 'lucide-react';
+import { Button }   from '@/components/ui/button';
+import { Input }    from '@/components/ui/input';
+import { Label }    from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location } from '@/lib/data';
-import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Calendar }  from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, DollarSign, Package, ShoppingCart, Calculator, Sparkles, Truck, ArrowRight, Building, FileText, Landmark, Pipette, CheckCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn }     from '@/lib/utils';
+import { format } from 'date-fns';
 import { nanoid } from 'nanoid';
+import { ImageUpload } from '@/components/shared/ImageUpload';
+import { type InventoryItem, type Location } from '@/lib/data';
 
+// ─── Schema ──────────────────────────────────────────────────────────────────
 const schema = z.object({
-  name: z.string().min(1, 'Required'),
-  type: z.enum(['professional', 'retail']),
-  category: z.string().min(1, 'Required'),
-  description: z.string().optional(),
-  imageUrl: z.string().optional(),
-  totalPurchaseCost: z.coerce.number().optional(),
-  numUnits: z.coerce.number().optional(),
-  shippingCost: z.coerce.number().optional(),
-  taxCost: z.coerce.number().optional(),
-  discounts: z.coerce.number().optional(),
-  costingMethod: z.enum(['size', 'uses']).optional(),
-  containerSize: z.coerce.number().optional(),
-  containerUnit: z.string().optional(),
-  usesPerContainer: z.coerce.number().optional(),
-  restockingMarkup: z.coerce.number().optional(),
-  msrp: z.coerce.number().optional(),
-  wholesalePrice: z.coerce.number().optional(),
-  supplier: z.string().optional(),
-  sku: z.string().optional(),
-  purchaseLink: z.string().optional(),
-  reorderPoint: z.coerce.number().optional(),
-  initialStock: z.coerce.number().min(1, 'Required'),
+  name:              z.string().min(1, 'Required'),
+  category:          z.string().min(1, 'Required'),
+  description:       z.string().optional(),
+  purchaseCost:      z.coerce.number().min(0),
+  lifespanYears:     z.coerce.number().min(0),
+  purchaseDate:      z.date({ required_error: 'Required' }),
+  quantity:          z.coerce.number().min(1).default(1),
+  supplier:          z.string().optional(),
+  supplierUrl:       z.string().optional(),
   primaryLocationId: z.string().optional(),
-  manufacturerName: z.string().optional(),
-  manufacturerContactName: z.string().optional(),
-  manufacturerEmail: z.string().optional(),
-  manufacturerPhone: z.string().optional(),
-  manufacturingSop: z.string().optional(),
-  moq: z.coerce.number().optional(),
-  leadTimeDays: z.coerce.number().optional(),
+  imageUrl:          z.string().optional(),
+  sku:               z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
+// ─── Section header ───────────────────────────────────────────────────────────
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; step: number }) => (
-  <div className="flex items-center gap-4 mb-8">
-    <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0"><Icon className="w-5 h-5" /></div>
-    <div className="text-left"><p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p><h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3></div>
+  <div className="flex items-center gap-4 mb-8 text-left">
+    <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+      <Icon className="w-5 h-5" />
+    </div>
+    <div>
+      <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+      <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+    </div>
   </div>
 );
 
-const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCategory: (c: string) => void }) => {
-  const { register, control, setValue, formState: { errors } } = useFormContext<FormData>();
+// ─── Steps ────────────────────────────────────────────────────────────────────
+const Step1 = ({ cats, onNewCat }: { cats: string[]; onNewCat: (c: string) => void }) => {
+  const { control, register, setValue, formState: { errors } } = useFormContext<FormData>();
   const [adding, setAdding] = useState(false);
   const [newCat, setNewCat] = useState('');
   return (
-    <div className="space-y-6">
-      <SectionHeader icon={Package} title="Identity & Type" step={1} />
-      <div className="space-y-2 text-left">
-        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Name</Label>
-        <Input placeholder="e.g., Hydrating Shampoo" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+    <div className="space-y-6 text-left">
+      <SectionHeader icon={Hammer} title="Identity & Category" step={1} />
+      <div className="space-y-2">
+        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Label</Label>
+        <Input placeholder="e.g., Hydraulic Styling Chair" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
         {errors.name && <p className="text-xs font-bold text-destructive ml-1">{errors.name.message}</p>}
       </div>
-      <Controller name="type" control={control} render={({ field }) => (
-        <div className="space-y-2 text-left">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Classification</Label>
-          <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-3">
-            {[{ v: 'professional', icon: Package, label: 'Professional' }, { v: 'retail', icon: ShoppingCart, label: 'Retail' }].map(opt => (
-              <label key={opt.v} htmlFor={opt.v} className="cursor-pointer">
-                <div className={cn('flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all', field.value === opt.v ? 'border-primary bg-primary/5 shadow-lg' : 'border-border bg-white hover:border-primary/20')}>
-                  <opt.icon className={cn('mb-2 h-8 w-8', field.value === opt.v ? 'text-primary' : 'text-muted-foreground opacity-40')} />
-                  <span className="text-xs font-black uppercase tracking-widest">{opt.label}</span>
-                  <RadioGroupItem value={opt.v} id={opt.v} className="sr-only" />
-                </div>
-              </label>
-            ))}
-          </RadioGroup>
-        </div>
-      )} />
-      <div className="space-y-2 text-left">
+      <div className="space-y-2">
         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Department</Label>
         {adding ? (
           <div className="flex gap-2">
-            <Input placeholder="New category..." value={newCat} onChange={e => setNewCat(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
-            <Button type="button" className="h-12 w-12 rounded-xl" onClick={() => { if (newCat.trim()) { onNewCategory(newCat.trim()); setValue('category', newCat.trim(), { shouldValidate: true }); setAdding(false); setNewCat(''); } }}><Check className="h-5 w-5" /></Button>
+            <Input placeholder="New category…" value={newCat} onChange={e => setNewCat(e.target.value)} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+            <Button type="button" className="h-12 w-12 rounded-xl" onClick={() => { if (newCat.trim()) { onNewCat(newCat.trim()); setValue('category', newCat.trim()); setAdding(false); setNewCat(''); } }}><Check className="h-5 w-5" /></Button>
           </div>
         ) : (
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <Controller name="category" control={control} render={({ field }) => (
-              <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5"><SelectValue placeholder="Select a category" /></SelectTrigger><SelectContent className="rounded-xl border-2 shadow-2xl">{categories.map(c => <SelectItem key={c} value={c} className="font-bold uppercase text-[10px] tracking-widest">{c}</SelectItem>)}</SelectContent></Select>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5"><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectContent className="rounded-xl border-2 shadow-2xl">{cats.map(c => <SelectItem key={c} value={c} className="font-bold uppercase text-[10px] tracking-widest">{c}</SelectItem>)}</SelectContent>
+              </Select>
             )} />
             <Button variant="outline" size="icon" type="button" className="h-12 w-12 rounded-xl border-2" onClick={() => setAdding(true)}><PlusCircle className="h-5 w-5" /></Button>
           </div>
         )}
-        {errors.category && <p className="text-xs font-bold text-destructive ml-1">{errors.category.message}</p>}
       </div>
-      <div className="space-y-2 text-left">
+      <div className="space-y-2">
         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Description</Label>
-        <Textarea placeholder="Guest-facing description..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] p-4 font-medium" />
+        <Textarea placeholder="Guest-facing details…" {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] p-4 font-medium" />
       </div>
-      <div className="space-y-2 text-left">
-        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dossier Visual</Label>
+      <div className="space-y-2">
+        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">SKU</Label>
+        <Input placeholder="Hardware identifier…" {...register('sku')} className="h-12 rounded-xl border-2 font-mono font-black uppercase text-sm" />
+      </div>
+      <div className="space-y-2">
+        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Visual</Label>
         <Controller name="imageUrl" control={control} render={({ field }) => <ImageUpload onImageUploaded={field.onChange} />} />
       </div>
     </div>
@@ -119,196 +105,146 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
 };
 
 const Step2 = () => {
-  const { control, watch, register } = useFormContext<FormData>();
-  const [productType, costingMethod, totalPurchaseCost, numUnits, shippingCost, taxCost, discounts, msrp, wholesalePrice] = watch(['type', 'costingMethod', 'totalPurchaseCost', 'numUnits', 'shippingCost', 'taxCost', 'discounts', 'msrp', 'wholesalePrice']);
-  const landed = useMemo(() => {
-    const p = (v: any) => parseFloat(v) || 0;
-    const t = p(totalPurchaseCost) + p(shippingCost) + p(taxCost) - p(discounts);
-    const u = p(numUnits); return u === 0 ? 0 : t / u;
-  }, [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts]);
+  const { control, register, formState: { errors } } = useFormContext<FormData>();
   return (
-    <div className="space-y-8">
-      <SectionHeader icon={Calculator} title="Yield & Costing" step={2} />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
-        <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-          <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Landed Cost Engine</CardTitle></CardHeader>
-          <CardContent className="p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Total</Label><Input type="number" placeholder="0.00" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
-              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Count</Label><Input type="number" placeholder="Qty" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shipping</Label><Input type="number" placeholder="0.00" {...register('shippingCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
-              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Taxes</Label><Input type="number" placeholder="0.00" {...register('taxCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
-            </div>
-            <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center shadow-inner">
-              <span className="text-[10px] font-black uppercase text-primary tracking-widest">Landed / Unit</span>
-              <span className="text-2xl font-black text-primary tracking-tighter font-mono">${landed.toFixed(2)}</span>
-            </div>
-          </CardContent>
-        </Card>
-        {productType === 'professional' ? (
-          <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Professional Model</CardTitle></CardHeader>
-            <CardContent className="p-6 space-y-4">
-              <Controller name="costingMethod" control={control} render={({ field }) => (
-                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                  {[{ v: 'size', icon: Pipette, label: 'By Volume' }, { v: 'uses', icon: CheckCircle, label: 'By Uses' }].map(opt => (
-                    <label key={opt.v} className="cursor-pointer">
-                      <div className={cn('flex flex-col items-center p-3 rounded-xl border-2 transition-all', field.value === opt.v ? 'border-primary bg-primary/5 shadow-md' : 'border-border')}>
-                        <opt.icon className={cn('w-4 h-4 mb-1.5', field.value === opt.v ? 'text-primary' : 'text-muted-foreground opacity-40')} />
-                        <span className="text-[10px] font-black uppercase tracking-widest">{opt.label}</span>
-                        <RadioGroupItem value={opt.v} className="sr-only" />
-                      </div>
-                    </label>
-                  ))}
-                </RadioGroup>
-              )} />
-              {costingMethod === 'size' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label><Input type="number" placeholder="1000" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                  <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
-                    <Controller name="containerUnit" control={control} render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl shadow-xl border-2">{['ml', 'oz', 'g'].map(u => <SelectItem key={u} value={u} className="font-bold uppercase">{u}</SelectItem>)}</SelectContent></Select>
-                    )} />
-                  </div>
-                </div>
-              )}
-              {costingMethod === 'uses' && (
-                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Est. Uses / Container</Label><Input type="number" placeholder="e.g., 50" {...register('usesPerContainer')} className="h-11 rounded-xl border-2 font-bold" /></div>
-              )}
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-            <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Retail Pricing Matrix</CardTitle></CardHeader>
-            <CardContent className="p-6 space-y-6">
-              {[{ label: 'MSRP', field: 'msrp' as const, val: msrp }, { label: 'Wholesale', field: 'wholesalePrice' as const, val: wholesalePrice }].map(row => {
-                const profit = (row.val || 0) - landed;
-                const margin = (row.val || 0) > 0 ? (profit / (row.val || 1)) * 100 : 0;
-                return (
-                  <div key={row.field} className="p-4 rounded-2xl bg-muted/10 border-2 space-y-3">
-                    <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{row.label}</span><div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-primary" /><Input type="number" placeholder="0.00" {...register(row.field)} className="h-10 pl-7 rounded-xl border-2 font-black text-primary font-mono" /></div></div>
-                    <div className="flex justify-between items-center text-[10px] font-bold uppercase pt-2 border-t border-dashed"><span className="opacity-60">Profit / Margin</span><span className={cn('font-black font-mono text-sm', profit >= 0 ? 'text-primary' : 'text-destructive')}>${profit.toFixed(2)} ({margin.toFixed(0)}%)</span></div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void; locations: Location[] }) => {
-  const { register, control, formState: { errors } } = useFormContext<FormData>();
-  return (
-    <div className="space-y-8">
-      <SectionHeader icon={Truck} title="Logistics & Continuity" step={3} />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start text-left">
+    <div className="space-y-6 text-left">
+      <SectionHeader icon={DollarSign} title="Capital Investment" step={2} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
         <div className="space-y-6">
-          <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-            <CardHeader className="bg-muted/5 border-b p-5"><CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Building className="w-4 h-4 text-primary" /> Manufacturing Vault</CardTitle></CardHeader>
-            <CardContent className="p-5 space-y-3">
-              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manufacturer Name</Label><Input placeholder="e.g., Global Formula Labs" {...register('manufacturerName')} className="h-11 rounded-xl border-2 font-bold" /></div>
-              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Contact Name</Label><Input placeholder="Account Manager" {...register('manufacturerContactName')} className="h-11 rounded-xl border-2 font-bold" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Email</Label><Input type="email" placeholder="rep@mfg.com" {...register('manufacturerEmail')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
-                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Phone</Label><Input placeholder="555-000-0000" {...register('manufacturerPhone')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-            <CardHeader className="bg-muted/5 border-b p-5"><CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Landmark className="w-4 h-4 text-primary" /> Wholesale Matrix</CardTitle></CardHeader>
-            <CardContent className="p-5 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Min Order (MOQ)</Label><Input type="number" placeholder="50" {...register('moq')} className="h-11 rounded-xl border-2 font-bold" /></div>
-                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Lead Time (Days)</Label><Input type="number" placeholder="14" {...register('leadTimeDays')} className="h-11 rounded-xl border-2 font-bold" /></div>
-              </div>
-              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder URL</Label><Input placeholder="https://..." {...register('purchaseLink')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
-            </CardContent>
-          </Card>
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Purchase Cost (Per Unit)</Label>
+            <div className="relative"><DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" /><Input type="number" step="0.01" placeholder="0.00" {...register('purchaseCost')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" /></div>
+            {errors.purchaseCost && <p className="text-[8px] font-black text-destructive ml-1">{errors.purchaseCost.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Unit Count</Label>
+            <Input type="number" placeholder="1" {...register('quantity')} className="h-12 rounded-xl border-2 font-black text-lg shadow-inner bg-muted/5 text-center" />
+          </div>
         </div>
         <div className="space-y-6">
-          <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-            <CardHeader className="bg-muted/5 border-b p-5"><CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4 text-primary opacity-40" /> SOP Notes</CardTitle></CardHeader>
-            <CardContent className="p-5"><Textarea placeholder="Detail the exact technical protocol..." {...register('manufacturingSop')} className="rounded-xl border-2 bg-muted/5 min-h-[160px] font-medium" /></CardContent>
-          </Card>
-          <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-            <CardHeader className="bg-muted/5 border-b p-5"><CardTitle className="text-sm font-black uppercase tracking-widest">Registry & Stock</CardTitle></CardHeader>
-            <CardContent className="p-5 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Starting Stock</Label><Input type="number" placeholder="Qty" {...register('initialStock')} className="h-11 rounded-xl border-2 font-black text-lg" />{errors.initialStock && <p className="text-[8px] font-black text-destructive">{errors.initialStock.message}</p>}</div>
-                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">SKU</Label><Input placeholder="Registry ID" {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Placement Zone</Label>
-                <div className="flex gap-2">
-                  <Controller name="primaryLocationId" control={control} render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest flex-1 bg-muted/5 shadow-inner"><SelectValue placeholder="Select Zone" /></SelectTrigger><SelectContent className="rounded-xl border-2 shadow-2xl">{locations.map(l => <SelectItem key={l.id} value={l.id} className="font-bold uppercase text-[9px] tracking-widest">{l.name}</SelectItem>)}</SelectContent></Select>
-                  )} />
-                  <Button variant="outline" size="icon" type="button" onClick={onAddLocationClick} className="h-11 w-11 rounded-xl border-2 shrink-0"><PlusCircle className="h-5 w-5" /></Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Depreciation Lifecycle (Years)</Label>
+            <Input type="number" placeholder="e.g., 5" {...register('lifespanYears')} className="h-14 rounded-2xl border-2 font-black text-xl" />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Investment Date</Label>
+            <Controller name="purchaseDate" control={control} render={({ field }) => (
+              <Popover><PopoverTrigger asChild>
+                <Button variant="outline" className="w-full h-12 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5">
+                  <CalendarIcon className="mr-2 h-4 w-4 opacity-40" />{field.value ? format(field.value, 'MMM d, yyyy') : 'Pick a date'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover>
+            )} />
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-export const AddProductDialog: React.FC<{
+const Step3 = ({ locations }: { locations: Location[] }) => {
+  const { register, control } = useFormContext<FormData>();
+  return (
+    <div className="space-y-6 text-left">
+      <SectionHeader icon={Building} title="Logistics & Source" step={3} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+        <div className="space-y-4">
+          <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Supplier / Manufacturer</Label><Input placeholder="e.g., Belvedere" {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
+          <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder URL</Label><Input placeholder="https://…" {...register('supplierUrl')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+        </div>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Primary Zone</Label>
+            <Controller name="primaryLocationId" control={control} render={({ field }) => (
+              <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner"><SelectValue placeholder="Select Zone" /></SelectTrigger><SelectContent className="rounded-xl border-2 shadow-2xl">{locations.map(l => <SelectItem key={l.id} value={l.id} className="font-bold uppercase text-[9px] tracking-widest">{l.name}</SelectItem>)}</SelectContent></Select>
+            )} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main dialog ──────────────────────────────────────────────────────────────
+export const AddEquipmentDialog = ({
+  open, onOpenChange, onEquipmentAdded, equipmentCategories, onNewCategory, locations,
+}: {
   open: boolean; onOpenChange: (o: boolean) => void;
-  initialType: 'professional' | 'retail';
-  categories: string[]; onNewCategory: (c: string) => void;
-  onProductAdded: (p: InventoryItem) => void;
-  locations: Location[]; onAddLocationClick: () => void;
-}> = ({ open, onOpenChange, initialType, categories, onNewCategory, onProductAdded, locations, onAddLocationClick }) => {
+  onEquipmentAdded: (e: InventoryItem) => void;
+  equipmentCategories: string[]; onNewCategory: (c: string) => void;
+  locations: Location[];
+}) => {
   const [step, setStep] = useState(1);
   const STEPS = 3;
-  const methods = useForm<FormData>({ resolver: zodResolver(schema), defaultValues: { type: initialType, costingMethod: 'size', initialStock: 1 } });
 
-  useEffect(() => { if (open) { methods.reset({ type: initialType, costingMethod: 'size', initialStock: 1 }); setStep(1); } }, [open, initialType, methods]);
+  const methods = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { lifespanYears: 5, purchaseDate: new Date(), quantity: 1 },
+  });
+  const { handleSubmit, reset, trigger } = methods;
 
-  const { trigger, handleSubmit } = methods;
+  useEffect(() => {
+    if (open) { reset({ lifespanYears: 5, purchaseDate: new Date(), quantity: 1 }); setStep(1); }
+  }, [open, reset]);
 
   const onSubmit = (data: FormData) => {
-    const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
-    onProductAdded({ id: `prod-${nanoid(8)}`, name: data.name, type: data.type, category: data.category, description: data.description, totalStock: data.initialStock || 0, supplier: data.supplier || '', supplierUrl: data.purchaseLink, costPerUnit, reorderPoint: data.reorderPoint, imageUrl: data.imageUrl, primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, msrp: data.msrp, restockingMarkup: data.restockingMarkup, manufacturerName: data.manufacturerName, manufacturerContactName: data.manufacturerContactName, manufacturerEmail: data.manufacturerEmail, manufacturerPhone: data.manufacturerPhone, manufacturingSop: data.manufacturingSop, moq: data.moq, leadTimeDays: data.leadTimeDays, batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock || 0, costPerUnit, receivedDate: new Date().toISOString() }] });
+    const qty = data.quantity || 1;
+    for (let i = 0; i < qty; i++) {
+      onEquipmentAdded({
+        id: `equip-${nanoid()}`,
+        name: qty > 1 ? `${data.name} #${i + 1}` : data.name,
+        type: 'equipment', category: data.category, description: data.description,
+        totalStock: 1, costPerUnit: data.purchaseCost, lifespanYears: data.lifespanYears,
+        supplier: data.supplier || '', supplierUrl: data.supplierUrl,
+        primaryLocationId: data.primaryLocationId, imageUrl: data.imageUrl, sku: data.sku,
+        batches: [{ id: `batch-${nanoid()}`, stock: 1, costPerUnit: data.purchaseCost, receivedDate: data.purchaseDate.toISOString() }],
+      });
+    }
     onOpenChange(false);
   };
 
   const goNext = async (e: React.MouseEvent) => {
     e.preventDefault();
-    const fields: (keyof FormData)[] = [];
-    if (step === 1) fields.push('name', 'category');
-    if (step === 3) fields.push('initialStock');
-    if (fields.length === 0 || await trigger(fields)) { if (step < STEPS) setStep(s => s + 1); }
+    if (await trigger(step === 1 ? ['name', 'category'] : [])) setStep(s => s + 1);
   };
-  const goBack = (e: React.MouseEvent) => { e.preventDefault(); if (step > 1) setStep(s => s - 1); };
+  const goBack = (e: React.MouseEvent) => { e.preventDefault(); setStep(s => s - 1); };
 
   return (
     <InventoryDialogShell open={open} onOpenChange={onOpenChange}>
       <FormProvider {...methods}>
-        <form onSubmit={handleSubmit(onSubmit)} className="h-full flex flex-col">
+        {/*
+          SCROLL CHAIN:
+          Shell (h-[90dvh] !flex flex-col)
+            └─ form (h-full flex flex-col)          ← fills the shell
+                 ├─ header  (flex-shrink-0)
+                 ├─ ScrollArea (flex-1 min-h-0)      ← scrolls
+                 └─ footer  (flex-shrink-0)
+        */}
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+
+          {/* Fixed header */}
           <div className="flex-shrink-0 border-b bg-muted/5 px-8 py-6">
-            <div className="flex items-center gap-3 mb-2"><PlusCircle className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span></div>
-            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Add New Asset</h2>
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Register a {initialType} item into your studio manifest.</p>
+            <div className="flex items-center gap-3 mb-2">
+              <Sparkles className="w-5 h-5 text-primary" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Capital Asset</h2>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Log hardware and fixtures into the studio record.</p>
             <div className="mt-5"><Progress value={(step / STEPS) * 100} className="h-1 rounded-full bg-muted" /></div>
           </div>
 
-          <ScrollArea className="flex-1 min-h-0">
+          {/* Scrollable body */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
             <div className="px-8 py-8 pb-10">
-              {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
+              {step === 1 && <Step1 cats={equipmentCategories} onNewCat={onNewCategory} />}
               {step === 2 && <Step2 />}
-              {step === 3 && <Step3 onAddLocationClick={onAddLocationClick} locations={locations} />}
+              {step === 3 && <Step3 locations={locations} />}
             </div>
           </ScrollArea>
 
-          <div className="flex-shrink-0 border-t bg-background px-8 py-5 shadow-[0_-2px_12px_0_rgb(0_0_0_/_0.06)]">
+          {/* Fixed footer */}
+          <div className="flex-shrink-0 border-t bg-background px-8 py-5 shadow-md">
             <div className="flex w-full gap-3">
               {step > 1 && <Button variant="ghost" type="button" onClick={goBack} className="flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400">Back</Button>}
               <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
