@@ -3,42 +3,40 @@
 /**
  * InventoryDialogShell
  *
- * Shared wrapper used by all inventory add/edit dialogs.
+ * Shared wrapper for all inventory add/edit dialogs.
+ * Handles the mobile (Sheet) vs desktop (Dialog) split cleanly so no
+ * cross-prop contamination ever occurs, and sets up the correct CSS chain
+ * for header-fixed / body-scrolling / footer-fixed layouts.
  *
- * WHY THIS EXISTS
- * ───────────────
- * The previous pattern was:
+ * ── WHY THIS EXISTS ──────────────────────────────────────────────────────────
+ * The original dialogs passed `side="right"` to DialogContent (a SheetContent-
+ * only prop). Radix forwards unknown props silently but the portal cleanup
+ * fails, leaving pointer-events:none on the page after close.
  *
- *   const DialogContainer = isMobile ? Sheet : Dialog;
- *   <DialogContainer ...>
- *     <DialogContent side="right" ...>   ← BUG
+ * ── SCROLL CHAIN (how desktop scroll works) ──────────────────────────────────
+ *  1. DialogContent gets h-[90dvh] (NOT max-h).
+ *     max-h only caps height; it never DEFINES it. Without a concrete height,
+ *     flex children have nothing to fill and collapse to zero.
  *
- * `side` is a SheetContent-only prop. Passing it to DialogContent causes
- * Radix's focus trap / portal cleanup to fail silently. The backdrop
- * `aria-hidden` attribute or `pointer-events:none` body style is left in place
- * after the dialog closes, requiring a full page refresh to restore
- * interactivity.
+ *  2. DialogContent needs !flex because shadcn bakes `grid` into its default
+ *     className. In Tailwind's generated CSS, `.grid` appears after `.flex`,
+ *     so `grid` wins on specificity. `!flex` = `display:flex !important`.
  *
- * This shell renders the correct component tree for each viewport so no
- * cross-contamination of props ever occurs.
+ *  3. Every dialog's <form> must have:  `flex flex-col flex-1 min-h-0`
+ *     min-h-0 is the critical piece — it lets a flex child shrink below its
+ *     intrinsic content size, which is what allows the inner scroll region
+ *     to be shorter than the full form content.
  *
- * SCROLL FIX
- * ──────────
- * Desktop: DialogContent gets `flex flex-col overflow-hidden` + explicit
- * max-height. Children must use `flex-1 min-h-0` to let their inner
- * ScrollArea claim remaining space. Applying overflow-hidden to DialogContent
- * prevents double scrollbars while the internal ScrollArea handles the rest.
+ *  4. The scrollable body region must be a native div (not Radix ScrollArea).
+ *     Radix ScrollArea wraps in `overflow:hidden` which breaks the flex chain.
+ *     Use: <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
  *
- * Mobile: SheetContent `h-[92dvh]` with the same flex rules.
+ *  5. Header and footer must have `flex-shrink-0` so they never compress.
  */
 
 import React from 'react';
-import {
-  Dialog, DialogContent,
-} from '@/components/ui/dialog';
-import {
-  Sheet, SheetContent,
-} from '@/components/ui/sheet';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
@@ -46,9 +44,7 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
-  /** Extra classes applied to the desktop DialogContent wrapper */
   desktopClassName?: string;
-  /** Extra classes applied to the mobile SheetContent wrapper */
   mobileClassName?: string;
   /** Max-width of the desktop dialog. Default: sm:max-w-4xl */
   maxWidth?: string;
@@ -69,10 +65,12 @@ export function InventoryDialogShell({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          // No `side` confusion — SheetContent always receives it here
           className={cn(
-            'h-[92dvh] rounded-t-[2.5rem] p-0 border-none flex flex-col',
-            'shadow-2xl overflow-hidden',
+            'h-[92dvh] rounded-t-[2.5rem]',
+            'p-0 border-none',
+            '!flex flex-col',
+            'overflow-hidden',
+            'shadow-2xl',
             mobileClassName,
           )}
         >
@@ -85,18 +83,18 @@ export function InventoryDialogShell({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        // IMPORTANT: no `side` prop here — this is DialogContent, not SheetContent
         className={cn(
           maxWidth,
-          'max-h-[90dvh]',
-          'p-0 border-4 rounded-[2.5rem]',
-          // shadcn DialogContent has `grid` in its default classes.
-          // In Tailwind's generated CSS, `.grid` appears after `.flex`, so
-          // `grid` wins on specificity and `flex-1` on children never activates.
-          // `!flex` generates `display: flex !important` which beats grid
-          // regardless of stylesheet order.
+          // Explicit height — MUST be h- not max-h so flex children fill it
+          'h-[90dvh]',
+          // !flex overrides shadcn's default `grid` (which would win by CSS order)
           '!flex flex-col',
+          // Remove shadcn's default padding and gap
+          'p-0 gap-0',
+          // Clip overflow so header/footer stay fixed
           'overflow-hidden',
+          // App's rounded corner style
+          'border-4 rounded-[2.5rem]',
           'shadow-2xl',
           desktopClassName,
         )}
