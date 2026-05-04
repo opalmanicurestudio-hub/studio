@@ -1,27 +1,8 @@
 'use client';
 
-/**
- * FloatingInventoryFAB
- *
- * A floating action button fixed to the bottom-right corner of the viewport.
- * Opens a radial / stacked menu of inventory type options when clicked.
- *
- * Usage — drop into the inventory page instead of the header dropdown:
- *
- *   <FloatingInventoryFAB
- *     onAddProfessional={() => handleOpenAddProductDialog('professional')}
- *     onAddRetail={() => handleOpenAddProductDialog('retail')}
- *     onAddEquipment={() => setIsAddEquipmentDialogOpen(true)}
- *     onAddOverhead={() => setIsAddOverheadDialogOpen(true)}
- *     onAddRefreshment={() => setIsAddRefreshmentDialogOpen(true)}
- *   />
- */
-
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Plus, X, Package, ShoppingCart, Hammer, Recycle, Coffee,
-} from 'lucide-react';
+import { Plus, Package, ShoppingCart, Hammer, Recycle, Coffee } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const MENU_ITEMS = [
@@ -30,40 +11,40 @@ const MENU_ITEMS = [
     label: 'Professional',
     sub: 'Backbar / formula',
     icon: Package,
-    color: 'bg-violet-600 hover:bg-violet-500',
-    ring: 'ring-violet-200',
+    bg: 'bg-violet-600 hover:bg-violet-500',
+    shadow: 'shadow-violet-500/25',
   },
   {
     id: 'retail',
     label: 'Retail',
     sub: 'Client-sale product',
     icon: ShoppingCart,
-    color: 'bg-blue-600 hover:bg-blue-500',
-    ring: 'ring-blue-200',
+    bg: 'bg-blue-600 hover:bg-blue-500',
+    shadow: 'shadow-blue-500/25',
   },
   {
     id: 'equipment',
     label: 'Equipment',
     sub: 'Tools & hardware',
     icon: Hammer,
-    color: 'bg-amber-500 hover:bg-amber-400',
-    ring: 'ring-amber-200',
+    bg: 'bg-amber-500 hover:bg-amber-400',
+    shadow: 'shadow-amber-500/25',
   },
   {
     id: 'overhead',
     label: 'Overhead Supply',
     sub: 'Consumables',
     icon: Recycle,
-    color: 'bg-emerald-600 hover:bg-emerald-500',
-    ring: 'ring-emerald-200',
+    bg: 'bg-emerald-600 hover:bg-emerald-500',
+    shadow: 'shadow-emerald-500/25',
   },
   {
     id: 'refreshment',
     label: 'Concierge Amenity',
     sub: 'Hospitality items',
     icon: Coffee,
-    color: 'bg-rose-500 hover:bg-rose-400',
-    ring: 'ring-rose-200',
+    bg: 'bg-rose-500 hover:bg-rose-400',
+    shadow: 'shadow-rose-500/25',
   },
 ] as const;
 
@@ -87,24 +68,20 @@ export function FloatingInventoryFAB({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on click outside
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
   }, [open]);
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
   }, [open]);
 
   const handlers: Record<ItemId, () => void> = {
@@ -117,79 +94,89 @@ export function FloatingInventoryFAB({
 
   const handleSelect = (id: ItemId) => {
     setOpen(false);
-    // Small delay so the FAB closes before the dialog opens (prevents focus
-    // competition between two Radix portals)
     setTimeout(() => handlers[id](), 80);
   };
 
   return (
-    // Positioned relative to viewport, above any sheet/dialog z-layers but
-    // below modals (z-40 < z-50 used by Radix dialogs)
     <div
       ref={ref}
-      className="fixed bottom-6 right-6 z-40 flex flex-col-reverse items-end gap-3"
-      aria-label="Add inventory item"
+      className="fixed bottom-8 right-8 z-40 flex flex-col-reverse items-end gap-4"
     >
-      {/* ── FAB trigger ── */}
+      {/* ── FAB trigger button ── */}
       <motion.button
         onClick={() => setOpen(v => !v)}
-        whileTap={{ scale: 0.92 }}
+        whileTap={{ scale: 0.94 }}
         className={cn(
-          'w-16 h-16 rounded-2xl shadow-2xl shadow-primary/30 flex items-center justify-center transition-colors duration-200',
-          open
-            ? 'bg-slate-900 text-white rotate-45'
-            : 'bg-primary text-primary-foreground',
-          'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30',
+          'w-16 h-16 md:w-[4.5rem] md:h-[4.5rem]',
+          'rounded-2xl md:rounded-[1.25rem]',
+          'flex items-center justify-center shrink-0',
+          'shadow-2xl shadow-primary/30',
+          'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/40',
+          'transition-colors duration-200',
+          open ? 'bg-slate-900 text-white' : 'bg-primary text-primary-foreground',
         )}
-        style={{ transition: 'transform 200ms, background-color 200ms' }}
         aria-expanded={open}
-        aria-haspopup="true"
+        aria-label="Add inventory item"
       >
         <motion.span
           animate={{ rotate: open ? 45 : 0 }}
-          transition={{ duration: 0.18 }}
+          transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
           className="flex items-center justify-center"
         >
-          <Plus className="w-7 h-7" />
+          <Plus className="w-7 h-7 md:w-8 md:h-8" strokeWidth={2.5} />
         </motion.span>
       </motion.button>
 
-      {/* ── Menu items (stacked above FAB) ── */}
+      {/* ── Stacked menu items ── */}
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 12, scale: 0.94 }}
+            initial={{ opacity: 0, y: 12, scale: 0.96 }}
             animate={{ opacity: 1, y: 0,  scale: 1 }}
-            exit={{ opacity: 0, y: 8,  scale: 0.96 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="flex flex-col-reverse gap-2 items-end"
+            exit={{   opacity: 0, y: 8,   scale: 0.97 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            className="flex flex-col-reverse gap-3 items-end pb-1"
           >
             {MENU_ITEMS.map((item, i) => {
               const Icon = item.icon;
               return (
                 <motion.button
                   key={item.id}
-                  initial={{ opacity: 0, x: 16 }}
+                  initial={{ opacity: 0, x: 24 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 12 }}
-                  transition={{ delay: i * 0.04, duration: 0.15 }}
+                  exit={{   opacity: 0, x: 16 }}
+                  transition={{ delay: i * 0.045, duration: 0.16, ease: 'easeOut' }}
                   onClick={() => handleSelect(item.id)}
                   className={cn(
-                    'flex items-center gap-3 h-13 pl-3 pr-4 rounded-2xl shadow-lg',
-                    'text-white transition-all active:scale-95',
-                    'focus-visible:outline-none focus-visible:ring-4',
-                    item.color,
-                    item.ring,
+                    // Height — matches the app's standard h-14 button, h-16 on desktop
+                    'h-14 md:h-16',
+                    // Horizontal padding — generous like the app's cards
+                    'pl-3 pr-6 md:pl-4 md:pr-8',
+                    // Width — never wraps text, desktop gets more room
+                    'min-w-[200px] md:min-w-[256px]',
+                    // Shape — app uses rounded-2xl throughout
+                    'rounded-2xl',
+                    item.bg,
+                    'text-white',
+                    'shadow-xl', item.shadow,
+                    'active:scale-[0.97] transition-all duration-100',
+                    'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/30',
+                    'flex items-center gap-3 md:gap-4',
                   )}
                 >
-                  {/* Icon bubble */}
-                  <span className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center shrink-0">
-                    <Icon className="w-3 h-3" />
+                  {/* Icon container — proportional, does not dominate */}
+                  <span className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                    <Icon className="w-4 h-4 md:w-[18px] md:h-[18px]" strokeWidth={2} />
                   </span>
-                  {/* Labels */}
-                  <span className="flex flex-col items-start leading-none">
-                    <span className="text-[11px] font-black uppercase tracking-widest">{item.label}</span>
-                    <span className="text-[9px] font-bold opacity-70 mt-0.5 uppercase tracking-wide">{item.sub}</span>
+
+                  {/* Text — matches app's font-black uppercase tracking-widest pattern */}
+                  <span className="flex flex-col items-start leading-none gap-[3px] min-w-0">
+                    <span className="text-xs md:text-[13px] font-black uppercase tracking-widest truncate">
+                      {item.label}
+                    </span>
+                    <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-70">
+                      {item.sub}
+                    </span>
                   </span>
                 </motion.button>
               );
@@ -198,14 +185,15 @@ export function FloatingInventoryFAB({
         )}
       </AnimatePresence>
 
-      {/* Backdrop scrim (subtle) */}
+      {/* ── Backdrop scrim ── */}
       <AnimatePresence>
         {open && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 -z-10 bg-black/10 backdrop-blur-[1px]"
+            exit={{   opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 -z-10 bg-black/20 backdrop-blur-[2px]"
             onClick={() => setOpen(false)}
           />
         )}
