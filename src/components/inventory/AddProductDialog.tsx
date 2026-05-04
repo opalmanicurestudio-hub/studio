@@ -311,7 +311,7 @@ export const AddProductDialog: React.FC<{
           <div className="flex-shrink-0 border-t bg-background px-8 py-5 shadow-md">
             <div className="flex w-full gap-3">
               {step > 1 && <Button variant="ghost" type="button" onClick={goBack} className="flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400">Back</Button>}
-              <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
+              <div className={step === 1 ? 'flex gap-3 w-full' : 'flex gap-3 flex-[2.5]'}>
                 <Button variant="outline" type="button" onClick={() => onOpenChange(false)} className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2">Cancel</Button>
                 {step < STEPS
                   ? <Button type="button" onClick={goNext} className="flex-[1.5] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 group">Continue <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" /></Button>
