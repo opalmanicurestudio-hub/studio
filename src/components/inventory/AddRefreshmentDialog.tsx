@@ -177,7 +177,7 @@ function Step2({ data, upd }: { data: FormData; upd: (p: Partial<FormData>) => v
 
   return (
     <div className="space-y-6">
-      {/* Units on hand */}
+      
       <div className="text-center py-2">
         <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-2">Units on Hand</p>
         <div className="flex items-center justify-center gap-5">
@@ -202,7 +202,7 @@ function Step2({ data, upd }: { data: FormData; upd: (p: Partial<FormData>) => v
         </div>
       </div>
 
-      {/* Divide method */}
+      
       <div className="space-y-3">
         <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">
           How does one {data.unitLabel} divide?
@@ -244,7 +244,7 @@ function Step2({ data, upd }: { data: FormData; upd: (p: Partial<FormData>) => v
         )}
       </div>
 
-      {/* Landed cost */}
+      
       <div className="border-2 border-slate-100 rounded-2xl overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border-b border-slate-100">
           <Truck className="w-4 h-4 text-slate-500" />
@@ -284,7 +284,7 @@ function Step2({ data, upd }: { data: FormData; upd: (p: Partial<FormData>) => v
         </div>
       </div>
 
-      {/* Recipe (collapsible) */}
+      
       <div className="border-2 border-slate-100 rounded-2xl overflow-hidden">
         <button type="button" onClick={() => setShowRecipe(s => !s)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-all text-left">
           <Calculator className="w-4 h-4 text-slate-400" />
@@ -392,14 +392,10 @@ export function AddRefreshmentDialog(props: Props) {
       onOpenChange={v => { if (!v) onClose(); }}
       maxWidth="sm:max-w-2xl"
     >
-      {/* Scroll chain: Shell (h-[90dvh] !flex !gap-0 flex-col)
-            -> this div (h-full flex flex-col)
-               -> header (flex-shrink-0)
-               -> ScrollArea (flex-1 min-h-0)   <- scrolls
-               -> footer (flex-shrink-0)          */}
+      
       <div className="h-full flex flex-col">
 
-        {/* Header */}
+        
         <div className="flex-shrink-0 flex items-center justify-between px-6 py-5 border-b border-slate-100">
           <div>
             <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Step {step} of 2</p>
@@ -415,7 +411,7 @@ export function AddRefreshmentDialog(props: Props) {
           </div>
         </div>
 
-        {/* Scrollable body */}
+        
         <ScrollArea className="flex-1 min-h-0">
           <div className="p-6">
             {step === 1 && <Step1 data={data} upd={upd} errors={errors} />}
@@ -423,7 +419,7 @@ export function AddRefreshmentDialog(props: Props) {
           </div>
         </ScrollArea>
 
-        {/* Footer */}
+        
         <div className="flex-shrink-0 px-6 py-4 border-t border-slate-100 flex items-center gap-3">
           {step === 2 && (
             <button type="button" onClick={() => setStep(1)}
