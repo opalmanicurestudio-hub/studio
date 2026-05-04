@@ -212,7 +212,7 @@ export function AddRefreshmentDialog(props: Props) {
       </div>
 
       {/* Scrollable body */}
-      <ScrollArea className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         <AnimatePresence mode="wait">
 
           {step === 1 && (
