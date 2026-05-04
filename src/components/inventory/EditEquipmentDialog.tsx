@@ -244,7 +244,7 @@ export const AddEquipmentDialog = ({
           </ScrollArea>
 
           {/* Fixed footer */}
-          <div className="flex-shrink-0 border-t bg-background px-8 py-5 shadow-[0_-2px_12px_0_rgb(0_0_0_/_0.06)]">
+          <div className="flex-shrink-0 border-t bg-background px-8 py-5 shadow-md">
             <div className="flex w-full gap-3">
               {step > 1 && <Button variant="ghost" type="button" onClick={goBack} className="flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400">Back</Button>}
               <div className={cn('flex gap-3', step === 1 ? 'w-full' : 'flex-[2.5]')}>
