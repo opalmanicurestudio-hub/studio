@@ -30,7 +30,6 @@ import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog'
 import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
-import { FloatingInventoryFAB } from '@/components/inventory/FloatingInventoryFAB';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Locations } from '@/components/inventory/Locations';
 import { LogSaleDialog } from '@/components/inventory/LogSaleDialog';
@@ -621,6 +620,20 @@ export default function InventoryPage() {
             <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm">
               <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" /> Reports</Link>
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
+                  <PlusCircle className="mr-2 h-4 w-4" /> New Entry
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-2 w-56">
+                <DropdownMenuItem onClick={() => handleOpenAddProductDialog('professional')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Package className="mr-3 h-4 w-4 text-primary" />Professional Product</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Store className="mr-3 h-4 w-4 text-primary" />Retail Product</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Hammer className="mr-3 h-4 w-4 text-primary" />Equipment Asset</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Recycle className="mr-3 h-4 w-4 text-primary" />Overhead Supply</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsAddRefreshmentDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3 text-indigo-600"><Coffee className="mr-3 h-4 w-4" />Concierge Amenity</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -702,13 +715,7 @@ export default function InventoryPage() {
         </div>
       </main>
 
-      <FloatingInventoryFAB
-        onAddProfessional={() => handleOpenAddProductDialog('professional')}
-        onAddRetail={() => handleOpenAddProductDialog('retail')}
-        onAddEquipment={() => setIsAddEquipmentDialogOpen(true)}
-        onAddOverhead={() => setIsAddOverheadDialogOpen(true)}
-        onAddRefreshment={() => setIsAddRefreshmentDialogOpen(true)}
-      />
+
 
       <AddProductDialog open={isAddProductDialogOpen} onOpenChange={setIsAddProductDialogOpen} initialType={addProductDialogType} categories={productCategories} onNewCategory={onNewCategory} onProductAdded={handleProductAdded} locations={locations || []} onAddLocationClick={handleOpenAddLocation} />
       <AddEquipmentDialog open={isAddEquipmentDialogOpen} onOpenChange={setIsAddEquipmentDialogOpen} onEquipmentAdded={handleEquipmentAdded} equipmentCategories={productCategories} onNewCategory={onNewCategory} locations={locations || []} />
