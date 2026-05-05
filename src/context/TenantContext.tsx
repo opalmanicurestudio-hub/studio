@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
@@ -24,7 +23,7 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
   const { user, isUserLoading } = useFirebase();
   const firestore = useFirebase().firestore;
   const [role, setRole] = useState<UserRole>(null);
-  
+
   const ownerTenantQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
@@ -40,14 +39,16 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
   const { data: staffDirectoryEntry, isLoading: isStaffDirectoryLoading } = useDoc(staffDirectoryEntryRef);
 
   const staffTenantId = staffDirectoryEntry?.tenantId;
+
   const staffTenantRef = useMemoFirebase(() => {
     if (!firestore || !staffTenantId) return null;
     return doc(firestore, 'tenants', staffTenantId);
   }, [firestore, staffTenantId]);
+
   const { data: staffTenant, isLoading: staffTenantLoading } = useDoc<Tenant>(staffTenantRef);
 
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
-  
+
   useEffect(() => {
     if (isUserLoading || tenantsLoading) return;
 
@@ -55,37 +56,38 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
       setRole('owner');
       const storedTenantId = localStorage.getItem('selectedTenantId');
       const activeTenant = tenants.find(t => t.id === storedTenantId) || tenants[0];
-      if (selectedTenant?.id !== activeTenant.id) {
-          setSelectedTenant(activeTenant);
-          localStorage.setItem('selectedTenantId', activeTenant.id);
-      }
+      // Always sync — not just on ID change — so fields like tmhr propagate live
+      setSelectedTenant(activeTenant);
+      localStorage.setItem('selectedTenantId', activeTenant.id);
     } else {
-        // If not an owner, check if they are staff
-        if (!isStaffDirectoryLoading) {
-            if (staffTenant && staffDirectoryEntry) {
-                setRole(staffDirectoryEntry.role || 'staff');
-                if (selectedTenant?.id !== staffTenant.id) {
-                    setSelectedTenant(staffTenant);
-                    localStorage.setItem('selectedTenantId', staffTenant.id);
-                }
-            } else {
-                setRole(null);
-                setSelectedTenant(null);
-            }
+      if (!isStaffDirectoryLoading) {
+        if (staffTenant && staffDirectoryEntry) {
+          setRole(staffDirectoryEntry.role || 'staff');
+          // Always sync staff tenant too
+          setSelectedTenant(staffTenant);
+          localStorage.setItem('selectedTenantId', staffTenant.id);
+        } else {
+          setRole(null);
+          setSelectedTenant(null);
         }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, tenants, tenantsLoading, isStaffDirectoryLoading, staffTenant, staffDirectoryEntry]);
 
   const handleSetSelectedTenant = useCallback((tenant: Tenant) => {
     if (role === 'owner') {
-        setSelectedTenant(tenant);
-        localStorage.setItem('selectedTenantId', tenant.id);
+      setSelectedTenant(tenant);
+      localStorage.setItem('selectedTenantId', tenant.id);
     }
     // Staff cannot switch tenants.
   }, [role]);
-  
-  const isLoading = isUserLoading || tenantsLoading || (user && !tenants?.length && isStaffDirectoryLoading) || (isStaffDirectoryLoading && staffTenantLoading);
+
+  const isLoading =
+    isUserLoading ||
+    tenantsLoading ||
+    !!(user && !tenants?.length && isStaffDirectoryLoading) ||
+    !!(isStaffDirectoryLoading && staffTenantLoading);
 
   const value = {
     tenants: tenants || [],
@@ -93,7 +95,7 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
     setSelectedTenant: handleSetSelectedTenant,
     isLoading,
     role,
-    user
+    user,
   };
 
   return (
