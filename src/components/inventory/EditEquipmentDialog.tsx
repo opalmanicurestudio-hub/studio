@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { InventoryDialogShell } from '@/components/inventory/InventoryDialogShell';
-import { ArrowRight, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, Check, Building, Save } from 'lucide-react';
+import { ArrowRight, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, Check, Building } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,7 +15,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, parseISO } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
+import { nanoid } from 'nanoid';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location } from '@/lib/data';
 
@@ -96,14 +98,14 @@ const Step1 = ({ cats, onNewCat }: { cats: string[]; onNewCat: (c: string) => vo
       </div>
       <div className="space-y-2">
         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Visual</Label>
-        <Controller name="imageUrl" control={control} render={({ field }) => <ImageUpload onImageUploaded={field.onChange} currentImageUrl={field.value} />} />
+        <Controller name="imageUrl" control={control} render={({ field }) => <ImageUpload onImageUploaded={field.onChange} />} />
       </div>
     </div>
   );
 };
 
 const Step2 = () => {
-  const { control, register } = useFormContext<FormData>();
+  const { control, register, formState: { errors } } = useFormContext<FormData>();
   return (
     <div className="space-y-6 text-left">
       <SH icon={DollarSign} title="Capital Investment" step={2} />
@@ -184,13 +186,12 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
   );
 };
 
-export const EditEquipmentDialog = ({
-  open, onOpenChange, onEquipmentUpdated, equipment, equipmentCategories, onNewCategory, locations,
+export const AddEquipmentDialog = ({
+  open, onOpenChange, onEquipmentAdded, equipmentCategories, onNewCategory, locations,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  onEquipmentUpdated: (e: InventoryItem) => void;
-  equipment: InventoryItem;
+  onEquipmentAdded: (e: InventoryItem) => void;
   equipmentCategories: string[];
   onNewCategory: (c: string) => void;
   locations: Location[];
@@ -198,68 +199,39 @@ export const EditEquipmentDialog = ({
   const [step, setStep] = useState(1);
   const STEPS = 3;
 
-  const getDefaultDate = () => {
-    try {
-      const batch = equipment?.batches?.[0]?.receivedDate;
-      return batch ? parseISO(batch) : new Date();
-    } catch {
-      return new Date();
-    }
-  };
-
   const methods = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      name:              equipment?.name || '',
-      category:          equipment?.category || '',
-      description:       equipment?.description || '',
-      purchaseCost:      equipment?.costPerUnit || 0,
-      lifespanYears:     equipment?.lifespanYears || 5,
-      purchaseDate:      getDefaultDate(),
-      quantity:          1,
-      supplier:          equipment?.supplier || '',
-      supplierUrl:       equipment?.supplierUrl || '',
-      primaryLocationId: equipment?.primaryLocationId || '',
-      imageUrl:          equipment?.imageUrl || '',
-      sku:               equipment?.sku || '',
-    },
+    defaultValues: { lifespanYears: 5, purchaseDate: new Date(), quantity: 1 },
   });
   const { handleSubmit, reset, trigger } = methods;
 
   useEffect(() => {
-    if (open && equipment) {
-      reset({
-        name:              equipment.name || '',
-        category:          equipment.category || '',
-        description:       equipment.description || '',
-        purchaseCost:      equipment.costPerUnit || 0,
-        lifespanYears:     equipment.lifespanYears || 5,
-        purchaseDate:      getDefaultDate(),
-        quantity:          1,
-        supplier:          equipment.supplier || '',
-        supplierUrl:       equipment.supplierUrl || '',
-        primaryLocationId: equipment.primaryLocationId || '',
-        imageUrl:          equipment.imageUrl || '',
-        sku:               equipment.sku || '',
-      });
+    if (open) {
+      reset({ lifespanYears: 5, purchaseDate: new Date(), quantity: 1 });
       setStep(1);
     }
-  }, [open, equipment, reset]);
+  }, [open, reset]);
 
   const onSubmit = (data: FormData) => {
-    onEquipmentUpdated({
-      ...equipment,
-      name:              data.name,
-      category:          data.category,
-      description:       data.description,
-      costPerUnit:       data.purchaseCost,
-      lifespanYears:     data.lifespanYears,
-      supplier:          data.supplier || '',
-      supplierUrl:       data.supplierUrl,
-      primaryLocationId: data.primaryLocationId,
-      imageUrl:          data.imageUrl,
-      sku:               data.sku,
-    });
+    const qty = data.quantity || 1;
+    for (let i = 0; i < qty; i++) {
+      onEquipmentAdded({
+        id: `equip-${nanoid()}`,
+        name: qty > 1 ? `${data.name} #${i + 1}` : data.name,
+        type: 'equipment',
+        category: data.category,
+        description: data.description,
+        totalStock: 1,
+        costPerUnit: data.purchaseCost,
+        lifespanYears: data.lifespanYears,
+        supplier: data.supplier || '',
+        supplierUrl: data.supplierUrl,
+        primaryLocationId: data.primaryLocationId,
+        imageUrl: data.imageUrl,
+        sku: data.sku,
+        batches: [{ id: `batch-${nanoid()}`, stock: 1, costPerUnit: data.purchaseCost, receivedDate: data.purchaseDate.toISOString() }],
+      });
+    }
     onOpenChange(false);
   };
 
@@ -272,8 +244,8 @@ export const EditEquipmentDialog = ({
     setStep(s => s - 1);
   };
 
-  const backBtnClass = "flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400";
-  const innerDivClass = step === 1 ? "flex gap-3 w-full" : "flex gap-3 flex-[2.5]";
+  const footerBackClass = "flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400";
+  const footerInnerClass = step === 1 ? "flex gap-3 w-full" : "flex gap-3 flex-[2.5]";
 
   return (
     <InventoryDialogShell open={open} onOpenChange={onOpenChange}>
@@ -283,10 +255,10 @@ export const EditEquipmentDialog = ({
           <div className="flex-shrink-0 border-b bg-muted/5 px-8 py-6">
             <div className="flex items-center gap-3 mb-2">
               <Sparkles className="w-5 h-5 text-primary" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Asset Editor</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Edit Capital Asset</h2>
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{equipment?.name}</p>
+            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Capital Asset</h2>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Log hardware and fixtures into the studio record.</p>
             <div className="mt-5">
               <Progress value={(step / STEPS) * 100} className="h-1 rounded-full bg-muted" />
             </div>
@@ -303,11 +275,11 @@ export const EditEquipmentDialog = ({
           <div className="flex-shrink-0 border-t bg-background px-8 py-5 shadow-md">
             <div className="flex w-full gap-3">
               {step > 1 && (
-                <Button variant="ghost" type="button" onClick={goBack} className={backBtnClass}>
+                <Button variant="ghost" type="button" onClick={goBack} className={footerBackClass}>
                   Back
                 </Button>
               )}
-              <div className={innerDivClass}>
+              <div className={footerInnerClass}>
                 <Button variant="outline" type="button" onClick={() => onOpenChange(false)} className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2">
                   Cancel
                 </Button>
@@ -317,7 +289,7 @@ export const EditEquipmentDialog = ({
                   </Button>
                 ) : (
                   <Button type="submit" className="flex-[1.5] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30">
-                    <Save className="mr-2 w-4 h-4" /> Save Changes
+                    Save Asset
                   </Button>
                 )}
               </div>
