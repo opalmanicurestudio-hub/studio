@@ -77,7 +77,6 @@ export default function MySchedulePage() {
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
-  // Query own shifts -- single field filter only to avoid composite index
   const shiftsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId || !user?.uid) return null;
     return query(
@@ -86,7 +85,6 @@ export default function MySchedulePage() {
     );
   }, [firestore, tenantId, user?.uid]);
 
-  // Query all shifts for swap -- needed to find other staff shifts
   const allShiftsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId || !requestDate || requestType !== 'swap') return null;
     return query(
@@ -108,7 +106,6 @@ export default function MySchedulePage() {
   const { data: shiftsOnDate } = useCollection<any>(allShiftsQuery);
   const { data: allRequests } = useCollection<any>(requestsQuery);
 
-  // Filter to current week client-side
   const myShifts = useMemo(() => {
     if (!allShifts) return [];
     const weekStartStr = format(weekStart, 'yyyy-MM-dd');
@@ -121,7 +118,6 @@ export default function MySchedulePage() {
     );
   }, [allShifts, weekStart, weekEnd]);
 
-  // Other staff shifts on the swap date (excluding own)
   const swappableShifts = useMemo(() => {
     if (!shiftsOnDate || !user?.uid) return [];
     return shiftsOnDate.filter(s => s.staffId !== user.uid);
@@ -139,7 +135,6 @@ export default function MySchedulePage() {
     [myShifts]
   );
 
-  // My shift on the selected date (for swap)
   const myShiftOnDate = useMemo(() => {
     if (!requestDate || !allShifts) return null;
     return allShifts.find(s => s.date === requestDate && s.staffId === user?.uid && s.status !== 'cancelled');
@@ -160,9 +155,7 @@ export default function MySchedulePage() {
       if (!firestore) return;
       const batch = writeBatch(firestore);
       const now = new Date().toISOString();
-      const requestId = nanoid();
 
-      // Create the request
       const requestRef = doc(collection(firestore, `tenants/${tenantId}/shiftRequests`));
       batch.set(requestRef, {
         id: requestRef.id,
@@ -179,22 +172,19 @@ export default function MySchedulePage() {
         }),
       });
 
-      // Day off: automatically block the day by adding a "blocked" event
-      // Manager still approves but the block is visible immediately as pending
       if (requestType === 'day_off') {
         const blockRef = doc(collection(firestore, `tenants/${tenantId}/shiftDayOffBlocks`));
         batch.set(blockRef, {
           id: blockRef.id,
           staffId: user.uid,
           date: requestDate,
-          status: 'pending', // becomes 'approved' when manager approves request
+          status: 'pending',
           requestId: requestRef.id,
           reason: requestReason,
           createdAt: now,
         });
       }
 
-      // Notify managers
       const managersToNotify = (staff || []).filter(s => s.role === 'owner' || s.role === 'admin');
       managersToNotify.forEach(manager => {
         const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
@@ -257,7 +247,6 @@ export default function MySchedulePage() {
       <AppHeader title="My Schedule" />
       <main className="flex-1 p-4 md:p-8 w-full max-w-2xl mx-auto space-y-6">
 
-        {/* Header */}
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-1">
             <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">My Schedule</h1>
@@ -268,7 +257,6 @@ export default function MySchedulePage() {
           </Button>
         </div>
 
-        {/* Week nav */}
         <div className="flex items-center justify-between gap-4 p-4 bg-white rounded-[2rem] border-2 shadow-sm">
           <Button variant="ghost" size="icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl">
             <ChevronLeft className="w-5 h-5" />
@@ -283,7 +271,6 @@ export default function MySchedulePage() {
           </Button>
         </div>
 
-        {/* Daily shift cards */}
         <div className="space-y-3">
           {weekDays.map(day => {
             const dayStr = format(day, 'yyyy-MM-dd');
@@ -328,7 +315,6 @@ export default function MySchedulePage() {
           })}
         </div>
 
-        {/* My requests */}
         {myRequests.length > 0 && (
           <div className="space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">My Requests</p>
@@ -374,122 +360,118 @@ export default function MySchedulePage() {
         )}
       </main>
 
-      {/* Request Dialog */}
       <Dialog open={isRequestOpen} onOpenChange={v => { if (!v) resetDialog(); }}>
-        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
-          <DialogHeader className="p-6 pb-0 text-left">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Submit Request</DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Your manager will be notified immediately.</DialogDescription>
-          </DialogHeader>
-          <div className="p-6 space-y-5">
+        <DialogContent className="sm:max-w-md max-h-[85dvh] !flex flex-col !gap-0 p-0 rounded-[2.5rem] border-4 shadow-2xl bg-background overflow-hidden">
 
-            {/* Type */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Request Type</Label>
-              <Select value={requestType} onValueChange={(v: any) => { setRequestType(v); setSwapTargetStaffId(''); setSwapTargetShiftId(''); }}>
-                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px]"><SelectValue /></SelectTrigger>
-                <SelectContent className="rounded-xl border-2 shadow-2xl">
-                  <SelectItem value="day_off" className="font-bold uppercase text-[10px]">
-                    <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600" />Day Off Request</div>
-                  </SelectItem>
-                  <SelectItem value="swap" className="font-bold uppercase text-[10px]">
-                    <div className="flex items-center gap-2"><Repeat className="w-4 h-4 text-purple-600" />Shift Swap</div>
-                  </SelectItem>
-                  <SelectItem value="early_release" className="font-bold uppercase text-[10px]">
-                    <div className="flex items-center gap-2"><Zap className="w-4 h-4 text-amber-600" />Early Release</div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="flex-shrink-0 p-6 pb-4 border-b bg-muted/5 text-left">
+            <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Submit Request</h2>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Your manager will be notified immediately.</p>
+          </div>
 
-            {/* Type-specific info */}
-            {requestType === 'day_off' && (
-              <div className="p-3 rounded-2xl bg-blue-50 border-2 border-blue-200 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                <p className="text-[9px] font-bold text-blue-700 uppercase leading-relaxed">The day will be flagged as pending immediately. Once your manager approves, it will be blocked on the schedule automatically.</p>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div className="p-6 space-y-5">
+
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Request Type</Label>
+                <Select value={requestType} onValueChange={(v: any) => { setRequestType(v); setSwapTargetStaffId(''); setSwapTargetShiftId(''); }}>
+                  <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px]"><SelectValue /></SelectTrigger>
+                  <SelectContent className="rounded-xl border-2 shadow-2xl">
+                    <SelectItem value="day_off" className="font-bold uppercase text-[10px]">
+                      <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600" />Day Off Request</div>
+                    </SelectItem>
+                    <SelectItem value="swap" className="font-bold uppercase text-[10px]">
+                      <div className="flex items-center gap-2"><Repeat className="w-4 h-4 text-purple-600" />Shift Swap</div>
+                    </SelectItem>
+                    <SelectItem value="early_release" className="font-bold uppercase text-[10px]">
+                      <div className="flex items-center gap-2"><Zap className="w-4 h-4 text-amber-600" />Early Release</div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            )}
-            {requestType === 'swap' && (
-              <div className="p-3 rounded-2xl bg-purple-50 border-2 border-purple-200 flex items-start gap-2">
-                <Repeat className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                <p className="text-[9px] font-bold text-purple-700 uppercase leading-relaxed">Select the date and the staff member to swap with. Both shifts will be automatically reassigned once your manager approves.</p>
+
+              {requestType === 'day_off' && (
+                <div className="p-3 rounded-2xl bg-blue-50 border-2 border-blue-200 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <p className="text-[9px] font-bold text-blue-700 uppercase leading-relaxed">The day will be flagged as pending immediately. Once your manager approves, it will be blocked on the schedule automatically.</p>
+                </div>
+              )}
+              {requestType === 'swap' && (
+                <div className="p-3 rounded-2xl bg-purple-50 border-2 border-purple-200 flex items-start gap-2">
+                  <Repeat className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                  <p className="text-[9px] font-bold text-purple-700 uppercase leading-relaxed">Select the date and the staff member to swap with. Both shifts will be automatically reassigned once your manager approves.</p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  {requestType === 'swap' ? 'Date to Swap' : 'Date'}
+                </Label>
+                <input type="date" value={requestDate} onChange={e => setRequestDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-white focus:border-primary/40" />
               </div>
-            )}
 
-            {/* Date */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                {requestType === 'swap' ? 'Date to Swap' : 'Date'}
-              </Label>
-              <input type="date" value={requestDate} onChange={e => setRequestDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-white focus:border-primary/40" />
-            </div>
-
-            {/* Swap target -- shows when type=swap and date selected */}
-            {requestType === 'swap' && requestDate && (
-              <div className="space-y-3">
-                {/* My shift on that date */}
-                {myShiftOnDate ? (
-                  <div className="p-3 rounded-2xl bg-slate-50 border-2 border-slate-200">
-                    <p className="text-[9px] font-black uppercase text-muted-foreground mb-1">Your Shift</p>
-                    <p className="font-black text-sm text-primary">{formatTime(myShiftOnDate.startTime)} -- {formatTime(myShiftOnDate.endTime)}</p>
-                  </div>
-                ) : (
-                  <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-200">
-                    <p className="text-[9px] font-black uppercase text-amber-700 flex items-center gap-1.5">
-                      <AlertCircle className="w-3 h-3" /> You have no published shift on this date
-                    </p>
-                  </div>
-                )}
-
-                {/* Other staff shifts on that date */}
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Swap With</Label>
-                  {otherStaffOnSwapDate.length > 0 ? (
-                    <div className="space-y-2">
-                      {otherStaffOnSwapDate.map(({ shift, member }) => (
-                        <button
-                          key={shift.id}
-                          type="button"
-                          onClick={() => { setSwapTargetStaffId(shift.staffId); setSwapTargetShiftId(shift.id); }}
-                          className={cn(
-                            "w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all text-left",
-                            swapTargetShiftId === shift.id
-                              ? "border-purple-400 bg-purple-50"
-                              : "border-slate-200 bg-white hover:border-purple-200"
-                          )}
-                        >
-                          <Avatar className="w-8 h-8 rounded-xl border shrink-0">
-                            <AvatarImage src={member?.avatarUrl} className="object-cover" />
-                            <AvatarFallback className="text-[9px] font-black bg-primary/10 text-primary">{member?.name?.[0]}</AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-black uppercase text-[10px] truncate">{member?.name}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
-                              {formatTime(shift.startTime)} -- {formatTime(shift.endTime)}
-                            </p>
-                          </div>
-                          {swapTargetShiftId === shift.id && <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0" />}
-                        </button>
-                      ))}
+              {requestType === 'swap' && requestDate && (
+                <div className="space-y-3">
+                  {myShiftOnDate ? (
+                    <div className="p-3 rounded-2xl bg-slate-50 border-2 border-slate-200">
+                      <p className="text-[9px] font-black uppercase text-muted-foreground mb-1">Your Shift</p>
+                      <p className="font-black text-sm text-primary">{formatTime(myShiftOnDate.startTime)} -- {formatTime(myShiftOnDate.endTime)}</p>
                     </div>
                   ) : (
-                    <div className="p-4 rounded-2xl bg-slate-50 border-2 border-dashed text-center">
-                      <Users className="w-6 h-6 text-muted-foreground/40 mx-auto mb-1" />
-                      <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">No other staff scheduled on this date</p>
+                    <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-200">
+                      <p className="text-[9px] font-black uppercase text-amber-700 flex items-center gap-1.5">
+                        <AlertCircle className="w-3 h-3" /> You have no published shift on this date
+                      </p>
                     </div>
                   )}
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Swap With</Label>
+                    {otherStaffOnSwapDate.length > 0 ? (
+                      <div className="space-y-2">
+                        {otherStaffOnSwapDate.map(({ shift, member }) => (
+                          <button
+                            key={shift.id}
+                            type="button"
+                            onClick={() => { setSwapTargetStaffId(shift.staffId); setSwapTargetShiftId(shift.id); }}
+                            className={cn(
+                              "w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all text-left",
+                              swapTargetShiftId === shift.id
+                                ? "border-purple-400 bg-purple-50"
+                                : "border-slate-200 bg-white hover:border-purple-200"
+                            )}
+                          >
+                            <Avatar className="w-8 h-8 rounded-xl border shrink-0">
+                              <AvatarImage src={member?.avatarUrl} className="object-cover" />
+                              <AvatarFallback className="text-[9px] font-black bg-primary/10 text-primary">{member?.name?.[0]}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-black uppercase text-[10px] truncate">{member?.name}</p>
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
+                                {formatTime(shift.startTime)} -- {formatTime(shift.endTime)}
+                              </p>
+                            </div>
+                            {swapTargetShiftId === shift.id && <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-2xl bg-slate-50 border-2 border-dashed text-center">
+                        <Users className="w-6 h-6 text-muted-foreground/40 mx-auto mb-1" />
+                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">No other staff scheduled on this date</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Reason */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reason</Label>
-              <Textarea value={requestReason} onChange={e => setRequestReason(e.target.value)} placeholder="Explain your request..." className="rounded-2xl border-2 min-h-[80px]" />
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reason</Label>
+                <Textarea value={requestReason} onChange={e => setRequestReason(e.target.value)} placeholder="Explain your request..." className="rounded-2xl border-2 min-h-[80px]" />
+              </div>
+
             </div>
           </div>
 
-          <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
+          <div className="flex-shrink-0 p-6 pt-4 border-t bg-background flex flex-col gap-3">
             <Button
               onClick={handleSubmitRequest}
               disabled={isProcessing || !requestDate || !requestReason.trim() || (requestType === 'swap' && !swapTargetShiftId)}
@@ -502,7 +484,8 @@ export default function MySchedulePage() {
               )}
             </Button>
             <Button variant="ghost" onClick={resetDialog} className="font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
-          </DialogFooter>
+          </div>
+
         </DialogContent>
       </Dialog>
     </div>
