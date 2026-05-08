@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -49,6 +48,7 @@ import { z } from 'zod';
 import { ImageUpload } from '../shared/ImageUpload';
 import { format } from 'date-fns';
 import { PhoneInput } from '../ui/phone-input';
+import { nanoid } from 'nanoid';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -331,7 +331,6 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         </div>
                         <Badge variant="outline" className="font-black text-[8px] uppercase tracking-widest h-6 px-3 bg-white border-2">Card on File</Badge>
                     </div>
-                    
                     <div className="space-y-6">
                         <div className="space-y-2 text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Simulated Card Entry</Label>
@@ -502,49 +501,61 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
       notes: { goals: '', routine: '', history: '', general: '' }
     },
   });
-  
+
   const { handleSubmit, reset } = methods;
 
   useEffect(() => {
-    if(open) reset();
+    if (open) reset();
   }, [open, reset]);
 
   const handleSaveSubmit = (data: ClientFormData) => {
     onSave(data);
     onOpenChange(false);
   };
-  
-  const title = "Register New Guest";
-  const description = "Populate the client dossier.";
 
-  const DialogContainer = isMobile ? Sheet : Dialog;
-  const ContentComponent = isMobile ? SheetContent : DialogContent;
+  const inner = (
+    <>
+      <div className="flex-shrink-0 text-left border-b bg-muted/5 p-6 md:p-10 md:pb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <UserPlus className="w-5 h-5 text-primary" />
+          <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
+        </div>
+        <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>Register New Guest</h2>
+        <p className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Populate the client dossier.</p>
+      </div>
+      <ScrollArea className="flex-1 min-h-0">
+        <div className={cn(isMobile ? "p-6" : "p-10")}>
+          <FormProvider {...methods}>
+            <AddClientForm clients={clients} />
+          </FormProvider>
+        </div>
+      </ScrollArea>
+      <div className={cn("border-t bg-background flex-shrink-0", isMobile ? "p-6 pt-4" : "p-10 pt-6")}>
+        <div className="flex w-full gap-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight flex-1">Cancel</Button>
+          <Button onClick={handleSubmit(handleSaveSubmit)} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group flex-[2]">
+            Create Record <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="bottom" className="h-[92dvh] rounded-t-[2.5rem] p-0 border-none bg-background flex flex-col overflow-hidden shadow-2xl">
+          {inner}
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   return (
-    <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[90dvh]")}>
-         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
-            <div className="flex items-center gap-3 mb-2">
-                <UserPlus className="w-5 h-5 text-primary" />
-                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
-            </div>
-            <DialogTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>{title}</DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
-        </DialogHeader>
-        <ScrollArea className="flex-1">
-            <div className={cn(isMobile ? "p-6" : "p-10")}>
-                <FormProvider {...methods}>
-                    <AddClientForm clients={clients} />
-                </FormProvider>
-            </div>
-        </ScrollArea>
-        <DialogFooter className={cn("border-t bg-background flex-shrink-0", isMobile ? "p-6 pt-4" : "p-10 pt-6")}>
-          <div className="flex w-full gap-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight flex-1">Cancel</Button>
-            <Button onClick={handleSubmit(handleSaveSubmit)} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group flex-[2]">Create Record <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
-          </div>
-        </DialogFooter>
-      </ContentComponent>
-    </DialogContainer>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl h-[90dvh] !flex flex-col !gap-0 p-0 border-4 rounded-[2.5rem] overflow-hidden shadow-2xl">
+        {inner}
+      </DialogContent>
+    </Dialog>
   );
 };
