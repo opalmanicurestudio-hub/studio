@@ -127,7 +127,6 @@ export default function SchedulePage() {
   const [isAILoading, setIsAILoading] = useState(false);
   const [showDraftOnly, setShowDraftOnly] = useState(false);
 
-  // Shift form state
   const [shiftStaffId, setShiftStaffId] = useState('');
   const [shiftDate, setShiftDate] = useState('');
   const [shiftStart, setShiftStart] = useState('09:00');
@@ -138,7 +137,6 @@ export default function SchedulePage() {
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
-  // Firestore queries
   const shiftsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
     return query(
@@ -162,12 +160,10 @@ export default function SchedulePage() {
   const { data: pendingRequests } = useCollection<ShiftRequest>(requestsQuery);
   const { data: availabilityData } = useCollection<StaffAvailability>(availabilityQuery);
 
-  // Safeguards config from tenant
   const minRestHours = safeNumber(selectedTenant?.minRestBetweenShifts) || 10;
   const minHoursPerWeek = safeNumber(selectedTenant?.minHoursPerWeek) || 0;
   const maxHoursPerWeek = safeNumber(selectedTenant?.overtimeThresholdHours) || 40;
 
-  // Compute warnings for each staff member this week
   const staffWarnings = useMemo(() => {
     if (!shifts || !staff) return new Map<string, string[]>();
     const warnings = new Map<string, string[]>();
@@ -187,7 +183,6 @@ export default function SchedulePage() {
         msgs.push(`Under minimum: ${totalHours.toFixed(1)}h (min ${minHoursPerWeek}h)`);
       }
 
-      // Rest period check
       const sorted = [...memberShifts].sort((a, b) => {
         const aStart = new Date(`${a.date}T${a.startTime}`);
         const bStart = new Date(`${b.date}T${b.startTime}`);
@@ -207,7 +202,6 @@ export default function SchedulePage() {
     return warnings;
   }, [shifts, staff, maxHoursPerWeek, minHoursPerWeek, minRestHours]);
 
-  // Coverage alerts -- days with no scheduled staff
   const coverageAlerts = useMemo(() => {
     if (!shifts) return [];
     return weekDays.filter(day => {
@@ -217,7 +211,6 @@ export default function SchedulePage() {
     });
   }, [shifts, weekDays]);
 
-  // Labor cost preview
   const laborPreview = useMemo(() => {
     if (!shifts || !staff) return { total: 0, byStaff: [] };
     const byStaff = staff.map(member => {
@@ -237,14 +230,12 @@ export default function SchedulePage() {
     return { total: byStaff.reduce((sum, s) => sum + s.pay, 0), byStaff };
   }, [shifts, staff, maxHoursPerWeek, selectedTenant]);
 
-  // Draft shifts count
   const draftCount = useMemo(() => (shifts || []).filter(s => s.status === 'draft').length, [shifts]);
   const publishedCount = useMemo(() => (shifts || []).filter(s => s.status === 'published').length, [shifts]);
 
-  // Check staff availability for a day
   const isStaffAvailable = useCallback((staffId: string, date: Date) => {
     const avail = (availabilityData || []).find(a => a.staffId === staffId);
-    if (!avail) return true; // No availability set = assume available
+    if (!avail) return true;
     const dayName = format(date, 'EEEE').toLowerCase();
     const dayAvail = avail.weekly?.[dayName];
     if (!dayAvail) return true;
@@ -332,7 +323,6 @@ export default function SchedulePage() {
       });
     });
 
-    // Notify all affected staff
     const notifiedStaff = new Set<string>();
     draftShifts.forEach(shift => notifiedStaff.add(shift.staffId));
     notifiedStaff.forEach(staffId => {
@@ -353,8 +343,6 @@ export default function SchedulePage() {
     }
   };
 
-  // Smart rule-based schedule suggestion
-  // Reads business hours from tenant schedule profile, respects walk-in coverage minimums
   const handleAISuggest = () => {
     if (!staff) return;
     setIsAILoading(true);
@@ -365,16 +353,12 @@ export default function SchedulePage() {
       const lastShiftEnd: Record<string, Date> = {};
       (staff || []).forEach(s => { hoursAssigned[s.id] = 0; });
 
-      // Read business hours from tenant active schedule profile
-      // Falls back to 9am-5pm if not configured
       const getBusinessHours = (day: Date): { open: string; close: string; isOpen: boolean } => {
         const dayName = format(day, 'EEEE').toLowerCase();
-        // Try to get from tenant settings passed via selectedTenant
         const profile = (selectedTenant as any)?.scheduleProfile?.week?.[dayName]
           || (selectedTenant as any)?.businessHours?.[dayName];
         if (profile && profile.enabled === false) return { open: '09:00', close: '17:00', isOpen: false };
         if (profile?.start && profile?.end) {
-          // Convert "9:00 AM" format to "09:00"
           const parseTime = (t: string) => {
             if (t.includes(':') && !t.includes(' ')) return t;
             const [time, period] = t.split(' ');
@@ -385,7 +369,6 @@ export default function SchedulePage() {
           };
           return { open: parseTime(profile.start), close: parseTime(profile.end), isOpen: true };
         }
-        // Default business hours
         const defaults: Record<string, { open: string; close: string; isOpen: boolean }> = {
           monday:    { open: '09:00', close: '17:00', isOpen: true },
           tuesday:   { open: '09:00', close: '17:00', isOpen: true },
@@ -398,8 +381,6 @@ export default function SchedulePage() {
         return defaults[dayName] || { open: '09:00', close: '17:00', isOpen: true };
       };
 
-      // Walk-in coverage minimums by day of week
-      // Busier days get more minimum staff regardless of appointments
       const getMinCoverage = (day: Date): number => {
         const dayName = format(day, 'EEEE').toLowerCase();
         const busyDays: Record<string, number> = {
@@ -409,7 +390,6 @@ export default function SchedulePage() {
         return busyDays[dayName] ?? 1;
       };
 
-      // Sort staff by cost: hourly cheapest first
       const sortedStaff = [...(staff || [])].sort((a, b) => {
         const aCost = a.payStructure === 'hourly' ? (a.hourlyRate || 99) : 50;
         const bCost = b.payStructure === 'hourly' ? (b.hourlyRate || 99) : 50;
@@ -421,26 +401,20 @@ export default function SchedulePage() {
         if (isBefore(day, startOfDay(new Date()))) return;
 
         const biz = getBusinessHours(day);
-        if (!biz.isOpen) return; // Closed day -- skip entirely
+        if (!biz.isOpen) return;
 
         const dayApts = (appointments || []).filter(
           a => isSameDay(safeDate(a.startTime), day) && a.status !== 'cancelled'
         );
 
-        // Staff needed = max(walk-in minimum, appointment-based need)
         const aptBased = dayApts.length === 0 ? 0
           : dayApts.length <= 2 ? 1
           : dayApts.length <= 5 ? 2 : 3;
         const staffNeeded = Math.max(getMinCoverage(day), aptBased);
 
-        // Shift window anchored to BUSINESS HOURS, not appointment times
-        // If there are appointments, optionally extend slightly around them
-        // but never outside business hours
         let shiftStart = biz.open;
         let shiftEnd = biz.close;
 
-        // If appointments exist, shift can start up to 30min before first apt
-        // but not before business open
         if (dayApts.length > 0) {
           const times = dayApts.map(a => safeDate(a.startTime));
           const earliest = times.reduce((min, t) => t < min ? t : min, times[0]);
@@ -449,14 +423,12 @@ export default function SchedulePage() {
           const bizCloseMins = timeToMinutes(biz.close);
           const aptEarliestMins = earliest.getHours() * 60 + earliest.getMinutes();
           const aptLatestMins = latest.getHours() * 60 + latest.getMinutes() + 60;
-          // Clamp to business hours
           const startMins = Math.max(bizOpenMins, aptEarliestMins - 30);
           const endMins = Math.min(bizCloseMins, aptLatestMins);
           shiftStart = minutesToTime(Math.floor(startMins / 30) * 30);
           shiftEnd = minutesToTime(Math.ceil(endMins / 30) * 30);
         }
 
-        // Minimum 4hr shift
         if (timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) < 240) {
           shiftEnd = minutesToTime(Math.min(timeToMinutes(biz.close), timeToMinutes(shiftStart) + 480));
         }
@@ -467,17 +439,11 @@ export default function SchedulePage() {
         for (const member of sortedStaff) {
           if (staffAssignedToday >= staffNeeded) break;
           if (!isStaffAvailable(member.id, day)) continue;
-
-          // OT check
           if (maxHoursPerWeek > 0 && (hoursAssigned[member.id] || 0) + shiftDurationHours > maxHoursPerWeek + 2) continue;
-
-          // Rest period check
           if (lastShiftEnd[member.id]) {
             const shiftStartDate = new Date(`${dayStr}T${shiftStart}:00`);
             if (differenceInHours(shiftStartDate, lastShiftEnd[member.id]) < minRestHours) continue;
           }
-
-          // Already scheduled today
           if (suggestions.some(s => s.staffId === member.id && s.date === dayStr)) continue;
 
           const worked = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - 30;
@@ -520,21 +486,6 @@ export default function SchedulePage() {
     }
   };
 
-  
-
-
-
-
-
-
-
-
-
-  // Smart rule-based schedule suggestion -- no API key required
-  // Uses the same logic an AI would: appointment demand, staff availability,
-  // overtime limits, rest periods, skill matching, and labor cost optimization
-
-
   const handleApplyAISuggestions = async () => {
     if (!firestore || !tenantId || !aiSuggestions.length) return;
     setIsProcessing(true);
@@ -552,7 +503,6 @@ export default function SchedulePage() {
     }
   };
 
-  // Shifts grouped by staff + day for grid
   const shiftGrid = useMemo(() => {
     const grid: Record<string, Record<string, Shift[]>> = {};
     (staff || []).forEach(member => {
@@ -574,7 +524,6 @@ export default function SchedulePage() {
       <AppHeader title="Shift Schedule" />
       <main className="flex-1 p-4 md:p-8 w-full max-w-[1400px] mx-auto space-y-6">
 
-        {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="space-y-1">
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Schedule</h1>
@@ -605,7 +554,6 @@ export default function SchedulePage() {
           )}
         </div>
 
-        {/* Alerts row */}
         <div className="flex flex-wrap gap-3">
           {coverageAlerts.map(day => (
             <Badge key={day.toISOString()} variant="outline" className="h-8 px-4 rounded-2xl bg-amber-50 border-amber-200 text-amber-700 font-black uppercase text-[9px] gap-2">
@@ -622,7 +570,6 @@ export default function SchedulePage() {
           })}
         </div>
 
-        {/* Week nav + Labor preview */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3 p-1 bg-white rounded-[2rem] border-2 shadow-sm">
             <Button variant="ghost" size="icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl"><ChevronLeft className="w-5 h-5" /></Button>
@@ -634,7 +581,6 @@ export default function SchedulePage() {
             <Button variant="outline" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))} className="h-9 px-4 rounded-xl font-black uppercase text-[9px] border-2 mr-1">Today</Button>
           </div>
 
-          {/* Labor cost pill */}
           {laborPreview.total > 0 && (
             <div className="flex items-center gap-3 px-5 py-3 bg-white rounded-[2rem] border-2 shadow-sm">
               <DollarSign className="w-4 h-4 text-green-600" />
@@ -651,11 +597,9 @@ export default function SchedulePage() {
           )}
         </div>
 
-        {/* Schedule grid -- desktop */}
         <Card className="border-2 rounded-[2.5rem] shadow-sm overflow-hidden bg-white hidden md:block">
           <ScrollArea className="w-full">
             <div className="min-w-[800px]">
-              {/* Day headers */}
               <div className="grid border-b" style={{ gridTemplateColumns: '180px repeat(7, 1fr)' }}>
                 <div className="p-4 border-r bg-muted/5">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Staff</p>
@@ -676,13 +620,11 @@ export default function SchedulePage() {
                 })}
               </div>
 
-              {/* Staff rows */}
               {(staff || []).map(member => {
                 const warnings = staffWarnings.get(member.id) || [];
                 const weekHours = laborPreview.byStaff.find(s => s.member.id === member.id)?.totalHours || 0;
                 return (
                   <div key={member.id} className="grid border-b hover:bg-muted/5 transition-colors" style={{ gridTemplateColumns: '180px repeat(7, 1fr)' }}>
-                    {/* Staff info */}
                     <div className="p-3 border-r flex flex-col gap-1.5 justify-center">
                       <div className="flex items-center gap-2">
                         <Avatar className="w-8 h-8 rounded-xl border shrink-0">
@@ -701,7 +643,6 @@ export default function SchedulePage() {
                       )}
                     </div>
 
-                    {/* Day cells */}
                     {weekDays.map(day => {
                       const dayStr = format(day, 'yyyy-MM-dd');
                       const dayShifts = shiftGrid[member.id]?.[dayStr] || [];
@@ -715,14 +656,11 @@ export default function SchedulePage() {
                             !available && "bg-slate-50",
                           )}
                         >
-                          {/* Availability indicator */}
                           {!available && (
                             <div className="absolute inset-0 flex items-center justify-center opacity-20">
                               <p className="text-[8px] font-black uppercase text-slate-500 rotate-[-30deg]">Unavailable</p>
                             </div>
                           )}
-
-                          {/* Shift blocks */}
                           <div className="space-y-1">
                             {dayShifts.map(shift => (
                               <div
@@ -758,8 +696,6 @@ export default function SchedulePage() {
                               </div>
                             ))}
                           </div>
-
-                          {/* Add shift button */}
                           {canManage && available && (
                             <button
                               onClick={() => openAddShift(day, member.id)}
@@ -779,7 +715,6 @@ export default function SchedulePage() {
           </ScrollArea>
         </Card>
 
-        {/* Mobile schedule -- day-by-day list */}
         <div className="md:hidden space-y-4">
           {weekDays.map(day => {
             const dayStr = format(day, 'yyyy-MM-dd');
@@ -838,7 +773,6 @@ export default function SchedulePage() {
           })}
         </div>
 
-        {/* Labor breakdown */}
         {laborPreview.byStaff.length > 0 && (
           <Card className="border-2 rounded-[2.5rem] shadow-sm bg-white overflow-hidden">
             <CardHeader className="p-5 border-b bg-muted/5">
@@ -878,102 +812,100 @@ export default function SchedulePage() {
 
       {/* Add/Edit Shift Dialog */}
       <Dialog open={isAddShiftOpen} onOpenChange={setIsAddShiftOpen}>
-        <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background">
-          <DialogHeader className="p-6 pb-0 text-left">
+        <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background p-0 overflow-hidden flex flex-col max-h-[90dvh]">
+          <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b text-left">
             <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">
               {editingShift ? 'Edit Shift' : 'Add Shift'}
             </DialogTitle>
           </DialogHeader>
-          <div className="p-6 space-y-5">
-            {/* Staff */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Staff Member</Label>
-              <Select value={shiftStaffId} onValueChange={setShiftStaffId}>
-                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px]"><SelectValue placeholder="Select staff..." /></SelectTrigger>
-                <SelectContent className="rounded-xl border-2 shadow-2xl">
-                  {(staff || []).map(s => (
-                    <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px]">
-                      <div className="flex items-center gap-2">
-                        {s.name}
-                        {!isStaffAvailable(s.id, shiftDate ? new Date(shiftDate) : new Date()) && (
-                          <Badge className="bg-amber-100 text-amber-700 border-none text-[7px] font-black h-4 px-1">Unavail</Badge>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
 
-            {/* Date */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date</Label>
-              <input type="date" value={shiftDate} onChange={e => setShiftDate(e.target.value)} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-white focus:border-primary/40" />
-            </div>
-
-            {/* Times */}
-            <div className="grid grid-cols-2 gap-4">
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="p-6 space-y-5">
               <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Start Time</Label>
-                <Select value={shiftStart} onValueChange={setShiftStart}>
-                  <SelectTrigger className="h-12 rounded-2xl border-2 font-black text-[10px]"><SelectValue /></SelectTrigger>
-                  <SelectContent className="rounded-xl border-2 shadow-2xl max-h-64">
-                    {TIME_OPTIONS.map(t => <SelectItem key={t.value} value={t.value} className="font-bold">{t.label}</SelectItem>)}
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Staff Member</Label>
+                <Select value={shiftStaffId} onValueChange={setShiftStaffId}>
+                  <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px]"><SelectValue placeholder="Select staff..." /></SelectTrigger>
+                  <SelectContent className="rounded-xl border-2 shadow-2xl">
+                    {(staff || []).map(s => (
+                      <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px]">
+                        <div className="flex items-center gap-2">
+                          {s.name}
+                          {!isStaffAvailable(s.id, shiftDate ? new Date(shiftDate) : new Date()) && (
+                            <Badge className="bg-amber-100 text-amber-700 border-none text-[7px] font-black h-4 px-1">Unavail</Badge>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
+
               <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">End Time</Label>
-                <Select value={shiftEnd} onValueChange={setShiftEnd}>
-                  <SelectTrigger className="h-12 rounded-2xl border-2 font-black text-[10px]"><SelectValue /></SelectTrigger>
-                  <SelectContent className="rounded-xl border-2 shadow-2xl max-h-64">
-                    {TIME_OPTIONS.map(t => <SelectItem key={t.value} value={t.value} className="font-bold">{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date</Label>
+                <input type="date" value={shiftDate} onChange={e => setShiftDate(e.target.value)} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-white focus:border-primary/40" />
               </div>
-            </div>
 
-            {/* Break */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Break Duration (minutes)</Label>
-              <Select value={String(shiftBreak)} onValueChange={v => setShiftBreak(Number(v))}>
-                <SelectTrigger className="h-12 rounded-2xl border-2 font-black text-[10px]"><SelectValue /></SelectTrigger>
-                <SelectContent className="rounded-xl border-2 shadow-2xl">
-                  {[0, 15, 30, 45, 60].map(m => <SelectItem key={m} value={String(m)} className="font-bold">{m === 0 ? 'No Break' : `${m} minutes`}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Hours preview */}
-            {shiftStart && shiftEnd && (
-              <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center">
-                <div>
-                  <p className="text-[9px] font-black uppercase text-primary/60">Total Shift</p>
-                  <p className="font-black text-xl font-mono text-primary">
-                    {((timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak) / 60).toFixed(1)}h
-                  </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Start Time</Label>
+                  <Select value={shiftStart} onValueChange={setShiftStart}>
+                    <SelectTrigger className="h-12 rounded-2xl border-2 font-black text-[10px]"><SelectValue /></SelectTrigger>
+                    <SelectContent className="rounded-xl border-2 shadow-2xl max-h-64">
+                      {TIME_OPTIONS.map(t => <SelectItem key={t.value} value={t.value} className="font-bold">{t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
-                {shiftStaffId && (() => {
-                  const m = (staff || []).find(s => s.id === shiftStaffId);
-                  if (!m?.hourlyRate) return null;
-                  const pay = ((timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak) / 60) * m.hourlyRate;
-                  return (
-                    <div className="text-right">
-                      <p className="text-[9px] font-black uppercase text-primary/60">Est. Pay</p>
-                      <p className="font-black text-xl font-mono text-green-600">${pay.toFixed(2)}</p>
-                    </div>
-                  );
-                })()}
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">End Time</Label>
+                  <Select value={shiftEnd} onValueChange={setShiftEnd}>
+                    <SelectTrigger className="h-12 rounded-2xl border-2 font-black text-[10px]"><SelectValue /></SelectTrigger>
+                    <SelectContent className="rounded-xl border-2 shadow-2xl max-h-64">
+                      {TIME_OPTIONS.map(t => <SelectItem key={t.value} value={t.value} className="font-bold">{t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            )}
 
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Notes (optional)</Label>
-              <Textarea value={shiftNotes} onChange={e => setShiftNotes(e.target.value)} placeholder="Any special instructions..." className="rounded-2xl border-2 min-h-[60px]" />
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Break Duration (minutes)</Label>
+                <Select value={String(shiftBreak)} onValueChange={v => setShiftBreak(Number(v))}>
+                  <SelectTrigger className="h-12 rounded-2xl border-2 font-black text-[10px]"><SelectValue /></SelectTrigger>
+                  <SelectContent className="rounded-xl border-2 shadow-2xl">
+                    {[0, 15, 30, 45, 60].map(m => <SelectItem key={m} value={String(m)} className="font-bold">{m === 0 ? 'No Break' : `${m} minutes`}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {shiftStart && shiftEnd && (
+                <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center">
+                  <div>
+                    <p className="text-[9px] font-black uppercase text-primary/60">Total Shift</p>
+                    <p className="font-black text-xl font-mono text-primary">
+                      {((timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak) / 60).toFixed(1)}h
+                    </p>
+                  </div>
+                  {shiftStaffId && (() => {
+                    const m = (staff || []).find(s => s.id === shiftStaffId);
+                    if (!m?.hourlyRate) return null;
+                    const pay = ((timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak) / 60) * m.hourlyRate;
+                    return (
+                      <div className="text-right">
+                        <p className="text-[9px] font-black uppercase text-primary/60">Est. Pay</p>
+                        <p className="font-black text-xl font-mono text-green-600">${pay.toFixed(2)}</p>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Notes (optional)</Label>
+                <Textarea value={shiftNotes} onChange={e => setShiftNotes(e.target.value)} placeholder="Any special instructions..." className="rounded-2xl border-2 min-h-[60px]" />
+              </div>
             </div>
           </div>
-          <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
+
+          <DialogFooter className="flex-shrink-0 p-6 pt-4 border-t flex flex-col gap-3">
             <Button onClick={handleSaveShift} disabled={isProcessing || !shiftStaffId || !shiftDate} className="w-full h-14 rounded-2xl font-black uppercase shadow-xl shadow-primary/20">
               {isProcessing ? <Loader className="animate-spin" /> : editingShift ? 'Update Shift' : 'Add to Schedule'}
             </Button>
@@ -984,8 +916,8 @@ export default function SchedulePage() {
 
       {/* AI Suggestion Review Dialog */}
       <Dialog open={isAISuggestOpen} onOpenChange={setIsAISuggestOpen}>
-        <DialogContent className="sm:max-w-2xl rounded-[3rem] border-4 shadow-3xl bg-background max-h-[90dvh] flex flex-col">
-          <DialogHeader className="p-6 pb-0 text-left flex-shrink-0">
+        <DialogContent className="sm:max-w-2xl rounded-[3rem] border-4 shadow-3xl bg-background max-h-[90dvh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b text-left">
             <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 flex items-center gap-3">
               <Sparkles className="w-6 h-6 text-primary" /> Smart Schedule Suggestion
             </DialogTitle>
@@ -993,7 +925,8 @@ export default function SchedulePage() {
               Smart scheduler analyzed your appointments and staff availability. {aiSuggestions.length} shifts suggested for {format(weekStart, 'MMM d')} -- {format(weekEnd, 'MMM d')}. Review and apply as drafts.
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 p-6">
+
+          <div className="flex-1 min-h-0 overflow-y-auto p-6">
             <div className="space-y-3">
               {aiSuggestions.map((shift, idx) => {
                 const member = (staff || []).find(s => s.id === shift.staffId);
@@ -1024,8 +957,9 @@ export default function SchedulePage() {
                 );
               })}
             </div>
-          </ScrollArea>
-          <DialogFooter className="p-6 pt-4 border-t flex flex-col gap-3 flex-shrink-0">
+          </div>
+
+          <DialogFooter className="flex-shrink-0 p-6 pt-4 border-t flex flex-col gap-3">
             <Button onClick={handleApplyAISuggestions} disabled={isProcessing || aiSuggestions.length === 0} className="w-full h-14 rounded-2xl font-black uppercase shadow-xl shadow-primary/20">
               {isProcessing ? <Loader className="animate-spin" /> : `Apply ${aiSuggestions.length} Shifts as Drafts`}
             </Button>
@@ -1044,7 +978,6 @@ export default function SchedulePage() {
             </DialogDescription>
           </DialogHeader>
           <div className="p-6 space-y-4">
-            {/* Warnings before publish */}
             {staffWarnings.size > 0 && (
               <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-200 space-y-2">
                 <p className="text-[10px] font-black uppercase text-amber-700 flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Publish Warnings</p>
