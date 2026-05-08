@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -538,7 +537,7 @@ export const AddDiscountDialog: React.FC<{
                             <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Initialize Discount</DialogTitle>
                             <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define your rules and values. Note: Only one code can be applied per transaction.</DialogDescription>
                         </DialogHeader>
-                        <ScrollArea className="flex-1">
+                        <ScrollArea className="flex-1 min-h-0">
                             <div className={cn("pb-32", isMobile ? "p-8" : "p-8")}>
                                 {formContent}
                             </div>
