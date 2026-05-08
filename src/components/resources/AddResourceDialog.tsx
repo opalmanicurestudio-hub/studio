@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -34,9 +33,8 @@ import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { Resource, InventoryItem } from '@/lib/data';
-import { Building, HardHat, Sparkles, Check, ArrowRight, MapPin, Users, Hammer, ListChecks, ShieldAlert, Trash2 } from 'lucide-react';
+import { Building, HardHat, Sparkles, ArrowRight, MapPin, Users, ListChecks, ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ScrollArea } from '../ui/scroll-area';
 import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
@@ -115,15 +113,13 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
       maintenanceNotes: data.maintenanceNotes,
       amenities: data.amenities ? data.amenities.split(',').map(s => s.trim()).filter(Boolean) : [],
     };
-
     if (data.type === 'equipment' && data.inventoryItemId) {
       resourceToSave.inventoryItemId = data.inventoryItemId;
     }
-    
     onSave(resourceToSave);
     onOpenChange(false);
   };
-  
+
   useEffect(() => {
     if (open) {
       reset({ type: 'room', name: '', capacity: 1, inventoryItemId: undefined, isOutOfService: false, amenities: '', maintenanceNotes: '' });
@@ -182,7 +178,9 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                                         <SelectValue placeholder="SELECT HARDWARE..." />
                                     </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        {equipmentInventory.map(item => <SelectItem key={item.id} value={item.id} className="font-bold uppercase text-[10px] tracking-widest">{item.name}</SelectItem>)}
+                                        {equipmentInventory.map(item => (
+                                            <SelectItem key={item.id} value={item.id} className="font-bold uppercase text-[10px] tracking-widest">{item.name}</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             )}
@@ -197,7 +195,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                     {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
             )}
-            
+
             <div className="space-y-3">
                 <Label htmlFor="capacity" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Simultaneous Occupancy</Label>
                 <div className="relative">
@@ -226,7 +224,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                     </div>
                     <Controller name="isOutOfService" control={control} render={({ field }) => (
                         <Switch id="out-of-service" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-destructive" />
-                    )}/>
+                    )} />
                 </div>
 
                 <div className="space-y-2">
@@ -243,31 +241,39 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+      <ContentComponent
+        side={isMobile ? "bottom" : undefined}
+        className={cn(
+          "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden",
+          isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]"
+        )}
+      >
         <FormProvider {...methods}>
-            <form onSubmit={handleSubmit(handleSave)} className="flex flex-col h-full overflow-hidden">
-                <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>
-                    <div className="flex items-center gap-3 mb-2">
-                        <Sparkles className="w-5 h-5 text-primary" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
-                    </div>
-                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Unit</SheetTitle>
-                    <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Integrate a physical unit into the studio planner.</SheetDescription>
-                </SheetHeader>
+          <form onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
+            <SheetHeader className={cn("flex-shrink-0 p-8 pb-6 border-b bg-muted/5 text-left", isMobile && "p-6")}>
+              <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
+              </div>
+              <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Unit</SheetTitle>
+              <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Integrate a physical unit into the studio planner.</SheetDescription>
+            </SheetHeader>
 
-                <ScrollArea className="flex-1">
-                    <div className={cn("p-8", isMobile && "p-6")}>
-                        {formBody}
-                    </div>
-                </ScrollArea>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className={cn("p-8", isMobile && "p-6")}>
+                {formBody}
+              </div>
+            </div>
 
-                <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
-                    <div className="grid grid-cols-2 gap-3 w-full">
-                        <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
-                        <Button type="submit" className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit Record <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
-                    </div>
-                </SheetFooter>
-            </form>
+            <SheetFooter className="flex-shrink-0 p-8 pt-4 border-t bg-background">
+              <div className="grid grid-cols-2 gap-3 w-full">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button type="submit" className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
+                  Commit Record <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                </Button>
+              </div>
+            </SheetFooter>
+          </form>
         </FormProvider>
       </ContentComponent>
     </DialogContainer>
