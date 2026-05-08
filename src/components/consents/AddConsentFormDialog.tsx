@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -30,7 +29,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PlusCircle, FileSignature, Sparkles, ShieldCheck, ArrowRight, Activity, Tag, ListChecks, Check } from 'lucide-react';
-import { ScrollArea } from '../ui/scroll-area';
 import { FieldEditor } from './FieldEditor';
 import { Switch } from '../ui/switch';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
@@ -101,14 +99,14 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
     };
     setFields([...fields, newField]);
   };
-  
+
   const handleUpdateField = (id: string, updatedField: FormField) => {
     setFields(fields.map(f => f.id === id ? updatedField : f));
-  }
+  };
 
   const handleRemoveField = (id: string) => {
     setFields(fields.filter(f => f.id !== id));
-  }
+  };
 
   const handleMoveField = (id: string, direction: 'up' | 'down') => {
     const index = fields.findIndex(f => f.id === id);
@@ -119,22 +117,22 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
     const [movedField] = newFields.splice(index, 1);
     newFields.splice(newIndex, 0, movedField);
     setFields(newFields);
-  }
+  };
 
   const handleAddNewCategory = () => {
     if (newCategoryName.trim()) {
-        setCategory(newCategoryName.trim());
-        setNewCategoryName('');
-        setIsAddingCategory(false);
+      setCategory(newCategoryName.trim());
+      setNewCategoryName('');
+      setIsAddingCategory(false);
     }
-  }
+  };
 
   const handleSave = () => {
     if (!title.trim()) return;
     const formData = { title, category: category as any, fields, isPasswordProtected, notifyOnEdit };
     onSave(formData);
     onOpenChange(false);
-  }
+  };
 
   const FormContent = (
     <div className="space-y-12 py-4">
@@ -175,14 +173,14 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
         </div>
 
         <Separator className="border-dashed" />
-        
+
         <div className="space-y-8">
             <SectionHeader icon={ListChecks} title="Input Architecture" />
             <div className="space-y-4">
                 {fields.length > 0 ? (
                     <div className="grid gap-4">
                         {fields.map((field, index) => (
-                            <FieldEditor 
+                            <FieldEditor
                                 key={field.id}
                                 field={field}
                                 onUpdate={handleUpdateField}
@@ -206,8 +204,8 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
         </div>
 
         <Separator className="border-dashed" />
-        
-         <div className="space-y-8">
+
+        <div className="space-y-8">
             <SectionHeader icon={ShieldCheck} title="Governance & Security" />
             <div className="space-y-4 text-left">
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
@@ -226,9 +224,9 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
                     <Switch id="notify-on-edit" checked={notifyOnEdit} onCheckedChange={setNotifyOnEdit} className="scale-125" />
                 </div>
 
-                 <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Client Authority</Label>
-                     <RadioGroup value={clientAccess} onValueChange={setClientAccess} className="grid grid-cols-2 gap-3 mt-2">
+                    <RadioGroup value={clientAccess} onValueChange={setClientAccess} className="grid grid-cols-2 gap-3 mt-2">
                         <label htmlFor="view-acc" className="cursor-pointer">
                             <div className={cn(
                                 "flex items-center justify-center p-4 rounded-xl border-2 transition-all",
@@ -260,27 +258,35 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
-        <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
-            <div className="flex items-center gap-3 mb-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
-            </div>
-            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Build and configure your digital signature protocol.</DialogDescription>
+      <ContentComponent
+        side={isMobile ? "bottom" : undefined}
+        className={cn(
+          "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden",
+          isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]"
+        )}
+      >
+        <DialogHeader className="flex-shrink-0 text-left border-b bg-muted/5 p-8 pb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+          </div>
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Build and configure your digital signature protocol.</DialogDescription>
         </DialogHeader>
-        
-        <ScrollArea className="flex-1">
-            <div className="p-8 pb-32">
-                {FormContent}
-            </div>
-        </ScrollArea>
 
-        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-8")}>
-            <div className="flex w-full gap-4">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
-                <Button onClick={handleSave} className="flex-[2] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Establish Protocol <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
-            </div>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="p-8 pb-32">
+            {FormContent}
+          </div>
+        </div>
+
+        <DialogFooter className="flex-shrink-0 border-t bg-background shadow-2xl p-6 sm:p-8">
+          <div className="flex w-full gap-4">
+            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
+            <Button onClick={handleSave} className="flex-[2] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
+              Establish Protocol <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+            </Button>
+          </div>
         </DialogFooter>
       </ContentComponent>
     </DialogContainer>
