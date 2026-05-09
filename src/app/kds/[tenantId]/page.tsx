@@ -7,6 +7,9 @@ import { useParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from '@/components/ui/dialog';
+import {
   Coffee, CheckCircle2, Loader, MapPin, Star, ArrowRight, XCircle,
   Eye, ChefHat, Zap, Volume2, VolumeX, Timer, User, Bell, Activity,
   TrendingUp, Printer, LogOut, RefreshCw, Delete, Utensils,
@@ -27,9 +30,6 @@ import { type InventoryItem, type Tenant, type Staff } from '@/lib/data';
 const INACTIVITY_MS = 30 * 60 * 1000;
 const FIFO_BADGES = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
 
-// ─── Ticket source discriminator ─────────────────────────────────────────────
-// refreshmentRequests  → concierge/lounge orders (have itemId, formula, inventory)
-// kdsTickets           → event course fires (have menuItemId, guestName, tableNumber)
 type TicketSource = 'refreshment' | 'event';
 
 const getTicketSource = (r: any): TicketSource =>
@@ -38,12 +38,8 @@ const getTicketSource = (r: any): TicketSource =>
 const getCollection = (r: any) =>
   getTicketSource(r) === 'event' ? 'kdsTickets' : 'refreshmentRequests';
 
-// ─── Normalise ticket shape so TicketCard only needs one interface ────────────
-// Event tickets:        { guestName, menuItemId, menuItemName, tableNumber, seatNumber, allergies, courseNumber }
-// Refreshment tickets:  { clientName, itemId, itemName, stationName, quantity, formula, isRedemption, appointmentId }
 const normaliseTicket = (r: any) => ({
   ...r,
-  // unified display fields
   _displayName:    r.clientName    || r.guestName    || 'Guest',
   _displayItem:    r.itemName      || r.menuItemName || 'Item',
   _displayStation: r.stationName
@@ -55,7 +51,6 @@ const normaliseTicket = (r: any) => ({
   _source:         getTicketSource(r),
 });
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
   if (val instanceof Date) return val;
@@ -102,9 +97,170 @@ function getInitials(name?: string | null): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+// ─── Label types ──────────────────────────────────────────────────────────────
+type LabelLine = {
+  content:  string;
+  size?:    'normal' | 'large' | 'wide';
+  bold?:    boolean;
+  align?:   'left' | 'center' | 'right';
+  divider?: boolean;
+};
+
+type LabelPayload = {
+  lines: LabelLine[];
+  cut?:  boolean;
+};
+
+// ─── Build label payload ──────────────────────────────────────────────────────
+function buildLabel(
+  request: any,
+  staff: Staff,
+  fifoIndex: number,
+  ingredients: { name: string; totalNeeded: string; unit: string }[],
+): LabelPayload {
+  const orderId   = (request.id ?? '').slice(-6).toUpperCase();
+  const guestName = (request._displayName   ?? 'Guest').toUpperCase();
+  const itemName  = (request._displayItem   ?? 'Item').toUpperCase();
+  const qty       = request._quantity || 1;
+  const station   = (request._displayStation || 'Lounge').toUpperCase();
+  const initials  = getInitials(staff.name);
+  const timeStr   = format(safeDate(request.requestedAt || request.createdAt), 'h:mm a');
+  const fifo      = fifoIndex + 1;
+
+  const lines: LabelLine[] = [
+    { content: `#${fifo}  ${itemName}`,      size: 'large',  bold: true,  align: 'left' },
+    { content: `x${qty}  ${guestName}`,       size: 'wide',   bold: true,  align: 'left' },
+    { content: `${station}  ${timeStr}`,      size: 'normal', bold: false, align: 'left' },
+    { divider: true },
+  ];
+
+  if (ingredients.length > 0) {
+    lines.push({ content: 'INGREDIENTS:', size: 'normal', bold: true, align: 'left' });
+    ingredients.slice(0, 4).forEach(f => {
+      lines.push({
+        content: `  ${f.totalNeeded}${f.unit}  ${(f.name ?? '').toUpperCase()}`,
+        size: 'normal', bold: false, align: 'left',
+      });
+    });
+    lines.push({ divider: true });
+  }
+
+  lines.push({
+    content: `STAFF: ${initials}   ORDER: ${orderId}`,
+    size: 'normal', bold: false, align: 'left',
+  });
+
+  return { lines, cut: true };
+}
+
+// ─── Send to printer ──────────────────────────────────────────────────────────
+async function printLabel(payload: LabelPayload): Promise<void> {
+  const res = await fetch('/api/thermal-print', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Print relay error: ${res.status}`);
+  }
+}
+
+// ─── Label Preview Dialog ─────────────────────────────────────────────────────
+const LabelPreviewDialog = ({
+  open, onOpenChange, payload, onConfirm, isPrinting,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  payload: LabelPayload | null;
+  onConfirm: () => void;
+  isPrinting: boolean;
+}) => {
+  if (!payload) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 p-0 overflow-hidden flex flex-col max-h-[90dvh]">
+        <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b bg-muted/5 text-left">
+          <div className="flex items-center gap-2 mb-1">
+            <Printer className="w-4 h-4 text-primary" />
+            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Label Preview</span>
+          </div>
+          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900">Review Before Printing</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+            This is how the label will print on your thermal printer.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Thermal receipt simulation */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-6">
+          <div className="mx-auto bg-white border-2 border-dashed border-slate-200 rounded-xl p-4 shadow-inner"
+            style={{ fontFamily: 'monospace', maxWidth: '280px' }}>
+            {/* Sprocket holes simulation */}
+            <div className="flex justify-between mb-3">
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="w-2 h-2 rounded-full bg-slate-200" />
+              ))}
+            </div>
+
+            {payload.lines.map((line, i) => {
+              if (line.divider) {
+                return (
+                  <div key={i} className="border-t-2 border-dashed border-slate-300 my-2" />
+                );
+              }
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    'leading-tight py-0.5',
+                    line.align === 'center' && 'text-center',
+                    line.align === 'right'  && 'text-right',
+                    line.bold               && 'font-black',
+                    line.size === 'large'   && 'text-xl font-black',
+                    line.size === 'wide'    && 'text-base font-black tracking-wide',
+                    !line.size || line.size === 'normal' ? 'text-xs' : '',
+                  )}
+                >
+                  {line.content}
+                </div>
+              );
+            })}
+
+            {/* Feed lines */}
+            <div className="h-6" />
+            {/* Cut line */}
+            <div className="flex items-center gap-2 opacity-30">
+              <div className="flex-1 border-t-2 border-dashed border-slate-400" />
+              <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">CUT</span>
+              <div className="flex-1 border-t-2 border-dashed border-slate-400" />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="flex-shrink-0 p-6 pt-4 border-t bg-muted/5">
+          <div className="grid grid-cols-2 gap-3 w-full">
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isPrinting}
+              className="h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">
+              Cancel
+            </Button>
+            <Button onClick={onConfirm} disabled={isPrinting}
+              className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+              {isPrinting
+                ? <><Loader className="w-4 h-4 mr-2 animate-spin" /> Printing...</>
+                : <><Printer className="w-4 h-4 mr-2" /> Print Label</>
+              }
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ─── Allergy pill ─────────────────────────────────────────────────────────────
 const AllergyPill = ({ allergy }: { allergy: any }) => {
-  const label    = typeof allergy === 'object' ? allergy.label   : allergy;
+  const label    = typeof allergy === 'object' ? allergy.label    : allergy;
   const severity = typeof allergy === 'object' ? allergy.severity : 'preference';
   if (severity === 'critical') {
     return (
@@ -126,62 +282,6 @@ const AllergyPill = ({ allergy }: { allergy: any }) => {
     </span>
   );
 };
-
-// ─── ZPL Label ────────────────────────────────────────────────────────────────
-function buildZPL(
-  request: any,
-  staff: Staff,
-  fifoPos: number,
-  ingredients: { name: string; totalNeeded: string; unit: string }[],
-): string {
-  const orderId   = (request.id ?? '').slice(-6).toUpperCase();
-  const guestName = (request._displayName ?? 'Guest').toUpperCase().slice(0, 22);
-  const itemName  = (request._displayItem  ?? '').toUpperCase().slice(0, 22);
-  const qty       = request._quantity || 1;
-  const station   = (request._displayStation || 'LOUNGE').toUpperCase().slice(0, 18);
-  const initials  = getInitials(staff.name);
-  const timeStr   = format(safeDate(request.requestedAt || request.createdAt), 'h:mm a');
-  const fifo      = fifoPos + 1;
-
-  const ingLines  = ingredients.slice(0, 3).map(f =>
-    `${f.totalNeeded}${f.unit} ${(f.name ?? '').toUpperCase()}`.slice(0, 26)
-  );
-  const ingZpl = ingLines.length
-    ? ingLines.map((line, i) => `^FO20,${130 + i * 22}^A0N,18,18^FD${line}^FS`).join('\n')
-    : '^FO20,130^A0N,18,18^FD(no ingredients)^FS';
-
-  return `^XA
-^PW456
-^LL254
-^CI28
-^FO20,10^A0N,28,28^FD#${fifo} ${itemName}^FS
-^FO20,44^A0N,22,22^FDx${qty}  ${guestName}^FS
-^FO20,70^A0N,18,18^FD${station}  ${timeStr}^FS
-^FO20,95^GB416,2,2^FS
-^FO20,103^A0N,18,18^FDINGREDIENTS:^FS
-${ingZpl}
-^FO20,200^GB416,2,2^FS
-^FO20,208^A0N,18,18^FDSTAFF: ${initials}  ORDER: ${orderId}^FS
-^FO340,10^BQN,2,4^FDQA,ORDER:${orderId}^FS
-^XZ`;
-}
-
-async function printZPL(zpl: string): Promise<void> {
-  if (typeof window !== 'undefined' && (window as any).BrowserPrint) {
-    return new Promise((resolve, reject) => {
-      (window as any).BrowserPrint.getDefaultDevice('printer', (device: any) => {
-        if (!device) { reject(new Error('No Zebra printer found via BrowserPrint')); return; }
-        device.send(zpl, resolve, reject);
-      }, reject);
-    });
-  }
-  const res = await fetch('/api/zebra-print', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ zpl }),
-  });
-  if (!res.ok) throw new Error(`Print relay error: ${res.status}`);
-}
 
 // ─── PIN Numpad Login ─────────────────────────────────────────────────────────
 const PIN_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
@@ -309,12 +409,13 @@ const ClaimerBadge = ({ claimedByName, isMe, onReassign }: {
 // ─── Ticket Card ──────────────────────────────────────────────────────────────
 const TicketCard = ({
   request, inventory, onClaim, onMarkReady, onDeliver, onCancel,
-  onReassign, onPrint, lane, fifoIndex, currentStaff,
+  onReassign, onPreviewPrint, lane, fifoIndex, currentStaff,
 }: {
   request: any; inventory: InventoryItem[];
   onClaim: (id: string) => void; onMarkReady: (req: any) => void;
   onDeliver: (req: any) => void; onCancel: (id: string) => void;
-  onReassign: (id: string) => void; onPrint: (req: any, fifoIndex: number) => void;
+  onReassign: (id: string) => void;
+  onPreviewPrint: (req: any, fifoIndex: number) => void;
   lane: 'incoming' | 'prep' | 'ready'; fifoIndex: number; currentStaff: Staff;
 }) => {
   const startDate     = safeDate(request.requestedAt || request.createdAt);
@@ -327,8 +428,6 @@ const TicketCard = ({
   const claimedByName = request.claimedBy?.name ?? null;
   const isClaimedByMe = request.claimedBy?.staffId === currentStaff.id;
   const isEventTicket = request._source === 'event';
-
-  // Allergies — handles both string[] and {id,label,severity}[]
   const allergies: any[] = request.allergies || [];
   const hasCritical = allergies.some((a: any) => typeof a === 'object' && a.severity === 'critical');
 
@@ -350,10 +449,7 @@ const TicketCard = ({
         styles.border, styles.glow,
         lane === 'prep' && claimedByName && !isClaimedByMe && 'opacity-70'
       )}>
-      {/* Urgency bar */}
       <div className={cn('absolute top-0 left-0 right-0 h-1.5', styles.bar)} />
-
-      {/* Event badge strip */}
       {isEventTicket && (
         <div className="absolute top-0 left-0 right-0 h-1.5 bg-indigo-500" />
       )}
@@ -402,8 +498,10 @@ const TicketCard = ({
             {formatElapsed(elapsed)}
           </div>
           {lane !== 'incoming' && (
-            <button onClick={() => onPrint(request, fifoIndex)}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-primary hover:bg-primary/5 transition-all">
+            <button
+              onClick={() => onPreviewPrint(request, fifoIndex)}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-primary hover:bg-primary/5 transition-all"
+            >
               <Printer className="w-3 h-3" /> Label
             </button>
           )}
@@ -430,7 +528,6 @@ const TicketCard = ({
           <h3 className="font-black text-xl uppercase tracking-tighter text-slate-900 leading-none truncate">
             {request._displayItem}
           </h3>
-          {/* Formula ingredients (refreshment tickets only) */}
           {ingredients.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-2">
               {ingredients.map((f: any, i: number) => (
@@ -440,7 +537,6 @@ const TicketCard = ({
               ))}
             </div>
           )}
-          {/* Course info (event tickets only) */}
           {isEventTicket && request.courseNumber && (
             <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mt-1">
               Course {request.courseNumber} · {request.eventTitle || 'Event'}
@@ -464,8 +560,6 @@ const TicketCard = ({
             {request._displayStation}
           </span>
         </div>
-
-        {/* Allergy pills — handles object and string forms */}
         {allergies.length > 0 && (
           <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-200">
             {allergies.map((a: any, i: number) => (
@@ -473,8 +567,6 @@ const TicketCard = ({
             ))}
           </div>
         )}
-
-        {/* Staff claimer */}
         {claimedByName && (
           <div className="flex items-center gap-2 pt-1.5 border-t border-slate-200">
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Staff:</span>
@@ -485,7 +577,6 @@ const TicketCard = ({
             />
           </div>
         )}
-
         {(request.guestDescription || request.notes) && (
           <div className="space-y-1.5 pt-1 border-t border-slate-200">
             {request.guestDescription && (
@@ -500,8 +591,6 @@ const TicketCard = ({
             )}
           </div>
         )}
-
-        {/* Guest allergy note (event tickets) */}
         {request.allergyNote && (
           <div className="pt-1 border-t border-slate-200">
             <p className="text-[9px] font-bold text-amber-700 italic leading-relaxed">
@@ -593,10 +682,7 @@ const StatsBar = ({ requests }: { requests: any[] }) => {
     const todayReqs = safeRequests.filter(r => safeDate(r.requestedAt || r.createdAt) >= today);
     const delivered = todayReqs.filter(r => r.status === 'delivered');
     const waitTimes = delivered.map(r =>
-      Math.max(0, differenceInSeconds(
-        safeDate(r.deliveredAt),
-        safeDate(r.requestedAt || r.createdAt)
-      ))
+      Math.max(0, differenceInSeconds(safeDate(r.deliveredAt), safeDate(r.requestedAt || r.createdAt)))
     );
     const avgWait = waitTimes.length
       ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length) : 0;
@@ -648,17 +734,20 @@ function KDSContent() {
   const { firestore, user } = useFirebase();
   const { toast } = useToast();
 
-  // ── Staff session ───────────────────────────────────────────────────────────
   const [currentStaff, setCurrentStaff] = useState<Staff | null>(null);
   const handleLogout = useCallback(() => setCurrentStaff(null), []);
   useInactivityLogout(handleLogout);
 
-  // ── Sound ───────────────────────────────────────────────────────────────────
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastCount, setLastCount]       = useState(0);
   const audioCtxRef                     = useRef<AudioContext | null>(null);
 
-  // ── Data ────────────────────────────────────────────────────────────────────
+  // Label preview state
+  const [previewOpen, setPreviewOpen]       = useState(false);
+  const [previewPayload, setPreviewPayload] = useState<LabelPayload | null>(null);
+  const [isPrinting, setIsPrinting]         = useState(false);
+
+  // Data
   const tenantRef = useMemoFirebase(
     () => doc(firestore, `tenants/${tenantId}`),
     [firestore, tenantId]
@@ -678,7 +767,6 @@ function KDSContent() {
   );
   const { data: inventory = [] } = useCollection<InventoryItem>(inventoryQuery);
 
-  // ── Refreshment requests (concierge / lounge) ───────────────────────────────
   const activeRefreshmentQuery = useMemoFirebase(
     () => query(
       collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
@@ -696,7 +784,6 @@ function KDSContent() {
   const { data: allRefreshmentsRaw } = useCollection<any>(allRefreshmentQuery);
   const allRefreshments = allRefreshmentsRaw ?? [];
 
-  // ── Event KDS tickets (course fires) ───────────────────────────────────────
   const activeEventKdsQuery = useMemoFirebase(
     () => query(
       collection(firestore, `tenants/${tenantId}/kdsTickets`),
@@ -714,7 +801,6 @@ function KDSContent() {
   const { data: allEventTicketsRaw } = useCollection<any>(allEventKdsQuery);
   const allEventTickets = allEventTicketsRaw ?? [];
 
-  // ── Merge both streams, sort FIFO ───────────────────────────────────────────
   const allActive = useMemo(
     () => [...activeRefreshments, ...activeEventTickets],
     [activeRefreshments, activeEventTickets]
@@ -724,25 +810,15 @@ function KDSContent() {
     safeDate(a.requestedAt || a.createdAt).getTime() -
     safeDate(b.requestedAt || b.createdAt).getTime();
 
-  const incoming = useMemo(() =>
-    allActive.filter(r => r.status === 'pending').sort(byTime),
-    [allActive]
-  );
-  const prep = useMemo(() =>
-    allActive.filter(r => r.status === 'in_progress').sort(byTime),
-    [allActive]
-  );
-  const ready = useMemo(() =>
-    allActive.filter(r => r.status === 'ready').sort(byTime),
-    [allActive]
-  );
+  const incoming = useMemo(() => allActive.filter(r => r.status === 'pending').sort(byTime),    [allActive]);
+  const prep     = useMemo(() => allActive.filter(r => r.status === 'in_progress').sort(byTime),[allActive]);
+  const ready    = useMemo(() => allActive.filter(r => r.status === 'ready').sort(byTime),      [allActive]);
 
   const allRequests = useMemo(
     () => [...allRefreshments, ...allEventTickets],
     [allRefreshments, allEventTickets]
   );
 
-  // ── Sound on new incoming ───────────────────────────────────────────────────
   useEffect(() => {
     if (incoming.length > lastCount && lastCount !== 0 && soundEnabled) {
       try {
@@ -761,22 +837,17 @@ function KDSContent() {
     setLastCount(incoming.length);
   }, [incoming.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
-
   const handleClaim = async (requestId: string) => {
     if (!firestore || !tenantId || !currentStaff) return;
     const request = allActive.find(r => r.id === requestId);
     if (!request) return;
     const col = getCollection(request);
     try {
-      await updateDoc(
-        doc(firestore, `tenants/${tenantId}/${col}`, requestId),
-        sanitize({
-          status: 'in_progress',
-          claimedBy: { staffId: currentStaff.id, name: currentStaff.name, initials: getInitials(currentStaff.name) },
-          claimedAt: new Date().toISOString(),
-        })
-      );
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${col}`, requestId), sanitize({
+        status: 'in_progress',
+        claimedBy: { staffId: currentStaff.id, name: currentStaff.name, initials: getInitials(currentStaff.name) },
+        claimedAt: new Date().toISOString(),
+      }));
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Could not claim order.' });
     }
@@ -788,13 +859,10 @@ function KDSContent() {
     if (!request) return;
     const col = getCollection(request);
     try {
-      await updateDoc(
-        doc(firestore, `tenants/${tenantId}/${col}`, requestId),
-        sanitize({
-          claimedBy: { staffId: currentStaff.id, name: currentStaff.name, initials: getInitials(currentStaff.name) },
-          reassignedAt: new Date().toISOString(),
-        })
-      );
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${col}`, requestId), sanitize({
+        claimedBy: { staffId: currentStaff.id, name: currentStaff.name, initials: getInitials(currentStaff.name) },
+        reassignedAt: new Date().toISOString(),
+      }));
       toast({ title: 'Reassigned', description: 'Order is now yours.' });
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Could not reassign.' });
@@ -805,10 +873,9 @@ function KDSContent() {
     if (!firestore || !tenantId) return;
     const col = getCollection(request);
     try {
-      await updateDoc(
-        doc(firestore, `tenants/${tenantId}/${col}`, request.id),
-        sanitize({ status: 'ready', readyAt: new Date().toISOString() })
-      );
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${col}`, request.id), sanitize({
+        status: 'ready', readyAt: new Date().toISOString(),
+      }));
       toast({ title: 'Order Ready', description: `${request._displayItem} ready for ${request._displayName}.` });
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Could not update order.' });
@@ -822,7 +889,6 @@ function KDSContent() {
     const b   = writeBatch(firestore);
     const qty = request._quantity || 1;
 
-    // Mark the ticket delivered regardless of source
     b.update(doc(firestore, `tenants/${tenantId}/${col}`, request.id), sanitize({
       status:      'delivered',
       deliveredAt: now,
@@ -831,7 +897,6 @@ function KDSContent() {
         : { staffId: user?.uid || 'kds' },
     }));
 
-    // ── Inventory deduction — only for refreshment tickets with a linked item ──
     if (request._source === 'refreshment' && request._itemId) {
       const item = inventory.find(i => i.id === request._itemId);
       if (item) {
@@ -866,7 +931,6 @@ function KDSContent() {
           }));
         });
 
-        // Perk redemption tracking
         if (request.isRedemption && request.clientId && request.clientId !== 'guest-walkin') {
           b.update(doc(firestore, `tenants/${tenantId}/clients`, request.clientId), {
             [`subscription.perkUsage.${request._itemId}`]: increment(qty),
@@ -874,7 +938,6 @@ function KDSContent() {
           });
         }
 
-        // Appointment checkout state
         if (request.appointmentId && request.appointmentId !== 'guest-walkin') {
           b.set(
             doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`),
@@ -916,13 +979,195 @@ function KDSContent() {
     }
   };
 
-  const handlePrint = useCallback(async (request: any, fifoIndex: number) => {
+  // Opens preview dialog instead of printing directly
+  const handlePreviewPrint = useCallback((request: any, fifoIndex: number) => {
     if (!currentStaff) return;
     const item = inventory.find(i => i.id === request._itemId);
     const qty  = request._quantity || 1;
     const ingredients = (item?.formula ?? []).map((f: any) => ({
       ...f, totalNeeded: (safeNumber(f.quantityUsed) * qty).toFixed(1),
     }));
+    const payload = buildLabel(request, currentStaff, fifoIndex, ingredients);
+    setPreviewPayload(payload);
+    setPreviewOpen(true);
+  }, [currentStaff, inventory]);
+
+  // Called when user confirms from preview dialog
+  const handleConfirmPrint = useCallback(async () => {
+    if (!previewPayload) return;
+    setIsPrinting(true);
+    try {
+      await printLabel(previewPayload);
+      toast({ title: 'Label Sent', description: 'Sticker dispatched to printer.' });
+      setPreviewOpen(false);
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Print Failed', description: err?.message ?? 'Check printer connection.' });
+    } finally {
+      setIsPrinting(false);
+    }
+  }, [previewPayload, toast]);
+
+  const totalActive = incoming.length + prep.length + ready.length;
+
+  if (!currentStaff) {
+    return <PinLogin staff={staffList} onLogin={m => setCurrentStaff(m)} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-body flex flex-col overflow-hidden">
+
+      {/* Label Preview Dialog */}
+      <LabelPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        payload={previewPayload}
+        onConfirm={handleConfirmPrint}
+        isPrinting={isPrinting}
+      />
+
+      {/* Top Bar */}
+      <header className="shrink-0 bg-white border-b-2 border-slate-100 px-6 py-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="p-2.5 bg-primary/10 rounded-2xl shrink-0">
+            <ChefHat className="w-5 h-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="font-black text-lg uppercase tracking-tighter text-slate-900 leading-none">KDS</h1>
+              <span className="text-slate-300 font-light">·</span>
+              <span className="font-black text-[11px] uppercase tracking-[0.2em] text-slate-400 truncate">
+                {tenant?.name || 'Concierge'}
+              </span>
+            </div>
+            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mt-0.5">Kitchen Display System</p>
+          </div>
+          {totalActive > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-white shrink-0">
+              <Bell className="w-3 h-3 animate-bounce" />
+              <span className="font-black text-[10px] uppercase tracking-widest">{totalActive} Active</span>
+            </div>
+          )}
+          {activeEventTickets.length > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-100 text-indigo-700 shrink-0">
+              <Utensils className="w-3 h-3" />
+              <span className="font-black text-[10px] uppercase tracking-widest">{activeEventTickets.length} Event</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <StatsBar requests={allRequests} />
+          <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-100 border-2 border-slate-200">
+            <div className="w-7 h-7 rounded-xl bg-primary flex items-center justify-center text-white font-black text-[10px] shrink-0">
+              {getInitials(currentStaff.name)}
+            </div>
+            <span className="font-black text-[10px] uppercase tracking-widest text-slate-700">
+              {currentStaff.name.split(' ')[0]}
+            </span>
+            <button onClick={handleLogout}
+              className="ml-1 text-slate-400 hover:text-red-500 transition-colors" title="Log out">
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setSoundEnabled(v => !v)}
+            className={cn('h-10 w-10 rounded-2xl p-0 border-2 transition-all',
+              soundEnabled ? 'border-primary/20 text-primary bg-primary/5' : 'border-slate-200 text-slate-400')}>
+            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </Button>
+        </div>
+      </header>
+
+      {/* Three Lanes */}
+      <main className="flex-1 overflow-hidden p-6">
+        <div className="h-full grid grid-cols-3 gap-6">
+          <div className="overflow-y-auto pr-1 scrollbar-none">
+            <LaneColumn title="Incoming" icon={Bell} count={incoming.length} accentClass="bg-blue-100 text-blue-600" emptyLabel="Queue Clear">
+              {incoming.map((r, i) => (
+                <TicketCard key={r.id} request={r} inventory={inventory}
+                  onClaim={handleClaim} onMarkReady={handleMarkReady}
+                  onDeliver={handleDeliver} onCancel={handleCancel}
+                  onReassign={handleReassign} onPreviewPrint={handlePreviewPrint}
+                  lane="incoming" fifoIndex={i} currentStaff={currentStaff} />
+              ))}
+            </LaneColumn>
+          </div>
+          <div className="overflow-y-auto pr-1 scrollbar-none">
+            <LaneColumn title="In Prep" icon={ChefHat} count={prep.length} accentClass="bg-amber-100 text-amber-600" emptyLabel="Nothing Prepping">
+              {prep.map((r, i) => (
+                <TicketCard key={r.id} request={r} inventory={inventory}
+                  onClaim={handleClaim} onMarkReady={handleMarkReady}
+                  onDeliver={handleDeliver} onCancel={handleCancel}
+                  onReassign={handleReassign} onPreviewPrint={handlePreviewPrint}
+                  lane="prep" fifoIndex={i} currentStaff={currentStaff} />
+              ))}
+            </LaneColumn>
+          </div>
+          <div className="overflow-y-auto pr-1 scrollbar-none">
+            <LaneColumn title="Ready to Deliver" icon={Zap} count={ready.length} accentClass="bg-emerald-100 text-emerald-600" emptyLabel="Nothing Ready Yet">
+              {ready.map((r, i) => (
+                <TicketCard key={r.id} request={r} inventory={inventory}
+                  onClaim={handleClaim} onMarkReady={handleMarkReady}
+                  onDeliver={handleDeliver} onCancel={handleCancel}
+                  onReassign={handleReassign} onPreviewPrint={handlePreviewPrint}
+                  lane="ready" fifoIndex={i} currentStaff={currentStaff} />
+              ))}
+            </LaneColumn>
+          </div>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="shrink-0 bg-white border-t-2 border-slate-100 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Live · Auto-Sync</span>
+          </div>
+          <span className="text-slate-300">·</span>
+          <span className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Auto-logout 30m inactivity</span>
+          <span className="text-slate-300">·</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Event Course</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {[
+              { color: 'bg-emerald-400', label: '0–2m' },
+              { color: 'bg-amber-400',   label: '2–5m' },
+              { color: 'bg-orange-500',  label: '5–8m' },
+              { color: 'bg-red-500',     label: '8m+'  },
+            ].map(({ color, label }) => (
+              <div key={label} className="flex items-center gap-1.5">
+                <div className={cn('w-2.5 h-2.5 rounded-full', color)} />
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{label}</span>
+              </div>
+            ))}
+          </div>
+          <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">
+            {format(new Date(), 'h:mm a')}
+          </span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+export default function KDSPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen flex items-center justify-center bg-slate-900">
+        <div className="flex flex-col items-center gap-4">
+          <Loader className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Initializing KDS...</p>
+        </div>
+      </div>
+    }>
+      <KDSContent />
+    </Suspense>
+  );
+}
     const zpl = buildZPL(request, currentStaff, fifoIndex, ingredients);
     try {
       await printZPL(zpl);
