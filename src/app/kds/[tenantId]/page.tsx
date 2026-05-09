@@ -9,10 +9,13 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Coffee, CheckCircle2, Loader, MapPin, Star, ArrowRight, XCircle,
   Eye, ChefHat, Zap, Volume2, VolumeX, Timer, User, Bell, Activity,
-  TrendingUp, Printer, LogOut, RefreshCw, Delete, Utensils,
+  TrendingUp, Printer, LogOut, RefreshCw, Delete, Utensils, Settings,
+  Wifi, Monitor,
 } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import {
@@ -97,6 +100,34 @@ function getInitials(name?: string | null): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+// ─── Printer config ───────────────────────────────────────────────────────────
+type PrinterMode = 'network' | 'browser';
+
+type PrinterConfig = {
+  mode:  PrinterMode;
+  ip:    string;
+  port:  number;
+};
+
+const DEFAULT_PRINTER_CONFIG: PrinterConfig = {
+  mode: 'browser',
+  ip:   '',
+  port: 9100,
+};
+
+function loadPrinterConfig(): PrinterConfig {
+  if (typeof window === 'undefined') return DEFAULT_PRINTER_CONFIG;
+  try {
+    const raw = localStorage.getItem('kds_printer_config');
+    if (raw) return { ...DEFAULT_PRINTER_CONFIG, ...JSON.parse(raw) };
+  } catch {}
+  return DEFAULT_PRINTER_CONFIG;
+}
+
+function savePrinterConfig(cfg: PrinterConfig) {
+  try { localStorage.setItem('kds_printer_config', JSON.stringify(cfg)); } catch {}
+}
+
 // ─── Label types ──────────────────────────────────────────────────────────────
 type LabelLine = {
   content:  string;
@@ -128,9 +159,9 @@ function buildLabel(
   const fifo      = fifoIndex + 1;
 
   const lines: LabelLine[] = [
-    { content: `#${fifo}  ${itemName}`,      size: 'large',  bold: true,  align: 'left' },
-    { content: `x${qty}  ${guestName}`,       size: 'wide',   bold: true,  align: 'left' },
-    { content: `${station}  ${timeStr}`,      size: 'normal', bold: false, align: 'left' },
+    { content: `#${fifo}  ${itemName}`,   size: 'large',  bold: true,  align: 'left' },
+    { content: `x${qty}  ${guestName}`,    size: 'wide',   bold: true,  align: 'left' },
+    { content: `${station}  ${timeStr}`,   size: 'normal', bold: false, align: 'left' },
     { divider: true },
   ];
 
@@ -153,12 +184,12 @@ function buildLabel(
   return { lines, cut: true };
 }
 
-// ─── Send to printer ──────────────────────────────────────────────────────────
-async function printLabel(payload: LabelPayload): Promise<void> {
+// ─── Network print (TCP via API route) ───────────────────────────────────────
+async function networkPrint(payload: LabelPayload, cfg: PrinterConfig): Promise<void> {
   const res = await fetch('/api/thermal-print', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(payload),
+    body:    JSON.stringify({ ...payload, printerIp: cfg.ip, printerPort: cfg.port }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -166,15 +197,184 @@ async function printLabel(payload: LabelPayload): Promise<void> {
   }
 }
 
+// ─── Browser print (OS print dialog — USB / Bluetooth / any local printer) ───
+function buildPrintHtml(payload: LabelPayload): string {
+  const lines = payload.lines.map(line => {
+    if (line.divider) {
+      return `<hr style="border:none;border-top:1px dashed #aaa;margin:5px 0;">`;
+    }
+    const size =
+      line.size === 'large' ? '18px' :
+      line.size === 'wide'  ? '14px' : '11px';
+    const weight  = line.bold ? '900' : '400';
+    const spacing = line.size === 'wide' ? 'letter-spacing:1px;' : '';
+    const align   = line.align === 'center' ? 'text-align:center;' : '';
+    return `<div style="font-size:${size};font-weight:${weight};${spacing}${align}line-height:1.4;margin:1px 0;">${line.content}</div>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Label</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Courier New', monospace; width:72mm; padding:4px 6px; background:#fff; color:#000; }
+  @media print {
+    @page { margin:0; size:80mm auto; }
+    body  { width:80mm; }
+  }
+</style>
+</head>
+<body>${lines}<div style="height:16px"></div></body>
+</html>`;
+}
+
+function browserPrint(payload: LabelPayload): void {
+  const html = buildPrintHtml(payload);
+  const w = window.open('', '_blank', 'width=420,height=520,toolbar=0,menubar=0,location=0');
+  if (!w) { alert('Please allow popups for this page to use browser printing.'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.onload = () => { w.focus(); w.print(); w.close(); };
+}
+
+// ─── Printer Settings Dialog ──────────────────────────────────────────────────
+const PrinterSettingsDialog = ({
+  open, onOpenChange, config, onSave,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  config: PrinterConfig;
+  onSave: (cfg: PrinterConfig) => void;
+}) => {
+  const [mode, setMode] = useState<PrinterMode>(config.mode);
+  const [ip,   setIp]   = useState(config.ip);
+  const [port, setPort] = useState(String(config.port));
+
+  useEffect(() => {
+    if (open) { setMode(config.mode); setIp(config.ip); setPort(String(config.port)); }
+  }, [open, config]);
+
+  const handleSave = () => {
+    onSave({ mode, ip: ip.trim(), port: Number(port) || 9100 });
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 p-0 overflow-hidden flex flex-col max-h-[90dvh]">
+        <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b bg-muted/5 text-left">
+          <div className="flex items-center gap-2 mb-1">
+            <Printer className="w-4 h-4 text-primary" />
+            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Thermal Printer</span>
+          </div>
+          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900">Printer Setup</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+            Stored on this device only. Each KDS device can have its own printer.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
+          {/* Mode selector */}
+          <div className="space-y-3">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Print Method</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setMode('browser')}
+                className={cn(
+                  'flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all',
+                  mode === 'browser' ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-background hover:border-primary/20'
+                )}
+              >
+                <Monitor className={cn('w-6 h-6', mode === 'browser' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Browser</span>
+                <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-center leading-tight">USB · Bluetooth · Any local printer</span>
+              </button>
+              <button
+                onClick={() => setMode('network')}
+                className={cn(
+                  'flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all',
+                  mode === 'network' ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-background hover:border-primary/20'
+                )}
+              >
+                <Wifi className={cn('w-6 h-6', mode === 'network' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Network</span>
+                <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-center leading-tight">LAN IP · Direct TCP · Port 9100</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Mode descriptions */}
+          {mode === 'browser' && (
+            <div className="p-4 rounded-2xl bg-blue-50 border-2 border-blue-100 space-y-1.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">How it works</p>
+              <p className="text-[10px] font-bold text-blue-600 leading-relaxed">
+                Clicking Print Label opens your OS print dialog. Select your thermal printer from the list — works with any printer your device can see including USB, Bluetooth, and network printers already added to your OS.
+              </p>
+            </div>
+          )}
+
+          {mode === 'network' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-100 space-y-1.5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">How it works</p>
+                <p className="text-[10px] font-bold text-amber-600 leading-relaxed">
+                  Sends ESC/POS commands directly to your printer over your local network. The printer must have a static LAN IP. Print a test page from the printer to find its IP address.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="printer-ip" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Printer IP Address</Label>
+                <Input
+                  id="printer-ip"
+                  value={ip}
+                  onChange={e => setIp(e.target.value)}
+                  placeholder="192.168.1.xxx"
+                  className="h-12 rounded-2xl border-2 font-mono font-black text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="printer-port" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Port (default 9100)</Label>
+                <Input
+                  id="printer-port"
+                  value={port}
+                  onChange={e => setPort(e.target.value)}
+                  placeholder="9100"
+                  className="h-12 rounded-2xl border-2 font-mono font-black text-sm"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex-shrink-0 p-6 pt-4 border-t bg-muted/5">
+          <div className="grid grid-cols-2 gap-3 w-full">
+            <Button variant="ghost" onClick={() => onOpenChange(false)}
+              className="h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">
+              Cancel
+            </Button>
+            <Button onClick={handleSave}
+              className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+              Save Settings
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ─── Label Preview Dialog ─────────────────────────────────────────────────────
 const LabelPreviewDialog = ({
-  open, onOpenChange, payload, onConfirm, isPrinting,
+  open, onOpenChange, payload, onConfirm, isPrinting, printerConfig,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   payload: LabelPayload | null;
   onConfirm: () => void;
   isPrinting: boolean;
+  printerConfig: PrinterConfig;
 }) => {
   if (!payload) return null;
 
@@ -188,15 +388,20 @@ const LabelPreviewDialog = ({
           </div>
           <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900">Review Before Printing</DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-            This is how the label will print on your thermal printer.
+            {printerConfig.mode === 'network'
+              ? `Network · ${printerConfig.ip || 'No IP set'}:${printerConfig.port}`
+              : 'Browser · OS print dialog'
+            }
           </DialogDescription>
         </DialogHeader>
 
-        {/* Thermal receipt simulation */}
         <div className="flex-1 min-h-0 overflow-y-auto p-6">
-          <div className="mx-auto bg-white border-2 border-dashed border-slate-200 rounded-xl p-4 shadow-inner"
-            style={{ fontFamily: 'monospace', maxWidth: '280px' }}>
-            {/* Sprocket holes simulation */}
+          {/* Thermal receipt simulation */}
+          <div
+            className="mx-auto bg-white border-2 border-dashed border-slate-200 rounded-xl p-4 shadow-inner"
+            style={{ fontFamily: "'Courier New', monospace", maxWidth: '280px' }}
+          >
+            {/* Sprocket holes */}
             <div className="flex justify-between mb-3">
               {[...Array(8)].map((_, i) => (
                 <div key={i} className="w-2 h-2 rounded-full bg-slate-200" />
@@ -205,9 +410,7 @@ const LabelPreviewDialog = ({
 
             {payload.lines.map((line, i) => {
               if (line.divider) {
-                return (
-                  <div key={i} className="border-t-2 border-dashed border-slate-300 my-2" />
-                );
+                return <div key={i} className="border-t-2 border-dashed border-slate-300 my-2" />;
               }
               return (
                 <div
@@ -219,7 +422,7 @@ const LabelPreviewDialog = ({
                     line.bold               && 'font-black',
                     line.size === 'large'   && 'text-xl font-black',
                     line.size === 'wide'    && 'text-base font-black tracking-wide',
-                    !line.size || line.size === 'normal' ? 'text-xs' : '',
+                    (!line.size || line.size === 'normal') && 'text-xs',
                   )}
                 >
                   {line.content}
@@ -227,9 +430,7 @@ const LabelPreviewDialog = ({
               );
             })}
 
-            {/* Feed lines */}
             <div className="h-6" />
-            {/* Cut line */}
             <div className="flex items-center gap-2 opacity-30">
               <div className="flex-1 border-t-2 border-dashed border-slate-400" />
               <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">CUT</span>
@@ -247,8 +448,8 @@ const LabelPreviewDialog = ({
             <Button onClick={onConfirm} disabled={isPrinting}
               className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
               {isPrinting
-                ? <><Loader className="w-4 h-4 mr-2 animate-spin" /> Printing...</>
-                : <><Printer className="w-4 h-4 mr-2" /> Print Label</>
+                ? <><Loader className="w-4 h-4 mr-2 animate-spin" />Printing...</>
+                : <><Printer className="w-4 h-4 mr-2" />Print Label</>
               }
             </Button>
           </div>
@@ -399,7 +600,7 @@ const ClaimerBadge = ({ claimedByName, isMe, onReassign }: {
     </div>
     <span>{isMe ? 'You' : claimedByName.split(' ')[0]}</span>
     {!isMe && (
-      <button onClick={onReassign} className="ml-1 text-slate-400 hover:text-primary transition-colors" title="Reassign to me">
+      <button onClick={onReassign} className="ml-1 text-slate-400 hover:text-primary transition-colors">
         <RefreshCw className="w-3 h-3" />
       </button>
     )}
@@ -450,11 +651,8 @@ const TicketCard = ({
         lane === 'prep' && claimedByName && !isClaimedByMe && 'opacity-70'
       )}>
       <div className={cn('absolute top-0 left-0 right-0 h-1.5', styles.bar)} />
-      {isEventTicket && (
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-indigo-500" />
-      )}
+      {isEventTicket && <div className="absolute top-0 left-0 right-0 h-1.5 bg-indigo-500" />}
 
-      {/* Header */}
       <div className="px-5 pt-6 pb-3 flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2 flex-wrap">
@@ -508,7 +706,6 @@ const TicketCard = ({
         </div>
       </div>
 
-      {/* Item */}
       <div className="px-5 pb-3 flex items-center gap-4">
         <div className="relative w-14 h-14 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
           {item?.imageUrl ? (
@@ -545,7 +742,6 @@ const TicketCard = ({
         </div>
       </div>
 
-      {/* Guest + allergy info */}
       <div className="mx-5 mb-3 p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
@@ -600,7 +796,6 @@ const TicketCard = ({
         )}
       </div>
 
-      {/* Actions */}
       <div className="px-5 pb-5 flex gap-2">
         {lane === 'incoming' && (
           <>
@@ -734,18 +929,30 @@ function KDSContent() {
   const { firestore, user } = useFirebase();
   const { toast } = useToast();
 
-  const [currentStaff, setCurrentStaff] = useState<Staff | null>(null);
+  const [currentStaff, setCurrentStaff]   = useState<Staff | null>(null);
   const handleLogout = useCallback(() => setCurrentStaff(null), []);
   useInactivityLogout(handleLogout);
 
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [lastCount, setLastCount]       = useState(0);
-  const audioCtxRef                     = useRef<AudioContext | null>(null);
+  const [soundEnabled, setSoundEnabled]   = useState(true);
+  const [lastCount, setLastCount]         = useState(0);
+  const audioCtxRef                       = useRef<AudioContext | null>(null);
+
+  // Printer config — loaded from localStorage per device
+  const [printerConfig, setPrinterConfig] = useState<PrinterConfig>(DEFAULT_PRINTER_CONFIG);
+  const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
+
+  useEffect(() => { setPrinterConfig(loadPrinterConfig()); }, []);
+
+  const handleSavePrinterConfig = (cfg: PrinterConfig) => {
+    savePrinterConfig(cfg);
+    setPrinterConfig(cfg);
+    toast({ title: 'Printer Settings Saved', description: `Mode: ${cfg.mode === 'network' ? `Network · ${cfg.ip}` : 'Browser print dialog'}` });
+  };
 
   // Label preview state
-  const [previewOpen, setPreviewOpen]       = useState(false);
+  const [previewOpen, setPreviewOpen]     = useState(false);
   const [previewPayload, setPreviewPayload] = useState<LabelPayload | null>(null);
-  const [isPrinting, setIsPrinting]         = useState(false);
+  const [isPrinting, setIsPrinting]       = useState(false);
 
   // Data
   const tenantRef = useMemoFirebase(
@@ -810,9 +1017,9 @@ function KDSContent() {
     safeDate(a.requestedAt || a.createdAt).getTime() -
     safeDate(b.requestedAt || b.createdAt).getTime();
 
-  const incoming = useMemo(() => allActive.filter(r => r.status === 'pending').sort(byTime),    [allActive]);
-  const prep     = useMemo(() => allActive.filter(r => r.status === 'in_progress').sort(byTime),[allActive]);
-  const ready    = useMemo(() => allActive.filter(r => r.status === 'ready').sort(byTime),      [allActive]);
+  const incoming = useMemo(() => allActive.filter(r => r.status === 'pending').sort(byTime),     [allActive]);
+  const prep     = useMemo(() => allActive.filter(r => r.status === 'in_progress').sort(byTime), [allActive]);
+  const ready    = useMemo(() => allActive.filter(r => r.status === 'ready').sort(byTime),       [allActive]);
 
   const allRequests = useMemo(
     () => [...allRefreshments, ...allEventTickets],
@@ -841,9 +1048,8 @@ function KDSContent() {
     if (!firestore || !tenantId || !currentStaff) return;
     const request = allActive.find(r => r.id === requestId);
     if (!request) return;
-    const col = getCollection(request);
     try {
-      await updateDoc(doc(firestore, `tenants/${tenantId}/${col}`, requestId), sanitize({
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${getCollection(request)}`, requestId), sanitize({
         status: 'in_progress',
         claimedBy: { staffId: currentStaff.id, name: currentStaff.name, initials: getInitials(currentStaff.name) },
         claimedAt: new Date().toISOString(),
@@ -857,9 +1063,8 @@ function KDSContent() {
     if (!firestore || !tenantId || !currentStaff) return;
     const request = allActive.find(r => r.id === requestId);
     if (!request) return;
-    const col = getCollection(request);
     try {
-      await updateDoc(doc(firestore, `tenants/${tenantId}/${col}`, requestId), sanitize({
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${getCollection(request)}`, requestId), sanitize({
         claimedBy: { staffId: currentStaff.id, name: currentStaff.name, initials: getInitials(currentStaff.name) },
         reassignedAt: new Date().toISOString(),
       }));
@@ -871,9 +1076,8 @@ function KDSContent() {
 
   const handleMarkReady = async (request: any) => {
     if (!firestore || !tenantId) return;
-    const col = getCollection(request);
     try {
-      await updateDoc(doc(firestore, `tenants/${tenantId}/${col}`, request.id), sanitize({
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${getCollection(request)}`, request.id), sanitize({
         status: 'ready', readyAt: new Date().toISOString(),
       }));
       toast({ title: 'Order Ready', description: `${request._displayItem} ready for ${request._displayName}.` });
@@ -890,8 +1094,7 @@ function KDSContent() {
     const qty = request._quantity || 1;
 
     b.update(doc(firestore, `tenants/${tenantId}/${col}`, request.id), sanitize({
-      status:      'delivered',
-      deliveredAt: now,
+      status: 'delivered', deliveredAt: now,
       deliveredBy: currentStaff
         ? { staffId: currentStaff.id, name: currentStaff.name }
         : { staffId: user?.uid || 'kds' },
@@ -907,7 +1110,7 @@ function KDSContent() {
         ingredients.forEach((ingredient: any) => {
           const product = inventory.find(p => p.id === ingredient.id);
           if (!product) return;
-          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
+          const productRef  = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
           const updateData: any = {};
           if (product.costingMethod === 'uses') {
             let uses  = safeNumber(product.partialContainerUses) - ingredient.quantityUsed;
@@ -921,7 +1124,6 @@ function KDSContent() {
             updateData.totalStock = increment(-ingredient.quantityUsed);
           }
           b.update(productRef, sanitize(updateData));
-
           const corrRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
           b.set(corrRef, sanitize({
             id: nanoid(), productId: product.id, date: now,
@@ -937,7 +1139,6 @@ function KDSContent() {
             'subscription.perkLastUsed': now,
           });
         }
-
         if (request.appointmentId && request.appointmentId !== 'guest-walkin') {
           b.set(
             doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`),
@@ -964,11 +1165,9 @@ function KDSContent() {
     if (!firestore || !tenantId) return;
     const request = allActive.find(r => r.id === requestId);
     if (!request) return;
-    const col = getCollection(request);
     try {
-      await updateDoc(doc(firestore, `tenants/${tenantId}/${col}`, requestId), sanitize({
-        status: 'cancelled',
-        cancelledAt: new Date().toISOString(),
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${getCollection(request)}`, requestId), sanitize({
+        status: 'cancelled', cancelledAt: new Date().toISOString(),
         cancelledBy: currentStaff
           ? { staffId: currentStaff.id, name: currentStaff.name }
           : { staffId: user?.uid || 'kds' },
@@ -979,7 +1178,6 @@ function KDSContent() {
     }
   };
 
-  // Opens preview dialog instead of printing directly
   const handlePreviewPrint = useCallback((request: any, fifoIndex: number) => {
     if (!currentStaff) return;
     const item = inventory.find(i => i.id === request._itemId);
@@ -987,25 +1185,36 @@ function KDSContent() {
     const ingredients = (item?.formula ?? []).map((f: any) => ({
       ...f, totalNeeded: (safeNumber(f.quantityUsed) * qty).toFixed(1),
     }));
-    const payload = buildLabel(request, currentStaff, fifoIndex, ingredients);
-    setPreviewPayload(payload);
+    setPreviewPayload(buildLabel(request, currentStaff, fifoIndex, ingredients));
     setPreviewOpen(true);
   }, [currentStaff, inventory]);
 
-  // Called when user confirms from preview dialog
   const handleConfirmPrint = useCallback(async () => {
     if (!previewPayload) return;
     setIsPrinting(true);
     try {
-      await printLabel(previewPayload);
-      toast({ title: 'Label Sent', description: 'Sticker dispatched to printer.' });
+      if (printerConfig.mode === 'network') {
+        // Try network first, fall back to browser print if it fails
+        try {
+          await networkPrint(previewPayload, printerConfig);
+          toast({ title: 'Label Sent', description: `Sent to ${printerConfig.ip}` });
+        } catch (networkErr: any) {
+          toast({
+            variant: 'destructive',
+            title: 'Network Print Failed',
+            description: `${networkErr.message} — opening browser print as fallback.`,
+          });
+          browserPrint(previewPayload);
+        }
+      } else {
+        browserPrint(previewPayload);
+        toast({ title: 'Print Dialog Opened', description: 'Select your thermal printer from the list.' });
+      }
       setPreviewOpen(false);
-    } catch (err: any) {
-      toast({ variant: 'destructive', title: 'Print Failed', description: err?.message ?? 'Check printer connection.' });
     } finally {
       setIsPrinting(false);
     }
-  }, [previewPayload, toast]);
+  }, [previewPayload, printerConfig, toast]);
 
   const totalActive = incoming.length + prep.length + ready.length;
 
@@ -1016,13 +1225,20 @@ function KDSContent() {
   return (
     <div className="min-h-screen bg-slate-50 font-body flex flex-col overflow-hidden">
 
-      {/* Label Preview Dialog */}
       <LabelPreviewDialog
         open={previewOpen}
         onOpenChange={setPreviewOpen}
         payload={previewPayload}
         onConfirm={handleConfirmPrint}
         isPrinting={isPrinting}
+        printerConfig={printerConfig}
+      />
+
+      <PrinterSettingsDialog
+        open={printerSettingsOpen}
+        onOpenChange={setPrinterSettingsOpen}
+        config={printerConfig}
+        onSave={handleSavePrinterConfig}
       />
 
       {/* Top Bar */}
@@ -1057,6 +1273,27 @@ function KDSContent() {
 
         <div className="flex items-center gap-3 shrink-0">
           <StatsBar requests={allRequests} />
+
+          {/* Printer mode indicator + settings */}
+          <button
+            onClick={() => setPrinterSettingsOpen(true)}
+            className={cn(
+              'flex items-center gap-2 px-3 py-2 rounded-2xl border-2 transition-all hover:border-primary/30',
+              printerConfig.mode === 'network'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                : 'bg-slate-100 border-slate-200 text-slate-500'
+            )}
+          >
+            {printerConfig.mode === 'network'
+              ? <Wifi className="w-3.5 h-3.5" />
+              : <Monitor className="w-3.5 h-3.5" />
+            }
+            <span className="font-black text-[9px] uppercase tracking-widest">
+              {printerConfig.mode === 'network' ? printerConfig.ip || 'No IP' : 'Browser'}
+            </span>
+            <Settings className="w-3 h-3 opacity-50" />
+          </button>
+
           <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-100 border-2 border-slate-200">
             <div className="w-7 h-7 rounded-xl bg-primary flex items-center justify-center text-white font-black text-[10px] shrink-0">
               {getInitials(currentStaff.name)}
@@ -1065,7 +1302,7 @@ function KDSContent() {
               {currentStaff.name.split(' ')[0]}
             </span>
             <button onClick={handleLogout}
-              className="ml-1 text-slate-400 hover:text-red-500 transition-colors" title="Log out">
+              className="ml-1 text-slate-400 hover:text-red-500 transition-colors">
               <LogOut className="w-3.5 h-3.5" />
             </button>
           </div>
