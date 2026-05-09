@@ -34,7 +34,6 @@ import { z } from 'zod';
 import { type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '../ui/textarea';
-import { ScrollArea } from '../ui/scroll-area';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ImageUpload } from '../shared/ImageUpload';
 import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
@@ -172,7 +171,6 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
             <Separator className="border-dashed" />
 
             <div className="space-y-8">
-                {/* FIX: was icon={List} — List was never imported. Changed to FileText which is imported above. */}
                 <SectionHeader icon={FileText} title="Audit Detail" />
                 <div className="space-y-6 text-left">
                     <div className="space-y-2">
@@ -192,7 +190,7 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
                                         <SelectItem value="expense" className="font-bold">EXPENSE LOAD</SelectItem>
                                     </SelectContent>
                                 </Select>
-                            )}/>
+                            )} />
                         </div>
                         <div className="space-y-2">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Financial Context</Label>
@@ -211,7 +209,7 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
                                         </div>
                                     </label>
                                 </RadioGroup>
-                            )}/>
+                            )} />
                         </div>
                     </div>
 
@@ -253,19 +251,17 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
                                     <SelectItem value="Other" className="font-bold">OTHER PROTOCOL</SelectItem>
                                 </SelectContent>
                             </Select>
-                        )}/>
+                        )} />
                         {errors.paymentMethod && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.paymentMethod.message}</p>}
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="paymentMethodIdentifier" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Account Identifier</Label>
                         <Input id="paymentMethodIdentifier" placeholder="e.g., Chase ****1234" {...register('paymentMethodIdentifier')} className="h-12 rounded-xl border-2 font-mono font-black text-xs uppercase" />
                     </div>
-                    
+
                     <div className="space-y-4 pt-4 border-t border-dashed">
-                        <div className="flex items-center justify-between">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Proof of Transaction</Label>
-                        </div>
-                        <Controller name="receiptUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Proof of Transaction</Label>
+                        <Controller name="receiptUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )} />
                     </div>
                 </div>
             </div>
@@ -299,12 +295,12 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
 
   useEffect(() => {
     if (open) {
-        reset({
-             date: new Date(),
-             context: 'Business',
-             type: 'expense',
-             amount: undefined,
-        });
+      reset({
+        date: new Date(),
+        context: 'Business',
+        type: 'expense',
+        amount: undefined,
+      });
     }
   }, [open, reset]);
 
@@ -318,37 +314,47 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
     };
     onConfirm(newTransaction);
   };
-  
+
   const DialogContainer = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+      <ContentComponent
+        side={isMobile ? "bottom" : undefined}
+        className={cn(
+          "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden",
+          isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]"
+        )}
+      >
         <FormProvider {...methods}>
-            <form id="add-transaction-strategic-form" onSubmit={handleSubmit(handleFormSubmit)} className="flex flex-col h-full overflow-hidden">
-                <div className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
-                    <div className="flex items-center gap-3 mb-2">
-                        <Sparkles className="w-5 h-5 text-primary" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Accounting Suite</span>
-                    </div>
-                    <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Add New Transaction</DialogTitle>
-                    <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Manually log an income or expense into the studio ledger.</DialogDescription>
-                </div>
-                
-                <ScrollArea className="flex-1">
-                    <div className="p-8 pb-32">
-                        <AddTransactionForm staff={staff} />
-                    </div>
-                </ScrollArea>
+          <form onSubmit={handleSubmit(handleFormSubmit)} className="flex flex-col flex-1 min-h-0">
 
-                <div className="border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-8">
-                    <div className="flex w-full gap-4">
-                        <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
-                        <Button type="submit" className="flex-[2.5] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Log Transaction <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
-                    </div>
-                </div>
-            </form>
+            <div className="flex-shrink-0 text-left border-b bg-muted/5 p-8 pb-6">
+              <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Accounting Suite</span>
+              </div>
+              <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Add New Transaction</DialogTitle>
+              <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Manually log an income or expense into the studio ledger.</DialogDescription>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="p-8 pb-32">
+                <AddTransactionForm staff={staff} />
+              </div>
+            </div>
+
+            <div className="flex-shrink-0 border-t bg-background shadow-2xl p-6 sm:p-8">
+              <div className="flex w-full gap-4">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
+                <Button type="submit" className="flex-[2.5] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
+                  Log Transaction <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                </Button>
+              </div>
+            </div>
+
+          </form>
         </FormProvider>
       </ContentComponent>
     </DialogContainer>
