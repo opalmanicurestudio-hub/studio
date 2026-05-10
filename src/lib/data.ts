@@ -10,7 +10,7 @@ export type Incident = {
     description: string;
     actionsTaken?: string;
     photoUrls?: string[];
-    appointmentId?: string; 
+    appointmentId?: string;
 };
 
 export type ClientIntel = {
@@ -51,8 +51,8 @@ export type Staff = {
   pricingTierId?: string;
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary' | 'hourly_plus_commission';
-  commissionRate: number; 
-  retailCommissionRate?: number; 
+  commissionRate: number;
+  retailCommissionRate?: number;
   hourlyRate?: number;
   services?: string[];
   bio?: string;
@@ -87,14 +87,14 @@ export type Staff = {
   preferences?: string;
   compliance?: {
     licenseNumber?: string;
-    licenseExpiry?: string; 
+    licenseExpiry?: string;
     documentUrl?: string;
   };
   assignedFormIds?: string[];
   active?: boolean;
   showOnPublicPage?: boolean;
   onBreak?: boolean;
-  breakStartTime?: string; 
+  breakStartTime?: string;
   status?: 'idle' | 'busy';
   lastServedTimestamp?: string;
   turnOrder?: number;
@@ -106,7 +106,7 @@ export type ActivityLog = {
     id: string;
     staffId: string;
     type: 'clock_in' | 'clock_out' | 'break_start' | 'break_end';
-    timestamp: string; 
+    timestamp: string;
     durationMinutes?: number;
 };
 
@@ -118,9 +118,9 @@ export type WaivedFee = {
     appointmentDate: string;
     feeAmount: number;
     reason: string;
-    waivedBy: string; 
+    waivedBy: string;
     waivedByName?: string;
-    waivedAt: string; 
+    waivedAt: string;
 };
 
 export type Redemption = {
@@ -131,7 +131,7 @@ export type Redemption = {
     offeringName: string;
     serviceId: string;
     serviceName: string;
-    date: string; 
+    date: string;
     staffId?: string;
     isForfeit?: boolean;
     isRollover?: boolean;
@@ -142,7 +142,7 @@ export type CardOnFile = {
     last4: string;
     expiryMonth: number;
     expiryYear: number;
-    token: string; 
+    token: string;
 };
 
 export type OneTimePerk = {
@@ -222,7 +222,7 @@ export type Client = {
     name: string;
     relationship: string;
     phone: string;
-  }
+  };
   birthday?: string;
 };
 
@@ -258,7 +258,7 @@ export type Location = {
 
 export type MaintenanceRecord = {
   id: string;
-  date: string; 
+  date: string;
   description: string;
   cost: number;
   imageUrl?: string;
@@ -272,19 +272,19 @@ export type ServiceTier = {
 
 export type Service = {
   id: string;
-  name:string;
+  name: string;
   type: 'service' | 'addon';
   category: string;
-  duration: number; 
+  duration: number;
   padBefore?: number;
   padAfter?: number;
   serviceTiers?: ServiceTier[];
-  price: number; 
+  price: number;
   cost: number;
   profit: number;
   margin: number;
   imageUrl?: string;
-  products?: (InventoryItem & { quantityUsed: number })[]; 
+  products?: (InventoryItem & { quantityUsed: number })[];
   description?: string;
   isPrivate?: boolean;
   confirmationMessage?: string;
@@ -310,8 +310,8 @@ export type Batch = {
   id: string;
   stock: number;
   costPerUnit: number;
-  receivedDate: string; 
-  expirationDate?: string; 
+  receivedDate: string;
+  expirationDate?: string;
 };
 
 export type LifespanTestResult = {
@@ -328,24 +328,24 @@ export type InventoryItem = {
   type: 'professional' | 'retail' | 'equipment' | 'overhead' | 'refreshment';
   category: string;
   status?: 'active' | 'archived';
-  totalStock: number; 
+  totalStock: number;
   supplier: string;
   supplierUrl?: string;
   lifespanYears?: number;
   actualLifespanMonths?: number;
   lastTestResult?: LifespanTestResult;
-  costPerUnit?: number; 
+  costPerUnit?: number;
   reorderPoint?: number;
   imageUrl?: string;
   primaryLocationId?: string;
   secondaryLocationIds?: string[];
-  costingMethod?: 'uses' | 'size'; 
-  size?: number; 
+  costingMethod?: 'uses' | 'size';
+  size?: number;
   unit?: 'ml' | 'oz' | 'g' | 'unit';
-  estimatedUses?: number; 
-  useUnit?: string; 
-  partialContainerSize?: number; 
-  partialContainerUses?: number; 
+  estimatedUses?: number;
+  useUnit?: string;
+  partialContainerSize?: number;
+  partialContainerUses?: number;
   isExperimentActive?: boolean;
   experimentUses?: number;
   batches: Batch[];
@@ -353,7 +353,7 @@ export type InventoryItem = {
   msrp?: number;
   price?: number;
   showInConcierge?: boolean;
-  isMembersOnly?: boolean; 
+  isMembersOnly?: boolean;
   formula?: {
       id: string;
       name: string;
@@ -401,7 +401,7 @@ export type AppointmentCheckoutState = {
     actualDuration: number;
     serviceStaffOverrides: Record<string, string>;
     completedServiceIds?: string[];
-    concurrentServiceIds?: string[]; 
+    concurrentServiceIds?: string[];
     tipAllocations: Record<string, number>;
     tipAmount: number;
     additionalCharge: number;
@@ -499,11 +499,11 @@ export type Event = {
 export type Order = {
   id: string;
   supplier: string;
-  orderDate: string; 
+  orderDate: string;
   status: 'Draft' | 'Placed' | 'Shipped' | 'Partially Received' | 'Received' | 'Cancelled';
   trackingNumber?: string;
   trackingUrl?: string;
-  expectedArrivalDate?: string; 
+  expectedArrivalDate?: string;
   items: {
     productId: string;
     productName: string;
@@ -540,7 +540,7 @@ export type Quote = {
   notes?: string;
   totalHours?: number;
   createdAt: string;
-  sentAt?: string; 
+  sentAt?: string;
   userId: string;
   requiredFormIds?: string[];
   staffPayouts: {
@@ -556,9 +556,9 @@ export type Quote = {
 
 export type WalkIn = {
   id: string;
-  groupId: string; 
-  groupName?: string; 
-  isPrimaryContact?: boolean; 
+  groupId: string;
+  groupName?: string;
+  isPrimaryContact?: boolean;
   clientId?: string;
   customerName: string;
   customerPhone?: string;
@@ -567,11 +567,11 @@ export type WalkIn = {
   serviceIds: string[];
   requiredSkills: string[];
   estimatedDuration: number;
-  checkInTime: string; 
+  checkInTime: string;
   queueOrder?: number;
-  notifiedTimestamp?: string; 
-  serviceStartTime?: string; 
-  serviceEndTime?: string; 
+  notifiedTimestamp?: string;
+  serviceStartTime?: string;
+  serviceEndTime?: string;
   status: 'waiting' | 'notified' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
   assignedStaffId?: string;
   notes?: string;
@@ -585,17 +585,17 @@ export type WalkIn = {
 export type StockCorrection = {
   id: string;
   productId: string;
-  date: string; 
-  change: number; 
+  date: string;
+  change: number;
   unit: string;
-  reason: string; 
+  reason: string;
 };
 
 export type MembershipPerk = {
     id: string;
     name: string;
     quantity: number;
-}
+};
 
 export type Membership = {
   id: string;
@@ -609,7 +609,7 @@ export type Membership = {
   includedAddOns?: MembershipPerk[];
   includedProducts?: MembershipPerk[];
   retailDiscount?: number;
-  retailDiscountLimit?: number; 
+  retailDiscountLimit?: number;
   applicableProductIds?: string[];
   forfeitOnLateCancel: boolean;
   forfeitOnNoShow: boolean;
@@ -668,6 +668,14 @@ export type BookingGalleryItem = {
     caption?: string;
 };
 
+// ─── Booking theme type ───────────────────────────────────────────────────────
+export type BookingTheme =
+  | 'editorial'
+  | 'soft_spa'
+  | 'dark_glam'
+  | 'bold_studio'
+  | 'minimal_clean';
+
 export type BookingPageSettings = {
     logoUrl?: string;
     wordmarkUrl?: string;
@@ -677,12 +685,16 @@ export type BookingPageSettings = {
     heroSubtitle?: string;
     welcomeMessage?: string;
     primaryColor?: string;
+    // ── Theme ──────────────────────────────────────────────────────────────
+    theme?: BookingTheme;
+    // ── Section visibility ─────────────────────────────────────────────────
     showTeam?: boolean;
     showReviews?: boolean;
     showFaq?: boolean;
     showGallery?: boolean;
     showMemberships?: boolean;
     showPackages?: boolean;
+    // ── Section title overrides ────────────────────────────────────────────
     servicesSectionTitle?: string;
     teamSectionTitle?: string;
     faqSectionTitle?: string;
@@ -690,6 +702,7 @@ export type BookingPageSettings = {
     gallerySectionTitle?: string;
     policiesSectionTitle?: string;
     contactSectionTitle?: string;
+    // ── Content ────────────────────────────────────────────────────────────
     faqs?: BookingFAQItem[];
     gallery?: BookingGalleryItem[];
 };
@@ -700,6 +713,9 @@ export type KioskSettings = {
     showWordmark?: boolean;
     welcomeMessage?: string;
     primaryColor?: string;
+    // ── Kiosk visual theme ─────────────────────────────────────────────────
+    theme?: 'light' | 'dark' | 'rose' | 'sage' | 'slate';
+    // ── Hours ──────────────────────────────────────────────────────────────
     useSpecificHours?: boolean;
     kioskSchedule?: {
         [day: string]: DayHours;
@@ -719,25 +735,50 @@ export type Tenant = {
   userId: string;
   subscriptionStatus: 'active' | 'inactive' | 'trialing' | 'past_due' | 'canceled';
   subscriptionTier: 'none' | 'solo' | 'studio' | 'enterprise';
+
+  // ── Queue & Late Arrival ───────────────────────────────────────────────
   queueSkipTimeMinutes?: number;
   lateArrivalGracePeriod?: number;
   lateArrivalFee?: number;
   autoCancelLateArrivals?: boolean;
+  lateInconveniencePremium?: number;
+
+  // ── Cancellation & No-Show ─────────────────────────────────────────────
   cancellationFee?: number;
   cancellationWindowHours?: number;
   noShowFee?: number;
-  allowDiscountStacking?: boolean;
-  requireTillWitness?: boolean;
   cancellationPolicy?: string;
   noShowPolicy?: string;
   lateArrivalPolicy?: string;
+  defaultCancellationMode?: 'matrix' | 'flat' | 'percentage';
+  defaultRescheduleMode?: 'matrix' | 'flat';
+  allowGuestFeeDeferral?: boolean;
+
+  // ── Scheduling ─────────────────────────────────────────────────────────
   bookingSlotInterval?: 15 | 30 | 60;
+  tightSchedulingEnabled?: boolean;
+  morningAnchorEnabled?: boolean;
+  flashYieldEnabled?: boolean;
+  guardianProtocolEnabled?: boolean;
+
+  // ── Discounts & Rewards ────────────────────────────────────────────────
+  allowDiscountStacking?: boolean;
   referrerReward?: number;
   newClientDiscount?: number;
+
+  // ── Hospitality & Amenities ────────────────────────────────────────────
+  refreshmentServiceEnabled?: boolean;
+  complimentaryAmenityLimit?: number;
+  wifiNetwork?: string;
+  wifiPassword?: string;
+
+  // ── Notifications ──────────────────────────────────────────────────────
   smsNotificationMessage?: string;
   twilioAccountSid?: string;
   twilioAuthToken?: string;
   twilioPhoneNumber?: string;
+
+  // ── Pricing ────────────────────────────────────────────────────────────
   pricingTiers?: {
     apprentice?: string;
     junior?: string;
@@ -745,25 +786,64 @@ export type Tenant = {
     master?: string;
   };
   tmhr?: number;
-  bookingPageSettings?: BookingPageSettings;
-  kioskSettings?: KioskSettings;
-  lateInconveniencePremium?: number;
   employerTaxBurdenPct?: number;
-  defaultCancellationMode?: 'matrix' | 'flat' | 'percentage';
-  defaultRescheduleMode?: 'matrix' | 'flat';
+
+  // ── Payment ────────────────────────────────────────────────────────────
+  requireTillWitness?: boolean;
   paymentGateway?: 'none' | 'stripe' | 'square';
   gatewayApiKey?: string;
   autoProcessMemberships?: boolean;
-  complimentaryAmenityLimit?: number;
-  allowGuestFeeDeferral?: boolean;
-  tightSchedulingEnabled?: boolean;
-  morningAnchorEnabled?: boolean;
-  flashYieldEnabled?: boolean;
-  guardianProtocolEnabled?: boolean;
+
+  // ── Recovery & Governance ──────────────────────────────────────────────
   maxAutonomousRecoveryAmount?: number;
   maxAutonomousRecoveryPercent?: number;
   escalationPolicy?: string;
   recoveryPresets?: RecoveryPreset[];
+
+  // ── Booking page ───────────────────────────────────────────────────────
+  bookingPageSettings?: BookingPageSettings;
+
+  // ── Kiosk ──────────────────────────────────────────────────────────────
+  kioskSettings?: KioskSettings;
+
+  // ── Studio location (for geo-fencing) ─────────────────────────────────
+  studioAddress?: string;
+  studioAddressParts?: {
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  };
+  studioLocation?: {
+    lat: number;
+    lng: number;
+  };
+
+  // ── Geo-fence ──────────────────────────────────────────────────────────
+  geoFenceEnabled?: boolean;
+  geoFenceRadiusMeters?: number;
+  geoFenceBreakRadiusMeters?: number;
+  geoFenceFailBehavior?: 'warn' | 'block';
+
+  // ── Time clock — clock-in restrictions ────────────────────────────────
+  earlyClockInMinutes?: number;
+  requireAppointmentToClockIn?: boolean;
+  blockClockInOnExpiredLicense?: boolean;
+  minimumShiftMinutes?: number;
+  requireManagerOverrideForLateClockIn?: boolean;
+
+  // ── Time clock — overtime ──────────────────────────────────────────────
+  dailyOvertimeHours?: number;
+  overtimeThresholdHours?: number;
+  overtimeMultiplier?: number;
+  autoClockOutHours?: number;
+  overtimeAlertHours?: number;
+
+  // ── Time clock — break policy ──────────────────────────────────────────
+  minimumBreakMinutes?: number;
+  maximumBreakMinutes?: number;
+  requiredBreakAfterHours?: number;
+  paidBreakMinutes?: number;
 };
 
 export type Resource = {
@@ -813,7 +893,7 @@ export type Discount = {
   description?: string;
   type: 'percentage' | 'fixed';
   value: number;
-  usageLimit: number; 
+  usageLimit: number;
   usageCount: number;
   isActive: boolean;
   validFrom?: string;
@@ -839,7 +919,7 @@ export type Campaign = {
   targetClientIds?: string[];
   discountId?: string;
   status: 'draft' | 'sent';
-  sentAt?: string; 
+  sentAt?: string;
   type: 'email' | 'sms';
   recipientCount?: number;
   openRate?: number;
@@ -860,7 +940,7 @@ export type Review = {
   text: string;
   isPublic: boolean;
   isFeatured: boolean;
-  createdAt: string; 
+  createdAt: string;
 };
 
 export type PricingTier = {
@@ -869,9 +949,9 @@ export type PricingTier = {
     rank: number;
 };
 
-export type PartyMember = { 
-    id: string; 
-    name: string; 
+export type PartyMember = {
+    id: string;
+    name: string;
     serviceIds: string[];
     phone?: string;
     email?: string;
@@ -887,7 +967,7 @@ export type Notification = {
   type: string;
   message: string;
   link: string;
-  createdAt: string; 
+  createdAt: string;
   read: boolean;
 };
 
@@ -950,10 +1030,13 @@ export type ScheduleProfile = {
   timeOff?: {
       vacationDays: number;
       holidays: number;
-  }
+  };
 };
 
-export const getServicePrice = (service: Service | undefined, staffMember: Staff | undefined): number => {
+export const getServicePrice = (
+  service: Service | undefined,
+  staffMember: Staff | undefined
+): number => {
     if (!service) return 0;
     if (!staffMember || !staffMember.pricingTierId || !service.serviceTiers) {
         return service.price || 0;
