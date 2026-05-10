@@ -20,10 +20,9 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
 import { doc, writeBatch, deleteField } from 'firebase/firestore';
-import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff, type RecoveryPreset, nanoid } from '@/lib/data';
+import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff, type RecoveryPreset, type BookingTheme, nanoid } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -36,18 +35,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useForm, Controller } from 'react-hook-form';
 import { PrintStationCardsDialog } from '@/components/concierge/PrintStationCardsDialog';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 // ─── Booking theme metadata ───────────────────────────────────────────────────
-// Mirrors BOOKING_THEMES in /book/[tenantId]/page.tsx
-// Stored as tenant.bookingPageSettings.theme
-type BookingTheme = 'editorial' | 'soft_spa' | 'dark_glam' | 'bold_studio' | 'minimal_clean';
-
 const BOOKING_THEMES_META: Record<BookingTheme, {
   label:       string;
   description: string;
-  bg:          string;   // preview card background (Tailwind)
-  accent:      string;   // preview dot color (hex)
-  text:        string;   // preview label color (Tailwind)
+  bg:          string;
+  accent:      string;
+  text:        string;
 }> = {
   editorial: {
     label:       'Editorial',
@@ -88,30 +84,30 @@ const BOOKING_THEMES_META: Record<BookingTheme, {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const defaultRecoveryPresets: RecoveryPreset[] = [
-  { id: 'wait-time',    label: 'WAIT TIME RECOVERY',  type: 'fixed',      value: 15  },
-  { id: 'tech-adj',     label: 'TECHNICAL REVISION',  type: 'percentage', value: 20  },
-  { id: 'hospitality',  label: 'HOSPITALITY LAPSE',   type: 'fixed',      value: 10  },
-  { id: 'protocol-fail',label: 'PROTOCOL FAILURE',    type: 'percentage', value: 100 },
+  { id: 'wait-time',     label: 'WAIT TIME RECOVERY',  type: 'fixed',      value: 15  },
+  { id: 'tech-adj',      label: 'TECHNICAL REVISION',  type: 'percentage', value: 20  },
+  { id: 'hospitality',   label: 'HOSPITALITY LAPSE',   type: 'fixed',      value: 10  },
+  { id: 'protocol-fail', label: 'PROTOCOL FAILURE',    type: 'percentage', value: 100 },
 ];
 
 const defaultEscalationPolicy = "1. Autonomy: Staff are authorized to resolve minor hospitality or technical lapses up to their defined threshold. 2. Criteria: Use 'Recovery Presets' for delays > 15m or technical inconsistencies. 3. Immediate Escalation: Mandatory for medical reactions, property damage, or guest hostility. 4. Documentation: Always log specific reasoning in the Checkout Hub when applying adjustments.";
 
 const KIOSK_COLOR_LIBRARY = [
-  { hex: '#0f172a', name: 'Midnight' },   { hex: '#1e293b', name: 'Slate 800' },
-  { hex: '#334155', name: 'Slate 700' },  { hex: '#64748b', name: 'Slate 500' },
-  { hex: '#e2e8f0', name: 'Slate 200' },  { hex: '#7c3aed', name: 'Violet' },
-  { hex: '#6d28d9', name: 'Purple' },     { hex: '#a78bfa', name: 'Lavender' },
-  { hex: '#c4b5fd', name: 'Soft Violet' },{ hex: '#ddd6fe', name: 'Pale Lavender' },
-  { hex: '#f43f5e', name: 'Rose' },       { hex: '#e11d48', name: 'Deep Rose' },
-  { hex: '#fb7185', name: 'Pink' },       { hex: '#fda4af', name: 'Soft Pink' },
-  { hex: '#fce7f3', name: 'Blush' },      { hex: '#059669', name: 'Emerald' },
-  { hex: '#10b981', name: 'Green' },      { hex: '#34d399', name: 'Mint' },
-  { hex: '#6ee7b7', name: 'Sage' },       { hex: '#d1fae5', name: 'Pale Mint' },
-  { hex: '#2563eb', name: 'Blue' },       { hex: '#0ea5e9', name: 'Sky' },
-  { hex: '#38bdf8', name: 'Light Blue' }, { hex: '#7dd3fc', name: 'Powder' },
-  { hex: '#bae6fd', name: 'Pale Blue' },  { hex: '#d97706', name: 'Amber' },
-  { hex: '#f59e0b', name: 'Gold' },       { hex: '#fbbf24', name: 'Yellow' },
-  { hex: '#fcd34d', name: 'Butter' },     { hex: '#fef3c7', name: 'Cream' },
+  { hex: '#0f172a', name: 'Midnight' },    { hex: '#1e293b', name: 'Slate 800' },
+  { hex: '#334155', name: 'Slate 700' },   { hex: '#64748b', name: 'Slate 500' },
+  { hex: '#e2e8f0', name: 'Slate 200' },   { hex: '#7c3aed', name: 'Violet' },
+  { hex: '#6d28d9', name: 'Purple' },      { hex: '#a78bfa', name: 'Lavender' },
+  { hex: '#c4b5fd', name: 'Soft Violet' }, { hex: '#ddd6fe', name: 'Pale Lavender' },
+  { hex: '#f43f5e', name: 'Rose' },        { hex: '#e11d48', name: 'Deep Rose' },
+  { hex: '#fb7185', name: 'Pink' },        { hex: '#fda4af', name: 'Soft Pink' },
+  { hex: '#fce7f3', name: 'Blush' },       { hex: '#059669', name: 'Emerald' },
+  { hex: '#10b981', name: 'Green' },       { hex: '#34d399', name: 'Mint' },
+  { hex: '#6ee7b7', name: 'Sage' },        { hex: '#d1fae5', name: 'Pale Mint' },
+  { hex: '#2563eb', name: 'Blue' },        { hex: '#0ea5e9', name: 'Sky' },
+  { hex: '#38bdf8', name: 'Light Blue' },  { hex: '#7dd3fc', name: 'Powder' },
+  { hex: '#bae6fd', name: 'Pale Blue' },   { hex: '#d97706', name: 'Amber' },
+  { hex: '#f59e0b', name: 'Gold' },        { hex: '#fbbf24', name: 'Yellow' },
+  { hex: '#fcd34d', name: 'Butter' },      { hex: '#fef3c7', name: 'Cream' },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -302,13 +298,9 @@ const ServicePolicyCard = ({ service, tmhr, inventory, isEditing, localPolicy, o
   );
 };
 
-const dayOrder = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
-
 // ─── Booking Theme Picker ─────────────────────────────────────────────────────
 const BookingThemePicker = ({
-  value,
-  onChange,
-  disabled,
+  value, onChange, disabled,
 }: {
   value?: string;
   onChange: (theme: BookingTheme) => void;
@@ -319,7 +311,7 @@ const BookingThemePicker = ({
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {(Object.keys(BOOKING_THEMES_META) as BookingTheme[]).map(key => {
-          const meta = BOOKING_THEMES_META[key];
+          const meta      = BOOKING_THEMES_META[key];
           const isSelected = current === key;
           return (
             <button
@@ -336,32 +328,19 @@ const BookingThemePicker = ({
                 disabled && 'opacity-50 cursor-not-allowed'
               )}
             >
-              {/* Selected checkmark */}
               {isSelected && (
                 <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center shadow-md">
                   <Check className="w-3.5 h-3.5" />
                 </div>
               )}
-
-              {/* Color dot preview */}
               <div className="flex items-center gap-2">
-                <div
-                  className="w-8 h-8 rounded-xl border-2 border-white/40 shadow-md shrink-0"
-                  style={{ backgroundColor: meta.accent }}
-                />
-                <div
-                  className="w-4 h-4 rounded-lg border border-white/20 shadow-sm"
-                  style={{ backgroundColor: meta.accent + '55' }}
-                />
+                <div className="w-8 h-8 rounded-xl border-2 border-white/40 shadow-md shrink-0" style={{ backgroundColor: meta.accent }} />
+                <div className="w-4 h-4 rounded-lg border border-white/20 shadow-sm"          style={{ backgroundColor: meta.accent + '55' }} />
               </div>
-
-              {/* Labels */}
               <div className="space-y-0.5">
                 <p className={cn('text-[11px] font-black uppercase tracking-widest', meta.text)}>{meta.label}</p>
                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 leading-relaxed">{meta.description}</p>
               </div>
-
-              {/* Mini UI mock */}
               <div className={cn('w-full rounded-xl border overflow-hidden opacity-60', meta.bg)}>
                 <div className="h-2" style={{ backgroundColor: meta.accent }} />
                 <div className="p-2 space-y-1">
@@ -374,48 +353,47 @@ const BookingThemePicker = ({
           );
         })}
       </div>
-
-      {/* Live preview link */}
       <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-dashed border-primary/20 bg-primary/5">
         <Eye className="w-4 h-4 text-primary shrink-0" />
         <p className="text-[9px] font-bold text-primary uppercase tracking-widest leading-relaxed">
-          Theme applies immediately on your booking page. A floating theme switcher is also available at the bottom-right corner of the booking page for live preview.
+          Theme applies immediately on your booking page. Use the floating switcher bottom-right of the booking page to preview live before saving.
         </p>
       </div>
     </div>
   );
 };
 
+const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 function SettingsPageImpl() {
-  const { toast } = useToast();
-  const { firestore } = useFirebase();
+  const { toast }      = useToast();
+  const { firestore }  = useFirebase();
   const { selectedTenant, isLoading: isTenantContextLoading } = useTenant();
   const { scheduleProfiles, services, inventory, isLoading: isInventoryLoading } = useInventory();
-  const searchParams = useSearchParams();
-  const tabParam = searchParams.get('tab');
+  const searchParams   = useSearchParams();
+  const tabParam       = searchParams.get('tab');
 
-  const [activeTab,      setActiveTab]      = useState(tabParam || 'profile');
-  const [isEditing,      setIsEditing]      = useState(false);
-  const [tenantData,     setTenantData]     = useState<Partial<Tenant>>({});
-  const [serviceSearch,  setServiceSearch]  = useState('');
-  const [servicePolicies, setServicePolicies] = useState<Record<string, any>>({});
+  const [activeTab,        setActiveTab]        = useState(tabParam || 'profile');
+  const [isEditing,        setIsEditing]        = useState(false);
+  const [tenantData,       setTenantData]       = useState<Partial<Tenant>>({});
+  const [serviceSearch,    setServiceSearch]    = useState('');
+  const [servicePolicies,  setServicePolicies]  = useState<Record<string, any>>({});
   const [isPrintStationsOpen, setIsPrintStationsOpen] = useState(false);
-  const [geoAddressInput, setGeoAddressInput] = useState('');
-  const [geoStreet,  setGeoStreet]  = useState('');
-  const [geoCity,    setGeoCity]    = useState('');
-  const [geoState,   setGeoState]   = useState('');
-  const [geoZip,     setGeoZip]     = useState('');
-  const [isGeoLookingUp, setIsGeoLookingUp] = useState(false);
-  const [kioskCustomHex, setKioskCustomHex] = useState('');
+  const [geoStreet,        setGeoStreet]        = useState('');
+  const [geoCity,          setGeoCity]          = useState('');
+  const [geoState,         setGeoState]         = useState('');
+  const [geoZip,           setGeoZip]           = useState('');
+  const [isGeoLookingUp,   setIsGeoLookingUp]   = useState(false);
+  const [kioskCustomHex,   setKioskCustomHex]   = useState('');
+  const [geoInitialized,   setGeoInitialized]   = useState(false);
 
   const { control } = useForm();
   const activeProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
-  const [localSchedule,      setLocalSchedule]      = useState<any>(null);
-  const [localInterval,      setLocalInterval]      = useState<number>(15);
-  const [localKioskSchedule, setLocalKioskSchedule] = useState<any>(null);
+  const [localSchedule,       setLocalSchedule]       = useState<any>(null);
+  const [localInterval,       setLocalInterval]       = useState<number>(15);
+  const [localKioskSchedule,  setLocalKioskSchedule]  = useState<any>(null);
   const tenantId = selectedTenant?.id;
-  const [geoInitialized, setGeoInitialized] = useState(false);
 
   useEffect(() => {
     if (selectedTenant) {
@@ -423,12 +401,11 @@ function SettingsPageImpl() {
       if (selectedTenant.kioskSettings?.kioskSchedule) setLocalKioskSchedule(selectedTenant.kioskSettings.kioskSchedule);
       setKioskCustomHex(selectedTenant.kioskSettings?.primaryColor || '');
       if (!geoInitialized) {
-        if (selectedTenant.studioAddress) setGeoAddressInput(selectedTenant.studioAddress);
         if (selectedTenant.studioAddressParts) {
           setGeoStreet(selectedTenant.studioAddressParts.street || '');
-          setGeoCity(selectedTenant.studioAddressParts.city || '');
+          setGeoCity(selectedTenant.studioAddressParts.city   || '');
           setGeoState(selectedTenant.studioAddressParts.state || '');
-          setGeoZip(selectedTenant.studioAddressParts.zip || '');
+          setGeoZip(selectedTenant.studioAddressParts.zip     || '');
         }
         setGeoInitialized(true);
       }
@@ -444,12 +421,11 @@ function SettingsPageImpl() {
   const handleGeoLookup = async () => {
     const parts = [geoStreet, geoCity, geoState, geoZip].filter(Boolean);
     if (parts.length < 2) { toast({ variant: 'destructive', title: 'Address Incomplete', description: 'Enter at least a street and city.' }); return; }
-    const fullAddress = parts.join(', ');
     setIsGeoLookingUp(true);
     try {
-      const encoded = encodeURIComponent(fullAddress);
-      const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&addressdetails=1`);
-      const data = await res.json();
+      const encoded = encodeURIComponent(parts.join(', '));
+      const res     = await fetch(`https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&addressdetails=1`);
+      const data    = await res.json();
       if (data && data.length > 0) {
         const { lat, lon, display_name } = data[0];
         setTenantData(prev => ({ ...prev, studioAddress: display_name, studioAddressParts: { street: geoStreet, city: geoCity, state: geoState, zip: geoZip }, studioLocation: { lat: parseFloat(lat), lng: parseFloat(lon) } }));
@@ -457,11 +433,8 @@ function SettingsPageImpl() {
       } else {
         toast({ variant: 'destructive', title: 'Address Not Found', description: 'Try adding more detail or use GPS instead.' });
       }
-    } catch {
-      toast({ variant: 'destructive', title: 'Lookup Failed', description: 'Check your internet connection.' });
-    } finally {
-      setIsGeoLookingUp(false);
-    }
+    } catch { toast({ variant: 'destructive', title: 'Lookup Failed' }); }
+    finally { setIsGeoLookingUp(false); }
   };
 
   const handleUseMyLocation = () => {
@@ -479,8 +452,8 @@ function SettingsPageImpl() {
           const state  = addr.state || '';
           const zip    = addr.postcode || '';
           setGeoStreet(street); setGeoCity(city); setGeoState(state); setGeoZip(zip);
-          setTenantData(prev => ({ ...prev, studioAddress: data.display_name || `${latitude}, ${longitude}`, studioAddressParts: { street, city, state, zip }, studioLocation: { lat: latitude, lng: longitude } }));
-          toast({ title: 'GPS Location Set', description: data.display_name || 'Coordinates captured.' });
+          setTenantData(prev => ({ ...prev, studioAddress: data.display_name, studioAddressParts: { street, city, state, zip }, studioLocation: { lat: latitude, lng: longitude } }));
+          toast({ title: 'GPS Location Set', description: data.display_name });
         } catch {
           setTenantData(prev => ({ ...prev, studioAddress: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`, studioLocation: { lat: latitude, lng: longitude } }));
           toast({ title: 'GPS Coordinates Set' });
@@ -497,25 +470,28 @@ function SettingsPageImpl() {
   const handleSave = async () => {
     if (!selectedTenant || !firestore) return;
     try {
-      const batch = writeBatch(firestore);
-      const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
-      const finalTenantData = { ...tenantData, kioskSettings: { ...tenantData.kioskSettings, kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null } };
-      batch.update(tenantRef, finalTenantData);
+      const batch      = writeBatch(firestore);
+      const tenantRef  = doc(firestore, 'tenants', selectedTenant.id);
+      const finalData  = { ...tenantData, kioskSettings: { ...tenantData.kioskSettings, kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null } };
+      batch.update(tenantRef, finalData);
       if (activeProfile && localSchedule) {
         const profileRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`, activeProfile.id);
         batch.update(profileRef, { week: localSchedule, bookingSlotInterval: localInterval });
       }
       Object.entries(servicePolicies).forEach(([id, p]) => {
-        const svcRef = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
+        const svcRef         = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
         const originalService = services.find(s => s.id === id);
-        batch.update(svcRef, { cancellationFeeMode: p.mode, cancellationWindowHours: p.window || (deleteField() as any), customCancellationFee: p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? (deleteField() as any) : (originalService?.customCancellationFee || 0)), cancellationFeeValue: p.value || (deleteField() as any) });
+        batch.update(svcRef, {
+          cancellationFeeMode:   p.mode,
+          cancellationWindowHours: p.window || (deleteField() as any),
+          customCancellationFee: p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? (deleteField() as any) : (originalService?.customCancellationFee || 0)),
+          cancellationFeeValue:  p.value || (deleteField() as any),
+        });
       });
       await batch.commit();
       toast({ title: 'Settings Synchronized', description: 'Studio operational parameters updated.' });
       setIsEditing(false);
-    } catch {
-      toast({ variant: 'destructive', title: 'Save Failed' });
-    }
+    } catch { toast({ variant: 'destructive', title: 'Save Failed' }); }
   };
 
   const handleLoadStrategicTemplates = () => {
@@ -538,16 +514,18 @@ function SettingsPageImpl() {
   }, [services, serviceSearch]);
 
   const tabs = [
-    { value: 'profile',   label: 'Studio Identity',          icon: <Building className="w-4 h-4" /> },
-    { value: 'hours',     label: 'Operating Window',         icon: <Clock className="w-4 h-4" /> },
-    { value: 'experience',label: 'Hospitality & Connectivity',icon: <Coffee className="w-4 h-4" /> },
-    { value: 'policies',  label: 'Operational Protocols',    icon: <ShieldCheck className="w-4 h-4" /> },
-    { value: 'builder',   label: 'Booking Architecture',     icon: <Globe className="w-4 h-4" /> },
-    { value: 'kiosk',     label: 'Kiosk Orchestration',      icon: <Fingerprint className="w-4 h-4" /> },
-    { value: 'timeclock', label: 'Time Clock',               icon: <Timer className="w-4 h-4" /> },
+    { value: 'profile',    label: 'Studio Identity',            icon: <Building className="w-4 h-4" />    },
+    { value: 'hours',      label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
+    { value: 'experience', label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
+    { value: 'policies',   label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
+    { value: 'builder',    label: 'Booking Architecture',       icon: <Globe className="w-4 h-4" />       },
+    { value: 'kiosk',      label: 'Kiosk Orchestration',        icon: <Fingerprint className="w-4 h-4" /> },
+    { value: 'timeclock',  label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
   ];
 
-  if (isTenantContextLoading || isInventoryLoading) return <div className="p-8 flex items-center justify-center h-full"><Loader className="animate-spin text-primary" /></div>;
+  if (isTenantContextLoading || isInventoryLoading) {
+    return <div className="p-8 flex items-center justify-center h-full"><Loader className="animate-spin text-primary" /></div>;
+  }
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-slate-50/50">
@@ -595,7 +573,7 @@ function SettingsPageImpl() {
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
                   <SectionHeader icon={Building} title="Studio Identity" />
-                  <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Registry identification and internal labeling.</CardDescription>
+                  <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Registry identification and internal labeling.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-8 text-left">
                   <div className="space-y-3">
@@ -642,10 +620,16 @@ function SettingsPageImpl() {
             {/* ── EXPERIENCE ── */}
             <TabsContent value="experience" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><SectionHeader icon={Coffee} title="Hospitality Concierge" /><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Configure the in-service refreshment and amenity module.</CardDescription></CardHeader>
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={Coffee} title="Hospitality Concierge" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Configure the in-service refreshment and amenity module.</CardDescription>
+                </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
                   <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10 gap-6">
-                    <div className="space-y-1"><Label className="text-base font-black uppercase tracking-tight text-slate-900">Activate Refreshment Menu</Label><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Allows guests to request in-stock items from their portal</p></div>
+                    <div className="space-y-1">
+                      <Label className="text-base font-black uppercase tracking-tight text-slate-900">Activate Refreshment Menu</Label>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Allows guests to request in-stock items from their portal</p>
+                    </div>
                     <Switch checked={!!tenantData.refreshmentServiceEnabled} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, refreshmentServiceEnabled: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
                   </div>
                   <div className="space-y-4">
@@ -655,7 +639,10 @@ function SettingsPageImpl() {
                   <Separator className="border-dashed" />
                   <div className="space-y-8">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
-                      <div className="space-y-1"><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2"><QrCode className="w-5 h-5 text-primary" />Station Identity Protocol</h3><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Generate physical place-cards for autonomous ordering.</p></div>
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2"><QrCode className="w-5 h-5 text-primary" />Station Identity Protocol</h3>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Generate physical place-cards for autonomous ordering.</p>
+                      </div>
                       <Button onClick={() => setIsPrintStationsOpen(true)} className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20 w-full md:w-auto">Generate Cards</Button>
                     </div>
                   </div>
@@ -663,8 +650,14 @@ function SettingsPageImpl() {
                   <div className="space-y-6">
                     <div className="flex items-center gap-3 px-1"><Wifi className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Studio Connectivity</h3></div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8">
-                      <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">WiFi Network SSID</Label><Input value={tenantData.wifiNetwork || ''} onChange={e => setTenantData(prev => ({ ...prev, wifiNetwork: e.target.value }))} placeholder="e.g., STUDIO_GUEST_5G" disabled={!isEditing} className="h-12 rounded-xl border-2 font-bold bg-white" /></div>
-                      <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Access Password</Label><Input value={tenantData.wifiPassword || ''} onChange={e => setTenantData(prev => ({ ...prev, wifiPassword: e.target.value }))} placeholder="password" disabled={!isEditing} className="h-12 rounded-xl border-2 font-bold bg-white" /></div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">WiFi Network SSID</Label>
+                        <Input value={tenantData.wifiNetwork || ''} onChange={e => setTenantData(prev => ({ ...prev, wifiNetwork: e.target.value }))} placeholder="e.g., STUDIO_GUEST_5G" disabled={!isEditing} className="h-12 rounded-xl border-2 font-bold bg-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Access Password</Label>
+                        <Input value={tenantData.wifiPassword || ''} onChange={e => setTenantData(prev => ({ ...prev, wifiPassword: e.target.value }))} placeholder="password" disabled={!isEditing} className="h-12 rounded-xl border-2 font-bold bg-white" />
+                      </div>
                     </div>
                   </div>
                 </CardContent>
@@ -674,10 +667,17 @@ function SettingsPageImpl() {
             {/* ── POLICIES ── */}
             <TabsContent value="policies" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <div className="flex justify-end mb-4">
-                {isEditing && <Button variant="outline" size="sm" onClick={handleLoadStrategicTemplates} className="h-9 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10"><Sparkles className="w-3.5 h-3.5 mr-2" />Load Studio Best Practices</Button>}
+                {isEditing && (
+                  <Button variant="outline" size="sm" onClick={handleLoadStrategicTemplates} className="h-9 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10">
+                    <Sparkles className="w-3.5 h-3.5 mr-2" />Load Studio Best Practices
+                  </Button>
+                )}
               </div>
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><SectionHeader icon={ShieldCheck} title="Global Studio Governance" /><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define studio-wide defaults for late shifts and cancellations.</CardDescription></CardHeader>
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={ShieldCheck} title="Global Studio Governance" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define studio-wide defaults for late shifts and cancellations.</CardDescription>
+                </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
                   <div className="space-y-8">
                     <div className="flex items-center gap-3 px-1"><ScaleIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Recovery Governance</h3></div>
@@ -697,8 +697,15 @@ function SettingsPageImpl() {
                     </div>
                     <div className="space-y-6 pt-4 border-t border-dashed">
                       <div className="flex items-center justify-between px-1">
-                        <div className="space-y-1"><h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Tactical Recovery Presets</h4><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">One-tap recovery options for the POS terminal.</p></div>
-                        {isEditing && <Button variant="ghost" size="sm" onClick={handleAddPreset} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"><PlusCircle className="w-3 h-3 mr-1.5" /> Append Preset</Button>}
+                        <div className="space-y-1">
+                          <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Tactical Recovery Presets</h4>
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">One-tap recovery options for the POS terminal.</p>
+                        </div>
+                        {isEditing && (
+                          <Button variant="ghost" size="sm" onClick={handleAddPreset} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                            <PlusCircle className="w-3 h-3 mr-1.5" /> Append Preset
+                          </Button>
+                        )}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {tenantData.recoveryPresets?.map(preset => (
@@ -725,10 +732,10 @@ function SettingsPageImpl() {
                   <Separator className="border-dashed" />
                   <div className="space-y-4">
                     {[
-                      { id: 'guardianProtocolEnabled', color: 'primary', icon: ShieldCheck, label: 'Guardian Revenue Shield',       desc: 'Forced deposit enforcement for high-risk behavioral profiles' },
-                      { id: 'morningAnchorEnabled',    color: 'blue',    icon: Clock,       label: 'Morning Anchor Protocol',        desc: 'The first appointment of an empty day must start at business opening time' },
-                      { id: 'tightSchedulingEnabled',  color: 'primary', icon: Workflow,    label: 'Zero-Gap Adjacency Protocol',    desc: 'Force client bookings to be flush against existing blocks' },
-                      { id: 'flashYieldEnabled',       color: 'amber',   icon: Flame,       label: 'Flash Yield Protocol',           desc: 'Flag 48h cancellations as magnetic slots that bypass standard restrictions' },
+                      { id: 'guardianProtocolEnabled', color: 'primary', icon: ShieldCheck, label: 'Guardian Revenue Shield',     desc: 'Forced deposit enforcement for high-risk behavioral profiles' },
+                      { id: 'morningAnchorEnabled',    color: 'blue',    icon: Clock,       label: 'Morning Anchor Protocol',      desc: 'The first appointment of an empty day must start at business opening time' },
+                      { id: 'tightSchedulingEnabled',  color: 'primary', icon: Workflow,    label: 'Zero-Gap Adjacency Protocol',  desc: 'Force client bookings to be flush against existing blocks' },
+                      { id: 'flashYieldEnabled',       color: 'amber',   icon: Flame,       label: 'Flash Yield Protocol',         desc: 'Flag 48h cancellations as magnetic slots that bypass standard restrictions' },
                     ].map(item => (
                       <SettingRow key={item.id} icon={item.icon} color={item.color} title={item.label} description={item.desc}>
                         <Switch checked={!!(tenantData as any)[item.id]} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, [item.id]: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
@@ -752,28 +759,55 @@ function SettingsPageImpl() {
                     </RadioGroup>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-dashed">
-                    <div className="space-y-3"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Window (Hours)</Label><Input type="number" value={tenantData.cancellationWindowHours || 0} onChange={e => setTenantData(prev => ({ ...prev, cancellationWindowHours: parseInt(e.target.value) || 0 }))} disabled={!isEditing} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" /></div>
-                    <div className="space-y-3"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Flat Fee ($)</Label><div className="relative"><DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /><Input type="number" value={tenantData.cancellationFee || 0} onChange={e => setTenantData(prev => ({ ...prev, cancellationFee: parseFloat(e.target.value) || 0 }))} disabled={!isEditing || tenantData.defaultCancellationMode !== 'flat'} className={cn('h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-primary', tenantData.defaultCancellationMode !== 'flat' && 'opacity-40')} /></div></div>
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Window (Hours)</Label>
+                      <Input type="number" value={tenantData.cancellationWindowHours || 0} onChange={e => setTenantData(prev => ({ ...prev, cancellationWindowHours: parseInt(e.target.value) || 0 }))} disabled={!isEditing} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
+                    </div>
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Fixed Flat Fee ($)</Label>
+                      <div className="relative">
+                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                        <Input type="number" value={tenantData.cancellationFee || 0} onChange={e => setTenantData(prev => ({ ...prev, cancellationFee: parseFloat(e.target.value) || 0 }))} disabled={!isEditing || tenantData.defaultCancellationMode !== 'flat'} className={cn('h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-primary', tenantData.defaultCancellationMode !== 'flat' && 'opacity-40')} />
+                      </div>
+                    </div>
                   </div>
                   <SettingRow icon={Zap} title="Guest Autonomy: Fee Deferral" description="Allow guests to add rescheduling fees to their session bill">
                     <Switch checked={!!tenantData.allowGuestFeeDeferral} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, allowGuestFeeDeferral: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
                   </SettingRow>
                 </CardContent>
               </Card>
+
+              {/* Service-specific policies */}
               <div className="space-y-8">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1">
-                  <div className="space-y-1"><h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Service-Specific Protocols</h2><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Custom logic guards per treatment unit.</p></div>
-                  <div className="relative w-full md:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" /><Input placeholder="SEARCH MENU..." value={serviceSearch} onChange={e => setServiceSearch(e.target.value)} className="pl-9 h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest" /></div>
+                  <div className="space-y-1">
+                    <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Service-Specific Protocols</h2>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Custom logic guards per treatment unit.</p>
+                  </div>
+                  <div className="relative w-full md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                    <Input placeholder="SEARCH MENU..." value={serviceSearch} onChange={e => setServiceSearch(e.target.value)} className="pl-9 h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest" />
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {filteredServices.map(service => <ServicePolicyCard key={service.id} service={service} tmhr={tenantData.tmhr || 50} inventory={inventory} isEditing={isEditing} localPolicy={servicePolicies[service.id]} onPolicyChange={(updates) => handlePolicyChange(service.id, updates)} />)}
+                  {filteredServices.map(service => (
+                    <ServicePolicyCard key={service.id} service={service} tmhr={tenantData.tmhr || 50} inventory={inventory} isEditing={isEditing} localPolicy={servicePolicies[service.id]} onPolicyChange={(updates) => handlePolicyChange(service.id, updates)} />
+                  ))}
                 </div>
               </div>
+
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><SectionHeader icon={Shield} title="Public Accountability Policies" /></CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-6 text-left">
-                  {[{ id: 'cancellationPolicy', label: 'Cancellation Policy (Public)', placeholder: 'Describe your requirements for cancelling a session...' }, { id: 'lateArrivalPolicy', label: 'Late Arrival Policy (Public)', placeholder: 'Describe grace periods and potential penalties...' }, { id: 'noShowPolicy', label: 'No-Show Policy (Public)', placeholder: 'Describe the consequence of missing an appointment...' }].map(policy => (
-                    <div key={policy.id} className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{policy.label}</Label><Textarea value={(tenantData as any)[policy.id] || ''} onChange={e => setTenantData(prev => ({ ...prev, [policy.id]: e.target.value }))} disabled={!isEditing} placeholder={policy.placeholder} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] font-medium" /></div>
+                  {[
+                    { id: 'cancellationPolicy', label: 'Cancellation Policy (Public)', placeholder: 'Describe your requirements for cancelling a session...' },
+                    { id: 'lateArrivalPolicy',   label: 'Late Arrival Policy (Public)', placeholder: 'Describe grace periods and potential penalties...' },
+                    { id: 'noShowPolicy',         label: 'No-Show Policy (Public)',      placeholder: 'Describe the consequence of missing an appointment...' },
+                  ].map(policy => (
+                    <div key={policy.id} className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{policy.label}</Label>
+                      <Textarea value={(tenantData as any)[policy.id] || ''} onChange={e => setTenantData(prev => ({ ...prev, [policy.id]: e.target.value }))} disabled={!isEditing} placeholder={policy.placeholder} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] font-medium" />
+                    </div>
                   ))}
                 </CardContent>
               </Card>
@@ -816,7 +850,7 @@ function SettingsPageImpl() {
 
                   <Separator className="border-dashed" />
 
-                  {/* ── Booking Page Theme ── */}
+                  {/* Booking Page Theme */}
                   <div className="space-y-6">
                     <div className="flex items-center gap-3 px-1">
                       <Palette className="w-5 h-5 text-primary" />
@@ -839,16 +873,20 @@ function SettingsPageImpl() {
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Visibility Protocol</Label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {[
-                        { key: 'showTeam',        label: 'Pro Team Section'  },
-                        { key: 'showReviews',      label: 'Guest Feedback'   },
-                        { key: 'showFaq',          label: 'FAQ Intel'        },
-                        { key: 'showGallery',      label: 'Portfolio Gallery'},
-                        { key: 'showMemberships',  label: 'Club Access'      },
-                        { key: 'showPackages',     label: 'Prepaid Bundles'  },
+                        { key: 'showTeam',       label: 'Pro Team Section'  },
+                        { key: 'showReviews',     label: 'Guest Feedback'   },
+                        { key: 'showFaq',         label: 'FAQ Intel'        },
+                        { key: 'showGallery',     label: 'Portfolio Gallery'},
+                        { key: 'showMemberships', label: 'Club Access'      },
+                        { key: 'showPackages',    label: 'Prepaid Bundles'  },
                       ].map(toggle => (
                         <div key={toggle.key} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5 shadow-inner">
                           <span className="text-xs font-black uppercase tracking-tight">{toggle.label}</span>
-                          <Switch checked={(tenantData.bookingPageSettings as any)?.[toggle.key] !== false} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, bookingPageSettings: { ...prev.bookingPageSettings, [toggle.key]: val } }))} disabled={!isEditing} />
+                          <Switch
+                            checked={(tenantData.bookingPageSettings as any)?.[toggle.key] !== false}
+                            onCheckedChange={(val) => setTenantData(prev => ({ ...prev, bookingPageSettings: { ...prev.bookingPageSettings, [toggle.key]: val } }))}
+                            disabled={!isEditing}
+                          />
                         </div>
                       ))}
                     </div>
@@ -867,8 +905,15 @@ function SettingsPageImpl() {
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
                   <div className="space-y-8">
                     <div className="flex items-center gap-3 px-1"><ImageIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Brand Identity</h3></div>
-                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Kiosk Logo</Label><ImageUpload onImageUploaded={(url) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, logoUrl: url } }))} initialImage={tenantData.kioskSettings?.logoUrl} /></div>
-                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Wordmark / Text Logo (optional)</Label><ImageUpload onImageUploaded={(url) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, wordmarkUrl: url } }))} initialImage={tenantData.kioskSettings?.wordmarkUrl} /><p className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Upload a horizontal text logo if you want the full name displayed</p></div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Kiosk Logo</Label>
+                      <ImageUpload onImageUploaded={(url) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, logoUrl: url } }))} initialImage={tenantData.kioskSettings?.logoUrl} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Wordmark / Text Logo (optional)</Label>
+                      <ImageUpload onImageUploaded={(url) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, wordmarkUrl: url } }))} initialImage={tenantData.kioskSettings?.wordmarkUrl} />
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Upload a horizontal text logo if you want the full name displayed</p>
+                    </div>
                     <SettingRow icon={ImageIcon} title="Show Studio Name" description="Display wordmark or text name on the splash screen">
                       <Switch checked={tenantData.kioskSettings?.showWordmark !== false} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, showWordmark: val } }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
                     </SettingRow>
@@ -880,11 +925,11 @@ function SettingsPageImpl() {
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Base Theme</Label>
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                         {[
-                          { key: 'light', label: 'Light', preview: 'bg-white border-slate-200',                              dot: 'bg-slate-900' },
-                          { key: 'dark',  label: 'Dark',  preview: 'bg-slate-900 border-slate-700',                          dot: 'bg-white'    },
-                          { key: 'rose',  label: 'Rose',  preview: 'bg-gradient-to-br from-rose-50 to-white',               dot: 'bg-rose-500'  },
-                          { key: 'sage',  label: 'Sage',  preview: 'bg-gradient-to-br from-emerald-50 to-white',            dot: 'bg-emerald-600'},
-                          { key: 'slate', label: 'Slate', preview: 'bg-gradient-to-br from-slate-700 to-slate-900',         dot: 'bg-white'    },
+                          { key: 'light', label: 'Light', preview: 'bg-white border-slate-200',                        dot: 'bg-slate-900' },
+                          { key: 'dark',  label: 'Dark',  preview: 'bg-slate-900 border-slate-700',                    dot: 'bg-white'    },
+                          { key: 'rose',  label: 'Rose',  preview: 'bg-gradient-to-br from-rose-50 to-white',          dot: 'bg-rose-500'  },
+                          { key: 'sage',  label: 'Sage',  preview: 'bg-gradient-to-br from-emerald-50 to-white',       dot: 'bg-emerald-600'},
+                          { key: 'slate', label: 'Slate', preview: 'bg-gradient-to-br from-slate-700 to-slate-900',    dot: 'bg-white'    },
                         ].map(theme => (
                           <button key={theme.key} onClick={() => isEditing && setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, theme: theme.key } }))} disabled={!isEditing}
                             className={cn('relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all text-center', theme.preview, tenantData.kioskSettings?.theme === theme.key || (!tenantData.kioskSettings?.theme && theme.key === 'light') ? 'border-primary shadow-lg ring-2 ring-primary/20' : 'border-border hover:border-primary/30', !isEditing && 'opacity-60 cursor-not-allowed')}>
@@ -913,14 +958,18 @@ function SettingsPageImpl() {
                           <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Custom Color (Hex)</Label>
                           <div className="flex gap-2">
                             <Input value={kioskCustomHex} onChange={e => setKioskCustomHex(e.target.value)} onBlur={() => { if (/^#[0-9a-fA-F]{6}$/.test(kioskCustomHex)) setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: kioskCustomHex } })); }} placeholder="#7c3aed" disabled={!isEditing} className="h-10 rounded-xl border-2 font-mono font-black flex-1" />
-                            {tenantData.kioskSettings?.primaryColor && isEditing && <Button variant="ghost" size="sm" onClick={() => { setKioskCustomHex(''); setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: undefined } })); }} className="h-10 px-3 rounded-xl text-[9px] font-black uppercase text-muted-foreground hover:text-destructive">Clear</Button>}
+                            {tenantData.kioskSettings?.primaryColor && isEditing && (
+                              <Button variant="ghost" size="sm" onClick={() => { setKioskCustomHex(''); setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: undefined } })); }} className="h-10 px-3 rounded-xl text-[9px] font-black uppercase text-muted-foreground hover:text-destructive">Clear</Button>
+                            )}
                           </div>
                         </div>
                       </div>
                     </div>
                     <div className="p-4 rounded-2xl border-2 border-dashed bg-primary/5 border-primary/20 flex items-center gap-3">
                       <Eye className="w-5 h-5 text-primary shrink-0" />
-                      <p className="text-[9px] font-bold text-primary uppercase tracking-widest leading-relaxed">Changes appear live on your kiosk at <span className="font-black">/walk-in/{selectedTenant?.id}</span>. Save settings to lock them in.</p>
+                      <p className="text-[9px] font-bold text-primary uppercase tracking-widest leading-relaxed">
+                        Changes appear live on your kiosk at <span className="font-black">/walk-in/{selectedTenant?.id}</span>. Save settings to lock them in.
+                      </p>
                     </div>
                   </div>
                   <Separator className="border-dashed" />
@@ -932,7 +981,9 @@ function SettingsPageImpl() {
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 pt-4 border-t border-dashed">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Walk-in Window Schedule</Label>
                         <div className="space-y-3">
-                          {dayOrder.map(day => <DayHoursRow key={`kiosk-${day}`} day={day} data={localKioskSchedule?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }} onChange={handleKioskScheduleChange} disabled={!isEditing} />)}
+                          {dayOrder.map(day => (
+                            <DayHoursRow key={`kiosk-${day}`} day={day} data={localKioskSchedule?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }} onChange={handleKioskScheduleChange} disabled={!isEditing} />
+                          ))}
                         </div>
                       </motion.div>
                     )}
@@ -944,7 +995,10 @@ function SettingsPageImpl() {
             {/* ── TIME CLOCK ── */}
             <TabsContent value="timeclock" className="mt-0 space-y-8 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><SectionHeader icon={Clock} title="Clock-In Restrictions" /><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Control when and how staff are permitted to start their shift.</CardDescription></CardHeader>
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={Clock} title="Clock-In Restrictions" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Control when and how staff are permitted to start their shift.</CardDescription>
+                </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-5 text-left">
                   <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
                     <div className="flex items-start gap-4">
@@ -956,8 +1010,12 @@ function SettingsPageImpl() {
                       <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">before first appointment</p>
                     </div>
                   </div>
-                  <SettingRow icon={Calendar}    color="blue"  title="Require Active Appointment"          description="Staff can only clock in if they have an appointment scheduled today"><Switch checked={!!tenantData.requireAppointmentToClockIn}      onCheckedChange={(val) => setTenantData(prev => ({ ...prev, requireAppointmentToClockIn: val }))}      disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" /></SettingRow>
-                  <SettingRow icon={ShieldAlert} color="red"   title="Block Expired License"               description="Staff with an expired compliance license cannot clock in"><Switch checked={!!tenantData.blockClockInOnExpiredLicense}        onCheckedChange={(val) => setTenantData(prev => ({ ...prev, blockClockInOnExpiredLicense: val }))}        disabled={!isEditing} className="scale-125 data-[state=checked]:bg-destructive" /></SettingRow>
+                  <SettingRow icon={Calendar}    color="blue"  title="Require Active Appointment"  description="Staff can only clock in if they have an appointment scheduled today">
+                    <Switch checked={!!tenantData.requireAppointmentToClockIn}    onCheckedChange={(val) => setTenantData(prev => ({ ...prev, requireAppointmentToClockIn: val }))}    disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
+                  </SettingRow>
+                  <SettingRow icon={ShieldAlert} color="red"   title="Block Expired License"        description="Staff with an expired compliance license cannot clock in">
+                    <Switch checked={!!tenantData.blockClockInOnExpiredLicense}   onCheckedChange={(val) => setTenantData(prev => ({ ...prev, blockClockInOnExpiredLicense: val }))}   disabled={!isEditing} className="scale-125 data-[state=checked]:bg-destructive" />
+                  </SettingRow>
                   <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
                     <div className="flex items-start gap-4">
                       <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><Timer className="w-4 h-4 text-amber-600" /></div>
@@ -975,7 +1033,10 @@ function SettingsPageImpl() {
               </Card>
 
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><SectionHeader icon={MapPin} title="Geo-Fence Configuration" /><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Restrict clock-ins to your physical studio location.</CardDescription></CardHeader>
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={MapPin} title="Geo-Fence Configuration" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Restrict clock-ins to your physical studio location.</CardDescription>
+                </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-6 text-left">
                   <SettingRow icon={MapPin} color="green" title="Enable Geo-Fencing" description="Staff must be at the studio location to clock in">
                     <Switch checked={!!tenantData.geoFenceEnabled} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, geoFenceEnabled: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-green-600" />
@@ -991,10 +1052,10 @@ function SettingsPageImpl() {
                           <div className="space-y-3">
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">Street Address</Label><Input value={geoStreet} onChange={e => setGeoStreet(e.target.value)} disabled={!isEditing} placeholder="123 Main Street, Suite 100" className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
                             <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">City</Label><Input value={geoCity} onChange={e => setGeoCity(e.target.value)} disabled={!isEditing} placeholder="Los Angeles" className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
-                              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">State</Label><Input value={geoState} onChange={e => setGeoState(e.target.value)} disabled={!isEditing} placeholder="CA" className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
+                              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">City</Label><Input value={geoCity}  onChange={e => setGeoCity(e.target.value)}  disabled={!isEditing} placeholder="Greensboro"   className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
+                              <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">State</Label><Input value={geoState} onChange={e => setGeoState(e.target.value)} disabled={!isEditing} placeholder="NC"            className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
                             </div>
-                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">ZIP Code</Label><Input value={geoZip} onChange={e => setGeoZip(e.target.value)} disabled={!isEditing} placeholder="90001" className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-green-800/60 ml-1">ZIP Code</Label><Input value={geoZip} onChange={e => setGeoZip(e.target.value)} disabled={!isEditing} placeholder="27401" className="h-12 rounded-2xl border-2 font-bold bg-white border-green-200 focus:border-green-400" /></div>
                           </div>
                           <div className="flex flex-col sm:flex-row gap-3">
                             <Button onClick={handleGeoLookup} disabled={!isEditing || isGeoLookingUp || (!geoStreet && !geoCity)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-green-500/20 bg-green-600 hover:bg-green-700">
@@ -1009,7 +1070,7 @@ function SettingsPageImpl() {
                               <div className="flex items-center gap-2 text-[10px] font-black uppercase text-green-700"><CheckCircle2 className="w-4 h-4" /> Location Confirmed</div>
                               {tenantData.studioAddress && <p className="text-[10px] font-bold text-slate-600 ml-6">{tenantData.studioAddress}</p>}
                               <p className="text-[9px] font-mono text-slate-400 ml-6">{tenantData.studioLocation.lat.toFixed(6)}, {tenantData.studioLocation.lng.toFixed(6)}</p>
-                              <a href={`https://www.google.com/maps?q=${tenantData.studioLocation.lat},${tenantData.studioLocation.lng}`} target="_blank" rel="noopener noreferrer" className="ml-6 text-[9px] font-black uppercase text-green-600 underline underline-offset-2 hover:text-green-800">Verify on Google Maps &rarr;</a>
+                              <a href={`https://www.google.com/maps?q=${tenantData.studioLocation.lat},${tenantData.studioLocation.lng}`} target="_blank" rel="noopener noreferrer" className="ml-6 text-[9px] font-black uppercase text-green-600 underline underline-offset-2 hover:text-green-800">Verify on Google Maps →</a>
                             </div>
                           )}
                         </div>
@@ -1053,19 +1114,25 @@ function SettingsPageImpl() {
               </Card>
 
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><SectionHeader icon={TrendingUp} title="Overtime & Hours Policy" /><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define thresholds for overtime, auto clock-out, and break enforcement.</CardDescription></CardHeader>
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={TrendingUp} title="Overtime & Hours Policy" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define thresholds for overtime, auto clock-out, and break enforcement.</CardDescription>
+                </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-5 text-left">
                   {[
-                    { field: 'dailyOvertimeHours',     icon: Clock,         iconColor: 'text-amber-600', label: 'Daily Overtime Threshold',   desc: 'Hours worked in a single day before overtime kicks in',                suffix: 'hrs', min: 1,   max: 24,  step: 0.5, placeholder: '8'    },
-                    { field: 'overtimeThresholdHours', icon: TrendingUp,    iconColor: 'text-primary',   label: 'Weekly Overtime Threshold',  desc: 'Total hours in a week before overtime rates apply',                    suffix: 'hrs', min: 1,   max: 60,  step: 0.5, placeholder: '40'   },
-                    { field: 'overtimeMultiplier',     icon: DollarSign,    iconColor: 'text-green-600', label: 'Overtime Pay Multiplier',    desc: 'Rate multiplied by hourly rate for overtime hours (e.g. 1.5 = time and a half)', prefix: 'x', min: 1, max: 3, step: 0.25, placeholder: '1.5' },
-                    { field: 'autoClockOutHours',      icon: AlertTriangle, iconColor: 'text-amber-600', label: 'Auto Clock-Out',             desc: 'Automatically clock out staff after this many hours of inactivity',   suffix: 'hrs', min: 1,   max: 24,  step: 1,   placeholder: '10',  amber: true },
-                    { field: 'overtimeAlertHours',     icon: Bell,          iconColor: 'text-primary',   label: 'Overtime Approach Alert',    desc: 'Alert manager when a staff member is this many hours away from overtime', suffix: 'hrs', min: 0.5, max: 8, step: 0.5, placeholder: '2' },
+                    { field: 'dailyOvertimeHours',     icon: Clock,         iconColor: 'text-amber-600', label: 'Daily Overtime Threshold',   desc: 'Hours worked in a single day before overtime kicks in',                          suffix: 'hrs', min: 1,   max: 24,  step: 0.5, placeholder: '8'   },
+                    { field: 'overtimeThresholdHours', icon: TrendingUp,    iconColor: 'text-primary',   label: 'Weekly Overtime Threshold',  desc: 'Total hours in a week before overtime rates apply',                              suffix: 'hrs', min: 1,   max: 60,  step: 0.5, placeholder: '40'  },
+                    { field: 'overtimeMultiplier',     icon: DollarSign,    iconColor: 'text-green-600', label: 'Overtime Pay Multiplier',    desc: 'Rate multiplied by hourly rate for overtime hours (e.g. 1.5 = time and a half)', prefix: 'x',   min: 1,   max: 3,   step: 0.25,placeholder: '1.5' },
+                    { field: 'autoClockOutHours',      icon: AlertTriangle, iconColor: 'text-amber-600', label: 'Auto Clock-Out',             desc: 'Automatically clock out staff after this many hours of inactivity',              suffix: 'hrs', min: 1,   max: 24,  step: 1,   placeholder: '10',  amber: true },
+                    { field: 'overtimeAlertHours',     icon: Bell,          iconColor: 'text-primary',   label: 'Overtime Approach Alert',    desc: 'Alert manager when a staff member is this many hours away from overtime',       suffix: 'hrs', min: 0.5, max: 8,   step: 0.5, placeholder: '2'   },
                   ].map(item => (
-                    <div key={item.field} className={cn('p-5 rounded-[2rem] border-2 space-y-4', item.amber ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200')}>
+                    <div key={item.field} className={cn('p-5 rounded-[2rem] border-2 space-y-4', (item as any).amber ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200')}>
                       <div className="flex items-start gap-4">
                         <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0"><item.icon className={cn('w-4 h-4', item.iconColor)} /></div>
-                        <div className="space-y-1"><p className={cn('text-sm font-black uppercase tracking-tight', item.amber ? 'text-amber-800' : 'text-slate-900')}>{item.label}</p><p className={cn('text-[9px] font-bold uppercase tracking-widest opacity-60', item.amber ? 'text-amber-700/60' : 'text-muted-foreground')}>{item.desc}</p></div>
+                        <div className="space-y-1">
+                          <p className={cn('text-sm font-black uppercase tracking-tight', (item as any).amber ? 'text-amber-800' : 'text-slate-900')}>{item.label}</p>
+                          <p className={cn('text-[9px] font-bold uppercase tracking-widest opacity-60', (item as any).amber ? 'text-amber-700/60' : 'text-muted-foreground')}>{item.desc}</p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-4 pl-12">
                         <NumberInput value={(tenantData as any)[item.field]} onChange={(v: number) => setTenantData(prev => ({ ...prev, [item.field]: v }))} disabled={!isEditing} suffix={item.suffix} prefix={item.prefix} min={item.min} max={item.max} step={item.step} placeholder={item.placeholder} />
@@ -1077,10 +1144,10 @@ function SettingsPageImpl() {
                     <div className="flex items-center gap-3 px-1"><BreakIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Break Policy</h3></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {[
-                        { field: 'minimumBreakMinutes',    label: 'Minimum Break Duration', suffix: 'min', min: 0, max: 120,  placeholder: '10', desc: 'Shortest allowed break'               },
-                        { field: 'maximumBreakMinutes',    label: 'Maximum Break Duration', suffix: 'min', min: 0, max: 240,  placeholder: '60', desc: 'Alert fires if exceeded'              },
-                        { field: 'requiredBreakAfterHours',label: 'Required Break After',   suffix: 'hrs', min: 0, max: 12,   placeholder: '4',  desc: 'Hours before break is mandated', step: 0.5 },
-                        { field: 'paidBreakMinutes',       label: 'Paid Break Limit',       suffix: 'min', min: 0, max: 120,  placeholder: '15', desc: 'Minutes counted as paid time'        },
+                        { field: 'minimumBreakMinutes',    label: 'Minimum Break Duration', suffix: 'min', min: 0, max: 120, placeholder: '10', desc: 'Shortest allowed break'            },
+                        { field: 'maximumBreakMinutes',    label: 'Maximum Break Duration', suffix: 'min', min: 0, max: 240, placeholder: '60', desc: 'Alert fires if exceeded'           },
+                        { field: 'requiredBreakAfterHours',label: 'Required Break After',   suffix: 'hrs', min: 0, max: 12,  placeholder: '4',  desc: 'Hours before break is mandated', step: 0.5 },
+                        { field: 'paidBreakMinutes',       label: 'Paid Break Limit',       suffix: 'min', min: 0, max: 120, placeholder: '15', desc: 'Minutes counted as paid time'     },
                       ].map(item => (
                         <div key={item.field} className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-3">
                           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{item.label}</p>
@@ -1098,7 +1165,15 @@ function SettingsPageImpl() {
         </div>
       </main>
 
-      {tenantId && <PrintStationCardsDialog open={isPrintStationsOpen} onOpenChange={setIsPrintStationsOpen} tenantId={tenantId} tenantName={tenantData.name || 'Studio'} logoUrl={tenantData.bookingPageSettings?.logoUrl} />}
+      {tenantId && (
+        <PrintStationCardsDialog
+          open={isPrintStationsOpen}
+          onOpenChange={setIsPrintStationsOpen}
+          tenantId={tenantId}
+          tenantName={tenantData.name || 'Studio'}
+          logoUrl={tenantData.bookingPageSettings?.logoUrl}
+        />
+      )}
     </div>
   );
 }
