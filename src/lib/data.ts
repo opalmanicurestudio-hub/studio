@@ -668,6 +668,46 @@ export type BookingGalleryItem = {
     caption?: string;
 };
 
+// ─── Page Builder types ───────────────────────────────────────────────────────
+export type SectionType =
+  | 'nav'
+  | 'hero'
+  | 'trust'
+  | 'services'
+  | 'team'
+  | 'reviews'
+  | 'gallery'
+  | 'beforeafter'
+  | 'memberships'
+  | 'packages'
+  | 'giftcards'
+  | 'quote'
+  | 'newclient'
+  | 'faq'
+  | 'policies'
+  | 'contact'
+  | 'events'
+  | 'referral'
+  | 'story'
+  | 'instagram'
+  | 'waitlist';
+
+export interface PageSection {
+  id:      string;
+  type:    SectionType;
+  enabled: boolean;
+  order:   number;
+  config:  Record<string, any>;
+}
+
+export interface PageBuilderConfig {
+  sections:    PageSection[];
+  accentColor: string;
+  bgColor:     string;
+  headingFont: string;
+  bodyFont:    string;
+}
+
 // ─── Booking theme type ───────────────────────────────────────────────────────
 export type BookingTheme =
   | 'editorial'
@@ -687,6 +727,8 @@ export type BookingPageSettings = {
     primaryColor?: string;
     // ── Theme ──────────────────────────────────────────────────────────────
     theme?: BookingTheme;
+    // ── Page Builder config ────────────────────────────────────────────────
+    pageConfig?: PageBuilderConfig;
     // ── Section visibility ─────────────────────────────────────────────────
     showTeam?: boolean;
     showReviews?: boolean;
