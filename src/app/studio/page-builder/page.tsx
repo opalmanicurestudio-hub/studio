@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
@@ -15,7 +17,7 @@ import { useFirebase } from '@/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import {
-  LayoutNavbar, Image, Award, Scissors, Users, Star,
+  Navigation, ImageIcon, Award, Scissors, Users, Star,
   LayoutDashboard, RotateCcw, Crown, Package, Gift,
   FileText, Sparkles, HelpCircle, Shield, MapPin,
   Calendar, Share2, BookOpen, Camera, Clock,
@@ -32,7 +34,7 @@ interface SectionDef { label: string; icon: React.ElementType; color: string; fi
 
 const SECTION_DEFS: Record<SectionType, SectionDef> = {
   nav: {
-    label: 'Navigation', icon: LayoutNavbar, color: '#3B6D11',
+    label: 'Navigation', icon: Navigation, color: '#3B6D11',
     fields: [
       { k: 'logoText',  t: 'text',   l: 'Logo / studio name', d: 'Opal'     },
       { k: 'ctaText',   t: 'text',   l: 'Button label',       d: 'Book Now' },
@@ -40,13 +42,13 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     ],
   },
   hero: {
-    label: 'Hero', icon: Image, color: '#534AB7',
+    label: 'Hero', icon: ImageIcon, color: '#534AB7',
     fields: [
-      { k: 'headline',    t: 'text',     l: 'Headline',         d: 'Book Your Experience'                                         },
-      { k: 'subheadline', t: 'textarea', l: 'Subheadline',      d: 'A sanctuary of craft, curated for those who appreciate the details.' },
-      { k: 'ctaText',     t: 'text',     l: 'Primary button',   d: 'Book a Session'                                               },
-      { k: 'cta2Text',    t: 'text',     l: 'Secondary button', d: 'Walk In'                                                      },
-      { k: 'layout',      t: 'select',   l: 'Layout',           d: 'centered', opts: ['centered', 'split', 'fullbleed', 'minimal'] },
+      { k: 'headline',    t: 'text',     l: 'Headline',         d: 'Book Your Experience'                                                    },
+      { k: 'subheadline', t: 'textarea', l: 'Subheadline',      d: 'A sanctuary of craft, curated for those who appreciate the details.'     },
+      { k: 'ctaText',     t: 'text',     l: 'Primary button',   d: 'Book a Session'                                                          },
+      { k: 'cta2Text',    t: 'text',     l: 'Secondary button', d: 'Walk In'                                                                 },
+      { k: 'layout',      t: 'select',   l: 'Layout',           d: 'centered', opts: ['centered', 'split', 'fullbleed', 'minimal']           },
     ],
   },
   trust: {
@@ -65,66 +67,66 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   services: {
     label: 'Services', icon: Scissors, color: '#185FA5',
     fields: [
-      { k: 'heading',      t: 'text',   l: 'Section heading',     d: 'Our Services'                                                },
-      { k: 'subheading',   t: 'text',   l: 'Subheading',          d: 'Handcrafted treatments for every occasion'                   },
-      { k: 'layout',       t: 'select', l: 'Layout',              d: 'cards', opts: ['cards', 'list', 'magazine', 'grid']          },
-      { k: 'columns',      t: 'select', l: 'Columns',             d: '2',     opts: ['1', '2', '3']                                },
-      { k: 'showPrices',   t: 'toggle', l: 'Show prices',         d: true                                                          },
-      { k: 'showDuration', t: 'toggle', l: 'Show duration',       d: true                                                          },
-      { k: 'showFilters',  t: 'toggle', l: 'Category filter tabs',d: false                                                         },
-      { k: 'showDesc',     t: 'toggle', l: 'Show descriptions',   d: true                                                          },
+      { k: 'heading',      t: 'text',   l: 'Section heading',     d: 'Our Services'                                             },
+      { k: 'subheading',   t: 'text',   l: 'Subheading',          d: 'Handcrafted treatments for every occasion'                },
+      { k: 'layout',       t: 'select', l: 'Layout',              d: 'cards', opts: ['cards', 'list', 'magazine', 'grid']       },
+      { k: 'columns',      t: 'select', l: 'Columns',             d: '2',     opts: ['1', '2', '3']                             },
+      { k: 'showPrices',   t: 'toggle', l: 'Show prices',         d: true                                                       },
+      { k: 'showDuration', t: 'toggle', l: 'Show duration',       d: true                                                       },
+      { k: 'showFilters',  t: 'toggle', l: 'Category filter tabs',d: false                                                      },
+      { k: 'showDesc',     t: 'toggle', l: 'Show descriptions',   d: true                                                       },
     ],
   },
   team: {
     label: 'Team', icon: Users, color: '#0F6E56',
     fields: [
-      { k: 'heading',        t: 'text',   l: 'Section heading',       d: 'The Artists'                                              },
-      { k: 'subheading',     t: 'text',   l: 'Subheading',            d: 'Expert hands for every style'                             },
-      { k: 'layout',         t: 'select', l: 'Avatar style',          d: 'circles', opts: ['circles', 'editorial', 'row', 'grid']   },
-      { k: 'showBio',        t: 'toggle', l: 'Show bio',              d: false                                                       },
-      { k: 'showSpecialties',t: 'toggle', l: 'Show specialties',      d: true                                                        },
-      { k: 'showBookButton', t: 'toggle', l: 'Book per artist button', d: false                                                      },
+      { k: 'heading',        t: 'text',   l: 'Section heading',        d: 'The Artists'                                             },
+      { k: 'subheading',     t: 'text',   l: 'Subheading',             d: 'Expert hands for every style'                            },
+      { k: 'layout',         t: 'select', l: 'Avatar style',           d: 'circles', opts: ['circles', 'editorial', 'row', 'grid']  },
+      { k: 'showBio',        t: 'toggle', l: 'Show bio',               d: false                                                      },
+      { k: 'showSpecialties',t: 'toggle', l: 'Show specialties',       d: true                                                       },
+      { k: 'showBookButton', t: 'toggle', l: 'Book per artist button',  d: false                                                      },
     ],
   },
   reviews: {
     label: 'Reviews', icon: Star, color: '#993556',
     fields: [
-      { k: 'heading',    t: 'text',   l: 'Section heading', d: 'What Clients Say'          },
-      { k: 'subheading', t: 'text',   l: 'Subheading',      d: 'Real words from real guests'},
-      { k: 'layout',     t: 'select', l: 'Layout',          d: 'grid', opts: ['grid', 'masonry', 'carousel', 'quotes'] },
-      { k: 'showRating', t: 'toggle', l: 'Show star ratings',d: true                       },
-      { k: 'showPhotos', t: 'toggle', l: 'Show client photos',d: true                      },
+      { k: 'heading',    t: 'text',   l: 'Section heading',  d: 'What Clients Say'           },
+      { k: 'subheading', t: 'text',   l: 'Subheading',       d: 'Real words from real guests' },
+      { k: 'layout',     t: 'select', l: 'Layout',           d: 'grid', opts: ['grid', 'masonry', 'carousel', 'quotes'] },
+      { k: 'showRating', t: 'toggle', l: 'Show star ratings',d: true                         },
+      { k: 'showPhotos', t: 'toggle', l: 'Show client photos',d: true                        },
     ],
   },
   gallery: {
     label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7',
     fields: [
-      { k: 'heading',      t: 'text',   l: 'Section heading',   d: 'Our Work'                                                     },
-      { k: 'subheading',   t: 'text',   l: 'Subheading',        d: 'Every set, a canvas'                                          },
-      { k: 'layout',       t: 'select', l: 'Layout',            d: 'masonry', opts: ['masonry', 'grid', 'carousel', 'editorial']  },
-      { k: 'showFilters',  t: 'toggle', l: 'Style filter tabs', d: true                                                            },
-      { k: 'showCaptions', t: 'toggle', l: 'Show captions',     d: false                                                           },
+      { k: 'heading',      t: 'text',   l: 'Section heading',   d: 'Our Work'                                                    },
+      { k: 'subheading',   t: 'text',   l: 'Subheading',        d: 'Every set, a canvas'                                         },
+      { k: 'layout',       t: 'select', l: 'Layout',            d: 'masonry', opts: ['masonry', 'grid', 'carousel', 'editorial'] },
+      { k: 'showFilters',  t: 'toggle', l: 'Style filter tabs', d: true                                                           },
+      { k: 'showCaptions', t: 'toggle', l: 'Show captions',     d: false                                                          },
     ],
   },
   beforeafter: {
     label: 'Before / After', icon: RotateCcw, color: '#0F6E56',
     fields: [
-      { k: 'heading',    t: 'text', l: 'Section heading', d: 'Transformations'          },
+      { k: 'heading',    t: 'text', l: 'Section heading', d: 'Transformations'           },
       { k: 'subheading', t: 'text', l: 'Subheading',      d: 'See the difference we make'},
     ],
   },
   memberships: {
     label: 'Memberships', icon: Crown, color: '#534AB7',
     fields: [
-      { k: 'heading',     t: 'text',   l: 'Section heading',    d: 'Join the Club'                   },
-      { k: 'subheading',  t: 'text',   l: 'Subheading',         d: 'Exclusive perks for loyal guests' },
-      { k: 'showSavings', t: 'toggle', l: 'Highlight savings',  d: true                               },
+      { k: 'heading',     t: 'text',   l: 'Section heading',   d: 'Join the Club'                    },
+      { k: 'subheading',  t: 'text',   l: 'Subheading',        d: 'Exclusive perks for loyal guests'  },
+      { k: 'showSavings', t: 'toggle', l: 'Highlight savings', d: true                                },
     ],
   },
   packages: {
     label: 'Packages', icon: Package, color: '#185FA5',
     fields: [
-      { k: 'heading',    t: 'text',   l: 'Section heading', d: 'Prepaid Sessions'  },
+      { k: 'heading',    t: 'text',   l: 'Section heading', d: 'Prepaid Sessions'   },
       { k: 'subheading', t: 'text',   l: 'Subheading',      d: 'Buy more, save more'},
       { k: 'showExpiry', t: 'toggle', l: 'Show expiry info', d: true                },
     ],
@@ -132,104 +134,104 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   giftcards: {
     label: 'Gift Cards', icon: Gift, color: '#993556',
     fields: [
-      { k: 'heading',    t: 'text', l: 'Section heading',           d: 'Give the Gift of Beauty'           },
-      { k: 'subheading', t: 'text', l: 'Subheading',                d: 'For birthdays, holidays, or just because'},
-      { k: 'ctaText',    t: 'text', l: 'Button text',               d: 'Send a Gift Card'                  },
-      { k: 'amounts',    t: 'text', l: 'Preset amounts (comma-sep)', d: '25,50,75,100'                      },
+      { k: 'heading',    t: 'text', l: 'Section heading',            d: 'Give the Gift of Beauty'            },
+      { k: 'subheading', t: 'text', l: 'Subheading',                 d: 'For birthdays, holidays, or just because'},
+      { k: 'ctaText',    t: 'text', l: 'Button text',                d: 'Send a Gift Card'                   },
+      { k: 'amounts',    t: 'text', l: 'Preset amounts (comma-sep)', d: '25,50,75,100'                       },
     ],
   },
   quote: {
     label: 'Quote Request', icon: FileText, color: '#3B6D11',
     fields: [
-      { k: 'heading',    t: 'text',     l: 'Heading',               d: 'Need Something Bigger?'                                       },
-      { k: 'subheading', t: 'textarea', l: 'Description',           d: 'Planning a wedding, bridal party, or corporate event? We craft bespoke experiences.' },
-      { k: 'ctaText',    t: 'text',     l: 'Button text',           d: 'Request a Quote'                                              },
-      { k: 'tags',       t: 'text',     l: 'Tags (comma-separated)',d: 'Bridal Parties,Corporate Events,Destination Services'          },
+      { k: 'heading',    t: 'text',     l: 'Heading',                d: 'Need Something Bigger?'                                        },
+      { k: 'subheading', t: 'textarea', l: 'Description',            d: 'Planning a wedding, bridal party, or corporate event? We craft bespoke experiences.' },
+      { k: 'ctaText',    t: 'text',     l: 'Button text',            d: 'Request a Quote'                                               },
+      { k: 'tags',       t: 'text',     l: 'Tags (comma-separated)', d: 'Bridal Parties,Corporate Events,Destination Services'          },
     ],
   },
   newclient: {
     label: 'New Client Offer', icon: Sparkles, color: '#854F0B',
     fields: [
-      { k: 'heading',   t: 'text', l: 'Heading',          d: 'First Visit Special'                   },
-      { k: 'offerText', t: 'text', l: 'Offer description', d: '20% off your first appointment'        },
-      { k: 'finePrint', t: 'text', l: 'Fine print',        d: 'Valid for new clients only.'            },
-      { k: 'ctaText',   t: 'text', l: 'Button text',       d: 'Claim Offer'                           },
+      { k: 'heading',   t: 'text', l: 'Heading',          d: 'First Visit Special'              },
+      { k: 'offerText', t: 'text', l: 'Offer description', d: '20% off your first appointment'  },
+      { k: 'finePrint', t: 'text', l: 'Fine print',        d: 'Valid for new clients only.'      },
+      { k: 'ctaText',   t: 'text', l: 'Button text',       d: 'Claim Offer'                     },
     ],
   },
   faq: {
     label: 'FAQ', icon: HelpCircle, color: '#185FA5',
     fields: [
-      { k: 'heading', t: 'text',     l: 'Section heading', d: 'Common Questions'                                             },
-      { k: 'q1',      t: 'text',     l: 'Question 1',      d: 'How do I book an appointment?'                               },
+      { k: 'heading', t: 'text',     l: 'Section heading', d: 'Common Questions'                                              },
+      { k: 'q1',      t: 'text',     l: 'Question 1',      d: 'How do I book an appointment?'                                },
       { k: 'a1',      t: 'textarea', l: 'Answer 1',        d: 'Use the Book Now button above or select any service to get started.' },
-      { k: 'q2',      t: 'text',     l: 'Question 2',      d: 'What is your cancellation policy?'                           },
-      { k: 'a2',      t: 'textarea', l: 'Answer 2',        d: 'We require 24 hours notice to avoid a cancellation fee.'     },
-      { k: 'q3',      t: 'text',     l: 'Question 3',      d: 'Do you accept walk-ins?'                                     },
-      { k: 'a3',      t: 'textarea', l: 'Answer 3',        d: 'Yes! Walk-ins welcome based on availability.'                },
-      { k: 'q4',      t: 'text',     l: 'Question 4',      d: 'Do you offer gift cards?'                                    },
-      { k: 'a4',      t: 'textarea', l: 'Answer 4',        d: 'Absolutely — gift cards available in any amount.'            },
+      { k: 'q2',      t: 'text',     l: 'Question 2',      d: 'What is your cancellation policy?'                            },
+      { k: 'a2',      t: 'textarea', l: 'Answer 2',        d: 'We require 24 hours notice to avoid a cancellation fee.'      },
+      { k: 'q3',      t: 'text',     l: 'Question 3',      d: 'Do you accept walk-ins?'                                      },
+      { k: 'a3',      t: 'textarea', l: 'Answer 3',        d: 'Yes! Walk-ins welcome based on availability.'                 },
+      { k: 'q4',      t: 'text',     l: 'Question 4',      d: 'Do you offer gift cards?'                                     },
+      { k: 'a4',      t: 'textarea', l: 'Answer 4',        d: 'Absolutely — gift cards available in any amount.'             },
     ],
   },
   policies: {
     label: 'Policies', icon: Shield, color: '#0F6E56',
     fields: [
-      { k: 'heading',     t: 'text',     l: 'Section heading',     d: 'Our Policies'                                             },
-      { k: 'cancelText',  t: 'textarea', l: 'Cancellation policy', d: 'Please provide 24 hours notice for all cancellations.'    },
-      { k: 'lateText',    t: 'textarea', l: 'Late arrival policy',  d: 'Arrivals 15+ minutes late may need to reschedule.'        },
-      { k: 'noshowText',  t: 'textarea', l: 'No-show policy',       d: 'No-shows may be required to prepay future bookings.'      },
+      { k: 'heading',    t: 'text',     l: 'Section heading',     d: 'Our Policies'                                          },
+      { k: 'cancelText', t: 'textarea', l: 'Cancellation policy', d: 'Please provide 24 hours notice for all cancellations.' },
+      { k: 'lateText',   t: 'textarea', l: 'Late arrival policy',  d: 'Arrivals 15+ minutes late may need to reschedule.'    },
+      { k: 'noshowText', t: 'textarea', l: 'No-show policy',       d: 'No-shows may be required to prepay future bookings.'  },
     ],
   },
   contact: {
     label: 'Location & Contact', icon: MapPin, color: '#993556',
     fields: [
-      { k: 'heading',     t: 'text',     l: 'Section heading', d: 'Find Us'                                       },
-      { k: 'customHours', t: 'textarea', l: 'Hours text',      d: 'Monday – Saturday: 9am – 7pm\nSunday: 10am – 5pm'},
-      { k: 'showMap',     t: 'toggle',   l: 'Show map embed',  d: true                                             },
-      { k: 'showHours',   t: 'toggle',   l: 'Show hours',      d: true                                             },
-      { k: 'showPhone',   t: 'toggle',   l: 'Show phone',      d: true                                             },
-      { k: 'showSocial',  t: 'toggle',   l: 'Show social links',d: true                                            },
+      { k: 'heading',     t: 'text',     l: 'Section heading', d: 'Find Us'                                        },
+      { k: 'customHours', t: 'textarea', l: 'Hours text',      d: 'Monday – Saturday: 9am – 7pm\nSunday: 10am – 5pm' },
+      { k: 'showMap',     t: 'toggle',   l: 'Show map embed',  d: true                                              },
+      { k: 'showHours',   t: 'toggle',   l: 'Show hours',      d: true                                              },
+      { k: 'showPhone',   t: 'toggle',   l: 'Show phone',      d: true                                              },
+      { k: 'showSocial',  t: 'toggle',   l: 'Show social links',d: true                                             },
     ],
   },
   events: {
     label: 'Events Calendar', icon: Calendar, color: '#854F0B',
     fields: [
-      { k: 'heading',    t: 'text', l: 'Section heading', d: 'Upcoming Events'                    },
-      { k: 'subheading', t: 'text', l: 'Subheading',      d: 'Workshops, pop-ups & studio specials'},
-      { k: 'emptyText',  t: 'text', l: 'When no events',  d: 'Check back soon for upcoming events!'},
+      { k: 'heading',    t: 'text', l: 'Section heading', d: 'Upcoming Events'                     },
+      { k: 'subheading', t: 'text', l: 'Subheading',      d: 'Workshops, pop-ups & studio specials' },
+      { k: 'emptyText',  t: 'text', l: 'When no events',  d: 'Check back soon for upcoming events!' },
     ],
   },
   referral: {
     label: 'Referral Program', icon: Share2, color: '#185FA5',
     fields: [
-      { k: 'heading',      t: 'text', l: 'Section heading', d: 'Refer a Friend'                              },
+      { k: 'heading',      t: 'text', l: 'Section heading', d: 'Refer a Friend'                               },
       { k: 'subheading',   t: 'text', l: 'Description',     d: 'Share the love — give $15, get $15 toward your next visit'},
-      { k: 'rewardYou',    t: 'text', l: 'Your reward',     d: '$15 credit'                                  },
-      { k: 'rewardFriend', t: 'text', l: 'Friend reward',   d: '$15 off first visit'                         },
-      { k: 'ctaText',      t: 'text', l: 'Button text',     d: 'Get My Referral Link'                        },
+      { k: 'rewardYou',    t: 'text', l: 'Your reward',     d: '$15 credit'                                   },
+      { k: 'rewardFriend', t: 'text', l: 'Friend reward',   d: '$15 off first visit'                          },
+      { k: 'ctaText',      t: 'text', l: 'Button text',     d: 'Get My Referral Link'                         },
     ],
   },
   story: {
     label: 'Studio Story', icon: BookOpen, color: '#3B6D11',
     fields: [
-      { k: 'heading', t: 'text',     l: 'Section heading', d: 'Our Story'                                                               },
+      { k: 'heading', t: 'text',     l: 'Section heading', d: 'Our Story'                                                                   },
       { k: 'body',    t: 'textarea', l: 'Story text',      d: 'Opal was born from a belief that nail care is more than maintenance — it is a ritual of self-expression.' },
-      { k: 'ctaText', t: 'text',     l: 'Button text',     d: 'Meet the team'                                                           },
+      { k: 'ctaText', t: 'text',     l: 'Button text',     d: 'Meet the team'                                                               },
     ],
   },
   instagram: {
     label: 'Instagram Feed', icon: Camera, color: '#993556',
     fields: [
-      { k: 'heading', t: 'text', l: 'Section heading',  d: 'Follow Along'            },
-      { k: 'handle',  t: 'text', l: 'Instagram handle', d: '@opalmanicure'           },
-      { k: 'ctaText', t: 'text', l: 'Button text',      d: 'Follow us on Instagram' },
+      { k: 'heading', t: 'text', l: 'Section heading',  d: 'Follow Along'             },
+      { k: 'handle',  t: 'text', l: 'Instagram handle', d: '@opalmanicure'            },
+      { k: 'ctaText', t: 'text', l: 'Button text',      d: 'Follow us on Instagram'  },
     ],
   },
   waitlist: {
     label: 'Waitlist', icon: Clock, color: '#534AB7',
     fields: [
-      { k: 'heading',    t: 'text', l: 'Heading',    d: 'Fully Booked?'                                     },
-      { k: 'subheading', t: 'text', l: 'Subheading', d: "Join our waitlist and we'll notify you when a slot opens"},
-      { k: 'ctaText',    t: 'text', l: 'Button text',d: 'Join Waitlist'                                     },
+      { k: 'heading',    t: 'text', l: 'Heading',    d: 'Fully Booked?'                                      },
+      { k: 'subheading', t: 'text', l: 'Subheading', d: "Join our waitlist and we'll notify you when a slot opens" },
+      { k: 'ctaText',    t: 'text', l: 'Button text',d: 'Join Waitlist'                                      },
     ],
   },
 };
@@ -312,7 +314,7 @@ const SectionListItem = ({
       <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
         <button onClick={onMoveUp}   disabled={isFirst}  className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronUp   className="w-3.5 h-3.5" /></button>
         <button onClick={onMoveDown} disabled={isLast}   className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronDown className="w-3.5 h-3.5" /></button>
-        <button onClick={onHide}                         className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500"><X           className="w-3.5 h-3.5" /></button>
+        <button onClick={onHide}                         className="p-1 rounded hover:bg-red-50  text-muted-foreground hover:text-red-500"><X           className="w-3.5 h-3.5" /></button>
       </div>
     </div>
   );
@@ -343,7 +345,6 @@ const FieldRenderer = ({ field, value, onChange }: {
   field: SectionFieldDef; value: any; onChange: (v: any) => void;
 }) => {
   const labelCls = 'text-[10px] font-black uppercase tracking-widest text-muted-foreground';
-  const inputCls = 'h-10 rounded-xl border-2 text-sm';
 
   if (field.t === 'toggle') return (
     <div className="flex items-center justify-between py-2.5 border-b border-dashed last:border-0">
@@ -378,7 +379,7 @@ const FieldRenderer = ({ field, value, onChange }: {
   return (
     <div className="space-y-1.5">
       <Label className={labelCls}>{field.l}</Label>
-      <Input value={value || ''} onChange={e => onChange(e.target.value)} className={inputCls} />
+      <Input value={value || ''} onChange={e => onChange(e.target.value)} className="h-10 rounded-xl border-2 text-sm" />
     </div>
   );
 };
@@ -537,7 +538,9 @@ export default function PageBuilderPage() {
               {/* Sections list */}
               {activePanel === 'sections' && !showLibrary && (
                 <div className="space-y-2">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50 mb-3">Active sections</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50 mb-3">
+                    Active sections
+                  </p>
                   {enabledSections.map((s, idx) => (
                     <SectionListItem
                       key={s.id}
@@ -552,7 +555,9 @@ export default function PageBuilderPage() {
                     />
                   ))}
                   {enabledSections.length === 0 && (
-                    <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">No active sections</div>
+                    <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">
+                      No active sections
+                    </div>
                   )}
                 </div>
               )}
@@ -560,9 +565,15 @@ export default function PageBuilderPage() {
               {/* Section library */}
               {activePanel === 'sections' && showLibrary && (
                 <div className="space-y-2">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50 mb-3">Add sections</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50 mb-3">
+                    Add sections
+                  </p>
                   {disabledSections.length === 0
-                    ? <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">All sections are active</div>
+                    ? (
+                      <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">
+                        All sections are active
+                      </div>
+                    )
                     : disabledSections.map(s => (
                       <LibraryItem key={s.id} section={s} onAdd={() => addSection(s.id)} />
                     ))
@@ -576,7 +587,9 @@ export default function PageBuilderPage() {
 
                   {/* Accent color */}
                   <div className="space-y-3">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">Accent color</p>
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">
+                      Accent color
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       {ACCENT_COLORS.map(c => (
                         <button
@@ -606,7 +619,9 @@ export default function PageBuilderPage() {
 
                   {/* Background */}
                   <div className="space-y-3">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">Page background</p>
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">
+                      Page background
+                    </p>
                     <div className="grid grid-cols-4 gap-2">
                       {BG_COLORS.map(c => (
                         <button
@@ -627,9 +642,15 @@ export default function PageBuilderPage() {
 
                   {/* Heading font */}
                   <div className="space-y-3">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">Heading font</p>
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">
+                      Heading font
+                    </p>
                     {FONTS.map(f => (
-                      <FontRow key={f.id} font={f} isSelected={style.headingFont === f.id} onClick={() => setStyle(p => ({ ...p, headingFont: f.id }))} />
+                      <FontRow
+                        key={f.id} font={f}
+                        isSelected={style.headingFont === f.id}
+                        onClick={() => setStyle(p => ({ ...p, headingFont: f.id }))}
+                      />
                     ))}
                   </div>
 
@@ -637,9 +658,15 @@ export default function PageBuilderPage() {
 
                   {/* Body font */}
                   <div className="space-y-3">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">Body font</p>
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">
+                      Body font
+                    </p>
                     {FONTS.map(f => (
-                      <FontRow key={f.id} font={f} isSelected={style.bodyFont === f.id} onClick={() => setStyle(p => ({ ...p, bodyFont: f.id }))} />
+                      <FontRow
+                        key={f.id} font={f}
+                        isSelected={style.bodyFont === f.id}
+                        onClick={() => setStyle(p => ({ ...p, bodyFont: f.id }))}
+                      />
                     ))}
                   </div>
 
