@@ -3,7 +3,11 @@
 export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { AppHeader } from '@/components/shared/AppHeader';
+import dynamic from 'next/dynamic';
+const AppHeader = dynamic(
+  () => import('@/components/shared/AppHeader').then(m => ({ default: m.AppHeader })),
+  { ssr: false }
+);
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
