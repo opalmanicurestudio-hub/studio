@@ -3,8 +3,8 @@
 export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import dynamic from 'next/dynamic';
-const AppHeader = dynamic(
+import nextDynamic from 'next/dynamic';
+const AppHeader = nextDynamic(
   () => import('@/components/shared/AppHeader').then(m => ({ default: m.AppHeader })),
   { ssr: false }
 );
