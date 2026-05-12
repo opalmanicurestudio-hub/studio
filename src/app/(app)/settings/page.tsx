@@ -22,7 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
 import { doc, writeBatch, deleteField } from 'firebase/firestore';
-import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff, type RecoveryPreset, type BookingTheme, nanoid } from '@/lib/data';
+import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff, type RecoveryPreset, nanoid } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -36,51 +36,6 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useForm, Controller } from 'react-hook-form';
 import { PrintStationCardsDialog } from '@/components/concierge/PrintStationCardsDialog';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-
-// ─── Booking theme metadata ───────────────────────────────────────────────────
-const BOOKING_THEMES_META: Record<BookingTheme, {
-  label:       string;
-  description: string;
-  bg:          string;
-  accent:      string;
-  text:        string;
-}> = {
-  editorial: {
-    label:       'Editorial',
-    description: 'Bold black & white, luxury high-contrast',
-    bg:          'bg-white border-slate-200',
-    accent:      '#0f172a',
-    text:        'text-slate-900',
-  },
-  soft_spa: {
-    label:       'Soft Spa',
-    description: 'Warm cream tones, calming & approachable',
-    bg:          'bg-[#fdf6ef] border-rose-200',
-    accent:      '#c4718a',
-    text:        'text-rose-900',
-  },
-  dark_glam: {
-    label:       'Dark Glam',
-    description: 'Deep black with gold accents, ultra premium',
-    bg:          'bg-[#0f0f0f] border-yellow-800',
-    accent:      '#d4a422',
-    text:        'text-yellow-300',
-  },
-  bold_studio: {
-    label:       'Bold Studio',
-    description: 'Vibrant violet energy, Gen-Z forward',
-    bg:          'bg-violet-50 border-violet-200',
-    accent:      '#7c3aed',
-    text:        'text-violet-900',
-  },
-  minimal_clean: {
-    label:       'Minimal Clean',
-    description: 'Clinical white, trust-forward, spa-medical',
-    bg:          'bg-slate-50 border-slate-200',
-    accent:      '#334155',
-    text:        'text-slate-700',
-  },
-};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const defaultRecoveryPresets: RecoveryPreset[] = [
@@ -298,71 +253,6 @@ const ServicePolicyCard = ({ service, tmhr, inventory, isEditing, localPolicy, o
   );
 };
 
-// ─── Booking Theme Picker ─────────────────────────────────────────────────────
-const BookingThemePicker = ({
-  value, onChange, disabled,
-}: {
-  value?: string;
-  onChange: (theme: BookingTheme) => void;
-  disabled?: boolean;
-}) => {
-  const current = (value || 'editorial') as BookingTheme;
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {(Object.keys(BOOKING_THEMES_META) as BookingTheme[]).map(key => {
-          const meta      = BOOKING_THEMES_META[key];
-          const isSelected = current === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(key)}
-              className={cn(
-                'relative flex flex-col items-start gap-3 p-5 rounded-[2rem] border-2 transition-all text-left w-full group',
-                meta.bg,
-                isSelected
-                  ? 'border-primary shadow-lg ring-2 ring-primary/20 scale-[1.02]'
-                  : 'hover:border-primary/30 hover:shadow-md',
-                disabled && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              {isSelected && (
-                <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center shadow-md">
-                  <Check className="w-3.5 h-3.5" />
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl border-2 border-white/40 shadow-md shrink-0" style={{ backgroundColor: meta.accent }} />
-                <div className="w-4 h-4 rounded-lg border border-white/20 shadow-sm"          style={{ backgroundColor: meta.accent + '55' }} />
-              </div>
-              <div className="space-y-0.5">
-                <p className={cn('text-[11px] font-black uppercase tracking-widest', meta.text)}>{meta.label}</p>
-                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 leading-relaxed">{meta.description}</p>
-              </div>
-              <div className={cn('w-full rounded-xl border overflow-hidden opacity-60', meta.bg)}>
-                <div className="h-2" style={{ backgroundColor: meta.accent }} />
-                <div className="p-2 space-y-1">
-                  <div className="h-1.5 rounded-full bg-current opacity-20 w-3/4" />
-                  <div className="h-1.5 rounded-full bg-current opacity-10 w-1/2" />
-                  <div className="h-4 rounded-lg mt-2" style={{ backgroundColor: meta.accent + '33' }} />
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-dashed border-primary/20 bg-primary/5">
-        <Eye className="w-4 h-4 text-primary shrink-0" />
-        <p className="text-[9px] font-bold text-primary uppercase tracking-widest leading-relaxed">
-          Theme applies immediately on your booking page. Use the floating switcher bottom-right of the booking page to preview live before saving.
-        </p>
-      </div>
-    </div>
-  );
-};
-
 const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -479,13 +369,13 @@ function SettingsPageImpl() {
         batch.update(profileRef, { week: localSchedule, bookingSlotInterval: localInterval });
       }
       Object.entries(servicePolicies).forEach(([id, p]) => {
-        const svcRef         = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
+        const svcRef          = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
         const originalService = services.find(s => s.id === id);
         batch.update(svcRef, {
-          cancellationFeeMode:   p.mode,
+          cancellationFeeMode:    p.mode,
           cancellationWindowHours: p.window || (deleteField() as any),
-          customCancellationFee: p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? (deleteField() as any) : (originalService?.customCancellationFee || 0)),
-          cancellationFeeValue:  p.value || (deleteField() as any),
+          customCancellationFee:  p.mode === 'flat' ? p.value : (p.mode === 'inherit' ? (deleteField() as any) : (originalService?.customCancellationFee || 0)),
+          cancellationFeeValue:   p.value || (deleteField() as any),
         });
       });
       await batch.commit();
@@ -801,8 +691,8 @@ function SettingsPageImpl() {
                 <CardContent className="p-6 md:p-8 space-y-6 text-left">
                   {[
                     { id: 'cancellationPolicy', label: 'Cancellation Policy (Public)', placeholder: 'Describe your requirements for cancelling a session...' },
-                    { id: 'lateArrivalPolicy',   label: 'Late Arrival Policy (Public)', placeholder: 'Describe grace periods and potential penalties...' },
-                    { id: 'noShowPolicy',         label: 'No-Show Policy (Public)',      placeholder: 'Describe the consequence of missing an appointment...' },
+                    { id: 'lateArrivalPolicy',  label: 'Late Arrival Policy (Public)',  placeholder: 'Describe grace periods and potential penalties...'    },
+                    { id: 'noShowPolicy',        label: 'No-Show Policy (Public)',       placeholder: 'Describe the consequence of missing an appointment...' },
                   ].map(policy => (
                     <div key={policy.id} className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">{policy.label}</Label>
@@ -822,7 +712,29 @@ function SettingsPageImpl() {
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-10 text-left">
 
-                  {/* Brand */}
+                  {/* ── Page Builder CTA ── */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 p-6 rounded-[2rem] border-2 border-primary/20 bg-primary/5 shadow-inner">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary" />
+                        <p className="text-sm font-black uppercase tracking-tight text-primary">Page Builder</p>
+                      </div>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed max-w-xs">
+                        Visually arrange sections, set colors and fonts, and configure every block of your public booking page.
+                      </p>
+                    </div>
+                    <a
+                      href="/studio/page-builder"
+                      className="shrink-0 flex items-center gap-2 h-11 px-6 rounded-2xl bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      Open Builder
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+
+                  <Separator className="border-dashed" />
+
+                  {/* Brand identity */}
                   <div className="space-y-8">
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Brand Signature (Logo)</Label>
@@ -837,9 +749,9 @@ function SettingsPageImpl() {
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Primary Color Override (Hex)</Label>
                         <div className="flex gap-2">
                           <div className="w-12 h-12 rounded-xl border-2 shrink-0 shadow-inner" style={{ backgroundColor: tenantData.bookingPageSettings?.primaryColor || '#7955c4' }} />
-                          <Input value={tenantData.bookingPageSettings?.primaryColor || ''} onChange={e => setTenantData(prev => ({ ...prev, bookingPageSettings: { ...prev.bookingPageSettings, primaryColor: e.target.value } }))} disabled={!isEditing} placeholder="Leave blank to use theme default" className="h-12 rounded-xl border-2 font-mono font-black" />
+                          <Input value={tenantData.bookingPageSettings?.primaryColor || ''} onChange={e => setTenantData(prev => ({ ...prev, bookingPageSettings: { ...prev.bookingPageSettings, primaryColor: e.target.value } }))} disabled={!isEditing} placeholder="Leave blank to use builder default" className="h-12 rounded-xl border-2 font-mono font-black" />
                         </div>
-                        <p className="text-[9px] font-bold text-muted-foreground uppercase ml-1 opacity-60">Overrides the theme's accent color if set</p>
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase ml-1 opacity-60">Overrides the builder's accent color if set</p>
                       </div>
                     </div>
                     <div className="space-y-2">
@@ -850,27 +762,12 @@ function SettingsPageImpl() {
 
                   <Separator className="border-dashed" />
 
-                  {/* Booking Page Theme */}
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-3 px-1">
-                      <Palette className="w-5 h-5 text-primary" />
-                      <div className="space-y-0.5">
-                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Booking Page Theme</h3>
-                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Choose the visual identity your clients experience when booking</p>
-                      </div>
-                    </div>
-                    <BookingThemePicker
-                      value={tenantData.bookingPageSettings?.theme}
-                      onChange={(theme) => setTenantData(prev => ({ ...prev, bookingPageSettings: { ...prev.bookingPageSettings, theme } }))}
-                      disabled={!isEditing}
-                    />
-                  </div>
-
-                  <Separator className="border-dashed" />
-
-                  {/* Visibility */}
+                  {/* Section visibility toggles */}
                   <div className="space-y-4">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Visibility Protocol</Label>
+                    <div className="space-y-1 px-1">
+                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900">Section Visibility</h3>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Show or hide sections on your booking page. Layout and styling is managed in the builder.</p>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {[
                         { key: 'showTeam',       label: 'Pro Team Section'  },
@@ -891,6 +788,7 @@ function SettingsPageImpl() {
                       ))}
                     </div>
                   </div>
+
                 </CardContent>
               </Card>
             </TabsContent>
@@ -925,11 +823,11 @@ function SettingsPageImpl() {
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Base Theme</Label>
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                         {[
-                          { key: 'light', label: 'Light', preview: 'bg-white border-slate-200',                        dot: 'bg-slate-900' },
-                          { key: 'dark',  label: 'Dark',  preview: 'bg-slate-900 border-slate-700',                    dot: 'bg-white'    },
-                          { key: 'rose',  label: 'Rose',  preview: 'bg-gradient-to-br from-rose-50 to-white',          dot: 'bg-rose-500'  },
-                          { key: 'sage',  label: 'Sage',  preview: 'bg-gradient-to-br from-emerald-50 to-white',       dot: 'bg-emerald-600'},
-                          { key: 'slate', label: 'Slate', preview: 'bg-gradient-to-br from-slate-700 to-slate-900',    dot: 'bg-white'    },
+                          { key: 'light', label: 'Light', preview: 'bg-white border-slate-200',                     dot: 'bg-slate-900' },
+                          { key: 'dark',  label: 'Dark',  preview: 'bg-slate-900 border-slate-700',                 dot: 'bg-white'    },
+                          { key: 'rose',  label: 'Rose',  preview: 'bg-gradient-to-br from-rose-50 to-white',       dot: 'bg-rose-500'  },
+                          { key: 'sage',  label: 'Sage',  preview: 'bg-gradient-to-br from-emerald-50 to-white',    dot: 'bg-emerald-600'},
+                          { key: 'slate', label: 'Slate', preview: 'bg-gradient-to-br from-slate-700 to-slate-900', dot: 'bg-white'    },
                         ].map(theme => (
                           <button key={theme.key} onClick={() => isEditing && setTenantData(prev => ({ ...prev, kioskSettings: { ...prev.kioskSettings, theme: theme.key } }))} disabled={!isEditing}
                             className={cn('relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all text-center', theme.preview, tenantData.kioskSettings?.theme === theme.key || (!tenantData.kioskSettings?.theme && theme.key === 'light') ? 'border-primary shadow-lg ring-2 ring-primary/20' : 'border-border hover:border-primary/30', !isEditing && 'opacity-60 cursor-not-allowed')}>
@@ -1144,10 +1042,10 @@ function SettingsPageImpl() {
                     <div className="flex items-center gap-3 px-1"><BreakIcon className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Break Policy</h3></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {[
-                        { field: 'minimumBreakMinutes',    label: 'Minimum Break Duration', suffix: 'min', min: 0, max: 120, placeholder: '10', desc: 'Shortest allowed break'            },
-                        { field: 'maximumBreakMinutes',    label: 'Maximum Break Duration', suffix: 'min', min: 0, max: 240, placeholder: '60', desc: 'Alert fires if exceeded'           },
-                        { field: 'requiredBreakAfterHours',label: 'Required Break After',   suffix: 'hrs', min: 0, max: 12,  placeholder: '4',  desc: 'Hours before break is mandated', step: 0.5 },
-                        { field: 'paidBreakMinutes',       label: 'Paid Break Limit',       suffix: 'min', min: 0, max: 120, placeholder: '15', desc: 'Minutes counted as paid time'     },
+                        { field: 'minimumBreakMinutes',     label: 'Minimum Break Duration', suffix: 'min', min: 0, max: 120, placeholder: '10', desc: 'Shortest allowed break'           },
+                        { field: 'maximumBreakMinutes',     label: 'Maximum Break Duration', suffix: 'min', min: 0, max: 240, placeholder: '60', desc: 'Alert fires if exceeded'          },
+                        { field: 'requiredBreakAfterHours', label: 'Required Break After',   suffix: 'hrs', min: 0, max: 12,  placeholder: '4',  desc: 'Hours before break is mandated', step: 0.5 },
+                        { field: 'paidBreakMinutes',        label: 'Paid Break Limit',       suffix: 'min', min: 0, max: 120, placeholder: '15', desc: 'Minutes counted as paid time'    },
                       ].map(item => (
                         <div key={item.field} className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-3">
                           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{item.label}</p>
