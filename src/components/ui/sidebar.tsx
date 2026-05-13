@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -42,7 +41,17 @@ const SidebarContext = React.createContext<SidebarContext | null>(null)
 function useSidebar() {
   const context = React.useContext(SidebarContext)
   if (!context) {
-    throw new Error("useSidebar must be used within a SidebarProvider.")
+    // Return a safe no-op fallback so AppHeader and SidebarTrigger
+    // don't crash when rendered outside a SidebarProvider.
+    return {
+      state:         'expanded' as const,
+      open:          true,
+      setOpen:       () => {},
+      openMobile:    false,
+      setOpenMobile: () => {},
+      isMobile:      false,
+      toggleSidebar: () => {},
+    }
   }
 
   return context
