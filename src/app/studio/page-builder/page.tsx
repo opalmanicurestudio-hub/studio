@@ -18,7 +18,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
@@ -33,7 +33,7 @@ import {
   Loader, Check, Palette, Settings, X, Monitor, Smartphone,
   RefreshCw, AlertCircle, Copy, GripVertical,
   Instagram, Facebook, Twitter, Youtube, Globe, Music2,
-  Linkedin, MessageCircle, Phone, Mail,
+  Linkedin, Phone, Mail,
   AtSign, Hash, Layers, Undo2, Redo2,
   ShieldCheck, Heart, Zap, Coffee, Leaf, Flame,
   AlertTriangle, Info, Ban, Clock3, CreditCard, BadgeCheck,
@@ -711,6 +711,8 @@ export default function PageBuilderPage() {
   const isFirstLoad=useRef(true);
   const historyRef=useRef<{sections:PageSection[];style:any}[]>([]);
   const futureRef=useRef<{sections:PageSection[];style:any}[]>([]);
+  const fieldEditTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const fieldEditActiveRef=useRef(false);
 
   const [sections,setSections]=useState<PageSection[]>(buildDefaultSections());
   const [selectedId,setSelectedId]=useState<string|null>('hero');
@@ -724,7 +726,6 @@ export default function PageBuilderPage() {
   const [previewKey,setPreviewKey]=useState(0);
   const [canUndo,setCanUndo]=useState(false);
   const [canRedo,setCanRedo]=useState(false);
-  const [mobilePreviewOpen,setMobilePreviewOpen]=useState(false);
   // Mobile bottom sheet (portrait)
   const [mobileSheet,setMobileSheet]=useState<'closed'|'half'|'full'>('half');
   const [mobilePanelTab,setMobilePanelTab]=useState<'sections'|'style'>('sections');
@@ -751,6 +752,9 @@ export default function PageBuilderPage() {
   // Load existing config
   useEffect(()=>{
     const existing=(selectedTenant?.bookingPageSettings as any)?.pageConfig as PageBuilderConfig|undefined;
+    if(!existing) return;
+    // Suppress dirty flag while loading — batch all state updates
+    isFirstLoad.current=true;
     if(existing?.sections?.length) setSections(existing.sections);
     if(existing?.accentColor)               setStyle(p=>({...p,accentColor:existing.accentColor}));
     if(existing?.bgColor)                   setStyle(p=>({...p,bgColor:existing.bgColor}));
@@ -760,6 +764,8 @@ export default function PageBuilderPage() {
     if(existing?.buttonStyle)               setStyle(p=>({...p,buttonStyle:existing.buttonStyle}));
     if(existing?.density)                   setStyle(p=>({...p,density:existing.density}));
     if(existing?.brandKit)                  setStyle(p=>({...p,brandKit:existing.brandKit}));
+    // Re-arm after React flushes these updates
+    setTimeout(()=>{ isFirstLoad.current=false; },0);
   },[selectedTenant]);
 
   // Dirty tracking
@@ -805,14 +811,18 @@ export default function PageBuilderPage() {
   // Live preview sync
   useEffect(()=>{
     const timer=setTimeout(()=>{
-      previewRef.current?.contentWindow?.postMessage({type:'CLARITY_PREVIEW',sections,style},window.location.origin);
+      previewRef.current?.contentWindow?.postMessage({type:'CLARITY_PREVIEW',sections,style},'*');
     },400);
     return()=>clearTimeout(timer);
   },[sections,style]);
 
-  // Listen for click-to-edit messages from iframe
+  // Listen for click-to-edit + iframe ready messages
   useEffect(()=>{
     const handler=(e:MessageEvent)=>{
+      // Iframe finished mounting — send config immediately so preview shows current state
+      if(e.data?.type==='BOOKING_READY'){
+        previewRef.current?.contentWindow?.postMessage({type:'CLARITY_PREVIEW',sections,style},'*');
+      }
       if(e.data?.type==='EDIT_SECTION'){
         setSelectedId(e.data.sectionId);
         setActivePanel('sections');
@@ -874,9 +884,14 @@ export default function PageBuilderPage() {
     setSections(prev=>[...prev,newSection]); setSelectedId(newSection.id);
   };
   const updateField=(sectionId:string,key:string,value:any)=>{
+    // Push history on first keystroke of an edit burst, then debounce for 1.5s
+    if(!fieldEditActiveRef.current){fieldEditActiveRef.current=true;pushHistory();}
+    if(fieldEditTimerRef.current)clearTimeout(fieldEditTimerRef.current);
+    fieldEditTimerRef.current=setTimeout(()=>{fieldEditActiveRef.current=false;},1500);
     setSections(prev=>prev.map(s=>s.id===sectionId?{...s,config:{...s.config,[key]:value}}:s));
   };
   const updateAnimation=(sectionId:string,animConfig:AnimConfig)=>{
+    pushHistory();
     setSections(prev=>prev.map(s=>s.id===sectionId?{...s,config:{...s.config,_animation:animConfig}}:s));
   };
   const updateStyle=(updates:Partial<typeof style>)=>{pushHistory();setStyle(p=>({...p,...updates}));};
