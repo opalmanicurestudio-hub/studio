@@ -185,14 +185,13 @@ function SectionWrapper({ section, isPreview, onEdit, onFieldTap, children }: {
     <div
       ref={ref}
       className="relative"
-      style={{
-        opacity: visible ? 1 : 0,
-        animationName: visible ? animName : undefined,
-        animationDuration: visible ? `${animSpeed}ms` : undefined,
-        animationFillMode: 'both',
-        animationTimingFunction: 'cubic-bezier(0.16,1,0.3,1)',
-        // Fallback transition for browsers that miss the anim
-        transition: !visible ? 'none' : undefined,
+      style={visible ? {
+        animationName:animName,
+        animationDuration:`${animSpeed}ms`,
+        animationFillMode:'both',
+        animationTimingFunction:'cubic-bezier(0.16,1,0.3,1)',
+      } : {
+        opacity:0,  // hide before animation starts — keyframe handles fade-in
       }}
       onMouseEnter={()=>isPreview&&setHov(true)}
       onMouseLeave={()=>isPreview&&setHov(false)}
@@ -345,8 +344,12 @@ function TrustSection({config,style,isPreview,sectionId,onFieldTap}:SectionProps
 // ─── Services ─────────────────────────────────────────────────────────────────
 function ServicesSection({config,style,data,isPreview,sectionId,onFieldTap}:SectionProps) {
   const services=data.services;
+  const layout=config.layout||'cards';
   const cols=parseInt(config.columns)||2;
   const gridCls=cols===1?'grid-cols-1 max-w-lg mx-auto':cols===3?'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3':'grid-cols-1 sm:grid-cols-2';
+  const animName=ANIM_MAP[(config._animation?.type)||'fade-up']||'cf-fade-up';
+  const animDur=(config._animation?.speed||600);
+  const svcAnim=(i:number)=>({animationName:animName,animationDuration:`${animDur}ms`,animationDelay:`${i*80}ms`,animationFillMode:'both' as const,animationTimingFunction:'cubic-bezier(0.16,1,0.3,1)'});
   return (
     <section id="services" className={py(style)} style={{background:style.bgColor}}>
       <div className="max-w-6xl mx-auto px-6 md:px-16">
@@ -358,21 +361,43 @@ function ServicesSection({config,style,data,isPreview,sectionId,onFieldTap}:Sect
           {config.subheading&&<FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500 max-w-xl mx-auto" style={{fontFamily:bf(style)}}>{config.subheading}</FieldTap>}
         </div>
         {services.length>0?(
-          <div className={`grid gap-5 ${gridCls}`}>
-            {services.map((svc:any,i:number)=>(
-              <div key={svc.id} className="group p-7 bg-white hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
-                   style={{borderRadius:br(style,1.5),border:`2px solid ${ac(style)}25`,animationName:'cf-fade-up',animationDuration:'600ms',animationDelay:`${i*80}ms`,animationFillMode:'both',animationTimingFunction:'cubic-bezier(0.16,1,0.3,1)'}}>
-                {config.showImages&&svc.imageUrl&&<img src={svc.imageUrl} alt={svc.name} className="w-full aspect-video object-cover mb-4 group-hover:scale-[1.02] transition-transform duration-500" style={{borderRadius:br(style)}}/>}
-                <div className="flex justify-between items-start mb-3">
-                  <h3 className="text-sm font-black uppercase tracking-tight text-slate-900" style={{fontFamily:bf(style)}}>{svc.name}</h3>
-                  {config.showPrices!==false&&svc.price&&<span className="text-base font-black ml-3 shrink-0" style={{color:ac(style)}}>${svc.price}</span>}
+          layout==='list'?(
+            /* ── List layout ── */
+            <div className="space-y-3 max-w-3xl mx-auto">
+              {services.map((svc:any,i:number)=>(
+                <div key={svc.id} className="flex items-center gap-5 p-5 bg-white hover:shadow-md transition-all duration-200"
+                     style={{borderRadius:br(style),border:`2px solid ${ac(style)}20`,...svcAnim(i)}}>
+                  {config.showImages&&svc.imageUrl&&<img src={svc.imageUrl} alt={svc.name} className="w-16 h-16 object-cover shrink-0" style={{borderRadius:br(style)}}/>}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-3 mb-1">
+                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 truncate" style={{fontFamily:bf(style)}}>{svc.name}</h3>
+                      {config.showPrices!==false&&svc.price&&<span className="text-base font-black shrink-0" style={{color:ac(style)}}>${svc.price}</span>}
+                    </div>
+                    {config.showDesc!==false&&svc.description&&<p className="text-xs text-slate-400 leading-relaxed line-clamp-2" style={{fontFamily:bf(style)}}>{svc.description}</p>}
+                    {config.showDuration!==false&&svc.duration&&<p className="text-[10px] font-black uppercase tracking-widest text-slate-300 mt-1">{svc.duration} min</p>}
+                  </div>
+                  <button className="shrink-0 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{...btnStyle(style),fontFamily:bf(style)}}>{config.ctaText||'Book'}</button>
                 </div>
-                {config.showDesc!==false&&svc.description&&<p className="text-sm text-slate-500 leading-relaxed mb-4" style={{fontFamily:bf(style)}}>{svc.description}</p>}
-                {config.showDuration!==false&&svc.duration&&<div className="flex items-center gap-1.5 mb-5"><Clock className="w-3 h-3" style={{color:ac(style)}}/><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{svc.duration} min</p></div>}
-                <button className="w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{...btnStyle(style),fontFamily:bf(style)}}>{config.ctaText||'Book Now'}</button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ):(
+            /* ── Cards layout (default) ── */
+            <div className={`grid gap-5 ${gridCls}`}>
+              {services.map((svc:any,i:number)=>(
+                <div key={svc.id} className="group p-7 bg-white hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+                     style={{borderRadius:br(style,1.5),border:`2px solid ${ac(style)}25`,...svcAnim(i)}}>
+                  {config.showImages&&svc.imageUrl&&<img src={svc.imageUrl} alt={svc.name} className="w-full aspect-video object-cover mb-4 group-hover:scale-[1.02] transition-transform duration-500" style={{borderRadius:br(style)}}/>}
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="text-sm font-black uppercase tracking-tight text-slate-900" style={{fontFamily:bf(style)}}>{svc.name}</h3>
+                    {config.showPrices!==false&&svc.price&&<span className="text-base font-black ml-3 shrink-0" style={{color:ac(style)}}>${svc.price}</span>}
+                  </div>
+                  {config.showDesc!==false&&svc.description&&<p className="text-sm text-slate-500 leading-relaxed mb-4" style={{fontFamily:bf(style)}}>{svc.description}</p>}
+                  {config.showDuration!==false&&svc.duration&&<div className="flex items-center gap-1.5 mb-5"><Clock className="w-3 h-3" style={{color:ac(style)}}/><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{svc.duration} min</p></div>}
+                  <button className="w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{...btnStyle(style),fontFamily:bf(style)}}>{config.ctaText||'Book Now'}</button>
+                </div>
+              ))}
+            </div>
+          )
         ):<p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Services coming soon</p>}
       </div>
     </section>
@@ -382,6 +407,10 @@ function ServicesSection({config,style,data,isPreview,sectionId,onFieldTap}:Sect
 // ─── Team ─────────────────────────────────────────────────────────────────────
 function TeamSection({config,style,data,isPreview,sectionId,onFieldTap}:SectionProps) {
   const staff=data.staff;
+  const layout=config.layout||'circles';
+  const animName=ANIM_MAP[(config._animation?.type)||'scale-up']||'cf-scale-up';
+  const animDur=(config._animation?.speed||600);
+  const mAnim=(i:number)=>({animationName:animName,animationDuration:`${animDur}ms`,animationDelay:`${i*80}ms`,animationFillMode:'both' as const,animationTimingFunction:'cubic-bezier(0.16,1,0.3,1)'});
   return (
     <section id="team" className={py(style)} style={{background:'#f8fafc'}}>
       <div className="max-w-6xl mx-auto px-6 md:px-16">
@@ -390,21 +419,55 @@ function TeamSection({config,style,data,isPreview,sectionId,onFieldTap}:SectionP
           {config.subheading&&<FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500 max-w-xl mx-auto" style={{fontFamily:bf(style)}}>{config.subheading}</FieldTap>}
         </div>
         {staff.length>0?(
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-10">
-            {staff.map((m:any,i:number)=>(
-              <div key={m.id} className="text-center space-y-4 group" style={{animationName:'cf-scale-up',animationDuration:'600ms',animationDelay:`${i*80}ms`,animationFillMode:'both',animationTimingFunction:'cubic-bezier(0.16,1,0.3,1)'}}>
-                <div className="relative mx-auto w-28 h-28 overflow-hidden shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all duration-500" style={{background:ac(style)+'15',borderRadius:br(style,1.5)}}>
-                  {m.avatarUrl?<img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/>:<span className="absolute inset-0 flex items-center justify-center text-3xl font-light" style={{fontFamily:hf(style),color:ac(style)}}>{m.name?.[0]}</span>}
+          layout==='row'?(
+            /* ── Horizontal scrolling row ── */
+            <div className="flex gap-6 overflow-x-auto pb-4 snap-x snap-mandatory" style={{scrollbarWidth:'none'}}>
+              {staff.map((m:any,i:number)=>(
+                <div key={m.id} className="text-center space-y-3 shrink-0 snap-start group" style={{width:'160px',...mAnim(i)}}>
+                  <div className="relative mx-auto w-24 h-24 overflow-hidden shadow-lg group-hover:scale-105 transition-all duration-500" style={{background:ac(style)+'15',borderRadius:br(style,1.5)}}>
+                    {m.avatarUrl?<img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/>:<span className="absolute inset-0 flex items-center justify-center text-2xl font-light" style={{fontFamily:hf(style),color:ac(style)}}>{m.name?.[0]}</span>}
+                  </div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 truncate" style={{fontFamily:bf(style)}}>{m.name}</p>
+                  {config.showSpecialties!==false&&m.specialties?.length>0&&<p className="text-[9px] text-slate-400 uppercase tracking-wider">{m.specialties[0]}</p>}
+                  {config.showBookButton&&<button className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{...btnStyle(style),fontFamily:bf(style)}}>{config.bookCta||'Book'}</button>}
                 </div>
-                <div>
-                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-900" style={{fontFamily:bf(style)}}>{m.name}</p>
-                  {config.showSpecialties!==false&&m.specialties?.length>0&&<p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">{m.specialties.slice(0,2).join(' · ')}</p>}
-                  {config.showBio&&m.bio&&<p className="text-xs text-slate-500 mt-2 leading-relaxed" style={{fontFamily:bf(style)}}>{m.bio}</p>}
-                  {config.showBookButton&&<button className="mt-3 px-5 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{...btnStyle(style),fontFamily:bf(style)}}>{config.bookCta||'Book'}</button>}
+              ))}
+            </div>
+          ):layout==='editorial'?(
+            /* ── Editorial cards ── */
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {staff.map((m:any,i:number)=>(
+                <div key={m.id} className="group overflow-hidden bg-white hover:shadow-xl transition-all duration-300" style={{borderRadius:br(style,1.5),border:`2px solid ${ac(style)}18`,...mAnim(i)}}>
+                  <div className="relative aspect-[4/3] overflow-hidden" style={{background:ac(style)+'12'}}>
+                    {m.avatarUrl?<img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"/>:<span className="absolute inset-0 flex items-center justify-center text-5xl font-light" style={{fontFamily:hf(style),color:ac(style)}}>{m.name?.[0]}</span>}
+                  </div>
+                  <div className="p-5 space-y-2">
+                    <p className="text-sm font-black uppercase tracking-tight text-slate-900" style={{fontFamily:bf(style)}}>{m.name}</p>
+                    {config.showSpecialties!==false&&m.specialties?.length>0&&<p className="text-[10px] uppercase tracking-wider text-slate-400">{m.specialties.slice(0,2).join(' · ')}</p>}
+                    {config.showBio&&m.bio&&<p className="text-xs text-slate-500 leading-relaxed" style={{fontFamily:bf(style)}}>{m.bio}</p>}
+                    {config.showBookButton&&<button className="w-full mt-2 py-2.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{...btnStyle(style),fontFamily:bf(style)}}>{config.bookCta||'Book'}</button>}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ):(
+            /* ── Circles layout (default) ── */
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-10">
+              {staff.map((m:any,i:number)=>(
+                <div key={m.id} className="text-center space-y-4 group" style={mAnim(i)}>
+                  <div className="relative mx-auto w-28 h-28 overflow-hidden shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all duration-500" style={{background:ac(style)+'15',borderRadius:br(style,1.5)}}>
+                    {m.avatarUrl?<img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/>:<span className="absolute inset-0 flex items-center justify-center text-3xl font-light" style={{fontFamily:hf(style),color:ac(style)}}>{m.name?.[0]}</span>}
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-widest text-slate-900" style={{fontFamily:bf(style)}}>{m.name}</p>
+                    {config.showSpecialties!==false&&m.specialties?.length>0&&<p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">{m.specialties.slice(0,2).join(' · ')}</p>}
+                    {config.showBio&&m.bio&&<p className="text-xs text-slate-500 mt-2 leading-relaxed" style={{fontFamily:bf(style)}}>{m.bio}</p>}
+                    {config.showBookButton&&<button className="mt-3 px-5 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{...btnStyle(style),fontFamily:bf(style)}}>{config.bookCta||'Book'}</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
         ):<p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Team coming soon</p>}
       </div>
     </section>
@@ -866,6 +929,16 @@ function BookingPageContent({tenantId}:{tenantId:string}) {
   const isPreview=typeof window!=='undefined'&&window!==window.parent;
   const getDb=useCallback(()=>{try{return getFirestore(getApp());}catch{return null;}},[]);
 
+  // Bootstrap: inject CSS keyframes + signal parent iframe is ready
+  useEffect(()=>{
+    if(!document.getElementById('cf-anim')){
+      const s=document.createElement('style');s.id='cf-anim';s.textContent=ANIM_CSS;
+      document.head.appendChild(s);
+    }
+    if(isPreview) window.parent.postMessage({type:'BOOKING_READY'},'*');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
   useEffect(()=>{
     if(!tenantId){setIsLoading(false);return;}
     let cancelled=false;
@@ -954,11 +1027,17 @@ function BookingPageContent({tenantId}:{tenantId:string}) {
         </div>
       )}
 
-      {activeSections.map(section=>(
-        <SectionWrapper key={section.id} section={section} isPreview={isPreview} onEdit={handleEditSection} onFieldTap={handleFieldTap}>
+      {activeSections.map(section=>{
+        // In preview: include animation config in key so React remounts the wrapper
+        // when animation type/speed changes — this resets useInView and replays the animation
+        const _a=(section.config as any)._animation;
+        const wrapKey=isPreview?`${section.id}-${_a?.type||'fu'}-${_a?.speed||700}`:section.id;
+        return(
+        <SectionWrapper key={wrapKey} section={section} isPreview={isPreview} onEdit={handleEditSection} onFieldTap={handleFieldTap}>
           <SectionRenderer section={section} style={activeStyle} data={data} isPreview={isPreview} onFieldTap={handleFieldTap}/>
         </SectionWrapper>
-      ))}
+        );
+      })}
 
       <Footer tenant={tenant} style={activeStyle}/>
     </div>
