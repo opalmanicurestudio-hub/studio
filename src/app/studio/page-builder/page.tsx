@@ -1146,23 +1146,6 @@ export default function PageBuilderPage() {
         )}
       </div>
 
-  return(
-    <div className="flex h-dvh w-full flex-col overflow-hidden bg-slate-50/50">
-      <AppHeader title="Page Builder"/>
-
-      {/* Unsaved banner */}
-      {isDirty&&(
-        <div className="flex items-center justify-between gap-4 px-4 py-2 bg-amber-50 border-b border-amber-200 shrink-0">
-          <div className="flex items-center gap-2 text-amber-700"><AlertCircle className="w-3.5 h-3.5 shrink-0"/><span className="text-[10px] font-black uppercase tracking-widest">Unsaved changes</span></div>
-          <div className="flex items-center gap-2">
-            <button onClick={undo} disabled={!canUndo} className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 disabled:opacity-30 transition-all" title="Undo (⌘Z)"><Undo2 className="w-3.5 h-3.5"/></button>
-            <button onClick={redo} disabled={!canRedo} className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 disabled:opacity-30 transition-all" title="Redo"><Redo2 className="w-3.5 h-3.5"/></button>
-            <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-7 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md shadow-primary/20">
-              {isSaving?<Loader className="animate-spin w-3 h-3"/>:<><Save className="w-3 h-3 mr-1.5"/>Save</>}
-            </Button>
-          </div>
-        </div>
-      )}
 
 
       {/* ═══ DESKTOP (lg+) ══════════════════════════════════════════════════ */}
