@@ -725,6 +725,10 @@ export default function PageBuilderPage() {
   const [canUndo,setCanUndo]=useState(false);
   const [canRedo,setCanRedo]=useState(false);
   const [mobilePreviewOpen,setMobilePreviewOpen]=useState(false);
+  // Mobile bottom sheet
+  const [mobileSheet,setMobileSheet]=useState<'closed'|'half'|'full'>('half');
+  const [mobilePanelTab,setMobilePanelTab]=useState<'sections'|'style'>('sections');
+  const [mobileFieldView,setMobileFieldView]=useState(false);
 
   const [style,setStyle]=useState({
     accentColor:'#8b6914', bgColor:'#f8f4ef', headingFont:'cormorant', bodyFont:'space',
@@ -802,13 +806,16 @@ export default function PageBuilderPage() {
         setActivePanel('sections');
         setShowLibrary(false);
         setHighlightedField(null);
+        setMobileFieldView(true);
+        setMobileSheet('full');
       }
       if(e.data?.type==='EDIT_FIELD'){
         setSelectedId(e.data.sectionId);
         setActivePanel('sections');
         setShowLibrary(false);
         setHighlightedField(e.data.fieldKey);
-        // Auto-clear highlight after 4s
+        setMobileFieldView(true);
+        setMobileSheet('full');
         setTimeout(()=>setHighlightedField(null),4000);
       }
     };
@@ -879,12 +886,351 @@ export default function PageBuilderPage() {
     finally{setIsSaving(false);}
   };
 
-  const headingFontDef=FONTS.find(f=>f.id===style.headingFont);
-  const bodyFontDef=FONTS.find(f=>f.id===style.bodyFont);
-  const previewUrl=selectedTenant?`/book/${selectedTenant.id}`:null;
-  const selectedDef=selectedSection?SECTION_DEFS[selectedSection.type as SectionType]:null;
+  // ─── Shared render helpers ────────────────────────────────────────────────
+  const StylePanelContent=()=>(
+    <div className="space-y-6 p-4">
+      <div className="flex gap-1 flex-wrap">
+        {(['kits','colors','fonts','spacing'] as const).map(t=>(
+          <button key={t} onClick={()=>setStyleTab(t)} className={cn('px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all',styleTab===t?'bg-primary text-primary-foreground':'text-muted-foreground hover:bg-muted')}>{t}</button>
+        ))}
+      </div>
+      {styleTab==='kits'&&<div className="space-y-3"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Brand kits</p><BrandKitPicker style={style} onApply={applyBrandKit}/></div>}
+      {styleTab==='colors'&&(
+        <div className="space-y-5">
+          <div className="space-y-2"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Accent color</p><div className="flex items-center gap-2"><input type="color" value={style.accentColor} onChange={e=>updateStyle({accentColor:e.target.value,brandKit:null})} className="w-10 h-10 rounded-xl border-2 cursor-pointer p-0.5"/><Input value={style.accentColor} onChange={e=>/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)&&updateStyle({accentColor:e.target.value,brandKit:null})} className="h-10 rounded-xl border-2 font-mono text-xs w-28" maxLength={7}/></div></div>
+          <Separator className="border-dashed"/>
+          <div className="space-y-2"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Background</p><div className="flex items-center gap-2"><input type="color" value={style.bgColor} onChange={e=>updateStyle({bgColor:e.target.value,brandKit:null})} className="w-10 h-10 rounded-xl border-2 cursor-pointer p-0.5"/><Input value={style.bgColor} onChange={e=>/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)&&updateStyle({bgColor:e.target.value,brandKit:null})} className="h-10 rounded-xl border-2 font-mono text-xs w-28" maxLength={7}/></div></div>
+          <Separator className="border-dashed"/>
+          <div className="space-y-2"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Button style</p><div className="grid grid-cols-2 gap-1.5">{(['filled','outline','ghost','pill'] as const).map(bs=><button key={bs} onClick={()=>updateStyle({buttonStyle:bs})} className={cn('py-2 px-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',style.buttonStyle===bs?'border-primary/40 bg-primary/5 text-primary':'border-border text-muted-foreground hover:border-primary/20')}>{bs}</button>)}</div></div>
+        </div>
+      )}
+      {styleTab==='fonts'&&(
+        <div className="space-y-5">
+          <div className="space-y-2"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Heading font</p><FontPicker value={style.headingFont} onChange={v=>updateStyle({headingFont:v,brandKit:null})}/></div>
+          <Separator className="border-dashed"/>
+          <div className="space-y-2"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Body font</p><FontPicker value={style.bodyFont} onChange={v=>updateStyle({bodyFont:v,brandKit:null})}/></div>
+        </div>
+      )}
+      {styleTab==='spacing'&&(
+        <div className="space-y-5">
+          <div className="space-y-3"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Corner roundness</p><div className="space-y-2"><div className="flex items-center justify-between"><span className="text-[9px] text-muted-foreground">Sharp</span><span className="text-[9px] font-bold text-muted-foreground">{style.borderRadius}px</span><span className="text-[9px] text-muted-foreground">Pill</span></div><Slider value={[style.borderRadius]} onValueChange={([v])=>updateStyle({borderRadius:v})} min={0} max={32} step={2} className="w-full"/><div className="flex gap-2 justify-center mt-1">{[0,6,12,24,32].map(r=><div key={r} className="w-8 h-8 bg-primary/20 border-2 border-primary/30" style={{borderRadius:r}}/>)}</div></div></div>
+          <Separator className="border-dashed"/>
+          <div className="space-y-2"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Section spacing</p><div className="grid grid-cols-3 gap-1.5">{(['compact','balanced','airy'] as const).map(d=><button key={d} onClick={()=>updateStyle({density:d})} className={cn('py-2 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',style.density===d?'border-primary/40 bg-primary/5 text-primary':'border-border text-muted-foreground hover:border-primary/20')}>{d}</button>)}</div></div>
+        </div>
+      )}
+    </div>
+  );
+
+  const FieldEditorContent=()=>(
+    <div className="space-y-5 p-4">
+      <AnimationPicker value={(selectedSection!.config as any)._animation} onChange={v=>updateAnimation(selectedSection!.id,v)}/>
+      <Separator className="border-dashed"/>
+      {selectedDef!.layouts&&selectedDef!.layouts.length>1&&(
+        <><LayoutPicker layouts={selectedDef!.layouts} value={selectedSection!.config.layout??selectedDef!.layouts[0].id} onChange={val=>updateField(selectedSection!.id,'layout',val)}/><Separator className="border-dashed"/></>
+      )}
+      {SECTION_DEFS[selectedSection!.type as SectionType].fields.map(field=>(
+        <FieldRenderer key={field.k} field={field} value={selectedSection!.config[field.k]??field.d} onChange={val=>updateField(selectedSection!.id,field.k,val)} highlightedField={highlightedField}/>
+      ))}
+    </div>
+  );
+
+  // ─── Sheet translate ──────────────────────────────────────────────────────
+  const sheetTranslate = mobileSheet==='closed' ? 'calc(100% - 60px)' : mobileSheet==='half' ? '44%' : '0%';
+  const cycleSheet=()=>setMobileSheet(s=>s==='closed'?'half':s==='half'?'full':'closed');
 
   return(
+    <div className="flex h-dvh w-full flex-col overflow-hidden bg-slate-50/50">
+      <AppHeader title="Page Builder"/>
+
+      {/* Unsaved banner */}
+      {isDirty&&(
+        <div className="flex items-center justify-between gap-4 px-4 py-2 bg-amber-50 border-b border-amber-200 shrink-0">
+          <div className="flex items-center gap-2 text-amber-700"><AlertCircle className="w-3.5 h-3.5 shrink-0"/><span className="text-[10px] font-black uppercase tracking-widest">Unsaved changes</span></div>
+          <div className="flex items-center gap-2">
+            <button onClick={undo} disabled={!canUndo} className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 disabled:opacity-30 transition-all" title="Undo (⌘Z)"><Undo2 className="w-3.5 h-3.5"/></button>
+            <button onClick={redo} disabled={!canRedo} className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 disabled:opacity-30 transition-all" title="Redo"><Redo2 className="w-3.5 h-3.5"/></button>
+            <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-7 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md shadow-primary/20">
+              {isSaving?<Loader className="animate-spin w-3 h-3"/>:<><Save className="w-3 h-3 mr-1.5"/>Save</>}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MOBILE (< lg) ══════════════════════════════════════════════════ */}
+      <div className="lg:hidden flex-1 min-h-0 relative overflow-hidden">
+
+        {/* Full-screen preview behind sheet */}
+        <div className="absolute inset-0 bg-slate-100">
+          {previewUrl
+            ? <iframe key={previewKey} ref={previewRef} src={previewUrl} className="w-full h-full border-0 bg-white" title="Preview"/>
+            : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>
+          }
+        </div>
+
+        {/* Floating top-right controls */}
+        <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
+          <button onClick={()=>setPreviewKey(k=>k+1)} className="w-9 h-9 rounded-xl bg-white/90 backdrop-blur shadow-lg flex items-center justify-center text-slate-500 active:scale-95 transition-all"><RefreshCw className="w-4 h-4"/></button>
+          {previewUrl&&<a href={previewUrl} target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-xl bg-white/90 backdrop-blur shadow-lg flex items-center justify-center text-slate-500 active:scale-95 transition-all"><ExternalLink className="w-4 h-4"/></a>}
+          <button onClick={handleSave} disabled={isSaving} className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 active:scale-95 transition-all disabled:opacity-60">
+            {isSaving?<Loader className="animate-spin w-3.5 h-3.5"/>:<><Save className="w-3.5 h-3.5"/>Save</>}
+          </button>
+        </div>
+
+        {/* Bottom sheet */}
+        <div
+          className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-[0_-8px_40px_rgba(0,0,0,0.15)] flex flex-col z-20"
+          style={{height:'94dvh',transform:`translateY(${sheetTranslate})`,transition:'transform 0.35s cubic-bezier(0.16,1,0.3,1)'}}
+        >
+          {/* Drag handle area */}
+          <div className="flex flex-col items-center pt-2.5 pb-1 cursor-pointer shrink-0 select-none" onClick={cycleSheet}>
+            <div className="w-10 h-1 rounded-full bg-slate-200 mb-2.5"/>
+            {/* Tab bar + actions */}
+            <div className="w-full px-3 flex items-center gap-2">
+              <div className="flex gap-1 flex-1 bg-slate-100 p-1 rounded-2xl">
+                {/* Sections tab */}
+                <button
+                  onClick={e=>{e.stopPropagation();setMobilePanelTab('sections');setMobileFieldView(false);if(mobileSheet==='closed')setMobileSheet('half');}}
+                  className={cn('flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',mobilePanelTab==='sections'&&!mobileFieldView&&mobileSheet!=='closed'?'bg-white shadow-sm text-primary':'text-slate-400')}
+                >
+                  <Layers className="w-3.5 h-3.5"/>Sections
+                </button>
+                {/* Style tab */}
+                <button
+                  onClick={e=>{e.stopPropagation();setMobilePanelTab('style');setMobileFieldView(false);if(mobileSheet==='closed')setMobileSheet('half');}}
+                  className={cn('flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',mobilePanelTab==='style'&&!mobileFieldView&&mobileSheet!=='closed'?'bg-white shadow-sm text-primary':'text-slate-400')}
+                >
+                  <Palette className="w-3.5 h-3.5"/>Style
+                </button>
+                {/* Field editor tab — only when section selected */}
+                {selectedSection&&(
+                  <button
+                    onClick={e=>{e.stopPropagation();setMobileFieldView(true);setMobileSheet('full');}}
+                    className={cn('flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',mobileFieldView&&mobileSheet!=='closed'?'bg-white shadow-sm text-primary':'text-slate-400')}
+                  >
+                    {React.createElement(selectedDef!.icon,{className:'w-3.5 h-3.5'})}
+                    <span className="truncate max-w-[50px]">{selectedDef!.label.split(' ')[0]}</span>
+                  </button>
+                )}
+              </div>
+              {/* Expand/collapse toggle */}
+              <button onClick={e=>{e.stopPropagation();cycleSheet();}} className="w-9 h-9 rounded-xl border-2 border-border flex items-center justify-center text-slate-400 hover:border-primary/30 shrink-0">
+                {mobileSheet==='full'?<ChevronDown className="w-4 h-4"/>:<ChevronUp className="w-4 h-4"/>}
+              </button>
+            </div>
+          </div>
+
+          {/* Sheet body */}
+          {mobileSheet!=='closed'&&(
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+
+              {/* Field editor view */}
+              {mobileFieldView&&selectedSection&&selectedDef?(
+                <>
+                  <div className="px-4 pt-2 pb-3 border-b flex items-center gap-2.5 shrink-0">
+                    <button
+                      onClick={()=>{setMobileFieldView(false);setMobilePanelTab('sections');}}
+                      className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5"/>Sections
+                    </button>
+                    <span className="text-muted-foreground/30">/</span>
+                    <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{background:selectedDef.color+'18'}}>
+                      {React.createElement(selectedDef.icon,{className:'w-3 h-3',style:{color:selectedDef.color}})}
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 truncate flex-1">{selectedDef.label}</span>
+                    {highlightedField&&(
+                      <div className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded-lg shrink-0">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"/>
+                        <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{highlightedField}</span>
+                      </div>
+                    )}
+                  </div>
+                  <ScrollArea className="flex-1 min-h-0">
+                    <FieldEditorContent/>
+                    <div className="h-safe-area-inset-bottom pb-8"/>
+                  </ScrollArea>
+                </>
+              ) : mobilePanelTab==='sections' ? (
+                /* Sections list */
+                <>
+                  <div className="px-3 pt-3 pb-2 flex items-center justify-between shrink-0">
+                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40">
+                      {showLibrary?'Add section':'Active sections'}
+                    </span>
+                    <button
+                      onClick={()=>setShowLibrary(!showLibrary)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest transition-all border-primary/20 bg-primary/5 text-primary"
+                    >
+                      {showLibrary?<><X className="w-3 h-3"/>Done</>:<><Plus className="w-3 h-3"/>Add</>}
+                    </button>
+                  </div>
+                  <ScrollArea className="flex-1 min-h-0 px-3 pb-3">
+                    {showLibrary?(
+                      <div className="space-y-1.5">
+                        {disabledSections.length===0
+                          ?<div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">All sections active</div>
+                          :disabledSections.map(s=>(
+                            <LibraryItem key={s.id} section={s} onAdd={()=>{addSection(s.id);setMobileFieldView(true);setMobileSheet('full');}}/>
+                          ))
+                        }
+                      </div>
+                    ):(
+                      <div className="space-y-1.5">
+                        {enabledSections.length===0&&<div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">No active sections</div>}
+                        {enabledSections.map((s,idx)=>(
+                          <SectionListItem key={s.id} section={s} isSelected={selectedId===s.id}
+                            isFirst={idx===0} isLast={idx===enabledSections.length-1}
+                            onSelect={()=>{setSelectedId(s.id);setMobileFieldView(true);setMobileSheet('full');setShowLibrary(false);}}
+                            onMoveUp={()=>moveUp(s.id)} onMoveDown={()=>moveDown(s.id)}
+                            onHide={()=>hideSection(s.id)} onDuplicate={()=>duplicateSection(s.id)}/>
+                        ))}
+                      </div>
+                    )}
+                    <div className="h-safe-area-inset-bottom pb-6"/>
+                  </ScrollArea>
+                </>
+              ):(
+                /* Style panel */
+                <ScrollArea className="flex-1 min-h-0">
+                  <StylePanelContent/>
+                  <div className="h-safe-area-inset-bottom pb-6"/>
+                </ScrollArea>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ═══ DESKTOP (lg+) ══════════════════════════════════════════════════ */}
+      <main className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
+        <div className="flex h-full w-full">
+
+          {/* ── Left sidebar ── */}
+          <div className="w-72 h-full flex flex-col border-r bg-white shrink-0">
+            <div className="p-3 border-b flex items-center gap-2 shrink-0">
+              <div className="flex gap-1 flex-1">
+                <button onClick={()=>{setShowLibrary(false);setActivePanel('sections');}} className={cn('px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',activePanel==='sections'&&!showLibrary?'bg-primary text-primary-foreground':'text-muted-foreground hover:bg-muted')}>Sections</button>
+                <button onClick={()=>{setShowLibrary(false);setActivePanel('style');}} className={cn('px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',activePanel==='style'?'bg-primary text-primary-foreground':'text-muted-foreground hover:bg-muted')}>Style</button>
+              </div>
+              {activePanel==='sections'&&<button onClick={()=>setShowLibrary(!showLibrary)} className="w-7 h-7 rounded-lg border-2 border-primary/20 bg-primary/5 flex items-center justify-center text-primary hover:bg-primary/10 transition-all">{showLibrary?<X className="w-3.5 h-3.5"/>:<Plus className="w-3.5 h-3.5"/>}</button>}
+            </div>
+            <ScrollArea className="flex-1 min-h-0 p-3">
+              {activePanel==='sections'&&!showLibrary&&(
+                <div className="space-y-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Active sections</p>
+                  {enabledSections.map((s,idx)=>(
+                    <SectionListItem key={s.id} section={s} isSelected={selectedId===s.id} isFirst={idx===0} isLast={idx===enabledSections.length-1}
+                      onSelect={()=>{setSelectedId(s.id);setActivePanel('sections');setHighlightedField(null);}}
+                      onMoveUp={()=>moveUp(s.id)} onMoveDown={()=>moveDown(s.id)} onHide={()=>hideSection(s.id)} onDuplicate={()=>duplicateSection(s.id)}/>
+                  ))}
+                  {enabledSections.length===0&&<div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">No active sections</div>}
+                </div>
+              )}
+              {activePanel==='sections'&&showLibrary&&(
+                <div className="space-y-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Add sections</p>
+                  {disabledSections.length===0?<div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">All sections active</div>:disabledSections.map(s=><LibraryItem key={s.id} section={s} onAdd={()=>addSection(s.id)}/>)}
+                </div>
+              )}
+              {activePanel==='style'&&<StylePanelContent/>}
+            </ScrollArea>
+            <div className="p-3 border-t bg-white space-y-2 shrink-0">
+              <div className="flex gap-1.5">
+                <button onClick={undo} disabled={!canUndo} className="flex-1 h-8 rounded-xl border-2 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground disabled:opacity-30 hover:border-primary/20 transition-all"><Undo2 className="w-3 h-3"/>Undo</button>
+                <button onClick={redo} disabled={!canRedo} className="flex-1 h-8 rounded-xl border-2 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground disabled:opacity-30 hover:border-primary/20 transition-all">Redo<Redo2 className="w-3 h-3"/></button>
+              </div>
+              {selectedTenant&&<a href={`/book/${selectedTenant.id}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 w-full h-8 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-primary/30 hover:text-primary transition-all"><Eye className="w-3.5 h-3.5"/>Open live page<ExternalLink className="w-3 h-3"/></a>}
+              <Button onClick={handleSave} disabled={isSaving} className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                {isSaving?<><Loader className="animate-spin w-3.5 h-3.5 mr-2"/>Saving...</>:<><Save className="w-3.5 h-3.5 mr-2"/>Save page</>}
+              </Button>
+            </div>
+          </div>
+
+          {/* ── Center: field editor ── */}
+          <div className="w-80 xl:w-[420px] h-full flex flex-col border-r bg-white shrink-0">
+            {selectedSection&&activePanel==='sections'?(
+              <>
+                <div className="p-4 border-b bg-white flex items-center gap-3 shrink-0">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{background:selectedDef!.color+'18'}}>
+                    {React.createElement(selectedDef!.icon,{className:'w-4 h-4',style:{color:selectedDef!.color}})}
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{selectedDef!.label}</h2>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Content & configuration</p>
+                  </div>
+                  {highlightedField&&(
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 border border-indigo-200 rounded-lg">
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"/>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600">Editing: {highlightedField}</span>
+                    </div>
+                  )}
+                </div>
+                <ScrollArea className="flex-1 min-h-0">
+                  <FieldEditorContent/>
+                </ScrollArea>
+              </>
+            ):activePanel==='style'?(
+              <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+                <div className="w-16 h-16 rounded-[1.5rem] bg-primary/10 flex items-center justify-center"><Palette className="w-8 h-8 text-primary"/></div>
+                <div className="flex flex-col items-center gap-4 w-full">
+                  <div style={{fontFamily:headingFontDef?.stack,color:style.accentColor,fontSize:'28px',fontWeight:300}}>{headingFontDef?.label}</div>
+                  <div style={{fontFamily:bodyFontDef?.stack,color:'#64748b',fontSize:'14px'}}>Body — {bodyFontDef?.label}</div>
+                  <div className="flex gap-2 mt-2"><div className="w-8 h-8 rounded-full" style={{background:style.accentColor}}/><div className="w-8 h-8 rounded-full" style={{background:style.bgColor,border:'2px solid #e2e8f0'}}/></div>
+                  <div className="px-5 py-2 text-sm font-bold" style={{background:style.buttonStyle==='filled'?style.accentColor:'transparent',color:style.buttonStyle==='filled'?'#fff':style.accentColor,border:style.buttonStyle==='ghost'?'none':`2px solid ${style.accentColor}`,borderRadius:style.buttonStyle==='pill'?999:style.borderRadius}}>Book Now</div>
+                  <p className="text-[9px] text-muted-foreground/50 text-center">Adjust colors, fonts & spacing in the left panel</p>
+                </div>
+              </div>
+            ):(
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
+                <div className="w-16 h-16 rounded-[1.5rem] bg-muted flex items-center justify-center"><Settings className="w-8 h-8 text-muted-foreground/40"/></div>
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-black uppercase tracking-tight text-slate-900">Select a section</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-40 max-w-xs">Click any section in the left panel to edit its content</p>
+                </div>
+                <div className="flex flex-wrap gap-2 justify-center max-w-xs mt-1">
+                  {enabledSections.slice(0,6).map(s=>{
+                    const d=SECTION_DEFS[s.type as SectionType];
+                    return<button key={s.id} onClick={()=>setSelectedId(s.id)} className="px-3 py-1.5 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest transition-all hover:shadow-md" style={{borderColor:d.color+'40',color:d.color,background:d.color+'0a'}}>{d.label}</button>;
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Right: live preview ── */}
+          <div className="flex-1 min-w-0 h-full flex flex-col bg-slate-100">
+            <div className="h-12 px-4 border-b bg-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"/>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Live Preview</span>
+                {isDirty&&<Badge variant="secondary" className="text-[8px] font-black uppercase tracking-widest">Unsaved</Badge>}
+                <span className="text-[9px] text-slate-300 font-bold hidden xl:block">· Hover sections · Tap text to jump to field</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-0.5 p-1 bg-slate-100 rounded-lg">
+                  <button onClick={()=>setPreviewMode('desktop')} className={cn('p-1.5 rounded-md transition-all',previewMode==='desktop'?'bg-white shadow-sm text-slate-900':'text-slate-400 hover:text-slate-600')} title="Desktop"><Monitor className="w-3.5 h-3.5"/></button>
+                  <button onClick={()=>setPreviewMode('mobile')} className={cn('p-1.5 rounded-md transition-all',previewMode==='mobile'?'bg-white shadow-sm text-slate-900':'text-slate-400 hover:text-slate-600')} title="Mobile"><Smartphone className="w-3.5 h-3.5"/></button>
+                </div>
+                <button onClick={()=>setPreviewKey(k=>k+1)} className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all" title="Reload"><RefreshCw className="w-3.5 h-3.5"/></button>
+                {previewUrl&&<a href={previewUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all" title="Open live"><ExternalLink className="w-3.5 h-3.5"/></a>}
+              </div>
+            </div>
+            <div className="flex-1 min-h-0 p-6 overflow-hidden flex items-center justify-center">
+              {previewUrl?(
+                previewMode==='desktop'
+                  ?<iframe key={previewKey} ref={previewRef} src={previewUrl} className="w-full h-full border-0 bg-white rounded-2xl shadow-xl" title="Preview"/>
+                  :<div className="h-full w-[390px] max-w-full flex-shrink-0"><iframe key={previewKey} ref={previewRef} src={previewUrl} className="w-full h-full border-0 bg-white rounded-[2.5rem] shadow-2xl ring-8 ring-slate-800" title="Preview"/></div>
+              ):(
+                <div className="text-center space-y-3"><Eye className="w-10 h-10 text-slate-200 mx-auto"/><p className="text-[10px] font-black uppercase tracking-widest text-slate-300">No tenant selected</p></div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  );
+}
     <div className="flex h-screen w-full flex-col overflow-hidden bg-slate-50/50">
       <AppHeader title="Page Builder"/>
 
