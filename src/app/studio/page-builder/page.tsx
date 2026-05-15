@@ -1,904 +1,1959 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+export const dynamic = 'force-dynamic';
+
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import nextDynamic from 'next/dynamic';
+const AppHeader = nextDynamic(
+  () => import('@/components/shared/AppHeader').then(m => ({ default: m.AppHeader })),
+  { ssr: false }
+);
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Slider } from '@/components/ui/slider';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ImageUpload } from '@/components/shared/ImageUpload';
+import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
-import { doc, getDoc, getDocs, collection, query, where, orderBy } from 'firebase/firestore';
-import { type PageSection, type PageBuilderConfig } from '@/lib/data';
-import { cn } from '@/lib/utils';
+import { doc, updateDoc } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
 import {
-  Calendar, Clock, MapPin, Phone, Instagram,
-  ChevronDown, ChevronUp, Star, Gift, Sparkles,
+  Navigation, ImageIcon, Award, Scissors, Users, Star,
+  LayoutDashboard, RotateCcw, Crown, Package, Gift,
+  FileText, Sparkles, HelpCircle, Shield, MapPin,
+  Calendar, Share2, BookOpen, Camera, Clock,
+  ChevronUp, ChevronDown, Plus, Eye, Save, ExternalLink,
+  Loader, Check, Palette, Settings, X, Monitor, Smartphone,
+  RefreshCw, AlertCircle, Copy, Trash2, GripVertical,
+  Instagram, Facebook, Twitter, Youtube, Globe, Music2,
+  Linkedin, Github, MessageCircle, Phone, Mail,
+  ChevronRight, Layers, Wand2, Undo2, Redo2,
+  ShieldCheck, Heart, Zap, Coffee, Leaf, Flame,
+  AlertTriangle, Info, Ban, Clock3, CreditCard, BadgeCheck,
+  Hash, AtSign, Link2, ArrowLeftRight,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { type PageSection, type PageBuilderConfig } from '@/lib/data';
 
-// ─── Font stacks ──────────────────────────────────────────────────────────────
-const FONT_STACKS: Record<string, string> = {
-  cormorant:  "'Cormorant Garamond', Georgia, serif",
-  playfair:   "'Playfair Display', Georgia, serif",
-  lora:       "'Lora', Georgia, serif",
-  space:      "'Space Grotesk', system-ui, sans-serif",
-  josefin:    "'Josefin Sans', system-ui, sans-serif",
-  raleway:    "'Raleway', system-ui, sans-serif",
-  bebas:      "'Bebas Neue', Impact, sans-serif",
-  montserrat: "'Montserrat', system-ui, sans-serif",
-  oswald:     "'Oswald', system-ui, sans-serif",
-  georgia:    'Georgia, serif',
-  system:     'system-ui, sans-serif',
-};
+// ─── Types ────────────────────────────────────────────────────────────────────
+type SectionType =
+  | 'nav' | 'hero' | 'trust' | 'services' | 'team' | 'reviews'
+  | 'gallery' | 'beforeafter' | 'memberships' | 'packages' | 'giftcards'
+  | 'quote' | 'newclient' | 'faq' | 'policies' | 'contact' | 'events'
+  | 'referral' | 'story' | 'instagram' | 'waitlist';
 
-const GOOGLE_FONT_IDS: Record<string, string> = {
-  cormorant:  'Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400',
-  playfair:   'Playfair+Display:ital,wght@0,400;0,700;0,900;1,400',
-  lora:       'Lora:ital,wght@0,400;0,600;0,700;1,400',
-  space:      'Space+Grotesk:wght@400;500;600;700',
-  josefin:    'Josefin+Sans:wght@400;600;700',
-  raleway:    'Raleway:wght@400;500;600;700',
-  bebas:      'Bebas+Neue',
-  montserrat: 'Montserrat:wght@400;500;600;700',
-  oswald:     'Oswald:wght@400;500;600',
-};
+type FieldType =
+  | 'text' | 'textarea' | 'toggle' | 'select' | 'image' | 'color'
+  | 'range' | 'image-array' | 'social-links' | 'policy-list' | 'tag-list'
+  | 'beforeafter-pairs';
 
-function injectFonts(headingFont: string, bodyFont: string) {
-  const ids = Array.from(new Set([headingFont, bodyFont])).filter(f => GOOGLE_FONT_IDS[f]);
-  if (!ids.length) return;
-  document.getElementById('booking-gfonts')?.remove();
-  const link = document.createElement('link');
-  link.id   = 'booking-gfonts';
-  link.rel  = 'stylesheet';
-  link.href = `https://fonts.googleapis.com/css2?${ids.map(id => `family=${GOOGLE_FONT_IDS[id]}`).join('&')}&display=swap`;
-  document.head.appendChild(link);
+interface SectionField {
+  k: string;
+  t: FieldType;
+  l: string;
+  d: any;
+  opts?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
-// ─── Style helpers ────────────────────────────────────────────────────────────
-interface StyleConfig {
+interface SectionLayoutOption {
+  id: string;
+  label: string;
+  preview: string;
+}
+
+interface SectionDef {
+  label: string;
+  icon: React.ElementType;
+  color: string;
+  fields: SectionField[];
+  layouts?: SectionLayoutOption[];
+}
+
+interface PolicyItem {
+  id: string;
+  icon: string;
+  title: string;
+  body: string;
+}
+
+interface SocialLink {
+  platform: string;
+  url: string;
+}
+
+interface GalleryImage {
+  id: string;
+  url: string;
+  caption?: string;
+  category?: string;
+}
+
+interface BeforeAfterPair {
+  id: string;
+  beforeUrl: string;
+  afterUrl: string;
+  caption?: string;
+}
+
+// ─── Google Fonts loader ──────────────────────────────────────────────────────
+const GOOGLE_FONTS_HREF =
+  'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&' +
+  'family=Playfair+Display:wght@400;700&' +
+  'family=Lora:wght@400;600&' +
+  'family=Merriweather:wght@300;400;700&' +
+  'family=EB+Garamond:wght@400;600&' +
+  'family=Libre+Baskerville:wght@400;700&' +
+  'family=DM+Serif+Display&' +
+  'family=Domine:wght@400;700&' +
+  'family=Space+Grotesk:wght@300;400;700&' +
+  'family=Josefin+Sans:wght@300;400;700&' +
+  'family=Raleway:wght@300;400;700&' +
+  'family=Montserrat:wght@300;400;700&' +
+  'family=Nunito:wght@300;400;700&' +
+  'family=Poppins:wght@300;400;700&' +
+  'family=Outfit:wght@300;400;700&' +
+  'family=DM+Sans:wght@300;400;700&' +
+  'family=Inter:wght@300;400;700&' +
+  'family=Figtree:wght@300;400;700&' +
+  'family=Bebas+Neue&' +
+  'family=Oswald:wght@300;400;700&' +
+  'family=Anton&' +
+  'family=Righteous&' +
+  'family=Abril+Fatface&' +
+  'family=Pacifico&' +
+  'family=Dancing+Script:wght@400;700&' +
+  'family=Great+Vibes&' +
+  'family=JetBrains+Mono:wght@400;700&' +
+  'family=Space+Mono:wght@400;700&' +
+  'display=swap';
+
+function useGoogleFonts() {
+  useEffect(() => {
+    if (document.getElementById('pb-google-fonts')) return;
+    const pre = document.createElement('link');
+    pre.rel = 'preconnect';
+    pre.href = 'https://fonts.googleapis.com';
+    document.head.appendChild(pre);
+    const pre2 = document.createElement('link');
+    pre2.rel = 'preconnect';
+    pre2.href = 'https://fonts.gstatic.com';
+    pre2.crossOrigin = 'anonymous';
+    document.head.appendChild(pre2);
+    const link = document.createElement('link');
+    link.id = 'pb-google-fonts';
+    link.rel = 'stylesheet';
+    link.href = GOOGLE_FONTS_HREF;
+    document.head.appendChild(link);
+  }, []);
+}
+
+// ─── Font library ─────────────────────────────────────────────────────────────
+const FONTS = [
+  { id: 'cormorant',    label: 'Cormorant Garamond', stack: "'Cormorant Garamond', Georgia, serif",           desc: 'Luxury serif',     group: 'Serif'   },
+  { id: 'playfair',     label: 'Playfair Display',   stack: "'Playfair Display', Georgia, serif",             desc: 'Editorial serif',  group: 'Serif'   },
+  { id: 'lora',         label: 'Lora',               stack: "'Lora', Georgia, serif",                         desc: 'Elegant serif',    group: 'Serif'   },
+  { id: 'merriweather', label: 'Merriweather',        stack: "'Merriweather', Georgia, serif",                 desc: 'Classic serif',    group: 'Serif'   },
+  { id: 'eb-garamond',  label: 'EB Garamond',         stack: "'EB Garamond', Georgia, serif",                  desc: 'Old-style',        group: 'Serif'   },
+  { id: 'libre-bask',   label: 'Libre Baskerville',  stack: "'Libre Baskerville', Georgia, serif",             desc: 'Traditional',      group: 'Serif'   },
+  { id: 'dm-serif',     label: 'DM Serif Display',   stack: "'DM Serif Display', Georgia, serif",              desc: 'Modern serif',     group: 'Serif'   },
+  { id: 'domine',       label: 'Domine',             stack: "'Domine', Georgia, serif",                        desc: 'Humanist serif',   group: 'Serif'   },
+  { id: 'space',        label: 'Space Grotesk',      stack: "'Space Grotesk', system-ui, sans-serif",          desc: 'Modern sans',      group: 'Sans'    },
+  { id: 'josefin',      label: 'Josefin Sans',       stack: "'Josefin Sans', system-ui, sans-serif",           desc: 'Geometric sans',   group: 'Sans'    },
+  { id: 'raleway',      label: 'Raleway',            stack: "'Raleway', system-ui, sans-serif",                desc: 'Elegant sans',     group: 'Sans'    },
+  { id: 'montserrat',   label: 'Montserrat',         stack: "'Montserrat', system-ui, sans-serif",              desc: 'Clean sans',       group: 'Sans'    },
+  { id: 'nunito',       label: 'Nunito',             stack: "'Nunito', system-ui, sans-serif",                  desc: 'Friendly rounded', group: 'Sans'    },
+  { id: 'poppins',      label: 'Poppins',            stack: "'Poppins', system-ui, sans-serif",                 desc: 'Geometric clean',  group: 'Sans'    },
+  { id: 'outfit',       label: 'Outfit',             stack: "'Outfit', system-ui, sans-serif",                  desc: 'Minimalist sans',  group: 'Sans'    },
+  { id: 'dm-sans',      label: 'DM Sans',            stack: "'DM Sans', system-ui, sans-serif",                 desc: 'Neutral sans',     group: 'Sans'    },
+  { id: 'inter',        label: 'Inter',              stack: "'Inter', system-ui, sans-serif",                   desc: 'UI-optimized',     group: 'Sans'    },
+  { id: 'figtree',      label: 'Figtree',            stack: "'Figtree', system-ui, sans-serif",                 desc: 'Contemporary',     group: 'Sans'    },
+  { id: 'bebas',        label: 'Bebas Neue',         stack: "'Bebas Neue', Impact, sans-serif",                 desc: 'Bold display',     group: 'Display' },
+  { id: 'oswald',       label: 'Oswald',             stack: "'Oswald', system-ui, sans-serif",                  desc: 'Condensed bold',   group: 'Display' },
+  { id: 'anton',        label: 'Anton',              stack: "'Anton', Impact, sans-serif",                       desc: 'Heavy impact',     group: 'Display' },
+  { id: 'righteous',    label: 'Righteous',          stack: "'Righteous', system-ui, sans-serif",                desc: 'Bold retro',       group: 'Display' },
+  { id: 'abril',        label: 'Abril Fatface',      stack: "'Abril Fatface', Georgia, serif",                   desc: 'Fat display',      group: 'Display' },
+  { id: 'pacifico',     label: 'Pacifico',           stack: "'Pacifico', cursive",                               desc: 'Casual script',    group: 'Display' },
+  { id: 'dancing',      label: 'Dancing Script',     stack: "'Dancing Script', cursive",                         desc: 'Elegant script',   group: 'Display' },
+  { id: 'great-vibes',  label: 'Great Vibes',        stack: "'Great Vibes', cursive",                            desc: 'Luxury script',    group: 'Display' },
+  { id: 'jetbrains',    label: 'JetBrains Mono',     stack: "'JetBrains Mono', 'Courier New', monospace",        desc: 'Developer mono',   group: 'Mono'    },
+  { id: 'space-mono',   label: 'Space Mono',         stack: "'Space Mono', 'Courier New', monospace",             desc: 'Techy mono',       group: 'Mono'    },
+  { id: 'system',       label: 'System UI',          stack: 'system-ui, sans-serif',                              desc: 'Default clean',    group: 'System'  },
+  { id: 'georgia',      label: 'Georgia',            stack: 'Georgia, serif',                                     desc: 'Classic system',   group: 'System'  },
+];
+
+const FONT_GROUPS = ['Serif', 'Sans', 'Display', 'Mono', 'System'];
+
+// ─── Brand kits ───────────────────────────────────────────────────────────────
+const BRAND_KITS = [
+  { id: 'champagne', label: 'Champagne', accentColor: '#8b6914', bgColor: '#f8f4ef', headingFont: 'cormorant',    bodyFont: 'raleway',      borderRadius: 8,  desc: 'Warm luxury'    },
+  { id: 'midnight',  label: 'Midnight',  accentColor: '#534AB7', bgColor: '#0b0b0b', headingFont: 'playfair',     bodyFont: 'dm-sans',      borderRadius: 4,  desc: 'Dark editorial' },
+  { id: 'blush',     label: 'Blush',     accentColor: '#c4718a', bgColor: '#fff5f7', headingFont: 'dancing',      bodyFont: 'nunito',       borderRadius: 16, desc: 'Soft feminine'  },
+  { id: 'sage',      label: 'Sage',      accentColor: '#0F6E56', bgColor: '#f0f8f4', headingFont: 'dm-serif',     bodyFont: 'poppins',      borderRadius: 12, desc: 'Natural calm'   },
+  { id: 'slate',     label: 'Slate',     accentColor: '#334155', bgColor: '#ffffff', headingFont: 'josefin',      bodyFont: 'inter',        borderRadius: 6,  desc: 'Clean minimal'  },
+  { id: 'coral',     label: 'Coral',     accentColor: '#A32D2D', bgColor: '#fafafa', headingFont: 'abril',        bodyFont: 'montserrat',   borderRadius: 4,  desc: 'Bold & warm'    },
+  { id: 'lavender',  label: 'Lavender',  accentColor: '#7c3aed', bgColor: '#faf8ff', headingFont: 'playfair',     bodyFont: 'outfit',       borderRadius: 14, desc: 'Modern luxe'    },
+  { id: 'espresso',  label: 'Espresso',  accentColor: '#854F0B', bgColor: '#f5f0eb', headingFont: 'merriweather', bodyFont: 'lora',         borderRadius: 6,  desc: 'Rich warmth'    },
+  { id: 'electric',  label: 'Electric',  accentColor: '#185FA5', bgColor: '#ffffff', headingFont: 'bebas',        bodyFont: 'figtree',      borderRadius: 3,  desc: 'Bold modern'    },
+  { id: 'forest',    label: 'Forest',    accentColor: '#3B6D11', bgColor: '#f4f7f0', headingFont: 'eb-garamond',  bodyFont: 'dm-sans',      borderRadius: 10, desc: 'Earthy organic' },
+  { id: 'noir',      label: 'Noir',      accentColor: '#c9a84c', bgColor: '#111111', headingFont: 'cormorant',    bodyFont: 'space',        borderRadius: 2,  desc: 'Gold on black'  },
+  { id: 'bubbly',    label: 'Bubbly',    accentColor: '#c4718a', bgColor: '#fff5f7', headingFont: 'righteous',    bodyFont: 'nunito',       borderRadius: 24, desc: 'Fun & playful'  },
+];
+
+// ─── Social platforms ─────────────────────────────────────────────────────────
+const SOCIAL_PLATFORMS = [
+  { id: 'instagram', label: 'Instagram',  icon: Instagram,     placeholder: 'https://instagram.com/yourstudio',  color: '#E1306C' },
+  { id: 'facebook',  label: 'Facebook',   icon: Facebook,      placeholder: 'https://facebook.com/yourstudio',   color: '#1877F2' },
+  { id: 'tiktok',    label: 'TikTok',     icon: Music2,        placeholder: 'https://tiktok.com/@yourstudio',    color: '#000000' },
+  { id: 'youtube',   label: 'YouTube',    icon: Youtube,       placeholder: 'https://youtube.com/@yourstudio',   color: '#FF0000' },
+  { id: 'twitter',   label: 'X / Twitter', icon: Twitter,      placeholder: 'https://x.com/yourstudio',          color: '#000000' },
+  { id: 'pinterest', label: 'Pinterest',  icon: Hash,          placeholder: 'https://pinterest.com/yourstudio',  color: '#E60023' },
+  { id: 'linkedin',  label: 'LinkedIn',   icon: Linkedin,      placeholder: 'https://linkedin.com/company/yourstudio', color: '#0A66C2' },
+  { id: 'threads',   label: 'Threads',    icon: AtSign,        placeholder: 'https://threads.net/@yourstudio',   color: '#000000' },
+  { id: 'website',   label: 'Website',    icon: Globe,         placeholder: 'https://yourstudio.com',            color: '#334155' },
+];
+
+// ─── Policy icons ─────────────────────────────────────────────────────────────
+const POLICY_ICONS = [
+  { id: 'shield',       icon: Shield,        label: 'Shield'   },
+  { id: 'shield-check', icon: ShieldCheck,   label: 'Check'    },
+  { id: 'clock',        icon: Clock,         label: 'Clock'    },
+  { id: 'clock3',       icon: Clock3,        label: 'Alarm'    },
+  { id: 'alert',        icon: AlertTriangle, label: 'Warning'  },
+  { id: 'ban',          icon: Ban,           label: 'No'       },
+  { id: 'credit',       icon: CreditCard,    label: 'Payment'  },
+  { id: 'heart',        icon: Heart,         label: 'Heart'    },
+  { id: 'badge',        icon: BadgeCheck,    label: 'Badge'    },
+  { id: 'info',         icon: Info,          label: 'Info'     },
+  { id: 'zap',          icon: Zap,           label: 'Zap'      },
+  { id: 'leaf',         icon: Leaf,          label: 'Leaf'     },
+  { id: 'coffee',       icon: Coffee,        label: 'Care'     },
+  { id: 'flame',        icon: Flame,         label: 'Hot'      },
+  { id: 'phone',        icon: Phone,         label: 'Phone'    },
+  { id: 'mail',         icon: Mail,          label: 'Mail'     },
+];
+
+// ─── Section definitions ──────────────────────────────────────────────────────
+const SECTION_DEFS: Record<SectionType, SectionDef> = {
+  nav: {
+    label: 'Navigation', icon: Navigation, color: '#3B6D11',
+    fields: [
+      { k: 'logoUrl',     t: 'image',        l: 'Logo image',           d: ''          },
+      { k: 'logoText',    t: 'text',         l: 'Studio name',          d: 'Opal'      },
+      { k: 'ctaText',     t: 'text',         l: 'Button label',         d: 'Book Now'  },
+      { k: 'ctaAction',   t: 'select',       l: 'Button action',        d: 'booking',  opts: ['booking', 'scroll-services', 'scroll-contact', 'url'] },
+      { k: 'ctaUrl',      t: 'text',         l: 'Custom URL (if url)',  d: ''          },
+      { k: 'showLinks',   t: 'toggle',       l: 'Show nav links',       d: true        },
+      { k: 'sticky',      t: 'toggle',       l: 'Sticky nav',           d: true        },
+      { k: 'transparent', t: 'toggle',       l: 'Transparent on hero',  d: false       },
+      { k: 'socialLinks', t: 'social-links', l: 'Social links',         d: []          },
+    ],
+    layouts: [
+      { id: 'centered',  label: 'Centered',      preview: '[ logo | links | cta ]'        },
+      { id: 'split',     label: 'Logo left',     preview: '[ logo ] ──── [ links | cta ]' },
+      { id: 'minimal',   label: 'Minimal',       preview: '[ logo ] ─────────── [ cta ]'  },
+      { id: 'logo-top',  label: 'Logo stacked',  preview: '[ logo ]\n[ links | cta ]'     },
+    ],
+  },
+  hero: {
+    label: 'Hero', icon: ImageIcon, color: '#534AB7',
+    fields: [
+      { k: 'bgImage',          t: 'image',    l: 'Background image',        d: ''                },
+      { k: 'heroImage',        t: 'image',    l: 'Feature image (split)',    d: ''                },
+      { k: 'overlayOpacity',   t: 'range',    l: 'Overlay opacity',          d: 40, min: 0, max: 90, step: 5 },
+      { k: 'headline',         t: 'text',     l: 'Headline',                d: 'Book Your Experience' },
+      { k: 'subheadline',      t: 'textarea', l: 'Subheadline',             d: 'A sanctuary of craft, curated for those who appreciate the details.' },
+      { k: 'ctaText',          t: 'text',     l: 'Primary button',          d: 'Book a Session'  },
+      { k: 'ctaAction',        t: 'select',   l: 'Primary action',          d: 'booking',  opts: ['booking', 'scroll-services', 'url'] },
+      { k: 'showWalkIn',       t: 'toggle',   l: 'Show walk-in button',     d: true              },
+      { k: 'cta2Text',         t: 'text',     l: 'Walk-in button label',    d: 'Walk In Today'   },
+      { k: 'cta2Action',       t: 'select',   l: 'Walk-in action',          d: 'scroll-contact', opts: ['booking', 'scroll-contact', 'scroll-services', 'url'] },
+      { k: 'videoUrl',         t: 'text',     l: 'Background video URL',    d: ''                },
+      { k: 'showBadge',        t: 'toggle',   l: 'Show trust badge',        d: false             },
+      { k: 'badgeText',        t: 'text',     l: 'Badge text',              d: '⭐ 4.9 · 500+ clients' },
+    ],
+    layouts: [
+      { id: 'centered',  label: 'Centered',   preview: '[ bg image ]\n  headline\n  cta'      },
+      { id: 'split',     label: 'Split',      preview: '[ text | image ]'                     },
+      { id: 'fullbleed', label: 'Full bleed', preview: '[ full bg · text overlay ]'           },
+      { id: 'minimal',   label: 'Minimal',    preview: '[ white bg · centered text ]'         },
+      { id: 'cinematic', label: 'Cinematic',  preview: '[ video/tall bg · bottom text ]'      },
+      { id: 'magazine',  label: 'Magazine',   preview: '[ large text left · image right ]'    },
+    ],
+  },
+  trust: {
+    label: 'Trust Strip', icon: Award, color: '#854F0B',
+    fields: [
+      { k: 'stat1l',      t: 'text',   l: 'Stat 1 label',               d: 'Happy clients' },
+      { k: 'stat1v',      t: 'text',   l: 'Stat 1 value',               d: '500+'          },
+      { k: 'stat2l',      t: 'text',   l: 'Stat 2 label',               d: 'Avg rating'    },
+      { k: 'stat2v',      t: 'text',   l: 'Stat 2 value',               d: '4.9'           },
+      { k: 'stat3l',      t: 'text',   l: 'Stat 3 label',               d: 'Years open'    },
+      { k: 'stat3v',      t: 'text',   l: 'Stat 3 value',               d: '6'             },
+      { k: 'stat4l',      t: 'text',   l: 'Stat 4 label',               d: 'Services'      },
+      { k: 'stat4v',      t: 'text',   l: 'Stat 4 value',               d: '20+'           },
+      { k: 'animate',     t: 'toggle', l: 'Animate counters on scroll', d: true            },
+      { k: 'showDividers', t: 'toggle', l: 'Show dividers',             d: true            },
+    ],
+    layouts: [
+      { id: 'strip',    label: 'Horizontal strip',  preview: '[ stat | stat | stat | stat ]'  },
+      { id: 'cards',    label: 'Stat cards',        preview: '┌──┐┌──┐┌──┐┌──┐'              },
+      { id: 'centered', label: 'Centered large',    preview: '   stat   stat   stat   '       },
+      { id: 'banner',   label: 'Dark banner',       preview: '▓▓▓[ stat | stat | stat ]▓▓▓'  },
+      { id: 'ticker',   label: 'Scrolling ticker',  preview: '→ stat · stat · stat · →'      },
+    ],
+  },
+  services: {
+    label: 'Services', icon: Scissors, color: '#185FA5',
+    fields: [
+      { k: 'heading',      t: 'text',   l: 'Section heading',    d: 'Our Services'                           },
+      { k: 'subheading',   t: 'text',   l: 'Subheading',         d: 'Handcrafted treatments for every occasion' },
+      { k: 'ctaText',      t: 'text',   l: 'Book button text',   d: 'Book this service'                      },
+      { k: 'ctaAction',    t: 'select', l: 'Button action',      d: 'booking', opts: ['booking', 'url']      },
+      { k: 'columns',      t: 'select', l: 'Columns',            d: '2', opts: ['1', '2', '3']               },
+      { k: 'showPrices',   t: 'toggle', l: 'Show prices',        d: true                                     },
+      { k: 'showDuration', t: 'toggle', l: 'Show duration',      d: true                                     },
+      { k: 'showFilters',  t: 'toggle', l: 'Category filter',    d: false                                    },
+      { k: 'showDesc',     t: 'toggle', l: 'Show descriptions',  d: true                                     },
+      { k: 'showImages',   t: 'toggle', l: 'Show service images', d: false                                   },
+      { k: 'hoverEffect',  t: 'toggle', l: 'Hover lift effect',  d: true                                     },
+    ],
+    layouts: [
+      { id: 'cards',     label: 'Cards',         preview: '┌────┐ ┌────┐\n│svc │ │svc │'    },
+      { id: 'list',      label: 'List',          preview: '── Service · duration · price ──' },
+      { id: 'magazine',  label: 'Magazine',      preview: '[ large img | text + price ]'     },
+      { id: 'grid',      label: 'Compact grid',  preview: '┌──┬──┬──┐\n│  │  │  │'         },
+      { id: 'accordion', label: 'Accordion',     preview: '▶ Service category\n  · item'     },
+      { id: 'featured',  label: 'Featured',      preview: '[ hero service ]\n[ other · other ]' },
+    ],
+  },
+  team: {
+    label: 'Team', icon: Users, color: '#0F6E56',
+    fields: [
+      { k: 'heading',         t: 'text',   l: 'Section heading',     d: 'The Artists'              },
+      { k: 'subheading',      t: 'text',   l: 'Subheading',          d: 'Expert hands for every style' },
+      { k: 'showBio',         t: 'toggle', l: 'Show bio',            d: false },
+      { k: 'showSpecialties', t: 'toggle', l: 'Show specialties',    d: true  },
+      { k: 'showBookButton',  t: 'toggle', l: 'Book per artist',     d: false },
+      { k: 'bookCta',         t: 'text',   l: 'Book button text',    d: 'Book with me'  },
+      { k: 'bookAction',      t: 'select', l: 'Book action',         d: 'booking', opts: ['booking', 'url'] },
+      { k: 'hoverReveal',     t: 'toggle', l: 'Hover reveal bio',    d: true  },
+    ],
+    layouts: [
+      { id: 'circles',   label: 'Circle avatars',  preview: '  ◯   ◯   ◯\n name name name'     },
+      { id: 'editorial', label: 'Editorial cards', preview: '┌────┐ ┌────┐\n│img │ │img │'      },
+      { id: 'row',       label: 'Horizontal row',  preview: '[ ◯ name ][ ◯ name ][ ◯ name ]'   },
+      { id: 'grid',      label: 'Grid',            preview: '┌──┬──┬──┐\n│  │  │  │'           },
+      { id: 'featured',  label: 'Featured artist', preview: '[ large lead ]\n◯ ◯ ◯ team'        },
+      { id: 'minimal',   label: 'Minimal list',    preview: '— Name · Title\n— Name · Title'    },
+    ],
+  },
+  reviews: {
+    label: 'Reviews', icon: Star, color: '#993556',
+    fields: [
+      { k: 'heading',     t: 'text',   l: 'Section heading',      d: 'What Clients Say'           },
+      { k: 'subheading',  t: 'text',   l: 'Subheading',           d: 'Real words from real guests' },
+      { k: 'showRating',  t: 'toggle', l: 'Show star ratings',    d: true  },
+      { k: 'showPhotos',  t: 'toggle', l: 'Show client photos',   d: true  },
+      { k: 'autoScroll',  t: 'toggle', l: 'Auto-scroll carousel', d: false },
+      { k: 'scrollSpeed', t: 'range',  l: 'Scroll speed (s)',     d: 4, min: 2, max: 10, step: 1 },
+    ],
+    layouts: [
+      { id: 'grid',     label: 'Grid',         preview: '┌────┐ ┌────┐\n│ ★★★│ │ ★★★│' },
+      { id: 'masonry',  label: 'Masonry',      preview: '┌──┐ ┌────┐\n│  │ │    │'     },
+      { id: 'carousel', label: 'Carousel',     preview: '← [ review ] →'               },
+      { id: 'quotes',   label: 'Large quotes', preview: '" quote text "'               },
+      { id: 'ticker',   label: 'Auto-scroll',  preview: '→ review · review · →'        },
+      { id: 'featured', label: 'Featured',     preview: '[ big quote ]\n[ ★ ★ ★ small ]' },
+    ],
+  },
+  gallery: {
+    label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7',
+    fields: [
+      { k: 'heading',      t: 'text',        l: 'Section heading',   d: 'Our Work'            },
+      { k: 'subheading',   t: 'text',        l: 'Subheading',        d: 'Every set, a canvas' },
+      { k: 'images',       t: 'image-array', l: 'Gallery images',    d: []                    },
+      { k: 'showFilters',  t: 'toggle',      l: 'Style filter tabs', d: true                  },
+      { k: 'showCaptions', t: 'toggle',      l: 'Show captions',     d: false                 },
+      { k: 'lightbox',     t: 'toggle',      l: 'Lightbox on click', d: true                  },
+      { k: 'hoverEffect',  t: 'select',      l: 'Hover effect',      d: 'zoom', opts: ['zoom', 'fade', 'slide-up', 'none'] },
+      { k: 'columns',      t: 'select',      l: 'Columns',           d: '3', opts: ['2', '3', '4'] },
+    ],
+    layouts: [
+      { id: 'masonry',   label: 'Masonry',            preview: '┌──┐ ┌────┐\n│  │ │    │\n└──┘ └─┐  │' },
+      { id: 'grid',      label: 'Uniform grid',       preview: '┌──┬──┬──┐\n│  │  │  │'              },
+      { id: 'carousel',  label: 'Carousel',           preview: '← [ img ] →'                          },
+      { id: 'editorial', label: 'Editorial',          preview: '[ large ][ sm ]\n[ sm ][ large ]'      },
+      { id: 'fullwidth', label: 'Full-width scroll',  preview: '← scroll · img · img · img →'         },
+      { id: 'mosaic',    label: 'Mosaic',             preview: '┌────┬──┐\n│    │  │\n├──┬─┴──┤'     },
+    ],
+  },
+  beforeafter: {
+    label: 'Before / After', icon: RotateCcw, color: '#0F6E56',
+    fields: [
+      { k: 'heading',     t: 'text',              l: 'Section heading',        d: 'Transformations'            },
+      { k: 'subheading',  t: 'text',              l: 'Subheading',             d: 'See the difference we make' },
+      { k: 'pairs',       t: 'beforeafter-pairs', l: 'Before / After pairs',   d: []                          },
+      { k: 'sliderColor', t: 'color',             l: 'Slider handle color',    d: '#8b6914'                   },
+      { k: 'autoPlay',    t: 'toggle',            l: 'Auto-reveal on scroll',  d: true                        },
+      { k: 'showLabels',  t: 'toggle',            l: 'Show Before/After labels', d: true                      },
+    ],
+    layouts: [
+      { id: 'slider',   label: 'Drag slider',    preview: '[ before ←→ after ]'   },
+      { id: 'side',     label: 'Side by side',   preview: '[ before ] [ after ]'   },
+      { id: 'stack',    label: 'Stacked hover',  preview: '[ hover to reveal ]'    },
+      { id: 'carousel', label: 'Carousel pairs', preview: '← [ B/A pair ] →'      },
+    ],
+  },
+  memberships: {
+    label: 'Memberships', icon: Crown, color: '#534AB7',
+    fields: [
+      { k: 'heading',     t: 'text',   l: 'Section heading',   d: 'Join the Club'                   },
+      { k: 'subheading',  t: 'text',   l: 'Subheading',        d: 'Exclusive perks for loyal guests' },
+      { k: 'ctaText',     t: 'text',   l: 'Button text',       d: 'Get started'                     },
+      { k: 'ctaAction',   t: 'select', l: 'Button action',     d: 'booking', opts: ['booking', 'url'] },
+      { k: 'showSavings', t: 'toggle', l: 'Highlight savings', d: true                              },
+      { k: 'showBadge',   t: 'toggle', l: 'Show popular badge', d: true                             },
+    ],
+    layouts: [
+      { id: 'cards',    label: 'Pricing cards', preview: '┌────┐ ┌────┐ ┌────┐'  },
+      { id: 'table',    label: 'Feature table', preview: '| ✓  | ✓  | ✓  |'      },
+      { id: 'minimal',  label: 'Minimal list',  preview: '── Tier · price ──'     },
+      { id: 'featured', label: 'Featured tier', preview: '[ best ] [sm] [sm]'     },
+    ],
+  },
+  packages: {
+    label: 'Packages', icon: Package, color: '#185FA5',
+    fields: [
+      { k: 'heading',     t: 'text',   l: 'Section heading', d: 'Prepaid Sessions'    },
+      { k: 'subheading',  t: 'text',   l: 'Subheading',      d: 'Buy more, save more' },
+      { k: 'ctaText',     t: 'text',   l: 'Button text',     d: 'Buy package'         },
+      { k: 'ctaAction',   t: 'select', l: 'Button action',   d: 'booking', opts: ['booking', 'url'] },
+      { k: 'showExpiry',  t: 'toggle', l: 'Show expiry',     d: true                  },
+      { k: 'showSavings', t: 'toggle', l: 'Show savings %',  d: true                  },
+    ],
+    layouts: [
+      { id: 'cards',    label: 'Cards',    preview: '┌────┐ ┌────┐'         },
+      { id: 'list',     label: 'List',     preview: '── 5-pack · $xxx ──'   },
+      { id: 'featured', label: 'Featured', preview: '[ best deal ] [ sm ]'  },
+    ],
+  },
+  giftcards: {
+    label: 'Gift Cards', icon: Gift, color: '#993556',
+    fields: [
+      { k: 'heading',    t: 'text',   l: 'Section heading',         d: 'Give the Gift of Beauty'             },
+      { k: 'subheading', t: 'text',   l: 'Subheading',              d: 'For birthdays, holidays, or just because' },
+      { k: 'bgImage',    t: 'image',  l: 'Background / card image', d: ''                                    },
+      { k: 'ctaText',    t: 'text',   l: 'Button text',             d: 'Send a Gift Card'                    },
+      { k: 'ctaAction',  t: 'select', l: 'Button action',           d: 'booking', opts: ['booking', 'url']   },
+      { k: 'amounts',    t: 'text',   l: 'Preset amounts (comma-sep)', d: '25,50,75,100'                     },
+    ],
+    layouts: [
+      { id: 'hero',    label: 'Hero style',   preview: '[ bg image | text + cta ]'  },
+      { id: 'card',    label: 'Card preview', preview: '┌─gift card design─┐'       },
+      { id: 'minimal', label: 'Minimal',      preview: '[ amounts ] [buy]'          },
+    ],
+  },
+  quote: {
+    label: 'Quote Request', icon: FileText, color: '#3B6D11',
+    fields: [
+      { k: 'heading',    t: 'text',     l: 'Heading',           d: 'Need Something Bigger?'                 },
+      { k: 'subheading', t: 'textarea', l: 'Description',       d: 'Planning a wedding, bridal party, or corporate event? We craft bespoke experiences.' },
+      { k: 'ctaText',    t: 'text',     l: 'Button text',       d: 'Request a Quote'                        },
+      { k: 'ctaAction',  t: 'select',   l: 'Button action',     d: 'booking', opts: ['booking', 'url']      },
+      { k: 'bgImage',    t: 'image',    l: 'Background image',  d: ''                                       },
+      { k: 'tags',       t: 'tag-list', l: 'Event types',       d: ['Bridal Parties', 'Corporate Events', 'Destination Services'] },
+    ],
+    layouts: [
+      { id: 'split',    label: 'Split',       preview: '[ text | form ]'     },
+      { id: 'centered', label: 'Centered',    preview: '  heading\n  tags\n  [cta]' },
+      { id: 'banner',   label: 'Dark banner', preview: '▓▓▓[ text · cta ]▓▓▓' },
+    ],
+  },
+  newclient: {
+    label: 'New Client Offer', icon: Sparkles, color: '#854F0B',
+    fields: [
+      { k: 'heading',   t: 'text',   l: 'Heading',          d: 'First Visit Special'            },
+      { k: 'offerText', t: 'text',   l: 'Offer description', d: '20% off your first appointment' },
+      { k: 'finePrint', t: 'text',   l: 'Fine print',        d: 'Valid for new clients only.'    },
+      { k: 'ctaText',   t: 'text',   l: 'Button text',       d: 'Claim Offer'                   },
+      { k: 'ctaAction', t: 'select', l: 'Button action',     d: 'booking', opts: ['booking', 'url'] },
+      { k: 'bgImage',   t: 'image',  l: 'Background image',  d: ''                              },
+      { k: 'expiryText', t: 'text',  l: 'Expiry text',       d: 'Limited time only'             },
+      { k: 'showTimer', t: 'toggle', l: 'Show countdown',    d: false                           },
+    ],
+    layouts: [
+      { id: 'banner',    label: 'Banner',     preview: '[ offer · highlight · cta ]'       },
+      { id: 'card',      label: 'Offer card', preview: '┌──────────────┐\n│  offer card  │' },
+      { id: 'fullbleed', label: 'Full bleed', preview: '[ bg img · overlay · text ]'       },
+      { id: 'popup',     label: 'Callout',    preview: '⚡ banner across top'              },
+    ],
+  },
+  faq: {
+    label: 'FAQ', icon: HelpCircle, color: '#185FA5',
+    fields: [
+      { k: 'heading', t: 'text',     l: 'Section heading', d: 'Common Questions' },
+      { k: 'q1',      t: 'text',     l: 'Question 1',      d: 'How do I book an appointment?' },
+      { k: 'a1',      t: 'textarea', l: 'Answer 1',        d: 'Use the Book Now button above or select any service to get started.' },
+      { k: 'q2',      t: 'text',     l: 'Question 2',      d: 'What is your cancellation policy?' },
+      { k: 'a2',      t: 'textarea', l: 'Answer 2',        d: 'We require 24 hours notice to avoid a cancellation fee.' },
+      { k: 'q3',      t: 'text',     l: 'Question 3',      d: 'Do you accept walk-ins?' },
+      { k: 'a3',      t: 'textarea', l: 'Answer 3',        d: 'Yes! Walk-ins welcome based on availability.' },
+      { k: 'q4',      t: 'text',     l: 'Question 4',      d: 'Do you offer gift cards?' },
+      { k: 'a4',      t: 'textarea', l: 'Answer 4',        d: 'Absolutely — gift cards available in any amount.' },
+      { k: 'q5',      t: 'text',     l: 'Question 5 (optional)', d: '' },
+      { k: 'a5',      t: 'textarea', l: 'Answer 5',        d: '' },
+      { k: 'q6',      t: 'text',     l: 'Question 6 (optional)', d: '' },
+      { k: 'a6',      t: 'textarea', l: 'Answer 6',        d: '' },
+    ],
+    layouts: [
+      { id: 'accordion', label: 'Accordion',    preview: '▶ Question 1\n▶ Question 2'  },
+      { id: 'two-col',   label: 'Two columns',  preview: '┌──┬──┐\n│Q │Q │'           },
+      { id: 'cards',     label: 'Cards',        preview: '┌────┐ ┌────┐'               },
+      { id: 'minimal',   label: 'Minimal list', preview: 'Q · A\nQ · A'                },
+    ],
+  },
+  policies: {
+    label: 'Policies', icon: Shield, color: '#0F6E56',
+    fields: [
+      { k: 'heading',    t: 'text',        l: 'Section heading', d: 'Our Policies' },
+      { k: 'subheading', t: 'text',        l: 'Subheading',      d: ''             },
+      { k: 'policies',   t: 'policy-list', l: 'Policy items',    d: [
+          { id: 'p1', icon: 'clock',  title: 'Cancellation', body: 'Please provide 24 hours notice for all cancellations.' },
+          { id: 'p2', icon: 'clock3', title: 'Late Arrival',  body: 'Arrivals 15+ minutes late may need to reschedule.' },
+          { id: 'p3', icon: 'ban',    title: 'No-Shows',      body: 'No-shows may be required to prepay future bookings.' },
+        ],
+      },
+    ],
+    layouts: [
+      { id: 'cards',   label: 'Icon cards',    preview: '┌──┐ ┌──┐ ┌──┐\n│🛡│ │🕐│ │⛔│' },
+      { id: 'list',    label: 'Icon list',     preview: '🛡 Cancellation\n🕐 Late arrival'  },
+      { id: 'table',   label: 'Compact table', preview: '│policy │ details │'               },
+      { id: 'minimal', label: 'Minimal',       preview: 'Policy · details'                  },
+    ],
+  },
+  contact: {
+    label: 'Location & Contact', icon: MapPin, color: '#993556',
+    fields: [
+      { k: 'heading',     t: 'text',         l: 'Section heading', d: 'Find Us'                               },
+      { k: 'customHours', t: 'textarea',     l: 'Hours text',      d: 'Monday – Saturday: 9am – 7pm\nSunday: 10am – 5pm' },
+      { k: 'showMap',     t: 'toggle',       l: 'Show map embed',  d: true  },
+      { k: 'showHours',   t: 'toggle',       l: 'Show hours',      d: true  },
+      { k: 'showPhone',   t: 'toggle',       l: 'Show phone',      d: true  },
+      { k: 'showEmail',   t: 'toggle',       l: 'Show email',      d: true  },
+      { k: 'showSocial',  t: 'toggle',       l: 'Show social links', d: true },
+      { k: 'ctaText',     t: 'text',         l: 'Book CTA text',   d: 'Book an Appointment' },
+      { k: 'ctaAction',   t: 'select',       l: 'CTA action',      d: 'booking', opts: ['booking', 'url'] },
+      { k: 'socialLinks', t: 'social-links', l: 'Social links',    d: []    },
+    ],
+    layouts: [
+      { id: 'split-map', label: 'Map + info', preview: '[ map | hours · address ]' },
+      { id: 'stacked',   label: 'Stacked',    preview: '[ map ]\n[ details ]'      },
+      { id: 'cards',     label: 'Info cards', preview: '┌──┐┌──┐┌──┐'             },
+      { id: 'minimal',   label: 'Minimal',    preview: '  address · hours  '       },
+    ],
+  },
+  events: {
+    label: 'Events Calendar', icon: Calendar, color: '#854F0B',
+    fields: [
+      { k: 'heading',    t: 'text',   l: 'Section heading', d: 'Upcoming Events'                    },
+      { k: 'subheading', t: 'text',   l: 'Subheading',      d: 'Workshops, pop-ups & studio specials' },
+      { k: 'emptyText',  t: 'text',   l: 'When no events',  d: 'Check back soon for upcoming events!' },
+      { k: 'ctaText',    t: 'text',   l: 'RSVP button',     d: 'RSVP Now'                           },
+      { k: 'ctaAction',  t: 'select', l: 'RSVP action',     d: 'booking', opts: ['booking', 'url']  },
+    ],
+    layouts: [
+      { id: 'cards',    label: 'Event cards', preview: '┌────┐ ┌────┐'          },
+      { id: 'list',     label: 'List',        preview: '── date · event ──'     },
+      { id: 'calendar', label: 'Calendar',    preview: '┌su│mo│tu│we┐\n│  │  │  │  │' },
+    ],
+  },
+  referral: {
+    label: 'Referral Program', icon: Share2, color: '#185FA5',
+    fields: [
+      { k: 'heading',      t: 'text',   l: 'Section heading', d: 'Refer a Friend'                           },
+      { k: 'subheading',   t: 'text',   l: 'Description',     d: 'Share the love — give $15, get $15 toward your next visit' },
+      { k: 'rewardYou',    t: 'text',   l: 'Your reward',     d: '$15 credit'             },
+      { k: 'rewardFriend', t: 'text',   l: 'Friend reward',   d: '$15 off first visit'    },
+      { k: 'ctaText',      t: 'text',   l: 'Button text',     d: 'Get My Referral Link'   },
+      { k: 'ctaAction',    t: 'select', l: 'Button action',   d: 'booking', opts: ['booking', 'url'] },
+    ],
+    layouts: [
+      { id: 'split',    label: 'Split reward', preview: '[ you get | friend gets ]'   },
+      { id: 'centered', label: 'Centered',     preview: '  offer · [get link]  '     },
+      { id: 'banner',   label: 'Banner',       preview: '▓[ refer a friend · cta ]▓' },
+    ],
+  },
+  story: {
+    label: 'Studio Story', icon: BookOpen, color: '#3B6D11',
+    fields: [
+      { k: 'image',      t: 'image',    l: 'Section image',         d: ''                                  },
+      { k: 'heading',    t: 'text',     l: 'Section heading',       d: 'Our Story'                         },
+      { k: 'body',       t: 'textarea', l: 'Story text',            d: 'Opal was born from a belief that nail care is more than maintenance — it is a ritual of self-expression.' },
+      { k: 'ctaText',    t: 'text',     l: 'Button text',           d: 'Meet the team'                     },
+      { k: 'ctaAction',  t: 'select',   l: 'Button action',         d: 'scroll-team', opts: ['booking', 'scroll-team', 'url'] },
+      { k: 'pullQuote',  t: 'text',     l: 'Pull quote (optional)', d: ''                                  },
+    ],
+    layouts: [
+      { id: 'split',     label: 'Text + image', preview: '[ text | image ]'                 },
+      { id: 'centered',  label: 'Centered',     preview: '  heading\n  body\n  [cta]'       },
+      { id: 'editorial', label: 'Editorial',    preview: '[ large img ]\n[ quote ] [ text ]' },
+      { id: 'timeline',  label: 'Timeline',     preview: '2019 ── 2021 ── 2024'             },
+    ],
+  },
+  instagram: {
+    label: 'Instagram Feed', icon: Camera, color: '#993556',
+    fields: [
+      { k: 'heading',  t: 'text',        l: 'Section heading',             d: 'Follow Along'           },
+      { k: 'handle',   t: 'text',        l: 'Instagram handle',            d: '@opalmanicure'          },
+      { k: 'ctaText',  t: 'text',        l: 'Button text',                 d: 'Follow us on Instagram' },
+      { k: 'images',   t: 'image-array', l: 'Preview images (if no API)',  d: []                       },
+      { k: 'columns',  t: 'select',      l: 'Columns',                     d: '4', opts: ['3', '4', '6'] },
+    ],
+    layouts: [
+      { id: 'grid',    label: 'Square grid', preview: '┌──┬──┬──┬──┐'    },
+      { id: 'masonry', label: 'Masonry',     preview: '┌──┐ ┌────┐'      },
+      { id: 'banner',  label: 'Wide banner', preview: '← scroll row →'   },
+    ],
+  },
+  waitlist: {
+    label: 'Waitlist', icon: Clock, color: '#534AB7',
+    fields: [
+      { k: 'heading',    t: 'text',   l: 'Heading',     d: 'Fully Booked?'                                          },
+      { k: 'subheading', t: 'text',   l: 'Subheading',  d: "Join our waitlist and we'll notify you when a slot opens" },
+      { k: 'ctaText',    t: 'text',   l: 'Button text', d: 'Join Waitlist'                                          },
+      { k: 'ctaAction',  t: 'select', l: 'Action',      d: 'booking', opts: ['booking', 'url']                      },
+      { k: 'bgImage',    t: 'image',  l: 'Background image', d: ''                                                  },
+    ],
+    layouts: [
+      { id: 'banner',   label: 'Banner',   preview: '[ heading · form · cta ]'      },
+      { id: 'centered', label: 'Centered', preview: '  heading\n  [join]'            },
+      { id: 'card',     label: 'Card',     preview: '┌────────────┐\n│ join list  │' },
+    ],
+  },
+};
+
+const DEFAULT_ON: SectionType[] = ['nav', 'hero', 'services', 'team', 'quote'];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function buildDefaultSections(): PageSection[] {
+  return (Object.keys(SECTION_DEFS) as SectionType[]).map((key, i) => {
+    const cfg: Record<string, any> = {};
+    SECTION_DEFS[key].fields.forEach(f => { cfg[f.k] = f.d; });
+    cfg.layout = SECTION_DEFS[key].layouts?.[0]?.id ?? 'default';
+    const defIdx = DEFAULT_ON.indexOf(key);
+    return {
+      id:      key,
+      type:    key,
+      enabled: defIdx >= 0,
+      order:   defIdx >= 0 ? defIdx : DEFAULT_ON.length + i,
+      config:  cfg,
+    };
+  }).sort((a, b) => a.order - b.order);
+}
+
+function generateId() { return Math.random().toString(36).slice(2, 8); }
+
+/** Build CSS variable string from style config for consumption by booking dialogs / pages */
+export function buildThemeCssVars(style: {
   accentColor: string;
-  bgColor:     string;
+  bgColor: string;
   headingFont: string;
-  bodyFont:    string;
+  bodyFont: string;
+  borderRadius: number;
+  buttonStyle: string;
+}) {
+  const headingStack = FONTS.find(f => f.id === style.headingFont)?.stack ?? style.headingFont;
+  const bodyStack    = FONTS.find(f => f.id === style.bodyFont)?.stack    ?? style.bodyFont;
+  return {
+    '--theme-accent':         style.accentColor,
+    '--theme-bg':             style.bgColor,
+    '--theme-heading-font':   headingStack,
+    '--theme-body-font':      bodyStack,
+    '--theme-radius':         `${style.borderRadius}px`,
+    '--theme-button-style':   style.buttonStyle,
+  } as React.CSSProperties;
 }
 
-interface SectionProps {
-  config: Record<string, any>;
-  style:  StyleConfig;
-  data:   PageData;
-}
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-interface PageData {
-  tenant:   any;
-  services: any[];
-  staff:    any[];
-  events:   any[];
-}
+const LayoutPicker = ({ layouts, value, onChange }: {
+  layouts: SectionLayoutOption[];
+  value: string;
+  onChange: (v: string) => void;
+}) => (
+  <div className="space-y-2">
+    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">Section layout</p>
+    <div className="grid grid-cols-2 gap-2">
+      {layouts.map(l => (
+        <button
+          key={l.id}
+          onClick={() => onChange(l.id)}
+          className={cn(
+            'p-3 rounded-xl border-2 text-left transition-all',
+            value === l.id ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-primary/20',
+          )}
+        >
+          <pre className="text-[8px] text-muted-foreground/60 font-mono leading-tight overflow-hidden whitespace-pre-wrap">{l.preview}</pre>
+          <p className={cn('text-[9px] font-black uppercase tracking-widest mt-1.5', value === l.id ? 'text-primary' : 'text-slate-500')}>
+            {l.label}
+          </p>
+        </button>
+      ))}
+    </div>
+  </div>
+);
 
-const ac  = (s: StyleConfig) => s.accentColor || '#8b6914';
-const hf  = (s: StyleConfig) => FONT_STACKS[s.headingFont] || FONT_STACKS.cormorant;
-const bf  = (s: StyleConfig) => FONT_STACKS[s.bodyFont]    || FONT_STACKS.space;
+const SocialLinksEditor = ({ value, onChange }: { value: SocialLink[]; onChange: (v: SocialLink[]) => void }) => {
+  const links: SocialLink[] = Array.isArray(value) ? value : [];
 
-// ─── Nav ──────────────────────────────────────────────────────────────────────
-function NavSection({ config, style }: SectionProps) {
+  const addPlatform = (platformId: string) => {
+    if (links.some(l => l.platform === platformId)) return;
+    onChange([...links, { platform: platformId, url: '' }]);
+  };
+
+  const updateUrl = (platformId: string, url: string) =>
+    onChange(links.map(l => l.platform === platformId ? { ...l, url } : l));
+
+  const remove = (platformId: string) =>
+    onChange(links.filter(l => l.platform !== platformId));
+
+  const activePlatforms = links.map(l => l.platform);
+  const available = SOCIAL_PLATFORMS.filter(p => !activePlatforms.includes(p.id));
+
   return (
-    <nav className="sticky top-0 z-50 flex items-center justify-between px-6 md:px-14 py-4 bg-white/95 backdrop-blur-xl border-b"
-         style={{ borderColor: ac(style) + '22' }}>
-      <div className="flex items-center gap-3">
-        {config.logoUrl
-          ? <img src={config.logoUrl} alt="Logo" className="h-8 w-auto object-contain" />
-          : <span className="text-xl font-bold tracking-tighter" style={{ fontFamily: hf(style), color: ac(style) }}>{config.logoText || 'Studio'}</span>
-        }
-      </div>
-      {config.showLinks && (
-        <div className="hidden md:flex items-center gap-8">
-          {['Services', 'Team', 'Contact'].map(l => (
-            <a key={l} href={`#${l.toLowerCase()}`}
-               className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors"
-               style={{ fontFamily: bf(style) }}>{l}</a>
-          ))}
+    <div className="space-y-3">
+      {links.map(link => {
+        const platform = SOCIAL_PLATFORMS.find(p => p.id === link.platform);
+        if (!platform) return null;
+        const PIcon = platform.icon;
+        return (
+          <div key={link.platform} className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: platform.color + '18' }}>
+              <PIcon className="w-3.5 h-3.5" style={{ color: platform.color }} />
+            </div>
+            <Input
+              value={link.url}
+              onChange={e => updateUrl(link.platform, e.target.value)}
+              placeholder={platform.placeholder}
+              className="flex-1 h-8 rounded-lg border-2 text-xs"
+            />
+            <button onClick={() => remove(link.platform)} className="p-1 text-muted-foreground hover:text-red-500 transition-colors">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      })}
+      {available.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {available.map(p => {
+            const PIcon = p.icon;
+            return (
+              <button
+                key={p.id}
+                onClick={() => addPlatform(p.id)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-dashed border-border text-[10px] font-bold text-muted-foreground hover:border-primary/30 hover:text-primary transition-all"
+              >
+                <Plus className="w-2.5 h-2.5" />{p.label}
+              </button>
+            );
+          })}
         </div>
       )}
-      <button className="px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest text-white shadow-lg hover:opacity-90 transition-all active:scale-95"
-              style={{ background: ac(style), fontFamily: bf(style) }}>
-        {config.ctaText || 'Book Now'}
-      </button>
-    </nav>
+    </div>
   );
-}
+};
 
-// ─── Hero ─────────────────────────────────────────────────────────────────────
-function HeroSection({ config, style }: SectionProps) {
-  const isSplit    = config.layout === 'split';
-  const isFullbleed = config.layout === 'fullbleed';
-  const hasBg      = !!config.bgImage;
-  const textColor  = hasBg ? 'white' : '#0f172a';
-  const subColor   = hasBg ? 'rgba(255,255,255,0.75)' : '#64748b';
+const PolicyListEditor = ({ value, onChange }: { value: PolicyItem[]; onChange: (v: PolicyItem[]) => void }) => {
+  const policies: PolicyItem[] = Array.isArray(value) ? value : [];
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const add = () => {
+    const newPolicy: PolicyItem = { id: generateId(), icon: 'shield', title: 'New Policy', body: '' };
+    onChange([...policies, newPolicy]);
+    setExpandedId(newPolicy.id);
+  };
+
+  const update = (id: string, field: keyof PolicyItem, val: string) =>
+    onChange(policies.map(p => p.id === id ? { ...p, [field]: val } : p));
+
+  const remove = (id: string) => onChange(policies.filter(p => p.id !== id));
 
   return (
-    <section className="relative flex items-center"
-             style={{ minHeight: isFullbleed ? '100vh' : '80vh', background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : style.bgColor }}>
-      {hasBg && <div className="absolute inset-0 bg-black/45" />}
-      <div className="relative z-10 w-full max-w-7xl mx-auto px-6 md:px-16 py-24">
-        {isSplit ? (
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            <div className="space-y-8">
-              <h1 className="text-5xl md:text-7xl leading-[0.95] font-light" style={{ fontFamily: hf(style), color: textColor }}>
-                {config.headline || 'Book Your\nExperience'}
-              </h1>
-              <p className="text-lg leading-relaxed max-w-md" style={{ fontFamily: bf(style), color: subColor }}>{config.subheadline}</p>
-              <div className="flex flex-wrap gap-4">
-                <button className="px-9 py-4 rounded-full text-white text-sm font-bold shadow-2xl hover:opacity-90 transition-all" style={{ background: ac(style) }}>{config.ctaText  || 'Book a Session'}</button>
-                <button className="px-9 py-4 rounded-full text-sm font-bold border-2 hover:opacity-80 transition-all" style={{ borderColor: hasBg ? 'white' : ac(style), color: hasBg ? 'white' : ac(style) }}>{config.cta2Text || 'Walk In'}</button>
+    <div className="space-y-2">
+      {policies.map(policy => {
+        const iconDef = POLICY_ICONS.find(i => i.id === policy.icon) ?? POLICY_ICONS[0];
+        const PolicyIcon = iconDef.icon;
+        const isExpanded = expandedId === policy.id;
+        return (
+          <div key={policy.id} className="rounded-xl border-2 border-border overflow-hidden">
+            <div
+              className="flex items-center gap-2 p-2.5 cursor-pointer hover:bg-muted/30 transition-colors"
+              onClick={() => setExpandedId(isExpanded ? null : policy.id)}
+            >
+              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                <PolicyIcon className="w-3.5 h-3.5 text-primary" />
               </div>
+              <span className="flex-1 text-xs font-bold text-slate-700 truncate">{policy.title || 'Untitled policy'}</span>
+              <button onClick={e => { e.stopPropagation(); remove(policy.id); }} className="p-0.5 text-muted-foreground hover:text-red-500">
+                <X className="w-3 h-3" />
+              </button>
+              <ChevronDown className={cn('w-3.5 h-3.5 text-muted-foreground transition-transform', isExpanded && 'rotate-180')} />
             </div>
-            {config.heroImage
-              ? <img src={config.heroImage} alt="" className="w-full aspect-square object-cover rounded-[2.5rem] shadow-2xl" />
-              : <div className="w-full aspect-square rounded-[2.5rem]" style={{ background: ac(style) + '18' }} />
-            }
+            {isExpanded && (
+              <div className="p-3 pt-0 space-y-3 border-t border-border/50">
+                <div className="space-y-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Icon</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {POLICY_ICONS.map(icon => {
+                      const IIcon = icon.icon;
+                      return (
+                        <button
+                          key={icon.id}
+                          onClick={() => update(policy.id, 'icon', icon.id)}
+                          title={icon.label}
+                          className={cn(
+                            'w-8 h-8 rounded-lg flex items-center justify-center border-2 transition-all',
+                            policy.icon === icon.id ? 'border-primary/40 bg-primary/10' : 'border-border hover:border-primary/20',
+                          )}
+                        >
+                          <IIcon className="w-3.5 h-3.5 text-slate-600" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Title</Label>
+                  <Input value={policy.title} onChange={e => update(policy.id, 'title', e.target.value)} className="h-8 rounded-lg border-2 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Description</Label>
+                  <Textarea value={policy.body} onChange={e => update(policy.id, 'body', e.target.value)} className="rounded-xl border-2 text-xs min-h-[60px] resize-none" />
+                </div>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="max-w-4xl mx-auto text-center space-y-8">
-            <h1 className="text-6xl md:text-8xl leading-[0.95] font-light" style={{ fontFamily: hf(style), color: textColor }}>
-              {config.headline || 'Book Your Experience'}
-            </h1>
-            <p className="text-xl leading-relaxed max-w-2xl mx-auto" style={{ fontFamily: bf(style), color: subColor }}>{config.subheadline}</p>
-            <div className="flex flex-wrap gap-4 justify-center">
-              <button className="px-12 py-4 rounded-full text-white font-bold shadow-2xl hover:opacity-90 transition-all" style={{ background: ac(style) }}>{config.ctaText  || 'Book a Session'}</button>
-              <button className="px-12 py-4 rounded-full font-bold border-2 hover:opacity-80 transition-all" style={{ borderColor: hasBg ? 'white' : ac(style), color: hasBg ? 'white' : ac(style) }}>{config.cta2Text || 'Walk In'}</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </section>
+        );
+      })}
+      <button
+        onClick={add}
+        className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border-2 border-dashed border-border text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-primary/30 hover:text-primary transition-all"
+      >
+        <Plus className="w-3.5 h-3.5" /> Add policy
+      </button>
+    </div>
   );
-}
+};
 
-// ─── Trust strip ──────────────────────────────────────────────────────────────
-function TrustSection({ config, style }: SectionProps) {
-  const stats = [
-    { v: config.stat1v, l: config.stat1l },
-    { v: config.stat2v, l: config.stat2l },
-    { v: config.stat3v, l: config.stat3l },
-    { v: config.stat4v, l: config.stat4l },
-  ].filter(s => s.v);
+/** Before/After pair editor — separate labeled slots for each image */
+const BeforeAfterPairsEditor = ({ value, onChange }: {
+  value: BeforeAfterPair[];
+  onChange: (v: BeforeAfterPair[]) => void;
+}) => {
+  const pairs: BeforeAfterPair[] = Array.isArray(value) ? value : [];
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const add = () => {
+    const newPair: BeforeAfterPair = { id: generateId(), beforeUrl: '', afterUrl: '', caption: '' };
+    onChange([...pairs, newPair]);
+    setExpandedId(newPair.id);
+  };
+
+  const update = (id: string, field: keyof BeforeAfterPair, val: string) =>
+    onChange(pairs.map(p => p.id === id ? { ...p, [field]: val } : p));
+
+  const remove = (id: string) => onChange(pairs.filter(p => p.id !== id));
+
   return (
-    <section className="py-14 border-y" style={{ borderColor: ac(style) + '20' }}>
-      <div className="max-w-5xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-        {stats.map((s, i) => (
-          <div key={i} className="space-y-1">
-            <p className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>{s.v}</p>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily: bf(style) }}>{s.l}</p>
+    <div className="space-y-3">
+      {pairs.map((pair, idx) => {
+        const isExpanded = expandedId === pair.id;
+        const hasImages  = pair.beforeUrl || pair.afterUrl;
+        return (
+          <div key={pair.id} className="rounded-xl border-2 border-border overflow-hidden">
+            {/* Header row */}
+            <div
+              className="flex items-center gap-2.5 p-2.5 cursor-pointer hover:bg-muted/30 transition-colors"
+              onClick={() => setExpandedId(isExpanded ? null : pair.id)}
+            >
+              {/* Mini thumbnails */}
+              <div className="flex gap-1 shrink-0">
+                <div className="w-7 h-7 rounded-md overflow-hidden border border-border bg-muted flex items-center justify-center">
+                  {pair.beforeUrl
+                    ? <img src={pair.beforeUrl} alt="before" className="w-full h-full object-cover" />
+                    : <span className="text-[7px] font-black text-muted-foreground/40">B</span>
+                  }
+                </div>
+                <ArrowLeftRight className="w-3 h-3 text-muted-foreground/40 self-center" />
+                <div className="w-7 h-7 rounded-md overflow-hidden border border-border bg-muted flex items-center justify-center">
+                  {pair.afterUrl
+                    ? <img src={pair.afterUrl} alt="after" className="w-full h-full object-cover" />
+                    : <span className="text-[7px] font-black text-muted-foreground/40">A</span>
+                  }
+                </div>
+              </div>
+              <span className="flex-1 text-xs font-bold text-slate-700 truncate">
+                {pair.caption || `Pair ${idx + 1}`}
+              </span>
+              <button onClick={e => { e.stopPropagation(); remove(pair.id); }} className="p-0.5 text-muted-foreground hover:text-red-500">
+                <X className="w-3 h-3" />
+              </button>
+              <ChevronDown className={cn('w-3.5 h-3.5 text-muted-foreground transition-transform', isExpanded && 'rotate-180')} />
+            </div>
+
+            {isExpanded && (
+              <div className="p-3 pt-2 space-y-4 border-t border-border/50">
+                {/* Before */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-slate-400" />
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">
+                      Before image
+                    </Label>
+                  </div>
+                  {pair.beforeUrl && (
+                    <div className="relative rounded-xl overflow-hidden border-2 border-border aspect-video mb-2">
+                      <img src={pair.beforeUrl} alt="before" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => update(pair.id, 'beforeUrl', '')}
+                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-500 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                      <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-white text-[8px] font-black uppercase tracking-widest">Before</div>
+                    </div>
+                  )}
+                  {!pair.beforeUrl && (
+                    <ImageUpload initialImage="" onImageUploaded={url => update(pair.id, 'beforeUrl', url)} />
+                  )}
+                </div>
+
+                {/* After */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-primary" />
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">
+                      After image
+                    </Label>
+                  </div>
+                  {pair.afterUrl && (
+                    <div className="relative rounded-xl overflow-hidden border-2 border-border aspect-video mb-2">
+                      <img src={pair.afterUrl} alt="after" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => update(pair.id, 'afterUrl', '')}
+                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-500 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                      <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-primary/80 text-white text-[8px] font-black uppercase tracking-widest">After</div>
+                    </div>
+                  )}
+                  {!pair.afterUrl && (
+                    <ImageUpload initialImage="" onImageUploaded={url => update(pair.id, 'afterUrl', url)} />
+                  )}
+                </div>
+
+                {/* Caption */}
+                <div className="space-y-1">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Caption (optional)</Label>
+                  <Input
+                    value={pair.caption || ''}
+                    onChange={e => update(pair.id, 'caption', e.target.value)}
+                    placeholder="e.g. Gel removal & fresh set"
+                    className="h-8 rounded-lg border-2 text-xs"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <button
+        onClick={add}
+        className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border-2 border-dashed border-border text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-primary/30 hover:text-primary transition-all"
+      >
+        <Plus className="w-3.5 h-3.5" /> Add before/after pair
+      </button>
+    </div>
+  );
+};
+
+const ImageArrayEditor = ({ value, onChange, maxImages = 50 }: {
+  value: GalleryImage[];
+  onChange: (v: GalleryImage[]) => void;
+  maxImages?: number;
+}) => {
+  const images: GalleryImage[] = Array.isArray(value) ? value : [];
+
+  const remove = (id: string) => onChange(images.filter(img => img.id !== id));
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2">
+        {images.map(img => (
+          <div key={img.id} className="relative group rounded-xl overflow-hidden border-2 border-border aspect-square">
+            {img.url
+              ? <img src={img.url} alt={img.caption || ''} className="w-full h-full object-cover" />
+              : <div className="w-full h-full bg-muted flex items-center justify-center"><ImageIcon className="w-5 h-5 text-muted-foreground/40" /></div>
+            }
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <button onClick={() => remove(img.id)} className="w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
           </div>
         ))}
       </div>
-    </section>
-  );
-}
-
-// ─── Services ─────────────────────────────────────────────────────────────────
-function ServicesSection({ config, style, data }: SectionProps) {
-  const services = data.services;
-  const cols = parseInt(config.columns) || 2;
-  const gridCls = cols === 1 ? 'grid-cols-1 max-w-lg mx-auto' : cols === 3 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2';
-  return (
-    <section id="services" className="py-24 md:py-32" style={{ background: style.bgColor }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Services'}</h2>
-          {config.subheading && <p className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        {services.length > 0 ? (
-          <div className={`grid gap-5 ${gridCls}`}>
-            {services.map((svc: any) => (
-              <div key={svc.id} className="group p-7 rounded-3xl border-2 bg-white hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300"
-                   style={{ borderColor: ac(style) + '25' }}>
-                <div className="flex justify-between items-start mb-3">
-                  <h3 className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{svc.name}</h3>
-                  {config.showPrices && svc.price && (
-                    <span className="text-base font-black" style={{ color: ac(style) }}>${svc.price}</span>
-                  )}
-                </div>
-                {config.showDesc && svc.description && (
-                  <p className="text-sm text-slate-500 leading-relaxed mb-4" style={{ fontFamily: bf(style) }}>{svc.description}</p>
-                )}
-                {config.showDuration && svc.duration && (
-                  <div className="flex items-center gap-1.5 mb-4">
-                    <Clock className="w-3 h-3" style={{ color: ac(style) }} />
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily: bf(style) }}>{svc.duration} min</p>
-                  </div>
-                )}
-                <button className="w-full py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest text-white hover:opacity-90 transition-all"
-                        style={{ background: ac(style) }}>Book Now</button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-20">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-300" style={{ fontFamily: bf(style) }}>Services coming soon</p>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── Team ─────────────────────────────────────────────────────────────────────
-function TeamSection({ config, style, data }: SectionProps) {
-  const staff = data.staff;
-  return (
-    <section id="team" className="py-24 md:py-32 bg-slate-50">
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'The Artists'}</h2>
-          {config.subheading && <p className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        {staff.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-10">
-            {staff.map((member: any) => (
-              <div key={member.id} className="text-center space-y-4 group">
-                <div className="relative mx-auto w-28 h-28 rounded-3xl overflow-hidden shadow-lg ring-2 ring-transparent group-hover:ring-2 transition-all"
-                     style={{ background: ac(style) + '15', '--tw-ring-color': ac(style) + '40' } as any}>
-                  {member.avatarUrl
-                    ? <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                    : <span className="absolute inset-0 flex items-center justify-center text-3xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>{member.name?.[0]}</span>
-                  }
-                </div>
-                <div>
-                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-900" style={{ fontFamily: bf(style) }}>{member.name}</p>
-                  {config.showSpecialties && member.specialties?.length > 0 && (
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">{member.specialties.slice(0, 2).join(' · ')}</p>
-                  )}
-                  {config.showBio && member.bio && (
-                    <p className="text-xs text-slate-500 mt-2 leading-relaxed">{member.bio}</p>
-                  )}
-                  {config.showBookButton && (
-                    <button className="mt-3 px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest text-white" style={{ background: ac(style) }}>Book</button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-20">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-300" style={{ fontFamily: bf(style) }}>Team coming soon</p>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── Reviews ──────────────────────────────────────────────────────────────────
-function ReviewsSection({ config, style }: SectionProps) {
-  const reviews = [
-    { name: 'Sarah M.',   rating: 5, text: 'Absolutely incredible experience. The attention to detail is unmatched — I leave feeling taken care of every single time.' },
-    { name: 'Jessica T.', rating: 5, text: "I've been coming here for over a year and every visit exceeds my expectations. The team is truly world-class." },
-    { name: 'Priya K.',   rating: 5, text: 'The atmosphere is luxurious yet so welcoming. I always feel like a VIP. Truly the best in the city.' },
-  ];
-  return (
-    <section className="py-24 md:py-32" style={{ background: style.bgColor }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'What Clients Say'}</h2>
-          {config.subheading && <p className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        <div className="grid md:grid-cols-3 gap-6">
-          {reviews.map((r, i) => (
-            <div key={i} className="p-8 rounded-3xl border-2 bg-white space-y-5" style={{ borderColor: ac(style) + '20' }}>
-              {config.showRating && (
-                <div className="flex gap-1">
-                  {Array(r.rating).fill(0).map((_, j) => (
-                    <Star key={j} className="w-4 h-4 fill-current" style={{ color: ac(style) }} />
-                  ))}
-                </div>
-              )}
-              <p className="text-sm leading-relaxed text-slate-600 italic" style={{ fontFamily: bf(style) }}>"{r.text}"</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily: bf(style) }}>— {r.name}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Gallery ──────────────────────────────────────────────────────────────────
-function GallerySection({ config, style }: SectionProps) {
-  const shades = ['08', '10', '14', '18', '12', '16'];
-  return (
-    <section className="py-24 md:py-32 bg-slate-50">
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Work'}</h2>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {shades.map((s, i) => (
-            <div key={i} className={`rounded-3xl ${i === 0 || i === 5 ? 'aspect-[4/5]' : 'aspect-square'}`}
-                 style={{ background: ac(style) + s }} />
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Before / After ───────────────────────────────────────────────────────────
-function BeforeAfterSection({ config, style }: SectionProps) {
-  return (
-    <section className="py-24 md:py-32" style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Transformations'}</h2>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        <div className="grid md:grid-cols-2 gap-8">
-          {[0, 1].map(i => (
-            <div key={i} className="grid grid-cols-2 gap-2">
-              {(['Before', 'After'] as const).map((label, j) => (
-                <div key={j} className="aspect-square rounded-3xl flex flex-col items-center justify-center gap-2"
-                     style={{ background: ac(style) + (j === 0 ? '12' : '24') }}>
-                  <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: ac(style) + (j === 0 ? '80' : 'cc') }}>{label}</span>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Memberships ──────────────────────────────────────────────────────────────
-function MembershipsSection({ config, style }: SectionProps) {
-  const plans = [
-    { name: 'Essential', price: '$89', period: '/mo', features: ['2 services/month', 'Priority booking', '10% off retail'] },
-    { name: 'Luxe',      price: '$149',period: '/mo', features: ['4 services/month', 'VIP priority', '20% off retail', 'Free upgrades'], featured: true },
-    { name: 'Elite',     price: '$249',period: '/mo', features: ['Unlimited services', 'Dedicated artist', '30% off retail', 'Exclusive events'] },
-  ];
-  return (
-    <section className="py-24 md:py-32 bg-slate-50">
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Join the Club'}</h2>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        <div className="grid md:grid-cols-3 gap-6 items-center">
-          {plans.map((plan, i) => (
-            <div key={i} className={cn('p-8 rounded-3xl border-2 space-y-6 transition-all', plan.featured ? 'shadow-2xl md:scale-105' : 'bg-white')}
-                 style={{ borderColor: plan.featured ? ac(style) : ac(style) + '25', background: plan.featured ? ac(style) : 'white' }}>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: plan.featured ? 'rgba(255,255,255,0.65)' : ac(style) }}>{plan.name}</p>
-                <div className="flex items-end gap-1 mt-2">
-                  <span className="text-4xl font-light" style={{ fontFamily: hf(style), color: plan.featured ? 'white' : '#0f172a' }}>{plan.price}</span>
-                  <span className="text-sm mb-1" style={{ color: plan.featured ? 'rgba(255,255,255,0.5)' : '#94a3b8', fontFamily: bf(style) }}>{plan.period}</span>
-                </div>
-              </div>
-              <ul className="space-y-2.5">
-                {plan.features.map((f, j) => (
-                  <li key={j} className="flex items-center gap-2.5 text-sm" style={{ fontFamily: bf(style), color: plan.featured ? 'rgba(255,255,255,0.8)' : '#64748b' }}>
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: plan.featured ? 'rgba(255,255,255,0.6)' : ac(style) }} />{f}
-                  </li>
-                ))}
-              </ul>
-              <button className="w-full py-3.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all hover:opacity-90"
-                      style={{ background: plan.featured ? 'white' : ac(style), color: plan.featured ? ac(style) : 'white' }}>Join Now</button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Packages ─────────────────────────────────────────────────────────────────
-function PackagesSection({ config, style }: SectionProps) {
-  const pkgs = [
-    { name: '5-Pack',  sessions: 5,  price: '$199', saving: 'Save 15%' },
-    { name: '10-Pack', sessions: 10, price: '$349', saving: 'Save 25%' },
-    { name: '20-Pack', sessions: 20, price: '$599', saving: 'Save 35%' },
-  ];
-  return (
-    <section className="py-24 md:py-32" style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Prepaid Sessions'}</h2>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        <div className="grid md:grid-cols-3 gap-6">
-          {pkgs.map((pkg, i) => (
-            <div key={i} className="p-8 rounded-3xl border-2 bg-white text-center space-y-5" style={{ borderColor: ac(style) + '25' }}>
-              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: ac(style) }}>{pkg.name}</p>
-              <p className="text-4xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{pkg.price}</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{pkg.sessions} sessions</p>
-              {config.showExpiry && <p className="text-xs text-slate-400" style={{ fontFamily: bf(style) }}>Valid 12 months</p>}
-              <span className="inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-white" style={{ background: ac(style) }}>{pkg.saving}</span>
-              <button className="w-full py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest text-white hover:opacity-90 transition-all" style={{ background: ac(style) }}>Purchase</button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Gift Cards ───────────────────────────────────────────────────────────────
-function GiftCardsSection({ config, style }: SectionProps) {
-  const amounts = (config.amounts || '25,50,75,100').split(',').map((a: string) => a.trim());
-  return (
-    <section className="py-24 md:py-32 bg-slate-50">
-      <div className="max-w-2xl mx-auto px-6 md:px-16 text-center space-y-10">
-        <div className="space-y-4">
-          <h2 className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Give the Gift of Beauty'}</h2>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        <div className="p-10 rounded-[2rem] shadow-2xl space-y-8 text-white" style={{ background: `linear-gradient(135deg, ${ac(style)} 0%, ${ac(style)}cc 100%)` }}>
-          <Gift className="w-12 h-12 mx-auto opacity-80" />
-          <p className="text-lg font-light" style={{ fontFamily: hf(style) }}>Choose an amount</p>
-          <div className="flex flex-wrap gap-3 justify-center">
-            {amounts.map((a: string, i: number) => (
-              <button key={i} className="px-6 py-3 rounded-2xl border-2 border-white/40 font-black text-sm hover:bg-white/20 transition-all">${a}</button>
-            ))}
-            <button className="px-6 py-3 rounded-2xl border-2 border-white/40 font-black text-sm hover:bg-white/20 transition-all">Custom</button>
-          </div>
-          <button className="px-12 py-4 rounded-full font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all"
-                  style={{ background: 'white', color: ac(style) }}>{config.ctaText || 'Send a Gift Card'}</button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Quote ────────────────────────────────────────────────────────────────────
-function QuoteSection({ config, style }: SectionProps) {
-  const tags = (config.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean);
-  return (
-    <section className="py-28 md:py-36" style={{ background: '#0f172a' }}>
-      <div className="max-w-4xl mx-auto px-6 md:px-16 text-center space-y-10">
-        <div className="space-y-5">
-          <h2 className="text-4xl md:text-6xl font-light text-white" style={{ fontFamily: hf(style) }}>{config.heading || 'Need Something Bigger?'}</h2>
-          <p className="text-lg text-white/55 max-w-2xl mx-auto leading-relaxed" style={{ fontFamily: bf(style) }}>{config.subheading}</p>
-        </div>
-        {tags.length > 0 && (
-          <div className="flex flex-wrap gap-2.5 justify-center">
-            {tags.map((tag: string, i: number) => (
-              <span key={i} className="px-5 py-2 rounded-full border text-[11px] font-black uppercase tracking-widest text-white/55 border-white/20">{tag}</span>
-            ))}
-          </div>
-        )}
-        <button className="px-12 py-4 rounded-full font-black text-sm uppercase tracking-widest text-white shadow-2xl hover:opacity-90 transition-all"
-                style={{ background: ac(style) }}>{config.ctaText || 'Request a Quote'}</button>
-      </div>
-    </section>
-  );
-}
-
-// ─── New Client ───────────────────────────────────────────────────────────────
-function NewClientSection({ config, style }: SectionProps) {
-  return (
-    <section className="py-16" style={{ background: ac(style) + '0e' }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-8 p-8 md:p-12 rounded-[2rem] border-2"
-             style={{ borderColor: ac(style) + '28' }}>
-          <div className="text-center md:text-left space-y-3">
-            <div className="flex items-center gap-2 justify-center md:justify-start">
-              <Sparkles className="w-4 h-4" style={{ color: ac(style) }} />
-              <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: ac(style), fontFamily: bf(style) }}>First Visit</p>
-            </div>
-            <h2 className="text-3xl md:text-4xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'First Visit Special'}</h2>
-            <p className="text-xl font-black" style={{ color: ac(style), fontFamily: bf(style) }}>{config.offerText}</p>
-            {config.finePrint && <p className="text-xs text-slate-400" style={{ fontFamily: bf(style) }}>{config.finePrint}</p>}
-          </div>
-          <button className="shrink-0 px-10 py-4 rounded-full text-white font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 transition-all"
-                  style={{ background: ac(style) }}>{config.ctaText || 'Claim Offer'}</button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── FAQ ──────────────────────────────────────────────────────────────────────
-function FAQSection({ config, style }: SectionProps) {
-  const [open, setOpen] = React.useState<number | null>(null);
-  const items = [
-    { q: config.q1, a: config.a1 },
-    { q: config.q2, a: config.a2 },
-    { q: config.q3, a: config.a3 },
-    { q: config.q4, a: config.a4 },
-  ].filter(i => i.q && i.a);
-  return (
-    <section className="py-24 md:py-32 bg-slate-50">
-      <div className="max-w-3xl mx-auto px-6 md:px-16">
-        <h2 className="text-4xl md:text-5xl font-light text-center mb-14" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Common Questions'}</h2>
-        <div className="space-y-2">
-          {items.map((item, i) => (
-            <div key={i} className="rounded-2xl border-2 overflow-hidden bg-white" style={{ borderColor: ac(style) + '22' }}>
-              <button onClick={() => setOpen(open === i ? null : i)}
-                      className="w-full flex items-center justify-between p-6 text-left hover:bg-slate-50/80 transition-colors">
-                <span className="font-black text-sm uppercase tracking-tight text-slate-900 pr-4" style={{ fontFamily: bf(style) }}>{item.q}</span>
-                {open === i
-                  ? <ChevronUp   className="w-4 h-4 shrink-0" style={{ color: ac(style) }} />
-                  : <ChevronDown className="w-4 h-4 shrink-0 text-slate-300" />
-                }
-              </button>
-              {open === i && (
-                <div className="px-6 pb-6 text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{item.a}</div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Policies ─────────────────────────────────────────────────────────────────
-function PoliciesSection({ config, style }: SectionProps) {
-  const policies = [
-    { label: 'Cancellation', text: config.cancelText },
-    { label: 'Late Arrival',  text: config.lateText   },
-    { label: 'No-Show',       text: config.noshowText },
-  ].filter(p => p.text);
-  return (
-    <section className="py-24 md:py-32" style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <h2 className="text-4xl md:text-5xl font-light text-center mb-14" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Policies'}</h2>
-        <div className="grid md:grid-cols-3 gap-6">
-          {policies.map((p, i) => (
-            <div key={i} className="p-7 rounded-3xl border-2 bg-white space-y-3" style={{ borderColor: ac(style) + '22' }}>
-              <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: ac(style), fontFamily: bf(style) }}>{p.label}</p>
-              <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{p.text}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Contact ──────────────────────────────────────────────────────────────────
-function ContactSection({ config, style, data }: SectionProps) {
-  const tenant = data.tenant;
-  return (
-    <section id="contact" className="py-24 md:py-32 bg-slate-50">
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <h2 className="text-4xl md:text-5xl font-light text-center mb-16" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Find Us'}</h2>
-        <div className="grid md:grid-cols-2 gap-14 items-start">
-          <div className="space-y-7">
-            {config.showHours && config.customHours && (
-              <div className="space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4" style={{ color: ac(style) }} />
-                  <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: ac(style), fontFamily: bf(style) }}>Hours</p>
-                </div>
-                <p className="text-sm text-slate-500 leading-relaxed whitespace-pre-line" style={{ fontFamily: bf(style) }}>{config.customHours}</p>
-              </div>
-            )}
-            {tenant?.studioAddress && (
-              <div className="space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4" style={{ color: ac(style) }} />
-                  <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: ac(style), fontFamily: bf(style) }}>Location</p>
-                </div>
-                <p className="text-sm text-slate-500" style={{ fontFamily: bf(style) }}>{tenant.studioAddress}</p>
-              </div>
-            )}
-            {config.showPhone && tenant?.phone && (
-              <div className="flex items-center gap-3">
-                <Phone className="w-4 h-4" style={{ color: ac(style) }} />
-                <a href={`tel:${tenant.phone}`} className="text-sm text-slate-500 hover:text-slate-900 transition-colors" style={{ fontFamily: bf(style) }}>{tenant.phone}</a>
-              </div>
-            )}
-            {config.showSocial && tenant?.instagramHandle && (
-              <div className="flex items-center gap-3">
-                <Instagram className="w-4 h-4" style={{ color: ac(style) }} />
-                <a href={`https://instagram.com/${tenant.instagramHandle}`} target="_blank" rel="noopener noreferrer"
-                   className="text-sm text-slate-500 hover:text-slate-900 transition-colors" style={{ fontFamily: bf(style) }}>
-                  @{tenant.instagramHandle}
-                </a>
-              </div>
-            )}
-          </div>
-          {config.showMap && tenant?.studioLocation && (
-            <div className="rounded-3xl overflow-hidden shadow-xl" style={{ height: '320px' }}>
-              <iframe
-                src={`https://maps.google.com/maps?q=${tenant.studioLocation.lat},${tenant.studioLocation.lng}&z=15&output=embed`}
-                className="w-full h-full border-0"
-                loading="lazy"
-                title="Studio location"
-              />
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Events ───────────────────────────────────────────────────────────────────
-function EventsSection({ config, style, data }: SectionProps) {
-  const events = data.events;
-  return (
-    <section className="py-24 md:py-32" style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Upcoming Events'}</h2>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        {events.length > 0 ? (
-          <div className="space-y-4">
-            {events.map((event: any) => {
-              const d = event.date ? new Date(event.date?.toDate?.() ?? event.date) : null;
-              return (
-                <div key={event.id} className="flex items-center gap-6 p-6 rounded-3xl border-2 bg-white hover:shadow-lg transition-all"
-                     style={{ borderColor: ac(style) + '22' }}>
-                  {d && (
-                    <div className="shrink-0 w-14 h-14 rounded-2xl flex flex-col items-center justify-center text-white"
-                         style={{ background: ac(style) }}>
-                      <span className="text-[9px] font-black uppercase">{d.toLocaleString('default', { month: 'short' })}</span>
-                      <span className="text-xl font-black leading-none">{d.getDate()}</span>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-black uppercase tracking-tight text-slate-900 text-sm truncate" style={{ fontFamily: bf(style) }}>{event.title || event.name}</p>
-                    {event.description && <p className="text-xs text-slate-400 mt-1 truncate">{event.description}</p>}
-                  </div>
-                  <button className="shrink-0 px-5 py-2 rounded-full text-[11px] font-black uppercase tracking-widest text-white" style={{ background: ac(style) }}>RSVP</button>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-center py-16 space-y-4">
-            <Calendar className="w-12 h-12 mx-auto text-slate-200" />
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-300" style={{ fontFamily: bf(style) }}>{config.emptyText || 'Check back soon!'}</p>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── Referral ─────────────────────────────────────────────────────────────────
-function ReferralSection({ config, style }: SectionProps) {
-  return (
-    <section className="py-24 md:py-32 bg-slate-50">
-      <div className="max-w-3xl mx-auto px-6 md:px-16 text-center space-y-12">
-        <div className="space-y-4">
-          <h2 className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Refer a Friend'}</h2>
-          {config.subheading && <p className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-5 max-w-md mx-auto">
-          {[{ l: 'You get', v: config.rewardYou }, { l: 'Friend gets', v: config.rewardFriend }].map((item, i) => (
-            <div key={i} className="p-6 rounded-3xl border-2 bg-white space-y-2" style={{ borderColor: ac(style) + '22' }}>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily: bf(style) }}>{item.l}</p>
-              <p className="text-2xl font-black" style={{ fontFamily: hf(style), color: ac(style) }}>{item.v}</p>
-            </div>
-          ))}
-        </div>
-        <button className="px-10 py-4 rounded-full text-white font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 transition-all"
-                style={{ background: ac(style) }}>{config.ctaText || 'Get My Referral Link'}</button>
-      </div>
-    </section>
-  );
-}
-
-// ─── Story ────────────────────────────────────────────────────────────────────
-function StorySection({ config, style }: SectionProps) {
-  const hasImage = !!config.image;
-  return (
-    <section className="py-24 md:py-32" style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className={cn('grid gap-14 items-center', hasImage ? 'md:grid-cols-2' : 'max-w-2xl mx-auto')}>
-          <div className="space-y-8">
-            <h2 className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Story'}</h2>
-            <div className="w-12 h-px" style={{ background: ac(style) }} />
-            <p className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body}</p>
-            {config.ctaText && (
-              <button className="px-8 py-3.5 rounded-full border-2 font-black text-sm uppercase tracking-widest hover:opacity-80 transition-all"
-                      style={{ borderColor: ac(style), color: ac(style) }}>{config.ctaText}</button>
-            )}
-          </div>
-          {hasImage && (
-            <img src={config.image} alt="Our Story" className="w-full aspect-square object-cover rounded-[2.5rem] shadow-2xl" />
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Instagram ────────────────────────────────────────────────────────────────
-function InstagramSection({ config, style }: SectionProps) {
-  const shades = ['10', '14', '18', '12', '16', '1a'];
-  return (
-    <section className="py-24 md:py-32 bg-slate-50">
-      <div className="max-w-5xl mx-auto px-6 md:px-16 text-center space-y-12">
-        <div className="space-y-3">
-          <h2 className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Follow Along'}</h2>
-          <p className="text-base text-slate-400" style={{ fontFamily: bf(style) }}>{config.handle || '@studio'}</p>
-        </div>
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-          {shades.map((s, i) => (
-            <div key={i} className="aspect-square rounded-2xl" style={{ background: ac(style) + s }} />
-          ))}
-        </div>
-        <a href={`https://instagram.com/${(config.handle || '').replace('@', '')}`}
-           target="_blank" rel="noopener noreferrer"
-           className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full border-2 font-black text-sm uppercase tracking-widest hover:opacity-80 transition-all"
-           style={{ borderColor: ac(style), color: ac(style) }}>
-          <Instagram className="w-4 h-4" />
-          {config.ctaText || 'Follow us on Instagram'}
-        </a>
-      </div>
-    </section>
-  );
-}
-
-// ─── Waitlist ─────────────────────────────────────────────────────────────────
-function WaitlistSection({ config, style }: SectionProps) {
-  return (
-    <section className="py-24 md:py-32" style={{ background: style.bgColor }}>
-      <div className="max-w-lg mx-auto px-6 md:px-16 text-center space-y-8">
-        <div className="space-y-4">
-          <h2 className="text-3xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Fully Booked?'}</h2>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        <div className="flex gap-2">
-          <input
-            type="email"
-            placeholder="your@email.com"
-            className="flex-1 px-4 py-3 rounded-2xl border-2 text-sm focus:outline-none"
-            style={{ borderColor: ac(style) + '40', fontFamily: bf(style) }}
+      {images.length < maxImages && (
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50 mb-2">Upload new image</p>
+          <ImageUpload
+            initialImage=""
+            onImageUploaded={url => onChange([...images, { id: generateId(), url, caption: '', category: '' }])}
           />
-          <button className="px-6 py-3 rounded-2xl text-white font-black text-sm uppercase tracking-widest whitespace-nowrap hover:opacity-90 transition-all"
-                  style={{ background: ac(style) }}>{config.ctaText || 'Join'}</button>
         </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Footer ───────────────────────────────────────────────────────────────────
-function Footer({ tenant, style }: { tenant: any; style: StyleConfig }) {
-  return (
-    <footer className="py-8 border-t text-center" style={{ borderColor: ac(style) + '20' }}>
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily: bf(style) }}>
-        {tenant?.name || 'Studio'} · Powered by ClarityFlow
-      </p>
-    </footer>
-  );
-}
-
-// ─── Section dispatcher ───────────────────────────────────────────────────────
-function SectionRenderer({ section, style, data }: { section: PageSection; style: StyleConfig; data: PageData }) {
-  const props = { config: section.config, style, data };
-  switch (section.type) {
-    case 'nav':         return <NavSection        {...props} />;
-    case 'hero':        return <HeroSection       {...props} />;
-    case 'trust':       return <TrustSection      {...props} />;
-    case 'services':    return <ServicesSection   {...props} />;
-    case 'team':        return <TeamSection       {...props} />;
-    case 'reviews':     return <ReviewsSection    {...props} />;
-    case 'gallery':     return <GallerySection    {...props} />;
-    case 'beforeafter': return <BeforeAfterSection {...props} />;
-    case 'memberships': return <MembershipsSection {...props} />;
-    case 'packages':    return <PackagesSection   {...props} />;
-    case 'giftcards':   return <GiftCardsSection  {...props} />;
-    case 'quote':       return <QuoteSection      {...props} />;
-    case 'newclient':   return <NewClientSection  {...props} />;
-    case 'faq':         return <FAQSection        {...props} />;
-    case 'policies':    return <PoliciesSection   {...props} />;
-    case 'contact':     return <ContactSection    {...props} />;
-    case 'events':      return <EventsSection     {...props} />;
-    case 'referral':    return <ReferralSection   {...props} />;
-    case 'story':       return <StorySection      {...props} />;
-    case 'instagram':   return <InstagramSection  {...props} />;
-    case 'waitlist':    return <WaitlistSection   {...props} />;
-    default:            return null;
-  }
-}
-
-// ─── Main page ────────────────────────────────────────────────────────────────
-function BookingPageContent({ tenantId }: { tenantId: string }) {
-  const { firestore } = useFirebase();
-
-  const [tenant,      setTenant]      = useState<any>(null);
-  const [services,    setServices]    = useState<any[]>([]);
-  const [staff,       setStaff]       = useState<any[]>([]);
-  const [events,      setEvents]      = useState<any[]>([]);
-  const [savedConfig, setSavedConfig] = useState<PageBuilderConfig | null>(null);
-  const [liveConfig,  setLiveConfig]  = useState<{ sections: PageSection[]; style: StyleConfig } | null>(null);
-  const [isLoading,   setIsLoading]   = useState(true);
-
-  // Fetch all public data
-  useEffect(() => {
-    if (!firestore || !tenantId) return;
-    (async () => {
-      try {
-        // Tenant + pageConfig
-        const tSnap = await getDoc(doc(firestore, 'tenants', tenantId));
-        if (tSnap.exists()) {
-          const t = { id: tSnap.id, ...tSnap.data() } as any;
-          setTenant(t);
-          const pc = t?.bookingPageSettings?.pageConfig as PageBuilderConfig | undefined;
-          if (pc) setSavedConfig(pc);
-        }
-        // Services
-        const svSnap = await getDocs(collection(firestore, `tenants/${tenantId}/services`));
-        setServices(svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false));
-        // Staff
-        const stSnap = await getDocs(collection(firestore, `tenants/${tenantId}/staff`));
-        setStaff(stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false));
-        // Events
-        const evSnap = await getDocs(query(collection(firestore, `tenants/${tenantId}/studioEvents`), orderBy('date', 'asc')));
-        setEvents(evSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e) {
-        console.warn('[booking] data fetch:', e);
-      } finally {
-        setIsLoading(false);
-      }
-    })();
-  }, [firestore, tenantId]);
-
-  // Live preview bridge — receives postMessage from the page builder iframe parent
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'CLARITY_PREVIEW') {
-        setLiveConfig({ sections: e.data.sections, style: e.data.style });
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, []);
-
-  // Active config: live preview overrides saved
-  const activeStyle: StyleConfig = {
-    accentColor: liveConfig?.style.accentColor ?? savedConfig?.accentColor ?? '#8b6914',
-    bgColor:     liveConfig?.style.bgColor     ?? savedConfig?.bgColor     ?? '#f8f4ef',
-    headingFont: liveConfig?.style.headingFont ?? savedConfig?.headingFont ?? 'cormorant',
-    bodyFont:    liveConfig?.style.bodyFont    ?? savedConfig?.bodyFont    ?? 'space',
-  };
-
-  const activeSections = (liveConfig?.sections ?? savedConfig?.sections ?? [])
-    .filter(s => s.enabled)
-    .sort((a, b) => a.order - b.order);
-
-  // Inject Google Fonts when style changes
-  useEffect(() => {
-    injectFonts(activeStyle.headingFont, activeStyle.bodyFont);
-  }, [activeStyle.headingFont, activeStyle.bodyFont]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: activeStyle.bgColor }}>
-        <div className="text-center space-y-4">
-          <div className="w-7 h-7 border-2 border-t-transparent rounded-full animate-spin mx-auto"
-               style={{ borderColor: activeStyle.accentColor }} />
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (activeSections.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center space-y-4 px-6">
-          <p className="text-2xl font-light text-slate-300" style={{ fontFamily: hf(activeStyle) }}>Coming Soon</p>
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-300">This page is being set up</p>
-        </div>
-      </div>
-    );
-  }
-
-  const data: PageData = { tenant, services, staff, events };
-
-  return (
-    <div style={{ background: activeStyle.bgColor, fontFamily: bf(activeStyle) }} className="min-h-screen">
-      {activeSections.map(section => (
-        <SectionRenderer key={section.id} section={section} style={activeStyle} data={data} />
-      ))}
-      <Footer tenant={tenant} style={activeStyle} />
+      )}
+      {images.length > 0 && (
+        <p className="text-[9px] text-muted-foreground/50 text-center">{images.length} image{images.length !== 1 ? 's' : ''} uploaded</p>
+      )}
     </div>
   );
-}
+};
 
-export default function BookingPage({ params }: { params: { tenantId: string } }) {
-  return <BookingPageContent tenantId={params.tenantId} />;
+const TagListEditor = ({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) => {
+  const tags: string[] = Array.isArray(value) ? value : [];
+  const [input, setInput] = useState('');
+
+  const add = () => {
+    const v = input.trim();
+    if (v && !tags.includes(v)) { onChange([...tags, v]); setInput(''); }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {tags.map(tag => (
+          <span key={tag} className="flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded-lg text-[10px] font-bold">
+            {tag}
+            <button onClick={() => onChange(tags.filter(t => t !== tag))}><X className="w-2.5 h-2.5" /></button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && add()}
+          placeholder="Add tag…"
+          className="h-8 rounded-lg border-2 text-xs flex-1"
+        />
+        <Button size="sm" onClick={add} variant="outline" className="h-8 px-3 rounded-lg text-xs">Add</Button>
+      </div>
+    </div>
+  );
+};
+
+const FieldRenderer = ({ field, value, onChange, sectionId }: {
+  field: SectionField; value: any; onChange: (v: any) => void; sectionId: string;
+}) => {
+  const labelCls = 'text-[9px] font-black uppercase tracking-[0.18em] text-muted-foreground/70';
+
+  if (field.t === 'image') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <ImageUpload initialImage={value || ''} onImageUploaded={onChange} />
+    </div>
+  );
+
+  if (field.t === 'image-array') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <ImageArrayEditor value={value || []} onChange={onChange} />
+    </div>
+  );
+
+  if (field.t === 'beforeafter-pairs') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <BeforeAfterPairsEditor value={value || []} onChange={onChange} />
+    </div>
+  );
+
+  if (field.t === 'social-links') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <SocialLinksEditor value={value || []} onChange={onChange} />
+    </div>
+  );
+
+  if (field.t === 'policy-list') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <PolicyListEditor value={value || []} onChange={onChange} />
+    </div>
+  );
+
+  if (field.t === 'tag-list') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <TagListEditor value={value || []} onChange={onChange} />
+    </div>
+  );
+
+  if (field.t === 'toggle') return (
+    <div className="flex items-center justify-between py-2.5 border-b border-dashed last:border-0">
+      <span className={labelCls}>{field.l}</span>
+      <Switch checked={!!value} onCheckedChange={onChange} />
+    </div>
+  );
+
+  if (field.t === 'textarea') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <Textarea value={value || ''} onChange={e => onChange(e.target.value)} className="rounded-xl border-2 text-sm min-h-[80px] resize-none" />
+    </div>
+  );
+
+  if (field.t === 'select') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <Select value={value ?? field.d} onValueChange={onChange}>
+        <SelectTrigger className="h-10 rounded-xl border-2 text-xs font-black uppercase"><SelectValue /></SelectTrigger>
+        <SelectContent className="rounded-xl border-2">
+          {field.opts!.map(o => (
+            <SelectItem key={o} value={o} className="text-xs font-black uppercase">
+              {o.replace(/-/g, ' ').charAt(0).toUpperCase() + o.replace(/-/g, ' ').slice(1)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  if (field.t === 'color') return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value || '#8b6914'}
+          onChange={e => onChange(e.target.value)}
+          className="w-10 h-10 rounded-xl border-2 cursor-pointer p-0.5"
+        />
+        <Input
+          value={value || ''}
+          onChange={e => /^#[0-9a-fA-F]{0,6}$/.test(e.target.value) && onChange(e.target.value)}
+          className="h-10 rounded-xl border-2 font-mono text-xs w-28"
+          maxLength={7}
+          placeholder="#000000"
+        />
+      </div>
+    </div>
+  );
+
+  if (field.t === 'range') return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className={labelCls}>{field.l}</Label>
+        <span className="text-xs font-bold text-muted-foreground">{value ?? field.d}</span>
+      </div>
+      <Slider
+        value={[value ?? field.d]}
+        onValueChange={([v]) => onChange(v)}
+        min={field.min ?? 0}
+        max={field.max ?? 100}
+        step={field.step ?? 1}
+        className="w-full"
+      />
+    </div>
+  );
+
+  // default: text
+  return (
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <Input value={value || ''} onChange={e => onChange(e.target.value)} className="h-10 rounded-xl border-2 text-sm" />
+    </div>
+  );
+};
+
+// ─── Section list item ────────────────────────────────────────────────────────
+const SectionListItem = ({
+  section, isSelected, isFirst, isLast,
+  onSelect, onMoveUp, onMoveDown, onHide, onDuplicate,
+}: {
+  section: PageSection; isSelected: boolean; isFirst: boolean; isLast: boolean;
+  onSelect: () => void; onMoveUp: () => void; onMoveDown: () => void; onHide: () => void; onDuplicate: () => void;
+}) => {
+  const def  = SECTION_DEFS[section.type as SectionType];
+  const Icon = def.icon;
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        'flex items-center gap-2.5 p-2.5 rounded-2xl border-2 cursor-pointer transition-all group',
+        isSelected
+          ? 'border-primary/30 bg-primary/5 shadow-md'
+          : 'border-border bg-background hover:border-primary/20',
+      )}
+    >
+      <GripVertical className="w-3.5 h-3.5 text-muted-foreground/30 shrink-0" />
+      <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0" style={{ background: def.color + '18' }}>
+        <Icon className="w-3.5 h-3.5" style={{ color: def.color }} />
+      </div>
+      <span className={cn('flex-1 text-[10px] font-black uppercase tracking-tight truncate', isSelected ? 'text-primary' : 'text-slate-700')}>
+        {def.label}
+      </span>
+      <div className="flex items-center gap-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+        <button onClick={onDuplicate} title="Duplicate" className="p-1 rounded hover:bg-muted text-muted-foreground"><Copy className="w-3 h-3" /></button>
+        <button onClick={onMoveUp}    disabled={isFirst} className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronUp className="w-3 h-3" /></button>
+        <button onClick={onMoveDown}  disabled={isLast}  className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronDown className="w-3 h-3" /></button>
+        <button onClick={onHide}      className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500"><X className="w-3 h-3" /></button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Library item ─────────────────────────────────────────────────────────────
+const LibraryItem = ({ section, onAdd }: { section: PageSection; onAdd: () => void }) => {
+  const def  = SECTION_DEFS[section.type as SectionType];
+  const Icon = def.icon;
+  return (
+    <button
+      onClick={onAdd}
+      className="w-full flex items-center gap-2.5 p-2.5 rounded-2xl border-2 border-border bg-background hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
+    >
+      <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0" style={{ background: def.color + '18' }}>
+        <Icon className="w-3.5 h-3.5" style={{ color: def.color }} />
+      </div>
+      <span className="flex-1 text-[10px] font-black uppercase tracking-tight text-slate-700 truncate">{def.label}</span>
+      <Plus className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+    </button>
+  );
+};
+
+// ─── Font picker ──────────────────────────────────────────────────────────────
+const FontPicker = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => {
+  const [activeGroup, setActiveGroup] = useState('Serif');
+  const groupFonts = FONTS.filter(f => f.group === activeGroup);
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1 flex-wrap">
+        {FONT_GROUPS.map(g => (
+          <button
+            key={g}
+            onClick={() => setActiveGroup(g)}
+            className={cn(
+              'px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all',
+              activeGroup === g ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
+            )}
+          >{g}</button>
+        ))}
+      </div>
+      <div className="space-y-0.5">
+        {groupFonts.map(f => (
+          <button
+            key={f.id}
+            onClick={() => onChange(f.id)}
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all',
+              value === f.id ? 'bg-primary/8 border border-primary/20' : 'hover:bg-muted/40 border border-transparent',
+            )}
+          >
+            <span className="text-sm flex-1 truncate" style={{ fontFamily: f.stack }}>{f.label}</span>
+            <span className="text-[9px] text-muted-foreground shrink-0">{f.desc}</span>
+            {value === f.id && <Check className="w-3 h-3 text-primary shrink-0" />}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── Brand Kit picker ─────────────────────────────────────────────────────────
+const BrandKitPicker = ({ style, onApply }: {
+  style: any;
+  onApply: (kit: typeof BRAND_KITS[0]) => void;
+}) => (
+  <div className="grid grid-cols-2 gap-2">
+    {BRAND_KITS.map(kit => (
+      <button
+        key={kit.id}
+        onClick={() => onApply(kit)}
+        className={cn(
+          'p-3 rounded-2xl border-2 text-left transition-all hover:shadow-md',
+          style.brandKit === kit.id ? 'border-primary/40 shadow-md' : 'border-border hover:border-primary/20',
+        )}
+        style={{ background: kit.bgColor }}
+      >
+        <div className="w-6 h-6 rounded-full mb-2" style={{ background: kit.accentColor }} />
+        <p className="text-[10px] font-black uppercase tracking-tight" style={{ color: kit.accentColor, fontFamily: FONTS.find(f => f.id === kit.headingFont)?.stack }}>
+          {kit.label}
+        </p>
+        <p className="text-[8px] mt-0.5" style={{ color: kit.accentColor + 'aa', fontFamily: FONTS.find(f => f.id === kit.bodyFont)?.stack }}>
+          {kit.desc}
+        </p>
+      </button>
+    ))}
+  </div>
+);
+
+// ─── Main page component ──────────────────────────────────────────────────────
+export default function PageBuilderPage() {
+  const { firestore }      = useFirebase();
+  const { selectedTenant } = useTenant();
+  const { toast }          = useToast();
+
+  useGoogleFonts();
+
+  const previewRef  = useRef<HTMLIFrameElement>(null);
+  const isFirstLoad = useRef(true);
+  const historyRef  = useRef<{ sections: PageSection[]; style: any }[]>([]);
+  const futureRef   = useRef<{ sections: PageSection[]; style: any }[]>([]);
+
+  const [sections,       setSections]       = useState<PageSection[]>(buildDefaultSections());
+  const [selectedId,     setSelectedId]     = useState<string | null>('hero');
+  const [showLibrary,    setShowLibrary]    = useState(false);
+  const [activePanel,    setActivePanel]    = useState<'sections' | 'style'>('sections');
+  const [styleTab,       setStyleTab]       = useState<'kits' | 'colors' | 'fonts' | 'spacing'>('kits');
+  const [isSaving,       setIsSaving]       = useState(false);
+  const [isDirty,        setIsDirty]        = useState(false);
+  const [previewMode,    setPreviewMode]    = useState<'desktop' | 'mobile'>('desktop');
+  const [previewKey,     setPreviewKey]     = useState(0);
+  const [canUndo,        setCanUndo]        = useState(false);
+  const [canRedo,        setCanRedo]        = useState(false);
+  // Mobile preview dialog
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
+
+  const [style, setStyle] = useState({
+    accentColor:  '#8b6914',
+    bgColor:      '#f8f4ef',
+    headingFont:  'cormorant',
+    bodyFont:     'space',
+    borderRadius: 8,
+    buttonStyle:  'filled' as 'filled' | 'outline' | 'ghost' | 'pill',
+    density:      'balanced' as 'compact' | 'balanced' | 'airy',
+    brandKit:     null as string | null,
+  });
+
+  // ── Load existing config ───────────────────────────────────────────────────
+  useEffect(() => {
+    const existing = (selectedTenant?.bookingPageSettings as any)?.pageConfig as PageBuilderConfig | undefined;
+    if (existing?.sections?.length) setSections(existing.sections);
+    if (existing?.accentColor)               setStyle(p => ({ ...p, accentColor:   existing.accentColor   }));
+    if (existing?.bgColor)                   setStyle(p => ({ ...p, bgColor:       existing.bgColor       }));
+    if (existing?.headingFont)               setStyle(p => ({ ...p, headingFont:   existing.headingFont   }));
+    if (existing?.bodyFont)                  setStyle(p => ({ ...p, bodyFont:      existing.bodyFont      }));
+    if (existing?.borderRadius !== undefined) setStyle(p => ({ ...p, borderRadius: existing.borderRadius  }));
+    if (existing?.buttonStyle)               setStyle(p => ({ ...p, buttonStyle:   existing.buttonStyle   }));
+    if (existing?.density)                   setStyle(p => ({ ...p, density:       existing.density       }));
+    if (existing?.brandKit)                  setStyle(p => ({ ...p, brandKit:      existing.brandKit      }));
+  }, [selectedTenant]);
+
+  // ── Dirty tracking ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isFirstLoad.current) { isFirstLoad.current = false; return; }
+    setIsDirty(true);
+  }, [sections, style]);
+
+  // ── History helpers ────────────────────────────────────────────────────────
+  const pushHistory = useCallback(() => {
+    historyRef.current = [...historyRef.current.slice(-19), { sections: JSON.parse(JSON.stringify(sections)), style: { ...style } }];
+    futureRef.current  = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, [sections, style]);
+
+  const undo = useCallback(() => {
+    if (!historyRef.current.length) return;
+    const last = historyRef.current[historyRef.current.length - 1];
+    futureRef.current  = [{ sections, style }, ...futureRef.current.slice(0, 19)];
+    historyRef.current = historyRef.current.slice(0, -1);
+    setSections(last.sections);
+    setStyle(last.style);
+    setCanUndo(historyRef.current.length > 0);
+    setCanRedo(true);
+  }, [sections, style]);
+
+  const redo = useCallback(() => {
+    if (!futureRef.current.length) return;
+    const next = futureRef.current[0];
+    historyRef.current = [...historyRef.current.slice(-19), { sections, style }];
+    futureRef.current  = futureRef.current.slice(1);
+    setSections(next.sections);
+    setStyle(next.style);
+    setCanUndo(true);
+    setCanRedo(futureRef.current.length > 0);
+  }, [sections, style]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 's')  { e.preventDefault(); handleSave(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [undo, redo]);
+
+  // ── Live preview sync ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      previewRef.current?.contentWindow?.postMessage(
+        { type: 'CLARITY_PREVIEW', sections, style },
+        window.location.origin,
+      );
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [sections, style]);
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const enabledSections  = useMemo(() => sections.filter(s => s.enabled).sort((a, b) => a.order - b.order), [sections]);
+  const disabledSections = useMemo(() => sections.filter(s => !s.enabled), [sections]);
+  const selectedSection  = useMemo(() => sections.find(s => s.id === selectedId), [sections, selectedId]);
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
+  const moveUp = (id: string) => {
+    pushHistory();
+    setSections(prev => {
+      const en  = prev.filter(s => s.enabled).sort((a, b) => a.order - b.order);
+      const idx = en.findIndex(s => s.id === id);
+      if (idx <= 0) return prev;
+      const [a, b] = [en[idx - 1], en[idx]];
+      return prev.map(s => s.id === a.id ? { ...s, order: b.order } : s.id === b.id ? { ...s, order: a.order } : s);
+    });
+  };
+
+  const moveDown = (id: string) => {
+    pushHistory();
+    setSections(prev => {
+      const en  = prev.filter(s => s.enabled).sort((a, b) => a.order - b.order);
+      const idx = en.findIndex(s => s.id === id);
+      if (idx >= en.length - 1) return prev;
+      const [a, b] = [en[idx], en[idx + 1]];
+      return prev.map(s => s.id === a.id ? { ...s, order: b.order } : s.id === b.id ? { ...s, order: a.order } : s);
+    });
+  };
+
+  const hideSection = (id: string) => {
+    pushHistory();
+    setSections(prev => prev.map(s => s.id === id ? { ...s, enabled: false } : s));
+    if (selectedId === id) setSelectedId(null);
+  };
+
+  const addSection = (id: string) => {
+    pushHistory();
+    const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0);
+    setSections(prev => prev.map(s => s.id === id ? { ...s, enabled: true, order: maxOrder + 1 } : s));
+    setSelectedId(id);
+    setShowLibrary(false);
+  };
+
+  const duplicateSection = (id: string) => {
+    pushHistory();
+    const src = sections.find(s => s.id === id);
+    if (!src) return;
+    const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0);
+    const newSection: PageSection = { ...src, id: `${src.type}-${generateId()}`, order: maxOrder + 1 };
+    setSections(prev => [...prev, newSection]);
+    setSelectedId(newSection.id);
+  };
+
+  const updateField = (sectionId: string, key: string, value: any) => {
+    setSections(prev => prev.map(s =>
+      s.id === sectionId ? { ...s, config: { ...s.config, [key]: value } } : s,
+    ));
+  };
+
+  const updateStyle = (updates: Partial<typeof style>) => {
+    pushHistory();
+    setStyle(p => ({ ...p, ...updates }));
+  };
+
+  const applyBrandKit = (kit: typeof BRAND_KITS[0]) => {
+    pushHistory();
+    setStyle(p => ({
+      ...p,
+      accentColor:  kit.accentColor,
+      bgColor:      kit.bgColor,
+      headingFont:  kit.headingFont,
+      bodyFont:     kit.bodyFont,
+      borderRadius: kit.borderRadius,
+      brandKit:     kit.id,
+    }));
+    toast({ title: `${kit.label} brand kit applied` });
+  };
+
+  // ── Save ───────────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!selectedTenant || !firestore) return;
+    setIsSaving(true);
+    try {
+      const config: PageBuilderConfig = { sections, ...style };
+      await updateDoc(doc(firestore, 'tenants', selectedTenant.id), {
+        'bookingPageSettings.pageConfig': config,
+      });
+      setIsDirty(false);
+      toast({ title: 'Page saved', description: 'Your booking page is updated and live.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Save failed', description: 'Please try again.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const headingFontDef = FONTS.find(f => f.id === style.headingFont);
+  const bodyFontDef    = FONTS.find(f => f.id === style.bodyFont);
+  const previewUrl     = selectedTenant ? `/book/${selectedTenant.id}` : null;
+  const selectedDef    = selectedSection ? SECTION_DEFS[selectedSection.type as SectionType] : null;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-slate-50/50">
+      <AppHeader title="Page Builder" />
+
+      {/* Unsaved changes banner */}
+      {isDirty && (
+        <div className="flex items-center justify-between gap-4 px-4 py-2 bg-amber-50 border-b border-amber-200 shrink-0">
+          <div className="flex items-center gap-2 text-amber-700">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span className="text-[10px] font-black uppercase tracking-widest">Unsaved changes</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={undo} disabled={!canUndo} className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 disabled:opacity-30 transition-all" title="Undo (⌘Z)">
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={redo} disabled={!canRedo} className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 disabled:opacity-30 transition-all" title="Redo (⌘⇧Z)">
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+            <Button size="sm" onClick={handleSave} disabled={isSaving}
+              className="h-7 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md shadow-primary/20">
+              {isSaving ? <Loader className="animate-spin w-3 h-3" /> : <><Save className="w-3 h-3 mr-1.5" />Save now</>}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mobile preview button (shown only on small screens) ── */}
+      <div className="lg:hidden shrink-0 px-3 py-2 border-b bg-white flex items-center justify-between">
+        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Page Builder</span>
+        <button
+          onClick={() => setMobilePreviewOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest"
+        >
+          <Eye className="w-3.5 h-3.5" />Preview
+        </button>
+      </div>
+
+      {/* Mobile preview dialog */}
+      <Dialog open={mobilePreviewOpen} onOpenChange={setMobilePreviewOpen}>
+        <DialogContent className="max-w-full w-full h-[90vh] p-0 flex flex-col">
+          <DialogHeader className="px-4 py-3 border-b shrink-0">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-[10px] font-black uppercase tracking-widest">Live Preview</DialogTitle>
+              <div className="flex gap-1 p-1 bg-slate-100 rounded-lg">
+                <button onClick={() => setPreviewMode('desktop')}
+                  className={cn('p-1.5 rounded-md transition-all', previewMode === 'desktop' ? 'bg-white shadow-sm' : 'text-slate-400')}>
+                  <Monitor className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => setPreviewMode('mobile')}
+                  className={cn('p-1.5 rounded-md transition-all', previewMode === 'mobile' ? 'bg-white shadow-sm' : 'text-slate-400')}>
+                  <Smartphone className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 p-4 bg-slate-100 flex items-center justify-center overflow-hidden">
+            {previewUrl ? (
+              <div className={cn('h-full transition-all duration-300', previewMode === 'mobile' ? 'w-[390px] max-w-full' : 'w-full')}>
+                <iframe
+                  key={`mobile-${previewKey}`}
+                  src={previewUrl}
+                  className={cn(
+                    'w-full h-full border-0 bg-white',
+                    previewMode === 'mobile' ? 'rounded-[2rem] shadow-2xl ring-8 ring-slate-800' : 'rounded-2xl shadow-xl',
+                  )}
+                  title="Mobile booking preview"
+                />
+              </div>
+            ) : (
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-300">No tenant selected</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Main editor layout ── */}
+      <main className="flex-1 min-h-0 overflow-hidden">
+        <div className="flex h-full">
+
+          {/* ── Left sidebar ── */}
+          <div className="w-72 h-full flex flex-col border-r bg-white shrink-0">
+            <div className="p-3 border-b flex items-center gap-2 shrink-0">
+              <div className="flex gap-1 flex-1">
+                <button
+                  onClick={() => { setShowLibrary(false); setActivePanel('sections'); }}
+                  className={cn('px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',
+                    activePanel === 'sections' && !showLibrary ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+                >Sections</button>
+                <button
+                  onClick={() => { setShowLibrary(false); setActivePanel('style'); }}
+                  className={cn('px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',
+                    activePanel === 'style' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+                >Style</button>
+              </div>
+              {activePanel === 'sections' && (
+                <button
+                  onClick={() => setShowLibrary(!showLibrary)}
+                  className="w-7 h-7 rounded-lg border-2 border-primary/20 bg-primary/5 flex items-center justify-center text-primary hover:bg-primary/10 transition-all"
+                >
+                  {showLibrary ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                </button>
+              )}
+            </div>
+
+            <ScrollArea className="flex-1 min-h-0 p-3">
+              {/* Active sections */}
+              {activePanel === 'sections' && !showLibrary && (
+                <div className="space-y-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Active sections</p>
+                  {enabledSections.map((s, idx) => (
+                    <SectionListItem
+                      key={s.id}
+                      section={s}
+                      isSelected={selectedId === s.id}
+                      isFirst={idx === 0}
+                      isLast={idx === enabledSections.length - 1}
+                      onSelect={() => { setSelectedId(s.id); setActivePanel('sections'); }}
+                      onMoveUp={() => moveUp(s.id)}
+                      onMoveDown={() => moveDown(s.id)}
+                      onHide={() => hideSection(s.id)}
+                      onDuplicate={() => duplicateSection(s.id)}
+                    />
+                  ))}
+                  {enabledSections.length === 0 && (
+                    <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">No active sections</div>
+                  )}
+                </div>
+              )}
+
+              {/* Section library */}
+              {activePanel === 'sections' && showLibrary && (
+                <div className="space-y-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Add sections</p>
+                  {disabledSections.length === 0
+                    ? <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">All sections active</div>
+                    : disabledSections.map(s => <LibraryItem key={s.id} section={s} onAdd={() => addSection(s.id)} />)
+                  }
+                </div>
+              )}
+
+              {/* Style panel */}
+              {activePanel === 'style' && (
+                <div className="space-y-6">
+                  <div className="flex gap-1 flex-wrap">
+                    {(['kits', 'colors', 'fonts', 'spacing'] as const).map(t => (
+                      <button key={t} onClick={() => setStyleTab(t)}
+                        className={cn('px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all',
+                          styleTab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+                      >{t}</button>
+                    ))}
+                  </div>
+
+                  {styleTab === 'kits' && (
+                    <div className="space-y-3">
+                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Brand kits</p>
+                      <BrandKitPicker style={style} onApply={applyBrandKit} />
+                    </div>
+                  )}
+
+                  {styleTab === 'colors' && (
+                    <div className="space-y-5">
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Accent color</p>
+                        <div className="flex items-center gap-2">
+                          <input type="color" value={style.accentColor}
+                            onChange={e => updateStyle({ accentColor: e.target.value, brandKit: null })}
+                            className="w-10 h-10 rounded-xl border-2 cursor-pointer p-0.5" />
+                          <Input value={style.accentColor}
+                            onChange={e => /^#[0-9a-fA-F]{0,6}$/.test(e.target.value) && updateStyle({ accentColor: e.target.value, brandKit: null })}
+                            className="h-10 rounded-xl border-2 font-mono text-xs w-28" maxLength={7} />
+                        </div>
+                      </div>
+                      <Separator className="border-dashed" />
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Background</p>
+                        <div className="flex items-center gap-2">
+                          <input type="color" value={style.bgColor}
+                            onChange={e => updateStyle({ bgColor: e.target.value, brandKit: null })}
+                            className="w-10 h-10 rounded-xl border-2 cursor-pointer p-0.5" />
+                          <Input value={style.bgColor}
+                            onChange={e => /^#[0-9a-fA-F]{0,6}$/.test(e.target.value) && updateStyle({ bgColor: e.target.value, brandKit: null })}
+                            className="h-10 rounded-xl border-2 font-mono text-xs w-28" maxLength={7} />
+                        </div>
+                      </div>
+                      <Separator className="border-dashed" />
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Button style</p>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(['filled', 'outline', 'ghost', 'pill'] as const).map(bs => (
+                            <button key={bs} onClick={() => updateStyle({ buttonStyle: bs })}
+                              className={cn('py-2 px-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
+                                style.buttonStyle === bs ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:border-primary/20')}
+                            >{bs}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {styleTab === 'fonts' && (
+                    <div className="space-y-5">
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Heading font</p>
+                        <FontPicker value={style.headingFont} onChange={v => updateStyle({ headingFont: v, brandKit: null })} />
+                      </div>
+                      <Separator className="border-dashed" />
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Body font</p>
+                        <FontPicker value={style.bodyFont} onChange={v => updateStyle({ bodyFont: v, brandKit: null })} />
+                      </div>
+                    </div>
+                  )}
+
+                  {styleTab === 'spacing' && (
+                    <div className="space-y-5">
+                      <div className="space-y-3">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Corner roundness</p>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] text-muted-foreground">Sharp</span>
+                            <span className="text-[9px] font-bold text-muted-foreground">{style.borderRadius}px</span>
+                            <span className="text-[9px] text-muted-foreground">Pill</span>
+                          </div>
+                          <Slider
+                            value={[style.borderRadius]}
+                            onValueChange={([v]) => updateStyle({ borderRadius: v })}
+                            min={0} max={32} step={2}
+                            className="w-full"
+                          />
+                          <div className="flex gap-2 justify-center mt-1">
+                            {[0, 6, 12, 24, 32].map(r => (
+                              <div key={r} className="w-8 h-8 bg-primary/20 border-2 border-primary/30" style={{ borderRadius: r }} />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <Separator className="border-dashed" />
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">Section spacing</p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {(['compact', 'balanced', 'airy'] as const).map(d => (
+                            <button key={d} onClick={() => updateStyle({ density: d })}
+                              className={cn('py-2 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
+                                style.density === d ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:border-primary/20')}
+                            >{d}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </ScrollArea>
+
+            {/* Sidebar footer */}
+            <div className="p-3 border-t bg-white space-y-2 shrink-0">
+              <div className="flex gap-1.5">
+                <button onClick={undo} disabled={!canUndo}
+                  className="flex-1 h-8 rounded-xl border-2 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground disabled:opacity-30 hover:border-primary/20 transition-all">
+                  <Undo2 className="w-3 h-3" />Undo
+                </button>
+                <button onClick={redo} disabled={!canRedo}
+                  className="flex-1 h-8 rounded-xl border-2 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground disabled:opacity-30 hover:border-primary/20 transition-all">
+                  Redo<Redo2 className="w-3 h-3" />
+                </button>
+              </div>
+              {selectedTenant && (
+                <a href={`/book/${selectedTenant.id}`} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full h-8 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-primary/30 hover:text-primary transition-all">
+                  <Eye className="w-3.5 h-3.5" />Open live page<ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+              <Button onClick={handleSave} disabled={isSaving}
+                className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                {isSaving ? <><Loader className="animate-spin w-3.5 h-3.5 mr-2" />Saving...</> : <><Save className="w-3.5 h-3.5 mr-2" />Save page</>}
+              </Button>
+            </div>
+          </div>
+
+          {/* ── Center: field editor ── */}
+          <div className="w-80 xl:w-[420px] h-full flex flex-col border-r bg-white shrink-0">
+            {selectedSection && activePanel === 'sections' ? (
+              <>
+                <div className="p-4 border-b bg-white flex items-center gap-3 shrink-0">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                    style={{ background: selectedDef!.color + '18' }}>
+                    {React.createElement(selectedDef!.icon, { className: 'w-4 h-4', style: { color: selectedDef!.color } })}
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{selectedDef!.label}</h2>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Content & configuration</p>
+                  </div>
+                </div>
+
+                <ScrollArea className="flex-1 min-h-0 p-4">
+                  <div className="space-y-5">
+                    {selectedDef!.layouts && selectedDef!.layouts.length > 1 && (
+                      <>
+                        <LayoutPicker
+                          layouts={selectedDef!.layouts}
+                          value={selectedSection.config.layout ?? selectedDef!.layouts[0].id}
+                          onChange={val => updateField(selectedSection.id, 'layout', val)}
+                        />
+                        <Separator className="border-dashed" />
+                      </>
+                    )}
+                    {SECTION_DEFS[selectedSection.type as SectionType].fields.map(field => (
+                      <FieldRenderer
+                        key={field.k}
+                        field={field}
+                        value={selectedSection.config[field.k] ?? field.d}
+                        onChange={val => updateField(selectedSection.id, field.k, val)}
+                        sectionId={selectedSection.id}
+                      />
+                    ))}
+                  </div>
+                </ScrollArea>
+              </>
+            ) : activePanel === 'style' ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+                <div className="w-16 h-16 rounded-[1.5rem] bg-primary/10 flex items-center justify-center">
+                  <Palette className="w-8 h-8 text-primary" />
+                </div>
+                <div className="flex flex-col items-center gap-4 w-full">
+                  <div style={{ fontFamily: headingFontDef?.stack, color: style.accentColor, fontSize: '28px', fontWeight: 300 }}>
+                    {headingFontDef?.label}
+                  </div>
+                  <div style={{ fontFamily: bodyFontDef?.stack, color: '#64748b', fontSize: '14px' }}>
+                    Body — {bodyFontDef?.label}
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <div className="w-8 h-8 rounded-full" style={{ background: style.accentColor }} />
+                    <div className="w-8 h-8 rounded-full" style={{ background: style.bgColor, border: '2px solid #e2e8f0' }} />
+                  </div>
+                  <div
+                    className="px-5 py-2 text-sm font-bold transition-all"
+                    style={{
+                      background:   style.buttonStyle === 'filled' ? style.accentColor : 'transparent',
+                      color:        style.buttonStyle === 'filled' ? '#fff' : style.accentColor,
+                      border:       style.buttonStyle === 'ghost'  ? 'none' : `2px solid ${style.accentColor}`,
+                      borderRadius: style.buttonStyle === 'pill'   ? 999 : style.borderRadius,
+                    }}
+                  >Book Now</div>
+                  <p className="text-[9px] text-muted-foreground/50 text-center">Adjust colors, fonts & spacing in the left panel</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
+                <div className="w-16 h-16 rounded-[1.5rem] bg-muted flex items-center justify-center">
+                  <Settings className="w-8 h-8 text-muted-foreground/40" />
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-black uppercase tracking-tight text-slate-900">Select a section</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-40 max-w-xs">
+                    Click any section in the left panel to edit its content
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 justify-center max-w-xs mt-1">
+                  {enabledSections.slice(0, 6).map(s => {
+                    const d = SECTION_DEFS[s.type as SectionType];
+                    return (
+                      <button key={s.id} onClick={() => setSelectedId(s.id)}
+                        className="px-3 py-1.5 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest transition-all hover:shadow-md"
+                        style={{ borderColor: d.color + '40', color: d.color, background: d.color + '0a' }}>
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Right: live preview (desktop only) ── */}
+          <div className="flex-1 min-w-0 h-full flex-col bg-slate-100 hidden lg:flex">
+            <div className="h-12 px-4 border-b bg-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Live Preview</span>
+                {isDirty && <Badge variant="secondary" className="text-[8px] font-black uppercase tracking-widest">Unsaved</Badge>}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-0.5 p-1 bg-slate-100 rounded-lg">
+                  <button onClick={() => setPreviewMode('desktop')}
+                    className={cn('p-1.5 rounded-md transition-all', previewMode === 'desktop' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600')}
+                    title="Desktop"><Monitor className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => setPreviewMode('mobile')}
+                    className={cn('p-1.5 rounded-md transition-all', previewMode === 'mobile' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600')}
+                    title="Mobile"><Smartphone className="w-3.5 h-3.5" /></button>
+                </div>
+                <button onClick={() => setPreviewKey(k => k + 1)}
+                  className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all" title="Reload preview">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+                {previewUrl && (
+                  <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                    className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all" title="Open live">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* iframe — fills remaining height cleanly */}
+            <div className="flex-1 min-h-0 p-6 overflow-hidden flex items-center justify-center">
+              {previewUrl ? (
+                previewMode === 'desktop' ? (
+                  <iframe
+                    key={previewKey}
+                    ref={previewRef}
+                    src={previewUrl}
+                    className="w-full h-full border-0 bg-white rounded-2xl shadow-xl"
+                    title="Booking page preview"
+                  />
+                ) : (
+                  <div className="h-full w-[390px] max-w-full flex-shrink-0">
+                    <iframe
+                      key={previewKey}
+                      ref={previewRef}
+                      src={previewUrl}
+                      className="w-full h-full border-0 bg-white rounded-[2.5rem] shadow-2xl ring-8 ring-slate-800"
+                      title="Booking page preview"
+                    />
+                  </div>
+                )
+              ) : (
+                <div className="text-center space-y-3">
+                  <Eye className="w-10 h-10 text-slate-200 mx-auto" />
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-300">No tenant selected</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  );
 }
