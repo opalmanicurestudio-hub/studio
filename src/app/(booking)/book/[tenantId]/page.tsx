@@ -109,7 +109,7 @@ function hexToHsl(hex:string):string{
   return`${Math.round(h*360)} ${Math.round(s*100)}% ${Math.round(l*100)}%`;
 }
 
-
+const ANIM_MAP:Record<string,string>={
   'fade-up':'cf-fade-up','fade-in':'cf-fade-in','slide-left':'cf-slide-left',
   'slide-right':'cf-slide-right','scale-up':'cf-scale-up','zoom-in':'cf-zoom-in','none':'',
 };
