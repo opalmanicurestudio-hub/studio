@@ -178,10 +178,10 @@ const POLICY_ICONS=[
 const SECTION_DEFS: Record<SectionType, SectionDef> = {
   nav: { label:'Navigation',icon:Navigation,color:'#3B6D11', fields:[
     {k:'logoUrl',t:'image',l:'Logo image',d:''},{k:'logoText',t:'text',l:'Studio name',d:'Opal'},
-    {k:'ctaText',t:'text',l:'Button label',d:'Book Now'},{k:'ctaAction',t:'select',l:'Button action',d:'booking',opts:['booking','scroll-services','scroll-contact','url']},
-    {k:'ctaUrl',t:'text',l:'Custom URL',d:''},{k:'showLinks',t:'toggle',l:'Show nav links',d:true},
-    {k:'sticky',t:'toggle',l:'Sticky nav',d:true},{k:'transparent',t:'toggle',l:'Transparent on hero',d:false},
-    {k:'socialLinks',t:'social-links',l:'Social links',d:[]},
+    {k:'ctaText',t:'text',l:'Button label',d:'Book Now'},{k:'ctaAction',t:'select',l:'Button action',d:'scroll-contact',opts:['scroll-contact','scroll-services','booking','url']},
+    {k:'ctaUrl',t:'text',l:'Custom URL (if url action)',d:''},{k:'showLinks',t:'toggle',l:'Show nav links',d:true},
+    {k:'sticky',t:'toggle',l:'Sticky nav',d:true},{k:'transparent',t:'toggle',l:'Transparent background',d:false},
+    {k:'socialLinks',t:'social-links',l:'Social icons in nav',d:[]},
   ], layouts:[
     {id:'centered',label:'Centered',preview:'[ logo | links | cta ]'},{id:'split',label:'Logo left',preview:'[ logo ] ─ [ links | cta ]'},
     {id:'minimal',label:'Minimal',preview:'[ logo ] ──────── [ cta ]'},{id:'logo-top',label:'Logo stacked',preview:'[ logo ]\n[ links | cta ]'},
@@ -235,8 +235,11 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   ]},
   reviews: { label:'Reviews',icon:Star,color:'#993556', fields:[
     {k:'heading',t:'text',l:'Section heading',d:'What Clients Say'},{k:'subheading',t:'text',l:'Subheading',d:'Real words from real guests'},
-    {k:'showRating',t:'toggle',l:'Show star ratings',d:true},{k:'showPhotos',t:'toggle',l:'Show client photos',d:true},
+    {k:'showRating',t:'toggle',l:'Show star ratings',d:true},{k:'showPhotos',t:'toggle',l:'Show client photos',d:false},
     {k:'autoScroll',t:'toggle',l:'Auto-scroll carousel',d:false},{k:'scrollSpeed',t:'range',l:'Scroll speed (s)',d:4,min:2,max:10,step:1},
+    {k:'rev1Name',t:'text',l:'Review 1 name',d:'Sarah M.'},{k:'rev1Rating',t:'range',l:'Review 1 rating',d:5,min:1,max:5,step:1},{k:'rev1Text',t:'textarea',l:'Review 1 text',d:'Absolutely incredible experience. The attention to detail is unmatched — I leave feeling taken care of every single time.'},
+    {k:'rev2Name',t:'text',l:'Review 2 name',d:'Jessica T.'},{k:'rev2Rating',t:'range',l:'Review 2 rating',d:5,min:1,max:5,step:1},{k:'rev2Text',t:'textarea',l:'Review 2 text',d:"I've been coming here for over a year and every visit exceeds my expectations. The team is truly world-class."},
+    {k:'rev3Name',t:'text',l:'Review 3 name',d:'Priya K.'},{k:'rev3Rating',t:'range',l:'Review 3 rating',d:5,min:1,max:5,step:1},{k:'rev3Text',t:'textarea',l:'Review 3 text',d:'The atmosphere is luxurious yet so welcoming. I always feel like a VIP. Truly the best in the city.'},
   ], layouts:[
     {id:'grid',label:'Grid',preview:'┌────┐ ┌────┐'},{id:'masonry',label:'Masonry',preview:'┌──┐ ┌────┐'},
     {id:'carousel',label:'Carousel',preview:'← [ review ] →'},{id:'quotes',label:'Large quotes',preview:'" quote text "'},
@@ -263,16 +266,25 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   ]},
   memberships: { label:'Memberships',icon:Crown,color:'#534AB7', fields:[
     {k:'heading',t:'text',l:'Section heading',d:'Join the Club'},{k:'subheading',t:'text',l:'Subheading',d:'Exclusive perks for loyal guests'},
-    {k:'ctaText',t:'text',l:'Button text',d:'Get started'},{k:'ctaAction',t:'select',l:'Button action',d:'booking',opts:['booking','url']},
+    {k:'ctaText',t:'text',l:'Button text',d:'Get started'},{k:'ctaAction',t:'select',l:'Button action',d:'scroll-contact',opts:['booking','scroll-contact','url']},
     {k:'showSavings',t:'toggle',l:'Highlight savings',d:true},{k:'showBadge',t:'toggle',l:'Show popular badge',d:true},
+    {k:'plan1Name',t:'text',l:'Tier 1 name',d:'Essential'},{k:'plan1Price',t:'text',l:'Tier 1 price',d:'$89'},{k:'plan1Period',t:'text',l:'Tier 1 period',d:'/mo'},
+    {k:'plan1Features',t:'textarea',l:'Tier 1 features (one per line)',d:'2 services/month\nPriority booking\n10% off retail'},
+    {k:'plan2Name',t:'text',l:'Tier 2 name',d:'Luxe'},{k:'plan2Price',t:'text',l:'Tier 2 price',d:'$149'},{k:'plan2Period',t:'text',l:'Tier 2 period',d:'/mo'},
+    {k:'plan2Features',t:'textarea',l:'Tier 2 features (one per line)',d:'4 services/month\nVIP priority\n20% off retail\nFree upgrades'},{k:'plan2Featured',t:'toggle',l:'Mark as featured',d:true},
+    {k:'plan3Name',t:'text',l:'Tier 3 name',d:'Elite'},{k:'plan3Price',t:'text',l:'Tier 3 price',d:'$249'},{k:'plan3Period',t:'text',l:'Tier 3 period',d:'/mo'},
+    {k:'plan3Features',t:'textarea',l:'Tier 3 features (one per line)',d:'Unlimited services\nDedicated artist\n30% off retail\nExclusive events'},
   ], layouts:[
     {id:'cards',label:'Pricing cards',preview:'┌────┐ ┌────┐ ┌────┐'},{id:'table',label:'Feature table',preview:'| ✓  | ✓  | ✓  |'},
     {id:'minimal',label:'Minimal list',preview:'── Tier · price ──'},{id:'featured',label:'Featured tier',preview:'[ best ] [sm] [sm]'},
   ]},
   packages: { label:'Packages',icon:Package,color:'#185FA5', fields:[
     {k:'heading',t:'text',l:'Section heading',d:'Prepaid Sessions'},{k:'subheading',t:'text',l:'Subheading',d:'Buy more, save more'},
-    {k:'ctaText',t:'text',l:'Button text',d:'Buy package'},{k:'ctaAction',t:'select',l:'Button action',d:'booking',opts:['booking','url']},
+    {k:'ctaText',t:'text',l:'Button text',d:'Buy package'},{k:'ctaAction',t:'select',l:'Button action',d:'scroll-contact',opts:['booking','scroll-contact','url']},
     {k:'showExpiry',t:'toggle',l:'Show expiry',d:true},{k:'showSavings',t:'toggle',l:'Show savings %',d:true},
+    {k:'pkg1Name',t:'text',l:'Package 1 name',d:'5-Pack'},{k:'pkg1Sessions',t:'text',l:'Package 1 sessions',d:'5'},{k:'pkg1Price',t:'text',l:'Package 1 price',d:'$199'},{k:'pkg1Saving',t:'text',l:'Package 1 saving',d:'Save 15%'},
+    {k:'pkg2Name',t:'text',l:'Package 2 name',d:'10-Pack'},{k:'pkg2Sessions',t:'text',l:'Package 2 sessions',d:'10'},{k:'pkg2Price',t:'text',l:'Package 2 price',d:'$349'},{k:'pkg2Saving',t:'text',l:'Package 2 saving',d:'Save 25%'},
+    {k:'pkg3Name',t:'text',l:'Package 3 name',d:'20-Pack'},{k:'pkg3Sessions',t:'text',l:'Package 3 sessions',d:'20'},{k:'pkg3Price',t:'text',l:'Package 3 price',d:'$599'},{k:'pkg3Saving',t:'text',l:'Package 3 saving',d:'Save 35%'},
   ], layouts:[
     {id:'cards',label:'Cards',preview:'┌────┐ ┌────┐'},{id:'list',label:'List',preview:'── 5-pack · $xxx ──'},
     {id:'featured',label:'Featured',preview:'[ best deal ] [ sm ]'},
