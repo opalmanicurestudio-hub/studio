@@ -565,6 +565,14 @@ function SectionRenderer(p:{section:PageSection;style:StyleConfig;data:PageData;
 
 const DS:StyleConfig={accentColor:'#8b6914',bgColor:'#f8f4ef',headingFont:'cormorant',bodyFont:'space',borderRadius:8,buttonStyle:'filled',density:'balanced'};
 
+// Only accept configs whose sections were written by the page builder.
+// Old booking-settings pages wrote a different structure — this rejects them.
+const VALID_SECTION_TYPES=new Set(['nav','hero','trust','services','team','reviews','gallery','beforeafter','memberships','packages','giftcards','quote','newclient','faq','policies','contact','events','referral','story','instagram','waitlist']);
+function isBuilderConfig(pc:any):boolean{
+  if(!pc?.sections?.length) return false;
+  return (pc.sections as any[]).every(s=>typeof s?.type==='string'&&VALID_SECTION_TYPES.has(s.type)&&typeof s?.id==='string');
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 function BookingPageContent({tenantId}:{tenantId:string}){
   const[tenant,setTenant]=useState<any>(null);
@@ -630,8 +638,9 @@ function BookingPageContent({tenantId}:{tenantId:string}){
         if(!cancelled&&tSnap.exists()){
           const t={id:tSnap.id,...tSnap.data()} as any;
           setTenant(t);
-          const pc=t?.bookingPageSettings?.pageConfig as PageBuilderConfig|undefined;
-          if(pc?.sections?.length)setSavedConfig(pc);
+          const pc=t?.bookingPageSettings?.pageConfig;
+          // Only use config that was actually saved by the page builder
+          if(isBuilderConfig(pc)) setSavedConfig(pc as PageBuilderConfig);
         }
       }catch(e){console.warn('[booking:config]',e);}
       if(!cancelled)setConfigReady(true);
