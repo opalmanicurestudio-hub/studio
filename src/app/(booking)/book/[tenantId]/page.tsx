@@ -638,7 +638,7 @@ function BookingPageContent({tenantId}:{tenantId:string}){
         if(!cancelled&&tSnap.exists()){
           const t={id:tSnap.id,...tSnap.data()} as any;
           setTenant(t);
-          const pc=t?.bookingPageSettings?.pageConfig;
+          const pc=t?.bookingPageSettings?.cfPageConfig;
           // Only use config that was actually saved by the page builder
           if(isBuilderConfig(pc)) setSavedConfig(pc as PageBuilderConfig);
         }
