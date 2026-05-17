@@ -357,17 +357,32 @@ function SettingsPageImpl() {
     );
   };
 
+  // ─── SAVE ─────────────────────────────────────────────────────────────────
+  // bookingPageSettings is intentionally excluded — it's owned by the Page Builder.
+  // Writing it here would overwrite cfPageConfig that the builder saved.
   const handleSave = async () => {
     if (!selectedTenant || !firestore) return;
     try {
-      const batch      = writeBatch(firestore);
-      const tenantRef  = doc(firestore, 'tenants', selectedTenant.id);
-      const finalData  = { ...tenantData, kioskSettings: { ...tenantData.kioskSettings, kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null } };
+      const batch     = writeBatch(firestore);
+      const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+
+      // Strip bookingPageSettings so we never clobber the page builder's cfPageConfig
+      const { bookingPageSettings: _pageBuilderOwned, ...tenantDataToSave } = tenantData as any;
+
+      const finalData = {
+        ...tenantDataToSave,
+        kioskSettings: {
+          ...tenantData.kioskSettings,
+          kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null,
+        },
+      };
       batch.update(tenantRef, finalData);
+
       if (activeProfile && localSchedule) {
         const profileRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`, activeProfile.id);
         batch.update(profileRef, { week: localSchedule, bookingSlotInterval: localInterval });
       }
+
       Object.entries(servicePolicies).forEach(([id, p]) => {
         const svcRef          = doc(firestore, `tenants/${selectedTenant.id}/services`, id);
         const originalService = services.find(s => s.id === id);
@@ -378,6 +393,7 @@ function SettingsPageImpl() {
           cancellationFeeValue:    p.value || (deleteField() as any),
         });
       });
+
       await batch.commit();
       toast({ title: 'Settings Synchronized', description: 'Studio operational parameters updated.' });
       setIsEditing(false);
@@ -713,7 +729,6 @@ function SettingsPageImpl() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-6">
-
                   {/* Primary CTA */}
                   <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
                     <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
@@ -770,7 +785,6 @@ function SettingsPageImpl() {
                       </a>
                     </div>
                   )}
-
                 </CardContent>
               </Card>
             </TabsContent>
