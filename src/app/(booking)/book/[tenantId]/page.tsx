@@ -577,51 +577,54 @@ function BookingPageContent({tenantId}:{tenantId:string}){
   const[consentForms,setConsentForms]=useState<any[]>([]);
   const[savedConfig,setSavedConfig]=useState<PageBuilderConfig|null>(null);
   const[liveConfig,setLiveConfig]=useState<{sections:PageSection[];style:any}|null>(null);
-  const[isLoading,setIsLoading]=useState(true);
+  // Phase 1: only blocks render — resolves as soon as the tenant config doc loads
+  const[configReady,setConfigReady]=useState(false);
   const[dialogOpen,setDialogOpen]=useState(false);
   const[dialogService,setDialogService]=useState<any>(null);
-  // Service picker shown when Book Now is clicked without a specific service
   const[showPicker,setShowPicker]=useState(false);
+  // In preview: hold spinner until builder sends its live config (prevents saved→live flash)
+  const[isLiveReady,setIsLiveReady]=useState(false);
 
   const isPreview=typeof window!=='undefined'&&window!==window.parent;
   const getDb=useCallback(()=>{try{return getFirestore(getApp());}catch{return null;}},[]);
 
-  // Boot: inject CSS, signal parent
+  // Boot: inject CSS. In preview mode, retry BOOKING_READY every 300ms until
+  // the builder's message listener is ready and sends back CLARITY_PREVIEW.
   useEffect(()=>{
     if(!document.getElementById('cf-anim')){
       const s=document.createElement('style');s.id='cf-anim';s.textContent=ANIM_CSS;
       document.head.appendChild(s);
     }
-    if(isPreview)window.parent.postMessage({type:'BOOKING_READY'},'*');
+    if(!isPreview) return;
+    // Send immediately, then retry until we get liveConfig
+    window.parent.postMessage({type:'BOOKING_READY'},'*');
+    const retry=setInterval(()=>{
+      if(!isLiveReady) window.parent.postMessage({type:'BOOKING_READY'},'*');
+      else clearInterval(retry);
+    },300);
+    return()=>clearInterval(retry);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);
+  },[isLiveReady]);
 
-  // Listen for booking open events from any section
+  // Listen for booking open events
   useEffect(()=>{
     const h=(e:Event)=>{
       const d=(e as CustomEvent).detail;
-      if(d?.service){
-        // Specific service clicked — open BookingSheet directly
-        setDialogService(d.service);
-        setDialogOpen(true);
-      } else {
-        // Generic Book Now — show service picker first
-        if(services.length===1){setDialogService(services[0]);setDialogOpen(true);}
-        else{setShowPicker(true);}
-      }
+      if(d?.service){setDialogService(d.service);setDialogOpen(true);}
+      else{if(services.length===1){setDialogService(services[0]);setDialogOpen(true);}else setShowPicker(true);}
     };
     window.addEventListener('cf-book',h);
     return()=>window.removeEventListener('cf-book',h);
   },[services]);
 
-  // Load data
+  // ── Phase 1: Fetch tenant + page config ─ unblocks render immediately ──────
   useEffect(()=>{
-    if(!tenantId){setIsLoading(false);return;}
+    if(!tenantId){setConfigReady(true);return;}
     let cancelled=false;
     const run=async()=>{
-      let db=getDb(),tries=0;
-      while(!db&&tries<10){await new Promise(r=>setTimeout(r,500));db=getDb();tries++;}
-      if(!db||cancelled){setIsLoading(false);return;}
+      // Try once — no poll loop. getApp() works as soon as Firebase root provider runs.
+      const db=getDb();
+      if(!db){setConfigReady(true);return;}
       try{
         const tSnap=await getDoc(doc(db,'tenants',tenantId));
         if(!cancelled&&tSnap.exists()){
@@ -630,11 +633,24 @@ function BookingPageContent({tenantId}:{tenantId:string}){
           const pc=t?.bookingPageSettings?.pageConfig as PageBuilderConfig|undefined;
           if(pc?.sections?.length)setSavedConfig(pc);
         }
+      }catch(e){console.warn('[booking:config]',e);}
+      if(!cancelled)setConfigReady(true);
+    };
+    run();
+    return()=>{cancelled=true;};
+  },[tenantId,getDb]);
+
+  // ── Phase 2: Fetch services, staff, events etc ─ non-blocking ─────────────
+  useEffect(()=>{
+    if(!tenantId||!configReady)return;
+    let cancelled=false;
+    const run=async()=>{
+      const db=getDb();if(!db)return;
+      try{
         const[svSnap,stSnap,evSnap,aptSnap,spSnap,ptSnap,cfSnap]=await Promise.all([
           getDocs(collection(db,`tenants/${tenantId}/services`)),
           getDocs(collection(db,`tenants/${tenantId}/staff`)),
           getDocs(query(collection(db,`tenants/${tenantId}/studioEvents`),orderBy('date','asc'))).catch(()=>getDocs(collection(db,`tenants/${tenantId}/studioEvents`))),
-          // Appointments (from today forward) for availability calculation
           getDocs(query(collection(db,`tenants/${tenantId}/appointments`),where('startTime','>=',new Date().toISOString().split('T')[0]))).catch(()=>({docs:[]})),
           getDocs(collection(db,`tenants/${tenantId}/scheduleProfiles`)).catch(()=>({docs:[]})),
           getDocs(collection(db,`tenants/${tenantId}/pricingTiers`)).catch(()=>({docs:[]})),
@@ -649,16 +665,20 @@ function BookingPageContent({tenantId}:{tenantId:string}){
           setPricingTiers((ptSnap as any).docs.map((d:any)=>({id:d.id,...d.data()})));
           setConsentForms((cfSnap as any).docs.map((d:any)=>({id:d.id,...d.data()})));
         }
-      }catch(e){console.warn('[booking]',e);}
-      finally{if(!cancelled)setIsLoading(false);}
+      }catch(e){console.warn('[booking:data]',e);}
     };
     run();
     return()=>{cancelled=true;};
-  },[tenantId,getDb]);
+  },[tenantId,configReady,getDb]);
 
-  // Live preview sync
+  // Live preview sync — mark ready on first message so spinner is released
   useEffect(()=>{
-    const h=(e:MessageEvent)=>{if(e.data?.type==='CLARITY_PREVIEW')setLiveConfig({sections:e.data.sections,style:e.data.style});};
+    const h=(e:MessageEvent)=>{
+      if(e.data?.type==='CLARITY_PREVIEW'){
+        setLiveConfig({sections:e.data.sections,style:e.data.style});
+        setIsLiveReady(true);
+      }
+    };
     window.addEventListener('message',h);
     return()=>window.removeEventListener('message',h);
   },[]);
@@ -707,12 +727,12 @@ function BookingPageContent({tenantId}:{tenantId:string}){
     }catch(e){console.error('[booking-confirm]',e);}
   },[tenantId]);
 
-  if(isLoading)return(
+  // Block render until:
+  // - public: Firestore config has loaded (configReady)
+  // - preview: Firestore loaded AND builder has sent live config (isLiveReady)
+  if(!configReady||(isPreview&&!isLiveReady))return(
     <div className="w-full min-h-dvh flex items-center justify-center" style={{background:DS.bgColor}}>
-      <div className="text-center space-y-4">
-        <div className="w-7 h-7 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor:DS.accentColor}}/>
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Loading...</p>
-      </div>
+      <div className="w-7 h-7 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor:DS.accentColor}}/>
     </div>
   );
 
