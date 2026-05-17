@@ -763,19 +763,27 @@ export default function PageBuilderPage() {
 
   // Load existing config
   useEffect(()=>{
-    const existing=(selectedTenant?.bookingPageSettings as any)?.pageConfig as PageBuilderConfig|undefined;
+    const raw=(selectedTenant?.bookingPageSettings as any)?.pageConfig;
+    if(!raw) return;
+    // Guard: only load sections that were written by this page builder.
+    // Old booking-settings pages stored a different structure at the same path.
+    const validTypes=new Set(Object.keys(SECTION_DEFS));
+    const existing:PageBuilderConfig|undefined=
+      raw?.sections?.length>0&&(raw.sections as any[]).every((s:any)=>typeof s?.type==='string'&&validTypes.has(s.type)&&typeof s?.id==='string')
+        ? raw as PageBuilderConfig
+        : undefined;
     if(!existing) return;
     // Suppress dirty flag while loading — batch all state updates
     isFirstLoad.current=true;
-    if(existing?.sections?.length) setSections(existing.sections);
-    if(existing?.accentColor)               setStyle(p=>({...p,accentColor:existing.accentColor}));
-    if(existing?.bgColor)                   setStyle(p=>({...p,bgColor:existing.bgColor}));
-    if(existing?.headingFont)               setStyle(p=>({...p,headingFont:existing.headingFont}));
-    if(existing?.bodyFont)                  setStyle(p=>({...p,bodyFont:existing.bodyFont}));
-    if(existing?.borderRadius!==undefined)  setStyle(p=>({...p,borderRadius:existing.borderRadius}));
-    if(existing?.buttonStyle)               setStyle(p=>({...p,buttonStyle:existing.buttonStyle}));
-    if(existing?.density)                   setStyle(p=>({...p,density:existing.density}));
-    if(existing?.brandKit)                  setStyle(p=>({...p,brandKit:existing.brandKit}));
+    if(existing.sections?.length) setSections(existing.sections);
+    if(existing.accentColor)               setStyle(p=>({...p,accentColor:existing.accentColor}));
+    if(existing.bgColor)                   setStyle(p=>({...p,bgColor:existing.bgColor}));
+    if(existing.headingFont)               setStyle(p=>({...p,headingFont:existing.headingFont}));
+    if(existing.bodyFont)                  setStyle(p=>({...p,bodyFont:existing.bodyFont}));
+    if(existing.borderRadius!==undefined)  setStyle(p=>({...p,borderRadius:existing.borderRadius}));
+    if(existing.buttonStyle)               setStyle(p=>({...p,buttonStyle:existing.buttonStyle}));
+    if(existing.density)                   setStyle(p=>({...p,density:existing.density}));
+    if(existing.brandKit)                  setStyle(p=>({...p,brandKit:existing.brandKit}));
     // Re-arm after React flushes these updates
     setTimeout(()=>{ isFirstLoad.current=false; },0);
   },[selectedTenant]);
