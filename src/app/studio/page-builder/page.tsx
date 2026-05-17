@@ -763,7 +763,7 @@ export default function PageBuilderPage() {
 
   // Load existing config
   useEffect(()=>{
-    const raw=(selectedTenant?.bookingPageSettings as any)?.pageConfig;
+    const raw=(selectedTenant?.bookingPageSettings as any)?.cfPageConfig;
     if(!raw) return;
     // Guard: only load sections that were written by this page builder.
     // Old booking-settings pages stored a different structure at the same path.
@@ -926,7 +926,7 @@ export default function PageBuilderPage() {
     setIsSaving(true);
     try{
       const config:PageBuilderConfig={sections,...style};
-      await updateDoc(doc(firestore,'tenants',selectedTenant.id),{'bookingPageSettings.pageConfig':config});
+      await updateDoc(doc(firestore,'tenants',selectedTenant.id),{'bookingPageSettings.cfPageConfig':config});
       setIsDirty(false);
       toast({title:'Page saved',description:'Your booking page is updated and live.'});
     }catch{toast({variant:'destructive',title:'Save failed',description:'Please try again.'});}
