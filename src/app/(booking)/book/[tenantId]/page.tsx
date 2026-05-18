@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import {
   Calendar, Clock, MapPin, Phone, Mail, Instagram,
   ChevronDown, ChevronUp, Star, Gift, Sparkles, Pencil,
-  ChevronLeft, ChevronRight, X as XIcon, ArrowRight,
+  ChevronLeft, ChevronRight, X as XIcon, ArrowRight, ArrowLeftRight,
 } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 
@@ -76,16 +76,9 @@ interface SectionProps {
 }
 interface PageData { tenant: any; services: any[]; staff: any[]; events: any[]; tenantId: string; }
 
-// ─── Clean black & white defaults ─────────────────────────────────────────────
-// Used when no config has been saved yet, and for the loading spinner.
 const DS: StyleConfig = {
-  accentColor: '#000000',
-  bgColor:     '#ffffff',
-  headingFont: 'josefin',
-  bodyFont:    'inter',
-  borderRadius: 4,
-  buttonStyle: 'filled',
-  density:     'balanced',
+  accentColor: '#000000', bgColor: '#ffffff', headingFont: 'josefin',
+  bodyFont: 'inter', borderRadius: 4, buttonStyle: 'filled', density: 'balanced',
 };
 
 const ac  = (s: StyleConfig) => s.accentColor || '#000000';
@@ -107,12 +100,12 @@ function btnStyle(s: StyleConfig, v: 'primary' | 'secondary' = 'primary') {
 function hexToHsl(hex: string): string {
   let r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
   const max = Math.max(r,g,b), min = Math.min(r,g,b);
-  let h = 0, s = 0, l = (max+min)/2;
+  let h = 0, sl = 0, l = (max+min)/2;
   if (max !== min) {
-    const d = max-min; s = l > 0.5 ? d/(2-max-min) : d/(max+min);
+    const d = max-min; sl = l > 0.5 ? d/(2-max-min) : d/(max+min);
     switch(max){ case r: h=((g-b)/d+(g<b?6:0))/6; break; case g: h=((b-r)/d+2)/6; break; case b: h=((r-g)/d+4)/6; break; }
   }
-  return `${Math.round(h*360)} ${Math.round(s*100)}% ${Math.round(l*100)}%`;
+  return `${Math.round(h*360)} ${Math.round(sl*100)}% ${Math.round(l*100)}%`;
 }
 
 function openBooking(service?: any) {
@@ -249,10 +242,10 @@ function NavSection({ config, style, isPreview, sectionId, onFieldTap }: Section
 }
 
 function HeroSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const layout      = config.layout || 'centered';
-  const isSplit     = layout === 'split' || layout === 'magazine';
+  const layout = config.layout || 'centered';
+  const isSplit = layout === 'split' || layout === 'magazine';
   const isFullbleed = layout === 'fullbleed' || layout === 'cinematic';
-  const isMinimal   = layout === 'minimal';
+  const isMinimal = layout === 'minimal';
   const hasBg = !!config.bgImage, hasVideo = !!config.videoUrl;
   const opacity = (config.overlayOpacity ?? 40) / 100;
   const tc = (hasBg || hasVideo) && !isMinimal ? 'white' : '#0f172a';
@@ -333,7 +326,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
             <div className="space-y-3 max-w-3xl mx-auto">
               {services.map((svc:any) => (
                 <div key={svc.id} className="flex items-center gap-5 p-5 bg-white hover:shadow-md transition-all" style={{ borderRadius:br(style), border:`2px solid ${ac(style)}20` }}>
-                  {config.showImages && svc.imageUrl && <img src={svc.imageUrl} alt={svc.name} className="w-16 h-16 object-cover shrink-0" style={{ borderRadius:br(style) }}/>}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-3 mb-1">
                       <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 truncate" style={{ fontFamily:bf(style) }}>{svc.name}</h3>
@@ -368,26 +360,319 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
   );
 }
 
+// ─── TEAM SECTION — all 6 layouts fully implemented ───────────────────────────
 function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const staff = data.staff, layout = config.layout || 'circles';
-  const Av = ({ m, sz=112 }: { m:any; sz?:number }) => (
-    <div className="relative overflow-hidden" style={{ width:sz, height:sz, background:ac(style)+'15', borderRadius:br(style,1.5), flexShrink:0 }}>
-      {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/> : <span className="absolute inset-0 flex items-center justify-center font-light" style={{ fontFamily:hf(style), color:ac(style), fontSize:sz*0.4 }}>{m.name?.[0]}</span>}
+  const staff = data.staff;
+  const layout = config.layout || 'circles';
+
+  const Header = () => (
+    <div className="text-center mb-16 space-y-4">
+      <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+        as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>
+        {config.heading || 'The Artists'}
+      </FieldTap>
+      {config.subheading && (
+        <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>
+          {config.subheading}
+        </FieldTap>
+      )}
     </div>
   );
-  return (
-    <section id="team" className={py(style)} style={{ background:'#f8fafc' }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily:hf(style), color:'#0f172a' }}>{config.heading||'The Artists'}</FieldTap>
-          {config.subheading && <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily:bf(style) }}>{config.subheading}</FieldTap>}
+
+  if (staff.length === 0) return (
+    <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
+        <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Team coming soon</p>
+      </div>
+    </section>
+  );
+
+  // ── circles ────────────────────────────────────────────────────────────
+  if (layout === 'circles') return (
+    <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-10">
+          {staff.map((m: any) => (
+            <div key={m.id} className="text-center space-y-4 group">
+              <div className="relative mx-auto w-28 h-28 overflow-hidden shadow-lg group-hover:shadow-2xl group-hover:scale-105 transition-all duration-500"
+                   style={{ background: ac(style) + '15', borderRadius: '50%' }}>
+                {m.avatarUrl
+                  ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/>
+                  : <span className="absolute inset-0 flex items-center justify-center text-3xl font-light"
+                          style={{ fontFamily: hf(style), color: ac(style) }}>{m.name?.[0]}</span>}
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-900" style={{ fontFamily: bf(style) }}>{m.name}</p>
+                {config.showSpecialties !== false && m.specialties?.length > 0 &&
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">{m.specialties.slice(0, 2).join(' · ')}</p>}
+                {config.showBio && m.bio &&
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed" style={{ fontFamily: bf(style) }}>{m.bio}</p>}
+                {config.showBookButton &&
+                  <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                          className="mt-3 px-5 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90"
+                          style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                    {config.bookCta || 'Book'}
+                  </button>}
+              </div>
+            </div>
+          ))}
         </div>
-        {staff.length > 0 ? (
-          layout==='row' ? (<div className="flex gap-6 overflow-x-auto pb-4 snap-x" style={{ scrollbarWidth:'none' }}>{staff.map((m:any)=><div key={m.id} className="text-center space-y-3 shrink-0 snap-start group" style={{ width:'160px' }}><div className="mx-auto overflow-hidden shadow-lg group-hover:scale-105 transition-all duration-500" style={{ width:96,height:96,background:ac(style)+'15',borderRadius:br(style,1.5) }}><Av m={m} sz={96}/></div><p className="text-[11px] font-black uppercase tracking-widest text-slate-900 truncate" style={{ fontFamily:bf(style) }}>{m.name}</p>{config.showSpecialties!==false&&m.specialties?.length>0&&<p className="text-[9px] text-slate-400 uppercase tracking-wider">{m.specialties[0]}</p>}{config.showBookButton&&<button onClick={e=>{e.stopPropagation();openBooking();}} className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.bookCta||'Book'}</button>}</div>)}</div>) :
-          layout==='editorial' ? (<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">{staff.map((m:any)=><div key={m.id} className="group overflow-hidden bg-white hover:shadow-xl transition-all duration-300" style={{ borderRadius:br(style,1.5),border:`2px solid ${ac(style)}18` }}><div className="relative aspect-[4/3] overflow-hidden" style={{ background:ac(style)+'12' }}>{m.avatarUrl?<img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"/>:<span className="absolute inset-0 flex items-center justify-center text-5xl font-light" style={{ fontFamily:hf(style),color:ac(style) }}>{m.name?.[0]}</span>}</div><div className="p-5 space-y-2"><p className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily:bf(style) }}>{m.name}</p>{config.showSpecialties!==false&&m.specialties?.length>0&&<p className="text-[10px] uppercase tracking-wider text-slate-400">{m.specialties.slice(0,2).join(' · ')}</p>}{config.showBio&&m.bio&&<p className="text-xs text-slate-500 leading-relaxed" style={{ fontFamily:bf(style) }}>{m.bio}</p>}{config.showBookButton&&<button onClick={e=>{e.stopPropagation();openBooking();}} className="w-full mt-2 py-2.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.bookCta||'Book'}</button>}</div></div>)}</div>) :
-          layout==='minimal' ? (<div className="max-w-lg mx-auto space-y-3">{staff.map((m:any)=><div key={m.id} className="flex items-center gap-4 py-3 border-b" style={{ borderColor:ac(style)+'18' }}><div className="w-10 h-10 rounded-full overflow-hidden shrink-0" style={{ background:ac(style)+'15' }}>{m.avatarUrl?<img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/>:<span className="w-full h-full flex items-center justify-center text-sm font-light" style={{ fontFamily:hf(style),color:ac(style) }}>{m.name?.[0]}</span>}</div><div className="flex-1"><p className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily:bf(style) }}>{m.name}</p>{config.showSpecialties!==false&&m.specialties?.length>0&&<p className="text-[10px] text-slate-400 uppercase tracking-wider">{m.specialties.slice(0,2).join(' · ')}</p>}</div>{config.showBookButton&&<button onClick={e=>{e.stopPropagation();openBooking();}} className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.bookCta||'Book'}</button>}</div>)}</div>) :
-          (<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-10">{staff.map((m:any)=><div key={m.id} className="text-center space-y-4 group"><div className="relative mx-auto w-28 h-28 overflow-hidden shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all duration-500" style={{ background:ac(style)+'15',borderRadius:br(style,1.5) }}>{m.avatarUrl?<img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/>:<span className="absolute inset-0 flex items-center justify-center text-3xl font-light" style={{ fontFamily:hf(style),color:ac(style) }}>{m.name?.[0]}</span>}</div><div><p className="text-[11px] font-black uppercase tracking-widest text-slate-900" style={{ fontFamily:bf(style) }}>{m.name}</p>{config.showSpecialties!==false&&m.specialties?.length>0&&<p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">{m.specialties.slice(0,2).join(' · ')}</p>}{config.showBio&&m.bio&&<p className="text-xs text-slate-500 mt-2 leading-relaxed" style={{ fontFamily:bf(style) }}>{m.bio}</p>}{config.showBookButton&&<button onClick={e=>{e.stopPropagation();openBooking();}} className="mt-3 px-5 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.bookCta||'Book'}</button>}</div></div>)}</div>)
-        ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Team coming soon</p>}
+      </div>
+    </section>
+  );
+
+  // ── row ────────────────────────────────────────────────────────────────
+  if (layout === 'row') return (
+    <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
+        <div className="flex gap-6 overflow-x-auto pb-4 snap-x" style={{ scrollbarWidth: 'none' }}>
+          {staff.map((m: any) => (
+            <div key={m.id} className="text-center space-y-3 shrink-0 snap-start group" style={{ width: '160px' }}>
+              <div className="mx-auto overflow-hidden shadow-lg group-hover:scale-105 transition-all duration-500"
+                   style={{ width: 96, height: 96, background: ac(style) + '15', borderRadius: br(style, 1.5) }}>
+                {m.avatarUrl
+                  ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/>
+                  : <span className="w-full h-full flex items-center justify-center text-2xl font-light"
+                          style={{ fontFamily: hf(style), color: ac(style) }}>{m.name?.[0]}</span>}
+              </div>
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 truncate"
+                 style={{ fontFamily: bf(style) }}>{m.name}</p>
+              {config.showSpecialties !== false && m.specialties?.length > 0 &&
+                <p className="text-[9px] text-slate-400 uppercase tracking-wider">{m.specialties[0]}</p>}
+              {config.showBookButton &&
+                <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                        className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90"
+                        style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                  {config.bookCta || 'Book'}
+                </button>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+
+  // ── editorial ──────────────────────────────────────────────────────────
+  if (layout === 'editorial') return (
+    <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {staff.map((m: any) => (
+            <div key={m.id}
+                 className="group overflow-hidden bg-white hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
+                 style={{ borderRadius: br(style, 1.5), border: `2px solid ${ac(style)}18` }}>
+              <div className="relative aspect-[4/3] overflow-hidden" style={{ background: ac(style) + '12' }}>
+                {m.avatarUrl
+                  ? <img src={m.avatarUrl} alt={m.name}
+                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
+                  : <span className="absolute inset-0 flex items-center justify-center text-5xl font-light"
+                          style={{ fontFamily: hf(style), color: ac(style) }}>{m.name?.[0]}</span>}
+                {/* Shimmer on hover */}
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                     style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.07) 0%, transparent 100%)' }}/>
+              </div>
+              <div className="p-5 space-y-2">
+                <p className="text-sm font-black uppercase tracking-tight text-slate-900"
+                   style={{ fontFamily: bf(style) }}>{m.name}</p>
+                {config.showSpecialties !== false && m.specialties?.length > 0 &&
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400">
+                    {m.specialties.slice(0, 2).join(' · ')}
+                  </p>}
+                {config.showBio && m.bio &&
+                  <p className="text-xs text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{m.bio}</p>}
+                {config.showBookButton &&
+                  <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                          className="w-full mt-2 py-2.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90"
+                          style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                    {config.bookCta || 'Book'}
+                  </button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+
+  // ── grid ───────────────────────────────────────────────────────────────
+  if (layout === 'grid') return (
+    <section id="team" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {staff.map((m: any) => (
+            <div key={m.id}
+                 className="group relative overflow-hidden bg-white hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+                 style={{ borderRadius: br(style, 1.5), border: `2px solid ${ac(style)}18` }}>
+              {/* Square photo */}
+              <div className="relative aspect-square overflow-hidden" style={{ background: ac(style) + '10' }}>
+                {m.avatarUrl
+                  ? <img src={m.avatarUrl} alt={m.name}
+                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
+                  : <span className="absolute inset-0 flex items-center justify-center text-3xl font-light"
+                          style={{ fontFamily: hf(style), color: ac(style) }}>{m.name?.[0]}</span>}
+
+                {/* Hover reveal bio */}
+                {config.hoverReveal !== false && m.bio && (
+                  <div className="absolute inset-0 flex items-end p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-400"
+                       style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 50%)' }}>
+                    <p className="text-[10px] text-white/80 leading-relaxed line-clamp-3"
+                       style={{ fontFamily: bf(style) }}>{m.bio}</p>
+                  </div>
+                )}
+
+                {/* Accent stripe on hover */}
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"
+                     style={{ background: ac(style) }}/>
+              </div>
+
+              {/* Info */}
+              <div className="p-4 space-y-1">
+                <p className="text-[11px] font-black uppercase tracking-tight text-slate-900"
+                   style={{ fontFamily: bf(style) }}>{m.name}</p>
+                {config.showSpecialties !== false && m.specialties?.length > 0 &&
+                  <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                    {m.specialties.slice(0, 2).join(' · ')}
+                  </p>}
+                {config.showBookButton &&
+                  <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                          className="w-full mt-2 py-2 text-[10px] font-black uppercase tracking-widest hover:opacity-90"
+                          style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                    {config.bookCta || 'Book'}
+                  </button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+
+  // ── featured ───────────────────────────────────────────────────────────
+  if (layout === 'featured') {
+    const [lead, ...rest] = staff;
+    return (
+      <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
+        <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
+          <div className="grid md:grid-cols-3 gap-5 items-start">
+
+            {/* Lead artist — 2 columns wide */}
+            {lead && (
+              <div className="md:col-span-2 group relative overflow-hidden bg-white hover:shadow-2xl transition-all duration-500"
+                   style={{ borderRadius: br(style, 2), border: `2px solid ${ac(style)}20` }}>
+                <div className="relative aspect-[4/3] overflow-hidden" style={{ background: ac(style) + '10' }}>
+                  {lead.avatarUrl
+                    ? <img src={lead.avatarUrl} alt={lead.name}
+                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"/>
+                    : <span className="absolute inset-0 flex items-center justify-center text-8xl font-light"
+                            style={{ fontFamily: hf(style), color: ac(style) + '40' }}>{lead.name?.[0]}</span>}
+
+                  {/* Gradient on bottom */}
+                  <div className="absolute inset-0"
+                       style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0) 55%)' }}/>
+
+                  {/* Info overlay */}
+                  <div className="absolute bottom-0 inset-x-0 p-8 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/50">Lead Artist</p>
+                    <p className="text-2xl md:text-3xl font-light text-white"
+                       style={{ fontFamily: hf(style) }}>{lead.name}</p>
+                    {config.showSpecialties !== false && lead.specialties?.length > 0 &&
+                      <p className="text-[11px] text-white/55 uppercase tracking-wider">
+                        {lead.specialties.slice(0, 3).join(' · ')}
+                      </p>}
+                    {config.showBio && lead.bio &&
+                      <p className="text-sm text-white/45 leading-relaxed max-w-sm"
+                         style={{ fontFamily: bf(style) }}>{lead.bio}</p>}
+                    {config.showBookButton && (
+                      <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                              className="mt-2 px-8 py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all"
+                              style={{ background: 'white', color: ac(style), borderRadius: br(style), fontFamily: bf(style) }}>
+                        {config.bookCta || 'Book with me'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Supporting team — 1 column */}
+            <div className="flex flex-col gap-4">
+              {rest.slice(0, 4).map((m: any) => (
+                <div key={m.id}
+                     className="group flex items-center gap-4 p-4 bg-white hover:shadow-md transition-all"
+                     style={{ borderRadius: br(style, 1.5), border: `2px solid ${ac(style)}15` }}>
+                  <div className="w-16 h-16 shrink-0 overflow-hidden rounded-full"
+                       style={{ background: ac(style) + '12' }}>
+                    {m.avatarUrl
+                      ? <img src={m.avatarUrl} alt={m.name}
+                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
+                      : <span className="w-full h-full flex items-center justify-center text-xl font-light"
+                              style={{ fontFamily: hf(style), color: ac(style) }}>{m.name?.[0]}</span>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate"
+                       style={{ fontFamily: bf(style) }}>{m.name}</p>
+                    {config.showSpecialties !== false && m.specialties?.length > 0 &&
+                      <p className="text-[9px] text-slate-400 uppercase tracking-wider mt-0.5 truncate">
+                        {m.specialties.slice(0, 2).join(' · ')}
+                      </p>}
+                    {config.showBookButton && (
+                      <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                              className="mt-2 px-4 py-1 text-[9px] font-black uppercase tracking-widest hover:opacity-90"
+                              style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                        {config.bookCta || 'Book'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {rest.length > 4 && (
+                <p className="text-center text-[9px] font-black uppercase tracking-[0.2em] py-1"
+                   style={{ color: ac(style) + '60' }}>
+                  +{rest.length - 4} more artists
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // ── minimal ────────────────────────────────────────────────────────────
+  return (
+    <section id="team" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
+        <div className="max-w-lg mx-auto space-y-0">
+          {staff.map((m: any, idx: number) => (
+            <div key={m.id}
+                 className="flex items-center gap-4 py-4"
+                 style={{ borderBottom: idx < staff.length - 1 ? `1px solid ${ac(style)}18` : 'none' }}>
+              <div className="w-10 h-10 rounded-full overflow-hidden shrink-0"
+                   style={{ background: ac(style) + '15' }}>
+                {m.avatarUrl
+                  ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover"/>
+                  : <span className="w-full h-full flex items-center justify-center text-sm font-light"
+                          style={{ fontFamily: hf(style), color: ac(style) }}>{m.name?.[0]}</span>}
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-black uppercase tracking-tight text-slate-900"
+                   style={{ fontFamily: bf(style) }}>{m.name}</p>
+                {config.showSpecialties !== false && m.specialties?.length > 0 &&
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider">
+                    {m.specialties.slice(0, 2).join(' · ')}
+                  </p>}
+              </div>
+              {config.showBookButton && (
+                <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                        className="shrink-0 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90"
+                        style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                  {config.bookCta || 'Book'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -463,9 +748,398 @@ function GallerySection({ config, style, isPreview, sectionId, onFieldTap }: Sec
   return (<section className={py(style)} style={{ background:'#f8fafc' }}><div className="max-w-6xl mx-auto px-6 md:px-16"><H/><div className={`grid ${gridCls} gap-3`}>{imgs.map((img:any,i:number)=><div key={img.id??i} className={cn('overflow-hidden group cursor-pointer aspect-square',layout==='masonry'&&(i===0||i===5)?'row-span-2':'')} style={{ borderRadius:br(style) }} onClick={()=>img.url&&config.lightbox!==false&&setLb(img.url)}>{img.url?(<div className="relative h-full"><img src={img.url} alt={img.caption||''} className={`w-full h-full object-cover ${hCls}`}/>{config.showCaptions&&img.caption&&<div className="absolute bottom-0 inset-x-0 px-3 py-2 bg-black/50 text-white text-[10px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">{img.caption}</div>}</div>):<div className="w-full h-full" style={{ background:ac(style)+img.shade }}/>}</div>)}</div></div><Lb/></section>);
 }
 
+// ─── BEFORE/AFTER — Interactive drag slider widget ─────────────────────────────
+function BeforeAfterSlider({ pair, sliderColor, showLabels, style }: {
+  pair: any; sliderColor: string; showLabels: boolean; style: StyleConfig;
+}) {
+  const [pct, setPct] = useState(50);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const moveTo = useCallback((clientX: number) => {
+    const el = containerRef.current;
+    if (!el) return;
+    const { left, width } = el.getBoundingClientRect();
+    setPct(Math.min(97, Math.max(3, ((clientX - left) / width) * 100)));
+    setHasInteracted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMM = (e: MouseEvent) => { moveTo(e.clientX); e.preventDefault(); };
+    const onTM = (e: TouchEvent) => { moveTo(e.touches[0].clientX); e.preventDefault(); };
+    const onUp = () => setIsDragging(false);
+    window.addEventListener('mousemove', onMM);
+    window.addEventListener('touchmove', onTM, { passive: false });
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchend', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMM);
+      window.removeEventListener('touchmove', onTM);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, [isDragging, moveTo]);
+
+  const hasBefore = !!pair?.beforeUrl;
+  const hasAfter  = !!pair?.afterUrl;
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative overflow-hidden select-none"
+      style={{ borderRadius: br(style), aspectRatio: '4/3', cursor: 'ew-resize' }}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
+      onMouseDown={e => { setIsDragging(true); moveTo(e.clientX); e.preventDefault(); }}
+      onTouchStart={e => { setIsDragging(true); moveTo(e.touches[0].clientX); }}
+    >
+      {/* ── Before layer ── */}
+      <div className="absolute inset-0">
+        {hasBefore
+          ? <img src={pair.beforeUrl} alt="Before" className="w-full h-full object-cover" draggable={false}/>
+          : <div className="w-full h-full bg-slate-100 flex items-center justify-center">
+              <span className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-300">Before</span>
+            </div>}
+      </div>
+
+      {/* ── After layer — clipped ── */}
+      <div className="absolute inset-0 pointer-events-none"
+           style={{ clipPath: `inset(0 ${100 - pct}% 0 0)`, transition: isDragging ? 'none' : 'clip-path 0.04s ease' }}>
+        {hasAfter
+          ? <img src={pair.afterUrl} alt="After" className="w-full h-full object-cover" draggable={false}/>
+          : <div className="w-full h-full flex items-center justify-center"
+                 style={{ background: ac(style) + '18' }}>
+              <span className="text-[11px] font-black uppercase tracking-[0.3em]"
+                    style={{ color: ac(style) + 'aa' }}>After</span>
+            </div>}
+        {/* Subtle edge glow */}
+        <div className="absolute inset-0 pointer-events-none"
+             style={{ background: `linear-gradient(to right, ${sliderColor}18 0%, transparent 8%)` }}/>
+      </div>
+
+      {/* ── Divider line ── */}
+      <div className="absolute top-0 bottom-0 pointer-events-none"
+           style={{
+             left: `${pct}%`, width: '2px',
+             transform: 'translateX(-50%)',
+             background: 'white',
+             boxShadow: `0 0 0 1px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.3)`,
+             transition: isDragging ? 'none' : 'left 0.04s ease',
+           }}/>
+
+      {/* ── Drag handle ── */}
+      <div className="absolute top-1/2 pointer-events-none"
+           style={{ left: `${pct}%`, transform: 'translate(-50%,-50%)', transition: isDragging ? 'none' : 'left 0.04s ease' }}>
+        <div className="w-11 h-11 rounded-full bg-white flex items-center justify-center"
+             style={{
+               boxShadow: `0 4px 20px rgba(0,0,0,0.25), 0 0 0 3px ${sliderColor}, 0 0 0 5px rgba(255,255,255,0.8)`,
+               transform: isDragging ? 'scale(1.2)' : isHovering ? 'scale(1.08)' : 'scale(1)',
+               transition: 'transform 0.25s cubic-bezier(0.34,1.56,0.64,1)',
+             }}>
+          <ArrowLeftRight className="w-4 h-4" style={{ color: sliderColor }}/>
+        </div>
+      </div>
+
+      {/* ── Labels ── */}
+      {showLabels && (
+        <>
+          <div className="absolute bottom-3 left-3 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-white pointer-events-none"
+               style={{
+                 background: 'rgba(0,0,0,0.55)',
+                 backdropFilter: 'blur(4px)',
+                 borderRadius: '5px',
+                 opacity: pct < 15 ? 0 : 1,
+                 transition: 'opacity 0.3s',
+               }}>Before</div>
+          <div className="absolute bottom-3 right-3 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-white pointer-events-none"
+               style={{
+                 background: sliderColor + 'ee',
+                 backdropFilter: 'blur(4px)',
+                 borderRadius: '5px',
+                 opacity: pct > 85 ? 0 : 1,
+                 transition: 'opacity 0.3s',
+               }}>After</div>
+        </>
+      )}
+
+      {/* ── Drag hint — fades after first interaction ── */}
+      {!hasInteracted && (
+        <div className="absolute inset-x-0 bottom-10 flex justify-center pointer-events-none"
+             style={{ opacity: isHovering ? 0 : 0.8, transition: 'opacity 0.4s' }}>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-white"
+               style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)', borderRadius: '20px' }}>
+            <ArrowLeftRight className="w-3 h-3"/>Drag to reveal
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Stack hover-reveal card
+function StackRevealCard({ pair, sliderColor, showLabels, style }: {
+  pair: any; sliderColor: string; showLabels: boolean; style: StyleConfig;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const hasBefore = !!pair?.beforeUrl;
+  const hasAfter  = !!pair?.afterUrl;
+  return (
+    <div
+      className="relative overflow-hidden cursor-pointer group"
+      style={{ borderRadius: br(style), aspectRatio: '4/3' }}
+      onClick={() => setRevealed(r => !r)}
+      onMouseEnter={() => setRevealed(true)}
+      onMouseLeave={() => setRevealed(false)}
+    >
+      {/* Before */}
+      <div className="absolute inset-0">
+        {hasBefore
+          ? <img src={pair.beforeUrl} alt="Before" className="w-full h-full object-cover"
+                 style={{ transform: revealed ? 'scale(1.04)' : 'scale(1)', transition: 'transform 0.7s cubic-bezier(0.16,1,0.3,1)' }}/>
+          : <div className="w-full h-full bg-slate-100 flex items-center justify-center">
+              <span className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-300">Before</span>
+            </div>}
+      </div>
+
+      {/* After — animates in */}
+      <div className="absolute inset-0"
+           style={{
+             clipPath: revealed ? 'inset(0 0% 0 0)' : 'inset(0 100% 0 0)',
+             transition: 'clip-path 0.65s cubic-bezier(0.16,1,0.3,1)',
+           }}>
+        {hasAfter
+          ? <img src={pair.afterUrl} alt="After" className="w-full h-full object-cover"
+                 style={{ transform: revealed ? 'scale(1)' : 'scale(1.04)', transition: 'transform 0.7s cubic-bezier(0.16,1,0.3,1)' }}/>
+          : <div className="w-full h-full flex items-center justify-center"
+                 style={{ background: ac(style) + '20' }}>
+              <span className="text-[11px] font-black uppercase tracking-[0.3em]"
+                    style={{ color: ac(style) + 'aa' }}>After</span>
+            </div>}
+        <div className="absolute inset-0"
+             style={{ background: `linear-gradient(to right, ${sliderColor}20 0%, transparent 20%)` }}/>
+      </div>
+
+      {/* Labels */}
+      {showLabels && (
+        <>
+          <div className="absolute top-3 left-3 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-white"
+               style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', borderRadius: '5px',
+                        opacity: revealed ? 0 : 1, transition: 'opacity 0.35s' }}>Before</div>
+          <div className="absolute top-3 right-3 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-white"
+               style={{ background: sliderColor + 'dd', backdropFilter: 'blur(4px)', borderRadius: '5px',
+                        opacity: revealed ? 1 : 0, transition: 'opacity 0.35s 0.2s' }}>After</div>
+        </>
+      )}
+
+      {/* Hover prompt */}
+      <div className="absolute inset-0 flex items-end justify-center pb-5 pointer-events-none"
+           style={{ opacity: revealed ? 0 : 1, transition: 'opacity 0.3s' }}>
+        <div className="px-4 py-2 rounded-full text-white text-[10px] font-black uppercase tracking-widest"
+             style={{ background: 'rgba(0,0,0,0.42)', backdropFilter: 'blur(8px)' }}>
+          Hover to reveal ✦
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── BEFORE/AFTER SECTION — 4 layouts ─────────────────────────────────────────
 function BeforeAfterSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const pairs:any[]=Array.isArray(config.pairs)?config.pairs:[],showLabels=config.showLabels!==false,items=pairs.length>0?pairs:[0,1];
-  return (<section className={py(style)} style={{ background:style.bgColor }}><div className="max-w-5xl mx-auto px-6 md:px-16"><div className="text-center mb-16 space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily:hf(style),color:'#0f172a' }}>{config.heading||'Transformations'}</FieldTap>{config.subheading&&<FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500" style={{ fontFamily:bf(style) }}>{config.subheading}</FieldTap>}</div><div className="grid md:grid-cols-2 gap-8">{items.map((item:any,i:number)=>{const p=typeof item==='object'&&item?.beforeUrl!==undefined;return(<div key={i} className="space-y-3"><div className="grid grid-cols-2 gap-2">{[{label:'Before',url:p?item.beforeUrl:null,shade:'12'},{label:'After',url:p?item.afterUrl:null,shade:'28'}].map((side,j)=><div key={j} className="relative overflow-hidden aspect-square group" style={{ borderRadius:br(style) }}>{side.url?<img src={side.url} alt={side.label} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"/>:<div className="w-full h-full flex items-center justify-center" style={{ background:ac(style)+side.shade }}>{showLabels&&<span className="text-[10px] font-black uppercase tracking-widest" style={{ color:ac(style)+(j===0?'80':'cc') }}>{side.label}</span>}</div>}{side.url&&showLabels&&<div className="absolute bottom-2 left-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-white" style={{ background:j===0?'rgba(0,0,0,0.5)':ac(style)+'cc',borderRadius:'4px' }}>{side.label}</div>}</div>)}</div>{p&&item.caption&&<p className="text-xs text-slate-400 text-center font-bold uppercase tracking-widest">{item.caption}</p>}</div>);})}</div></div></section>);
+  const pairs: any[] = Array.isArray(config.pairs) ? config.pairs : [];
+  const layout      = config.layout || 'slider';
+  const showLabels  = config.showLabels !== false;
+  const sliderColor = config.sliderColor || ac(style);
+  const [carouselIdx, setCarouselIdx] = useState(0);
+
+  // Placeholder items for when no pairs uploaded yet
+  const displayPairs = pairs.length > 0 ? pairs : [
+    { id: 'ph1', beforeUrl: '', afterUrl: '', caption: 'Transformation 1' },
+    { id: 'ph2', beforeUrl: '', afterUrl: '', caption: 'Transformation 2' },
+  ];
+
+  const SectionHeader = () => (
+    <div className="text-center mb-16 space-y-4">
+      <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+        as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>
+        {config.heading || 'Transformations'}
+      </FieldTap>
+      {config.subheading && (
+        <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>
+          {config.subheading}
+        </FieldTap>
+      )}
+    </div>
+  );
+
+  // ── SLIDER layout ────────────────────────────────────────────────────
+  if (layout === 'slider') return (
+    <section className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16">
+        <SectionHeader/>
+        <div className={cn('grid gap-8', displayPairs.length === 1 ? 'max-w-2xl mx-auto' : 'md:grid-cols-2')}>
+          {displayPairs.map((pair: any, i: number) => (
+            <div key={pair.id || i} className="space-y-3">
+              <BeforeAfterSlider pair={pair} sliderColor={sliderColor} showLabels={showLabels} style={style}/>
+              {pair.caption && (
+                <p className="text-center text-[10px] font-black uppercase tracking-[0.2em]"
+                   style={{ color: ac(style) + '80', fontFamily: bf(style) }}>
+                  {pair.caption}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+
+  // ── SIDE layout ──────────────────────────────────────────────────────
+  if (layout === 'side') return (
+    <section className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16">
+        <SectionHeader/>
+        <div className="space-y-20">
+          {displayPairs.map((pair: any, i: number) => (
+            <div key={pair.id || i} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 md:gap-6">
+                {[
+                  { label: 'Before', url: pair.beforeUrl, isAfter: false },
+                  { label: 'After',  url: pair.afterUrl,  isAfter: true  },
+                ].map(side => (
+                  <div key={side.label}
+                       className="group relative overflow-hidden"
+                       style={{ borderRadius: br(style), aspectRatio: '3/4' }}>
+                    {side.url
+                      ? <img src={side.url} alt={side.label}
+                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                             draggable={false}/>
+                      : <div className="w-full h-full flex items-center justify-center"
+                             style={{ background: side.isAfter ? ac(style) + '14' : '#f1f5f9' }}>
+                          <span className="text-[11px] font-black uppercase tracking-[0.25em]"
+                                style={{ color: side.isAfter ? ac(style) + 'aa' : '#cbd5e1' }}>
+                            {side.label}
+                          </span>
+                        </div>}
+
+                    {showLabels && (
+                      <div className="absolute top-3 left-3 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-white"
+                           style={{
+                             background: side.isAfter ? sliderColor + 'ee' : 'rgba(0,0,0,0.5)',
+                             backdropFilter: 'blur(4px)',
+                             borderRadius: '5px',
+                           }}>
+                        {side.label}
+                      </div>
+                    )}
+
+                    {/* Hover shimmer */}
+                    <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                         style={{ background: 'linear-gradient(135deg,rgba(255,255,255,0.07) 0%,transparent 100%)' }}/>
+
+                    {/* Accent border reveal on hover */}
+                    <div className="absolute bottom-0 left-0 right-0 h-[3px] scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"
+                         style={{ background: side.isAfter ? sliderColor : ac(style) + '40' }}/>
+                  </div>
+                ))}
+              </div>
+
+              {pair.caption && (
+                <p className="text-center text-[10px] font-black uppercase tracking-[0.2em]"
+                   style={{ color: ac(style) + '80', fontFamily: bf(style) }}>
+                  {pair.caption}
+                </p>
+              )}
+
+              {i < displayPairs.length - 1 && (
+                <div className="mt-10 flex items-center gap-4">
+                  <div className="flex-1 h-px" style={{ background: ac(style) + '12' }}/>
+                  <div className="w-1.5 h-1.5 rounded-full" style={{ background: ac(style) + '30' }}/>
+                  <div className="flex-1 h-px" style={{ background: ac(style) + '12' }}/>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+
+  // ── STACK layout ─────────────────────────────────────────────────────
+  if (layout === 'stack') return (
+    <section className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16">
+        <SectionHeader/>
+        <div className={cn('grid gap-6', displayPairs.length === 1 ? 'max-w-2xl mx-auto' : 'md:grid-cols-2')}>
+          {displayPairs.map((pair: any, i: number) => (
+            <div key={pair.id || i} className="space-y-3">
+              <StackRevealCard pair={pair} sliderColor={sliderColor} showLabels={showLabels} style={style}/>
+              {pair.caption && (
+                <p className="text-center text-[10px] font-black uppercase tracking-[0.2em]"
+                   style={{ color: ac(style) + '80', fontFamily: bf(style) }}>
+                  {pair.caption}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+
+  // ── CAROUSEL layout ───────────────────────────────────────────────────
+  const current = displayPairs[carouselIdx % displayPairs.length];
+  return (
+    <section className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-3xl mx-auto px-6 md:px-16">
+        <SectionHeader/>
+        <div className="space-y-6">
+          <BeforeAfterSlider key={carouselIdx} pair={current} sliderColor={sliderColor} showLabels={showLabels} style={style}/>
+
+          {current?.caption && (
+            <p className="text-center text-sm font-bold uppercase tracking-widest"
+               style={{ color: ac(style) + '70', fontFamily: bf(style) }}>
+              {current.caption}
+            </p>
+          )}
+
+          {displayPairs.length > 1 && (
+            <div className="flex items-center justify-center gap-4">
+              <button
+                onClick={() => setCarouselIdx(i => (i - 1 + displayPairs.length) % displayPairs.length)}
+                className="w-10 h-10 rounded-full border-2 flex items-center justify-center hover:shadow-md transition-all"
+                style={{ borderColor: ac(style) + '30', color: '#94a3b8' }}>
+                <ChevronLeft className="w-4 h-4"/>
+              </button>
+
+              <div className="flex gap-2 items-center">
+                {displayPairs.map((_, i) => (
+                  <button key={i} onClick={() => setCarouselIdx(i)}
+                          className="transition-all duration-300"
+                          style={{
+                            width: i === carouselIdx % displayPairs.length ? '24px' : '8px',
+                            height: '8px',
+                            borderRadius: '9999px',
+                            background: i === carouselIdx % displayPairs.length ? ac(style) : ac(style) + '28',
+                          }}/>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setCarouselIdx(i => (i + 1) % displayPairs.length)}
+                className="w-10 h-10 rounded-full border-2 flex items-center justify-center hover:shadow-md transition-all"
+                style={{ borderColor: ac(style) + '30', color: '#94a3b8' }}>
+                <ChevronRight className="w-4 h-4"/>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function MembershipsSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
@@ -483,9 +1157,225 @@ function GiftCardsSection({ config, style, isPreview, sectionId, onFieldTap }: S
   return (<section className={cn(py(style),'relative')} style={{ background:hasBg?`url(${config.bgImage}) center/cover no-repeat`:'#f8fafc' }}>{hasBg&&<div className="absolute inset-0" style={{ background:'rgba(0,0,0,0.45)' }}/>}<div className="relative max-w-2xl mx-auto px-6 md:px-16 text-center space-y-10"><div className="space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily:hf(style),color:hasBg?'white':'#0f172a' }}>{config.heading||'Give the Gift of Beauty'}</FieldTap>{config.subheading&&<p className="text-base" style={{ fontFamily:bf(style),color:hasBg?'rgba(255,255,255,0.75)':'#64748b' }}>{config.subheading}</p>}</div><div className="p-10 shadow-2xl space-y-8 text-white" style={{ background:`linear-gradient(135deg,${ac(style)} 0%,${ac(style)}cc 100%)`,borderRadius:br(style,2) }}><Gift className="w-12 h-12 mx-auto opacity-80"/><p className="text-lg font-light" style={{ fontFamily:hf(style) }}>Choose an amount</p><div className="flex flex-wrap gap-3 justify-center">{amounts.map((a:string,i:number)=><button key={i} className="px-6 py-3 border-2 border-white/40 font-black text-sm hover:bg-white/20 transition-all" style={{ borderRadius:br(style) }}>${a}</button>)}<button className="px-6 py-3 border-2 border-white/40 font-black text-sm hover:bg-white/20 transition-all" style={{ borderRadius:br(style) }}>Custom</button></div><button onClick={cta(config.ctaAction,config.ctaUrl)} className="px-12 py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all" style={{ background:'white',color:ac(style),borderRadius:br(style,3),fontFamily:bf(style) }}>{config.ctaText||'Send a Gift Card'}</button></div></div></section>);
 }
 
+// ─── QUOTE SECTION — theme-aware, no hardcoded navy ────────────────────────────
 function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const rawTags=config.tags,tags:string[]=Array.isArray(rawTags)?rawTags:typeof rawTags==='string'?rawTags.split(',').map((t:string)=>t.trim()).filter(Boolean):[],hasBg=!!config.bgImage;
-  return (<section className={cn(py(style),'relative')} style={{ background:hasBg?`url(${config.bgImage}) center/cover no-repeat`:'#0f172a' }}>{hasBg&&<div className="absolute inset-0" style={{ background:'rgba(0,0,0,0.65)' }}/>}<div className="relative max-w-4xl mx-auto px-6 md:px-16 text-center space-y-10"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light text-white" style={{ fontFamily:hf(style) }}>{config.heading||'Need Something Bigger?'}</FieldTap><FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-lg text-white/55 max-w-2xl mx-auto leading-relaxed" style={{ fontFamily:bf(style) }}>{config.subheading}</FieldTap>{tags.length>0&&<div className="flex flex-wrap gap-2.5 justify-center">{tags.map((tag:string,i:number)=><span key={i} className="px-5 py-2 border text-[11px] font-black uppercase tracking-widest text-white/55 border-white/20" style={{ borderRadius:br(style,3) }}>{tag}</span>)}</div>}<FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span"><button onClick={cta(config.ctaAction,config.ctaUrl)} className="px-12 py-4 font-black text-sm uppercase tracking-widest shadow-2xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.ctaText||'Request a Quote'}</button></FieldTap></div></section>);
+  const rawTags = config.tags;
+  const tags: string[] = Array.isArray(rawTags) ? rawTags
+    : typeof rawTags === 'string' ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean)
+    : [];
+  const hasBg  = !!config.bgImage;
+  const layout = config.layout || 'centered';
+  const accent = ac(style);
+
+  // ── CENTERED layout ──────────────────────────────────────────────────
+  if (layout === 'centered') {
+    return (
+      <section className={cn(py(style), 'relative overflow-hidden')}
+               style={{ background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : accent }}>
+        {/* Overlay */}
+        {hasBg && <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.65)' }}/>}
+        {!hasBg && <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.14) 0%,rgba(0,0,0,0.32) 100%)' }}/>}
+
+        {/* Decorative dot grid */}
+        {!hasBg && (
+          <div className="absolute inset-0 opacity-[0.07] pointer-events-none"
+               style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.8) 1px, transparent 1px)', backgroundSize: '32px 32px' }}/>
+        )}
+
+        <div className="relative max-w-4xl mx-auto px-6 md:px-16 text-center space-y-10">
+          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="h2" className="text-4xl md:text-6xl font-light text-white" style={{ fontFamily: hf(style) }}>
+            {config.heading || 'Need Something Bigger?'}
+          </FieldTap>
+
+          {config.subheading && (
+            <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="p" className="text-lg max-w-2xl mx-auto leading-relaxed"
+              style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.72)' }}>
+              {config.subheading}
+            </FieldTap>
+          )}
+
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-3 justify-center">
+              {tags.map((tag: string, i: number) => (
+                <span key={i}
+                      className="px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest text-white/75 border-white/22 hover:bg-white/10 hover:text-white transition-all cursor-default"
+                      style={{ borderRadius: br(style, 3) }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
+            <button
+              onClick={cta(config.ctaAction, config.ctaUrl)}
+              className="inline-flex items-center gap-2.5 px-12 py-4 font-black text-sm uppercase tracking-widest hover:scale-[1.03] active:scale-[0.98] transition-all"
+              style={{
+                background: 'white',
+                color: accent,
+                borderRadius: br(style),
+                fontFamily: bf(style),
+                boxShadow: '0 8px 40px rgba(0,0,0,0.25)',
+              }}>
+              {config.ctaText || 'Request a Quote'}
+              <ArrowRight className="w-4 h-4"/>
+            </button>
+          </FieldTap>
+        </div>
+      </section>
+    );
+  }
+
+  // ── SPLIT layout ─────────────────────────────────────────────────────
+  if (layout === 'split') {
+    return (
+      <section className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto px-6 md:px-16">
+          <div className="grid md:grid-cols-2 gap-12 md:gap-20 items-center">
+
+            {/* Left: text */}
+            <div className="space-y-8">
+              <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+                as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>
+                {config.heading || 'Need Something Bigger?'}
+              </FieldTap>
+
+              <div className="w-14 h-[2px]" style={{ background: accent }}/>
+
+              {config.subheading && (
+                <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+                  as="p" className="text-base leading-relaxed text-slate-500" style={{ fontFamily: bf(style) }}>
+                  {config.subheading}
+                </FieldTap>
+              )}
+
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-2.5">
+                  {tags.map((tag: string, i: number) => (
+                    <span key={i}
+                          className="px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+                          style={{
+                            background: accent + '0f',
+                            color: accent,
+                            borderRadius: br(style, 2),
+                            border: `1.5px solid ${accent}22`,
+                          }}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
+                <button
+                  onClick={cta(config.ctaAction, config.ctaUrl)}
+                  className="inline-flex items-center gap-2.5 px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                  {config.ctaText || 'Request a Quote'}
+                  <ArrowRight className="w-4 h-4"/>
+                </button>
+              </FieldTap>
+            </div>
+
+            {/* Right: visual panel */}
+            <div className="hidden md:block">
+              {hasBg ? (
+                <div className="w-full aspect-[4/5] overflow-hidden shadow-2xl"
+                     style={{ borderRadius: br(style, 2) }}>
+                  <img src={config.bgImage} alt="" className="w-full h-full object-cover"/>
+                </div>
+              ) : (
+                <div className="w-full aspect-[4/5] relative overflow-hidden flex items-center justify-center"
+                     style={{ background: accent + '08', borderRadius: br(style, 2), border: `2px solid ${accent}15` }}>
+                  {/* Dot grid */}
+                  <div className="absolute inset-0"
+                       style={{ backgroundImage: `radial-gradient(${accent}30 1.5px, transparent 1.5px)`, backgroundSize: '22px 22px' }}/>
+
+                  {/* Floating tag bubbles */}
+                  <div className="relative flex flex-col gap-4 items-center p-8 w-full">
+                    {(tags.length > 0 ? tags.slice(0, 4) : ['Bridal Parties','Corporate Events','Destination']).map((tag, i) => (
+                      <div key={i}
+                           className="px-7 py-4 text-sm font-black uppercase tracking-widest text-white shadow-2xl w-full text-center"
+                           style={{
+                             background: accent,
+                             borderRadius: br(style, 2),
+                             transform: `rotate(${([-1.5, 1, -0.8, 1.4][i] || 0)}deg) translateX(${([8,-6,4,-5][i] || 0)}px)`,
+                             boxShadow: `0 12px 36px ${accent}40`,
+                           }}>
+                        {tag}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // ── BANNER layout ────────────────────────────────────────────────────
+  return (
+    <section className="relative overflow-hidden"
+             style={{ background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : accent }}>
+      {hasBg && <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.62)' }}/>}
+      {!hasBg && <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.12) 0%,rgba(0,0,0,0.28) 100%)' }}/>}
+      {!hasBg && (
+        <div className="absolute inset-0 opacity-[0.06]"
+             style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '28px 28px' }}/>
+      )}
+
+      <div className="relative max-w-6xl mx-auto px-6 md:px-16 py-16 md:py-20">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-8 md:gap-14">
+          <div className="space-y-4 text-center md:text-left flex-1">
+            <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="h2" className="text-3xl md:text-4xl font-light text-white" style={{ fontFamily: hf(style) }}>
+              {config.heading || 'Need Something Bigger?'}
+            </FieldTap>
+
+            {config.subheading && (
+              <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+                as="p" className="text-base max-w-lg leading-relaxed"
+                style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.68)' }}>
+                {config.subheading}
+              </FieldTap>
+            )}
+
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+                {tags.map((tag: string, i: number) => (
+                  <span key={i}
+                        className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white/65 border border-white/20"
+                        style={{ borderRadius: br(style, 2) }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
+            <button
+              onClick={cta(config.ctaAction, config.ctaUrl)}
+              className="shrink-0 inline-flex items-center gap-2.5 px-10 py-4 font-black text-sm uppercase tracking-widest hover:scale-[1.03] active:scale-[0.98] transition-all"
+              style={{
+                background: 'white',
+                color: accent,
+                borderRadius: br(style),
+                fontFamily: bf(style),
+                boxShadow: '0 8px 32px rgba(0,0,0,0.22)',
+              }}>
+              {config.ctaText || 'Request a Quote'}
+              <ArrowRight className="w-4 h-4"/>
+            </button>
+          </FieldTap>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function NewClientSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
@@ -599,8 +1489,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     catch { return false; }
   })();
 
-  // Read cached style from localStorage so the spinner uses brand colors
-  // immediately on every visit after the first.
   const [loadingStyle] = useState<StyleConfig>(() => {
     try {
       if (typeof window === 'undefined') return DS;
@@ -637,7 +1525,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     }
   }, []);
 
-  // Phase 1: load tenant + saved page config
   useEffect(() => {
     if (!tenantId) { setConfigReady(true); return; }
     let cancelled = false;
@@ -652,15 +1539,11 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           const pc = t?.bookingPageSettings?.cfPageConfig;
           if (isBuilderConfig(pc)) {
             setSavedConfig(pc as PageBuilderConfig);
-            // Cache style for instant themed loading screen on future visits
             try {
               localStorage.setItem(`cf-style-${tenantId}`, JSON.stringify({
-                accentColor:  pc.accentColor,
-                bgColor:      pc.bgColor,
-                headingFont:  pc.headingFont,
-                bodyFont:     pc.bodyFont,
-                borderRadius: pc.borderRadius,
-                buttonStyle:  pc.buttonStyle,
+                accentColor:  pc.accentColor,  bgColor:      pc.bgColor,
+                headingFont:  pc.headingFont,  bodyFont:     pc.bodyFont,
+                borderRadius: pc.borderRadius, buttonStyle:  pc.buttonStyle,
                 density:      pc.density,
               }));
             } catch {}
@@ -673,7 +1556,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     return () => { cancelled = true; };
   }, [tenantId, getDb]);
 
-  // Phase 2: load services, staff, events etc (non-blocking)
   useEffect(() => {
     if (!tenantId || !configReady) return;
     let cancelled = false;
@@ -704,7 +1586,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     return () => { cancelled = true; };
   }, [tenantId, configReady, getDb]);
 
-  // Receive live config from builder (preview only)
   useEffect(() => {
     const h = (e: MessageEvent) => {
       if (e.data?.type === 'CLARITY_PREVIEW') {
@@ -715,7 +1596,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     return () => window.removeEventListener('message', h);
   }, []);
 
-  // Signal builder this iframe is ready
   useEffect(() => {
     if (!isPreview) return;
     const send = () => { try { window.parent.postMessage({ type:'BOOKING_READY' }, '*'); } catch {} };
@@ -767,11 +1647,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     try { root.style.setProperty('--primary', hexToHsl(resolvedStyle.accentColor)); } catch {}
   }, [resolvedStyle]);
 
-  // ── Loading spinner — white background, black spinner by default ───────────
   if (!configReady) {
     return (
-      <div className="w-full min-h-dvh flex items-center justify-center"
-           style={{ background: loadingStyle.bgColor }}>
+      <div className="w-full min-h-dvh flex items-center justify-center" style={{ background: loadingStyle.bgColor }}>
         <div className="w-7 h-7 border-2 border-t-transparent rounded-full animate-spin"
              style={{ borderColor: loadingStyle.accentColor }}/>
       </div>
