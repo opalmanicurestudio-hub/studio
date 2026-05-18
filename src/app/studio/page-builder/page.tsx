@@ -715,6 +715,13 @@ export default function PageBuilderPage() {
   const fieldEditTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fieldEditActiveRef  = useRef(false);
 
+  // ── FIX: refs that stay current despite [] dependency arrays ──────────────
+  // The BOOKING_READY message handler is registered once ([] deps) to avoid
+  // re-registering on every keystroke. Without these refs the closure captures
+  // the initial empty sections/style values and sends stale data to the iframe.
+  const sectionsRef = useRef<PageSection[]>([]);
+  const styleRef    = useRef<any>({});
+
   const [sections,        setSections]        = useState<PageSection[]>(buildDefaultSections());
   const [selectedId,      setSelectedId]      = useState<string | null>('hero');
   const [highlightedField,setHighlightedField]= useState<string | null>(null);
@@ -752,6 +759,10 @@ export default function PageBuilderPage() {
     density:     'balanced' as 'compact' | 'balanced' | 'airy',
     brandKit:    null as string | null,
   });
+
+  // ── Keep refs in sync with latest state ───────────────────────────────────
+  useEffect(() => { sectionsRef.current = sections; }, [sections]);
+  useEffect(() => { styleRef.current   = style;    }, [style]);
 
   // Load existing config
   useEffect(() => {
@@ -817,7 +828,7 @@ export default function PageBuilderPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
 
-  // Live preview sync
+  // Live preview sync — debounced, fires on every change
   useEffect(() => {
     const timer = setTimeout(() => {
       previewRef.current?.contentWindow?.postMessage({ type: 'CLARITY_PREVIEW', sections, style }, '*');
@@ -825,11 +836,18 @@ export default function PageBuilderPage() {
     return () => clearTimeout(timer);
   }, [sections, style]);
 
-  // Message handler
+  // ── Message handler ────────────────────────────────────────────────────────
+  // Registered once ([] deps) so it doesn't re-register on every keystroke.
+  // Reads sections/style through refs so it always has the current values even
+  // though it was registered when they were still empty (stale closure fix).
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'BOOKING_READY') {
-        previewRef.current?.contentWindow?.postMessage({ type: 'CLARITY_PREVIEW', sections, style }, '*');
+        // Use refs — not the closed-over `sections`/`style` which are stale
+        previewRef.current?.contentWindow?.postMessage(
+          { type: 'CLARITY_PREVIEW', sections: sectionsRef.current, style: styleRef.current },
+          '*'
+        );
       }
       if (e.data?.type === 'EDIT_SECTION') {
         setSelectedId(e.data.sectionId); setActivePanel('sections');
@@ -845,7 +863,7 @@ export default function PageBuilderPage() {
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const enabledSections  = useMemo(() => sections.filter(s => s.enabled).sort((a,b) => a.order - b.order), [sections]);
   const disabledSections = useMemo(() => sections.filter(s => !s.enabled), [sections]);
