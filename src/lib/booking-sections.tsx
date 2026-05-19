@@ -325,7 +325,7 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
         </nav>
         {/* Sticky CTA */}
         <div className="px-6 pb-8 pt-4 space-y-2 border-t" style={{ borderColor: ac(style) + '10' }}>
-          <button onClick={() => { cta(config.ctaAction, config.ctaUrl)(new MouseEvent('click') as any); setDrawerOpen(false); }}
+          <button onClick={() => { cta(config.ctaAction, config.ctaUrl)({ stopPropagation: () => {} } as any); setDrawerOpen(false); }}
                   className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all"
                   style={{ ...btnStyle(style), fontFamily: bf(style) }}>
             {config.ctaText || 'Book Now'}
@@ -512,10 +512,498 @@ function HeroSection({ config, style, isPreview, sectionId, onFieldTap }: Sectio
   const hasMedia = hasBg || hasVideo;
   const opacity  = (config.overlayOpacity ?? 50) / 100;
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
+  const [loaded, setLoaded]   = useState(false);
+  useEffect(() => { const t = setTimeout(() => setLoaded(true), 60); return () => clearTimeout(t); }, []);
 
-  const headline   = config.headline    || 'Book Your Experience';
-  const subline    = config.subheadline || 'A sanctuary of craft, curated for those who appreciate the details.';
-  const words      = headline.split(' ');
+  const headline = config.headline    || 'Book Your Experience';
+  const subline  = config.subheadline || 'A sanctuary of craft, curated for those who appreciate the details.';
+  const words    = headline.split(' ');
+
+  // ── Shared helpers ────────────────────────────────────────────────────
+  const Img = ({ cls = 'absolute inset-0 w-full h-full object-cover' }: { cls?: string }) =>
+    hasBg  ? <img src={config.bgImage!} alt="" className={cls} draggable={false}/> :
+    hasVideo ? <video autoPlay muted loop playsInline className={cls}><source src={config.videoUrl}/></video> : null;
+
+  const Scrim = ({ v = opacity, dir = 'up' }: { v?: number; dir?: 'up'|'down'|'all'|'lr' }) => {
+    const g = dir === 'up'  ? `rgba(0,0,0,0) 0%, rgba(0,0,0,${v}) 100%` :
+              dir === 'down' ? `rgba(0,0,0,${v}) 0%, rgba(0,0,0,0) 100%` :
+              dir === 'lr'   ? `rgba(0,0,0,${v}) 0%, rgba(0,0,0,0) 60%` :
+                               `rgba(0,0,0,${v})`;
+    return <div className="absolute inset-0 pointer-events-none" style={{ background: dir === 'all' ? g : `linear-gradient(to top, ${g})` }}/>;
+  };
+
+  const PrimaryBtn = ({ dark = false }: { dark?: boolean }) => (
+    <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
+      <button onClick={cta(config.ctaAction, config.ctaUrl)}
+              className="inline-flex items-center gap-2 px-8 py-4 font-black text-sm uppercase tracking-widest hover:scale-[1.04] active:scale-[0.97] transition-all"
+              style={dark ? { background:'white', color:ac(style), borderRadius:br(style), fontFamily:bf(style), boxShadow:'0 16px 48px rgba(0,0,0,0.25)' }
+                          : { ...btnStyle(style), fontFamily:bf(style), boxShadow:`0 12px 40px ${ac(style)}40` }}>
+        {config.ctaText || 'Book Now'} <ArrowRight className="w-3.5 h-3.5"/>
+      </button>
+    </FieldTap>
+  );
+
+  const GhostBtn = ({ dark = false }: { dark?: boolean }) => config.showWalkIn !== false ? (
+    <FieldTap sectionId={sectionId} fieldKey="cta2Text" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
+      <button onClick={cta(config.cta2Action)}
+              className="px-8 py-4 font-black text-sm uppercase tracking-widest border-2 hover:opacity-75 transition-all"
+              style={{ borderColor: dark ? 'rgba(255,255,255,0.35)' : ac(style), color: dark ? 'white' : ac(style), borderRadius:br(style), fontFamily:bf(style) }}>
+        {config.cta2Text || 'Walk In'}
+      </button>
+    </FieldTap>
+  ) : null;
+
+  const Btns = ({ dark = false, center = false }: { dark?: boolean; center?: boolean }) => (
+    <div className={cn('flex flex-wrap gap-3', center && 'justify-center')}>
+      <PrimaryBtn dark={dark}/><GhostBtn dark={dark}/>
+    </div>
+  );
+
+  const TrustBadge = ({ dark = false }: { dark?: boolean }) => config.showBadge && config.badgeText ? (
+    <div className={cn('inline-flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.25em]',
+                       dark ? 'bg-white/12 text-white/70 border border-white/20' : 'border')}
+         style={dark ? {} : { background: ac(style)+'10', color: ac(style), borderColor: ac(style)+'25' }}>
+      <Star className="w-3 h-3 fill-current"/> {config.badgeText}
+    </div>
+  ) : null;
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 1. VOGUE COVER — magazine masthead with portrait image
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'vogue') return (
+    <section className="relative overflow-hidden" style={{ minHeight: '100svh', background: '#fafafa' }}>
+      {/* Right-side portrait image — takes 55% of width */}
+      <div className="absolute right-0 top-0 bottom-0 w-full md:w-[55%] overflow-hidden"
+           style={{ background: ac(style)+'0a' }}>
+        <Img cls="w-full h-full object-cover object-top"/>
+        {/* Gradient bleed into white left side on desktop */}
+        <div className="hidden md:block absolute inset-y-0 left-0 w-24"
+             style={{ background: 'linear-gradient(to right, #fafafa, transparent)' }}/>
+      </div>
+      {/* Dark overlay on mobile only */}
+      <div className="md:hidden absolute inset-0" style={{ background: `rgba(0,0,0,${opacity + 0.2})` }}/>
+
+      {/* Left editorial panel */}
+      <div className="relative z-10 flex flex-col justify-between min-h-[100svh] max-w-7xl mx-auto px-8 md:px-14 py-10 md:py-12">
+        {/* Top: Studio name + issue */}
+        <div className="flex items-center justify-between">
+          <FieldTap sectionId={sectionId} fieldKey="logoText" isPreview={isPreview} onFieldTap={onFieldTap} as="span"
+            style={{ fontFamily: hf(style), color: hasMedia ? 'white' : ac(style), fontSize: 13, fontWeight: 900, letterSpacing: '0.25em', textTransform: 'uppercase' }}>
+            {config.logoText || 'Studio'}
+          </FieldTap>
+          <TrustBadge dark={!!(hasBg || hasVideo)}/>
+        </div>
+
+        {/* Center: Headline */}
+        <div className="md:max-w-[45%] space-y-6 py-12">
+          {/* Big vertical rule */}
+          <div className="flex items-start gap-4">
+            <div className="w-1 self-stretch shrink-0 mt-1" style={{ background: ac(style) }}/>
+            <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="h1" className="font-light leading-[0.87]"
+              style={{ fontSize: 'clamp(52px,7.5vw,108px)', fontFamily: hf(style), color: hasMedia ? 'white' : '#0f172a', animation: loaded ? 'cf-fade-up 1s both' : 'none' }}>
+              {headline}
+            </FieldTap>
+          </div>
+          <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="p" className="text-base leading-relaxed max-w-sm"
+            style={{ fontFamily: bf(style), color: hasMedia ? 'rgba(255,255,255,0.65)' : '#64748b', animation: loaded ? 'cf-fade-up 1s 0.15s both' : 'none' }}>
+            {subline}
+          </FieldTap>
+          <div style={{ animation: loaded ? 'cf-fade-up 1s 0.3s both' : 'none' }}>
+            <Btns dark={!!(hasBg || hasVideo)}/>
+          </div>
+        </div>
+
+        {/* Bottom: decorative rule */}
+        <div className="h-px w-full md:w-[45%]" style={{ background: hasMedia ? 'rgba(255,255,255,0.2)' : ac(style)+'20' }}/>
+      </div>
+    </section>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 2. IMMERSIVE — full bleed, bottom-left editorial text, luxury hotel feel
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'immersive') return (
+    <section className="relative overflow-hidden" style={{ height: '100svh', minHeight: 620 }}>
+      <Img/>
+      {!hasBg && !hasVideo && <div className="absolute inset-0" style={{ background: `linear-gradient(135deg,#0a0a0a,${ac(style)}55)` }}/>}
+      {/* Rich multi-layer gradient */}
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 45%, rgba(0,0,0,0.05) 100%)' }}/>
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(0,0,0,0.45) 0%, transparent 60%)' }}/>
+
+      {/* Top strip: studio name + badge */}
+      <div className="absolute top-0 inset-x-0 px-8 md:px-14 py-7 flex items-center justify-between z-10">
+        <FieldTap sectionId={sectionId} fieldKey="logoText" isPreview={isPreview} onFieldTap={onFieldTap} as="span"
+          style={{ color: 'rgba(255,255,255,0.75)', fontFamily: hf(style), fontSize: 13, letterSpacing: '0.25em', fontWeight: 700, textTransform: 'uppercase' }}>
+          {config.logoText || 'Studio'}
+        </FieldTap>
+        <TrustBadge dark/>
+      </div>
+
+      {/* Bottom editorial text */}
+      <div className="absolute bottom-0 inset-x-0 px-8 md:px-14 pb-12 z-10">
+        <div className="w-12 h-px bg-white/30 mb-8"/>
+        <div className="grid md:grid-cols-[1.6fr_1fr] gap-8 items-end max-w-5xl">
+          <div>
+            <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="h1" className="font-light leading-[0.87] text-white"
+              style={{ fontSize: 'clamp(40px,6vw,80px)', fontFamily: hf(style) }}>
+              {headline}
+            </FieldTap>
+          </div>
+          <div className="space-y-5">
+            <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="p" className="text-sm leading-relaxed text-white/60"
+              style={{ fontFamily: bf(style) }}>{subline}</FieldTap>
+            <Btns dark/>
+          </div>
+        </div>
+      </div>
+
+      {/* Scroll hint */}
+      <div className="absolute bottom-8 right-10 hidden md:flex flex-col items-center gap-2 opacity-35">
+        <div className="w-px h-12 bg-white" style={{ animation: 'cf-count-up 2s ease-in-out infinite alternate' }}/>
+        <span className="text-[8px] font-black uppercase tracking-[0.3em] text-white writing-mode-vertical" style={{ writingMode: 'vertical-rl' }}>Scroll</span>
+      </div>
+    </section>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 3. OVERSIZED — giant type as art, no image required
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'oversized') return (
+    <section className="relative overflow-hidden flex items-center" style={{ minHeight: '90svh', background: style.bgColor }}>
+      {/* Bleed accent shape top-right */}
+      <div className="absolute -right-20 -top-20 w-[40vw] h-[40vw] rounded-full pointer-events-none"
+           style={{ background: ac(style)+'0c', filter: 'blur(60px)' }}/>
+      <div className="absolute -left-10 bottom-0 w-[30vw] h-[30vw] rounded-full pointer-events-none"
+           style={{ background: ac(style)+'07', filter: 'blur(80px)' }}/>
+
+      {/* Optional small portrait accent */}
+      {(hasBg || config.heroImage) && (
+        <div className="hidden lg:block absolute right-12 top-1/2 -translate-y-1/2 shadow-2xl overflow-hidden"
+             style={{ width: 220, height: 300, borderRadius: br(style, 3), border: `2px solid ${ac(style)}18` }}>
+          <img src={config.bgImage || config.heroImage} alt="" className="w-full h-full object-cover"/>
+        </div>
+      )}
+
+      <div className="relative z-10 w-full max-w-7xl mx-auto px-8 md:px-14 py-20 space-y-8">
+        <TrustBadge/>
+        <h1 className="font-light leading-[0.82] -tracking-[0.02em]"
+            style={{ fontSize: 'clamp(58px,14vw,190px)', fontFamily: hf(style), color: '#0f172a' }}>
+          {headline}
+        </h1>
+        <div className="flex items-center gap-6 max-w-md">
+          <div className="w-10 h-px shrink-0" style={{ background: ac(style) }}/>
+          <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="p" className="text-sm leading-relaxed text-slate-500"
+            style={{ fontFamily: bf(style) }}>{subline}</FieldTap>
+        </div>
+        <Btns/>
+      </div>
+    </section>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 4. SPLIT — image right, text left, conversion-optimized
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'split') return (
+    <section className="relative grid md:grid-cols-2 overflow-hidden" style={{ minHeight: '90svh', background: style.bgColor }}>
+      {/* Left: content */}
+      <div className="flex flex-col justify-center px-8 md:px-14 py-20 space-y-8 order-2 md:order-1">
+        <TrustBadge/>
+        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h1" className="font-light leading-[0.9]"
+          style={{ fontSize: 'clamp(40px,5vw,68px)', fontFamily: hf(style), color: '#0f172a' }}>
+          {headline}
+        </FieldTap>
+        <div className="h-0.5 w-14" style={{ background: ac(style), animation: loaded ? 'cf-line-grow 0.8s 0.2s both' : 'none' }}/>
+        <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-base leading-relaxed max-w-sm text-slate-500"
+          style={{ fontFamily: bf(style) }}>{subline}</FieldTap>
+        <Btns/>
+      </div>
+      {/* Right: image fills fully, no gap, no crop */}
+      <div className="relative overflow-hidden min-h-[50vw] md:min-h-0 order-1 md:order-2"
+           style={{ background: ac(style)+'0a' }}>
+        {hasBg && <img src={config.bgImage!} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
+        {!hasBg && config.heroImage && <img src={config.heroImage} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
+        {!hasBg && !config.heroImage && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[160px] font-light opacity-[0.06]" style={{ color: ac(style), fontFamily: hf(style) }}>
+              {(config.logoText||'S')[0]}
+            </span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 5. EDITORIAL — Vogue grid, ruled hairlines, numbered
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'editorial') return (
+    <section className="relative overflow-hidden" style={{ minHeight: '90svh', background: style.bgColor }}>
+      <div className="w-full h-px" style={{ background: ac(style)+'22' }}/>
+      <div className="max-w-7xl mx-auto px-8 md:px-14 py-10 md:py-14">
+        <div className="grid md:grid-cols-[280px_1fr] gap-8 md:gap-14 items-start">
+          {/* Left: metadata + portrait */}
+          <div className="space-y-6">
+            <div className="space-y-0.5">
+              <p className="text-[9px] font-black uppercase tracking-[0.35em] text-slate-400">Vol. I</p>
+              <p className="text-[11px] font-black uppercase tracking-[0.2em]" style={{ color: ac(style) }}>
+                {config.logoText || 'Studio'}
+              </p>
+            </div>
+            {(hasBg || config.heroImage) ? (
+              <div className="overflow-hidden" style={{ aspectRatio: '3/4', borderRadius: br(style, 1.5) }}>
+                <img src={config.bgImage||config.heroImage!} alt="" className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"/>
+              </div>
+            ) : (
+              <div className="aspect-[3/4] flex items-center justify-center" style={{ background: ac(style)+'0e', borderRadius: br(style, 1.5) }}>
+                <div className="w-20 h-20 rounded-full" style={{ background: ac(style)+'1a' }}/>
+              </div>
+            )}
+            <div className="space-y-4">
+              <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+                as="p" className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>
+                {subline}
+              </FieldTap>
+              <TrustBadge/>
+              <Btns/>
+            </div>
+          </div>
+          {/* Right: enormous headline */}
+          <div className="pt-0 md:pt-8">
+            <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="h1" className="font-light leading-[0.86]"
+              style={{ fontSize: 'clamp(60px,9vw,130px)', fontFamily: hf(style), color: '#0f172a' }}>
+              {headline}
+            </FieldTap>
+            <div className="mt-8 h-px" style={{ background: ac(style)+'1a' }}/>
+          </div>
+        </div>
+      </div>
+      <div className="absolute bottom-0 w-full h-px" style={{ background: ac(style)+'22' }}/>
+    </section>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 6. DARK — luxury dark brand, accent glow, no image needed
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'dark') return (
+    <section className="relative flex items-center overflow-hidden" style={{ minHeight: '92svh', background: '#0c0c0e' }}>
+      {hasBg && (
+        <>
+          <img src={config.bgImage!} alt="" className="absolute inset-0 w-full h-full object-cover opacity-25"/>
+          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.65)' }}/>
+        </>
+      )}
+      {/* Accent glow blobs */}
+      <div className="absolute top-[10%] right-[5%] rounded-full pointer-events-none"
+           style={{ width: 400, height: 400, background: ac(style)+'20', filter: 'blur(100px)', animation: 'cf-drift-a 12s ease-in-out infinite' }}/>
+      <div className="absolute bottom-[15%] left-[0%] rounded-full pointer-events-none"
+           style={{ width: 320, height: 320, background: ac(style)+'12', filter: 'blur(80px)', animation: 'cf-drift-b 15s ease-in-out infinite 3s' }}/>
+
+      <div className="relative z-10 w-full max-w-7xl mx-auto px-8 md:px-14 py-20 space-y-8">
+        <TrustBadge dark/>
+        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h1" className="font-light leading-[0.88] text-white"
+          style={{ fontSize: 'clamp(48px,8vw,100px)', fontFamily: hf(style) }}>
+          {words.map((w, i) => (
+            <span key={i} className="overflow-hidden inline-block mr-[0.22em]">
+              <span className="inline-block"
+                    style={{ animation: loaded ? `cf-word-up 0.9s cubic-bezier(0.16,1,0.3,1) ${i * 0.1}s both` : 'none' }}>
+                {i === Math.floor(words.length / 2)
+                  ? <span style={{ color: ac(style) }}>{w}</span>
+                  : w}
+              </span>
+            </span>
+          ))}
+        </FieldTap>
+        <div className="flex items-center gap-4">
+          <div className="h-px w-10" style={{ background: ac(style)+'60' }}/>
+          <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="p" className="text-sm leading-relaxed max-w-md"
+            style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.5)' }}>{subline}</FieldTap>
+        </div>
+        <Btns dark/>
+      </div>
+    </section>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 7. GLASS — frosted glass card on full-bleed image
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'glass') return (
+    <section className="relative flex items-center justify-center overflow-hidden px-4"
+             style={{ minHeight: '95svh', background: '#111' }}>
+      <Img/>
+      {!hasBg && !hasVideo && (
+        <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${ac(style)}25 0%, #1a0a1e 100%)` }}/>
+      )}
+      <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${Math.max(opacity, 0.3)})` }}/>
+
+      {/* Glass card */}
+      <div className="relative z-10 w-full max-w-lg mx-auto text-center space-y-7 py-12 px-8 md:px-12"
+           style={{
+             background: 'rgba(255,255,255,0.08)',
+             backdropFilter: 'blur(28px) saturate(1.4)',
+             WebkitBackdropFilter: 'blur(28px) saturate(1.4)',
+             borderRadius: br(style, 4),
+             border: '1px solid rgba(255,255,255,0.16)',
+             boxShadow: '0 40px 100px rgba(0,0,0,0.5)',
+           }}>
+        {config.logoUrl
+          ? <img src={config.logoUrl} alt="Logo" className="h-9 mx-auto object-contain filter brightness-0 invert opacity-80"/>
+          : <FieldTap sectionId={sectionId} fieldKey="logoText" isPreview={isPreview} onFieldTap={onFieldTap} as="p"
+              className="text-[11px] font-black uppercase tracking-[0.3em] text-white/60" style={{ fontFamily: hf(style) }}>
+              {config.logoText || 'Studio'}
+            </FieldTap>}
+        <div className="h-px w-10 mx-auto bg-white/20"/>
+        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h1" className="font-light leading-[0.93] text-white"
+          style={{ fontSize: 'clamp(30px,5vw,54px)', fontFamily: hf(style) }}>
+          {headline}
+        </FieldTap>
+        <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-sm leading-relaxed max-w-xs mx-auto"
+          style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.55)' }}>{subline}</FieldTap>
+        <TrustBadge dark/>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center"><Btns dark center/></div>
+      </div>
+    </section>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 8. KINETIC — word-by-word spring entrance, ambient glow, particle dots
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'kinetic') return (
+    <section className="relative flex flex-col items-center justify-center overflow-hidden"
+             style={{ minHeight: '92svh', background: hasBg ? 'transparent' : style.bgColor }}>
+      {hasBg && <img src={config.bgImage!} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
+      {hasVideo && <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover"><source src={config.videoUrl}/></video>}
+      {hasMedia && <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${opacity})` }}/>}
+
+      {/* Ambient blobs */}
+      <div className="absolute top-[12%] left-[6%] rounded-full pointer-events-none"
+           style={{ width: 280, height: 280, background: ac(style), opacity: 0.11, filter: 'blur(70px)', animation: 'cf-drift-a 9s ease-in-out infinite' }}/>
+      <div className="absolute bottom-[15%] right-[8%] rounded-full pointer-events-none"
+           style={{ width: 360, height: 360, background: ac(style), opacity: 0.08, filter: 'blur(90px)', animation: 'cf-drift-b 12s ease-in-out infinite 2s' }}/>
+
+      <div className="relative z-10 text-center px-6 max-w-5xl mx-auto space-y-10">
+        <div style={{ animation: 'cf-fade-in 0.6s both' }}><TrustBadge dark={hasMedia}/></div>
+
+        {/* Word-by-word spring reveal */}
+        <h1 className="flex flex-wrap justify-center gap-x-[0.25em] leading-[0.87]"
+            style={{ fontSize: 'clamp(44px,8vw,96px)', fontFamily: hf(style) }}>
+          {words.map((word, i) => (
+            <span key={i} className="overflow-hidden inline-block">
+              <span className="inline-block"
+                    style={{ color: hasMedia ? 'white' : '#0f172a', animation: `cf-word-up 0.85s cubic-bezier(0.16,1,0.3,1) ${0.08 + i * 0.1}s both` }}>
+                {word}
+              </span>
+            </span>
+          ))}
+        </h1>
+
+        <div className="flex flex-col items-center gap-2.5"
+             style={{ animation: `cf-fade-in 1s ${0.15 + words.length * 0.1}s both` }}>
+          <div className="h-px w-14 origin-left"
+               style={{ background: hasMedia ? 'rgba(255,255,255,0.4)' : ac(style), animation: `cf-line-grow 0.8s ${0.25 + words.length * 0.1}s both` }}/>
+          <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="p" className="text-base max-w-xl leading-relaxed text-center"
+            style={{ fontFamily: bf(style), color: hasMedia ? 'rgba(255,255,255,0.62)' : '#64748b' }}>{subline}</FieldTap>
+        </div>
+
+        <div style={{ animation: `cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) ${0.4 + words.length * 0.1}s both` }}>
+          <Btns dark={hasMedia} center/>
+        </div>
+      </div>
+
+      {/* Floating dots */}
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="absolute pointer-events-none rounded-full opacity-50"
+             style={{ width: [6,4,8,5,3][i], height: [6,4,8,5,3][i],
+               top: ['20%','72%','42%','82%','30%'][i], left: ['12%','80%','4%','55%','88%'][i],
+               background: hasMedia ? 'rgba(255,255,255,0.5)' : ac(style),
+               animation: `${['cf-drift-a','cf-drift-b','cf-drift-c','cf-drift-a','cf-drift-b'][i]} ${[7,9,11,8,10][i]}s ease-in-out infinite ${i * 1.3}s` }}/>
+      ))}
+    </section>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 9. LAYERS — mouse-reactive 3-depth parallax, cursor spotlight
+  // ════════════════════════════════════════════════════════════════════════
+  if (layout === 'layers') {
+    const handleMM = (e: React.MouseEvent<HTMLElement>) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      setMouse({ x: (e.clientX - r.left) / r.width - 0.5, y: (e.clientY - r.top) / r.height - 0.5 });
+    };
+    return (
+      <section className="relative flex items-center overflow-hidden"
+               style={{ minHeight: '96svh', background: '#0d0d10', cursor: 'crosshair' }}
+               onMouseMove={handleMM}>
+        {/* Layer 1: image, most movement */}
+        <div className="absolute inset-[-8%] transition-transform duration-700 ease-out pointer-events-none"
+             style={{ transform: `translate(${mouse.x * 30}px, ${mouse.y * 18}px)` }}>
+          {hasBg
+            ? <img src={config.bgImage!} alt="" className="w-full h-full object-cover" style={{ filter: 'brightness(0.4)' }}/>
+            : <div className="w-full h-full" style={{ background: `radial-gradient(ellipse at 40% 50%, ${ac(style)}30 0%, #000 65%)` }}/>}
+        </div>
+        {/* Layer 2: glow orbs */}
+        <div className="absolute inset-0 pointer-events-none transition-transform duration-500 ease-out"
+             style={{ transform: `translate(${mouse.x * 15}px, ${mouse.y * 10}px)` }}>
+          <div className="absolute top-1/4 right-1/3 rounded-full" style={{ width:380, height:380, background: ac(style)+'1c', filter:'blur(90px)' }}/>
+          <div className="absolute bottom-1/3 left-1/5 rounded-full" style={{ width:280, height:280, background: ac(style)+'14', filter:'blur(70px)' }}/>
+        </div>
+        {/* Layer 3: text, least movement */}
+        <div className="relative z-10 w-full max-w-7xl mx-auto px-8 md:px-14 transition-transform duration-700 ease-out"
+             style={{ transform: `translate(${mouse.x * 5}px, ${mouse.y * 3}px)`, animation: 'cf-blur-in 1.2s 0.1s both' }}>
+          <div className="max-w-3xl space-y-8">
+            <TrustBadge dark/>
+            <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="h1" className="font-light leading-[0.88] text-white"
+              style={{ fontSize: 'clamp(48px,8vw,100px)', fontFamily: hf(style) }}>{headline}</FieldTap>
+            <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="p" className="text-lg max-w-md leading-relaxed"
+              style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.52)' }}>{subline}</FieldTap>
+            <Btns dark/>
+          </div>
+        </div>
+        {/* Cursor spotlight */}
+        <div className="absolute rounded-full pointer-events-none transition-all duration-300"
+             style={{ width:380, height:380, left:`calc(${(mouse.x+0.5)*100}% - 190px)`, top:`calc(${(mouse.y+0.5)*100}% - 190px)`,
+               background:`radial-gradient(circle, ${ac(style)}1c 0%, transparent 70%)` }}/>
+      </section>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // DEFAULT: centered (clean baseline)
+  // ════════════════════════════════════════════════════════════════════════
+  return (
+    <section className="relative flex items-center overflow-hidden"
+             style={{ minHeight: '85svh', background: hasBg ? 'transparent' : style.bgColor }}>
+      {hasBg && <img src={config.bgImage!} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
+      {hasVideo && <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover"><source src={config.videoUrl}/></video>}
+      {hasMedia && <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${opacity})` }}/>}
+      <div className="relative z-10 w-full max-w-4xl mx-auto px-6 md:px-14 py-24 text-center space-y-8">
+        <TrustBadge dark={hasMedia}/>
+        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h1" className="font-light leading-[0.92]"
+          style={{ fontSize: 'clamp(44px,8vw,100px)', fontFamily: hf(style), color: hasMedia ? 'white' : '#0f172a' }}>
+          {headline}
+        </FieldTap>
+        <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-lg max-w-2xl mx-auto leading-relaxed"
+          style={{ fontFamily: bf(style), color: hasMedia ? 'rgba(255,255,255,0.68)' : '#64748b' }}>{subline}</FieldTap>
+        <Btns dark={hasMedia} center/>
+      </div>
+    </section>
+  );
+}
 
   // ── Reusable background image (never repeats) ─────────────────────────
   const BgImg = ({ className = 'absolute inset-0 w-full h-full object-cover' }: { className?: string }) =>
@@ -965,33 +1453,6 @@ function HeroSection({ config, style, isPreview, sectionId, onFieldTap }: Sectio
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════════
-  // ── DEFAULT: centered ─────────────────────────────────────────────────
-  // ════════════════════════════════════════════════════════════════════════
-  return (
-    <section className="relative flex items-center overflow-hidden"
-             style={{ minHeight: '85vh', background: hasBg ? 'transparent' : style.bgColor }}>
-      {hasBg && <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
-      {hasVideo && <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover"><source src={config.videoUrl}/></video>}
-      {hasMedia && <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${opacity})` }}/>}
-      <div className="relative z-10 w-full max-w-4xl mx-auto px-6 md:px-16 py-24 text-center space-y-8">
-        <Badge dark={hasMedia}/>
-        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
-          as="h1" className="text-6xl md:text-8xl font-light leading-[0.92]"
-          style={{ fontFamily: hf(style), color: hasMedia ? 'white' : '#0f172a' }}>
-          {headline}
-        </FieldTap>
-        <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
-          as="p" className="text-xl max-w-2xl mx-auto leading-relaxed"
-          style={{ fontFamily: bf(style), color: hasMedia ? 'rgba(255,255,255,0.7)' : '#64748b' }}>
-          {subline}
-        </FieldTap>
-        <BookBtns dark={hasMedia} center/>
-      </div>
-    </section>
-  );
-}
-
 // ─── Jackpot rolling number animation ─────────────────────────────────────────
 function JackpotNumber({ target, visible, delay = 0, className = '', style: s }: {
   target: string; visible: boolean; delay?: number; className?: string; style?: React.CSSProperties;
@@ -1418,96 +1879,7 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
   );
 
   // ─────────────────────────────────────────────────────────────────────
-  // ── 3. BENTO — modern mixed-size grid ────────────────────────────────
-  // ─────────────────────────────────────────────────────────────────────
-  if (layout === 'bento') return (
-    <section id="services" className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <Header/><CategoryFilter/>
-        {services.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 auto-rows-[minmax(200px,auto)]">
-            {services.map((svc: any, i: number) => {
-              const isFeatured = i === 0;
-              return (
-                <div key={svc.id}
-                     className={cn(
-                       'group relative overflow-hidden bg-white hover:shadow-2xl transition-all duration-400 cursor-pointer',
-                       isFeatured ? 'col-span-2 row-span-2' : '',
-                     )}
-                     style={{ borderRadius: br(style, 2), border: `1.5px solid ${ac(style)}18` }}
-                     onClick={() => openBooking(svc)}>
-                  {/* Full image background */}
-                  {svc.imageUrl && (
-                    <>
-                      <img src={svc.imageUrl} alt={svc.name}
-                           className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
-                      <div className="absolute inset-0 transition-opacity duration-400"
-                           style={{ background: isFeatured
-                             ? 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.2) 60%, transparent 100%)'
-                             : 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.1) 100%)' }}/>
-                    </>
-                  )}
-                  {/* No-image placeholder */}
-                  {!svc.imageUrl && (
-                    <div className="absolute inset-0"
-                         style={{ background: isFeatured
-                           ? `linear-gradient(135deg, ${ac(style)}22 0%, ${ac(style)}08 100%)`
-                           : `linear-gradient(135deg, ${ac(style)}18 0%, ${ac(style)}06 100%)` }}/>
-                  )}
-
-                  {/* Content */}
-                  <div className="absolute inset-0 flex flex-col justify-end p-5 md:p-6">
-                    {svc.category && (
-                      <span className="text-[9px] font-black uppercase tracking-[0.2em] mb-1.5"
-                            style={{ color: svc.imageUrl ? 'rgba(255,255,255,0.6)' : ac(style) + 'aa' }}>
-                        {svc.category}
-                      </span>
-                    )}
-                    <h3 className={cn('font-light leading-tight', isFeatured ? 'text-2xl md:text-3xl' : 'text-base md:text-lg')}
-                        style={{ fontFamily: hf(style), color: svc.imageUrl ? 'white' : '#0f172a' }}>
-                      {svc.name}
-                    </h3>
-                    {isFeatured && config.showDesc !== false && svc.description && (
-                      <p className="text-sm mt-2 line-clamp-2"
-                         style={{ color: svc.imageUrl ? 'rgba(255,255,255,0.65)' : '#64748b', fontFamily: bf(style) }}>
-                        {svc.description}
-                      </p>
-                    )}
-                    <div className="flex items-center justify-between mt-3">
-                      <div className="flex items-center gap-3">
-                        {config.showPrices !== false && svc.price && (
-                          <span className="font-black text-sm" style={{ color: svc.imageUrl ? 'white' : ac(style) }}>
-                            ${svc.price}
-                          </span>
-                        )}
-                        {config.showDuration !== false && svc.duration && (
-                          <span className="text-[10px] font-bold uppercase tracking-widest"
-                                style={{ color: svc.imageUrl ? 'rgba(255,255,255,0.55)' : '#94a3b8' }}>
-                            {svc.duration}m
-                          </span>
-                        )}
-                      </div>
-                      {isFeatured && (
-                        <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-white px-4 py-2"
-                                style={{ background: ac(style), borderRadius: br(style) }}>
-                            {config.ctaText || 'Book →'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : <Empty/>}
-      </div>
-    </section>
-  );
-
-  // ─────────────────────────────────────────────────────────────────────
-  // ── 4. LUXURY LIST — numbered editorial list with hover image ─────────
+  // ── 3. LUXURY LIST — numbered editorial list with hover image ─────────
   // ─────────────────────────────────────────────────────────────────────
   if (layout === 'luxury') return (
     <section id="services" className={py(style)} style={{ background: style.bgColor }}>
