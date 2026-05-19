@@ -22,7 +22,14 @@ import { Badge } from '@/components/ui/badge';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDocs, collection } from 'firebase/firestore';
+import {
+  StyleConfig, PageData,
+  DS as PreviewDS, ac as pac, hf as phf, bf as pbf,
+  ANIM_CSS, injectFonts as previewInjectFonts,
+  SectionWrapper, SectionRenderer, Footer as PreviewFooter,
+  buildDefaults as previewBuildDefaults,
+} from '@/app/book/[tenantId]/_sections';
 import { useTenant } from '@/context/TenantContext';
 import {
   Navigation, ImageIcon, Award, Scissors, Users, Star,
@@ -708,19 +715,12 @@ export default function PageBuilderPage() {
   const { toast }          = useToast();
   useGoogleFonts();
 
-  const previewRef          = useRef<HTMLIFrameElement>(null);
+  const previewRef          = useRef<HTMLIFrameElement>(null); // kept for compatibility, unused
   const isFirstLoad         = useRef(true);
   const historyRef          = useRef<{ sections: PageSection[]; style: any }[]>([]);
   const futureRef           = useRef<{ sections: PageSection[]; style: any }[]>([]);
   const fieldEditTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fieldEditActiveRef  = useRef(false);
-
-  // ── FIX: refs that stay current despite [] dependency arrays ──────────────
-  // The BOOKING_READY message handler is registered once ([] deps) to avoid
-  // re-registering on every keystroke. Without these refs the closure captures
-  // the initial empty sections/style values and sends stale data to the iframe.
-  const sectionsRef = useRef<PageSection[]>([]);
-  const styleRef    = useRef<any>({});
 
   const [sections,        setSections]        = useState<PageSection[]>(buildDefaultSections());
   const [selectedId,      setSelectedId]      = useState<string | null>('hero');
@@ -731,7 +731,6 @@ export default function PageBuilderPage() {
   const [isSaving,        setIsSaving]        = useState(false);
   const [isDirty,         setIsDirty]         = useState(false);
   const [previewMode,     setPreviewMode]     = useState<'desktop' | 'mobile'>('desktop');
-  const [previewKey,      setPreviewKey]      = useState(0);
   const [canUndo,         setCanUndo]         = useState(false);
   const [canRedo,         setCanRedo]         = useState(false);
   const [mobileSheet,     setMobileSheet]     = useState<'closed' | 'half' | 'full'>('half');
@@ -740,6 +739,11 @@ export default function PageBuilderPage() {
   const [isLandscape,     setIsLandscape]     = useState(false);
   const [drawerOpen,      setDrawerOpen]      = useState(true);
 
+  // ── Inline preview data ─────────────────────────────────────────────────────
+  const [previewData,    setPreviewData]      = useState<PageData>({
+    tenant: null, services: [], staff: [], events: [], tenantId: '',
+  });
+
   useEffect(() => {
     const update = () => setIsLandscape(window.innerWidth > window.innerHeight && window.innerHeight < 600);
     update();
@@ -747,6 +751,42 @@ export default function PageBuilderPage() {
     window.addEventListener('orientationchange', () => setTimeout(update, 100));
     return () => window.removeEventListener('resize', update);
   }, []);
+
+  // ── Inject animation keyframes for inline preview ─────────────────────────
+  useEffect(() => {
+    if (!document.getElementById('cf-anim')) {
+      const s = document.createElement('style');
+      s.id = 'cf-anim'; s.textContent = ANIM_CSS;
+      document.head.appendChild(s);
+    }
+  }, []);
+
+  // ── Fetch data for inline preview (services / staff / events) ─────────────
+  useEffect(() => {
+    if (!selectedTenant || !firestore) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const [svSnap, stSnap, evSnap] = await Promise.all([
+          getDocs(collection(firestore, `tenants/${selectedTenant.id}/services`)),
+          getDocs(collection(firestore, `tenants/${selectedTenant.id}/staff`)),
+          getDocs(collection(firestore, `tenants/${selectedTenant.id}/studioEvents`))
+            .catch(() => ({ docs: [] as any[] })),
+        ]);
+        if (!cancelled) {
+          setPreviewData({
+            tenant:    selectedTenant,
+            tenantId:  selectedTenant.id,
+            services:  svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false),
+            staff:     stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false),
+            events:    evSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          });
+        }
+      } catch (e) { console.warn('[builder:preview-data]', e); }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [selectedTenant?.id, firestore]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Default style: clean black & white ────────────────────────────────────
   const [style, setStyle] = useState({
@@ -760,9 +800,6 @@ export default function PageBuilderPage() {
     brandKit:    null as string | null,
   });
 
-  // ── Keep refs in sync with latest state ───────────────────────────────────
-  useEffect(() => { sectionsRef.current = sections; }, [sections]);
-  useEffect(() => { styleRef.current   = style;    }, [style]);
 
   // Load existing config
   useEffect(() => {
@@ -827,44 +864,6 @@ export default function PageBuilderPage() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
-
-  // Live preview sync — fires on the next animation frame after any state change (~16ms).
-  // This makes every keypress, toggle, and colour picker move appear instantly in the preview.
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => {
-      previewRef.current?.contentWindow?.postMessage({ type: 'CLARITY_PREVIEW', sections, style }, '*');
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [sections, style]);
-
-  // ── Message handler ────────────────────────────────────────────────────────
-  // Registered once ([] deps) so it doesn't re-register on every keystroke.
-  // Reads sections/style through refs so it always has the current values even
-  // though it was registered when they were still empty (stale closure fix).
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'BOOKING_READY') {
-        // Use refs — not the closed-over `sections`/`style` which are stale
-        previewRef.current?.contentWindow?.postMessage(
-          { type: 'CLARITY_PREVIEW', sections: sectionsRef.current, style: styleRef.current },
-          '*'
-        );
-      }
-      if (e.data?.type === 'EDIT_SECTION') {
-        setSelectedId(e.data.sectionId); setActivePanel('sections');
-        setShowLibrary(false); setHighlightedField(null);
-        setMobileFieldView(true); setMobileSheet('full');
-      }
-      if (e.data?.type === 'EDIT_FIELD') {
-        setSelectedId(e.data.sectionId); setActivePanel('sections');
-        setShowLibrary(false); setHighlightedField(e.data.fieldKey);
-        setMobileFieldView(true); setMobileSheet('full');
-        setTimeout(() => setHighlightedField(null), 4000);
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const enabledSections  = useMemo(() => sections.filter(s => s.enabled).sort((a,b) => a.order - b.order), [sections]);
   const disabledSections = useMemo(() => sections.filter(s => !s.enabled), [sections]);
@@ -933,9 +932,23 @@ export default function PageBuilderPage() {
 
   const headingFontDef = FONTS.find(f => f.id === style.headingFont);
   const bodyFontDef    = FONTS.find(f => f.id === style.bodyFont);
-  const previewUrl     = selectedTenant ? `/book/${selectedTenant.id}` : null;
-  // Adds ?__preview=1 so the booking page can reliably detect it's in the builder iframe
-  const previewSrc     = previewUrl ? `${previewUrl}?__preview=1` : null;
+  const previewUrl          = selectedTenant ? `/book/${selectedTenant.id}` : null;
+
+  // ── Resolved style for the inline preview (always current, no postMessage needed) ──
+  const resolvedPreviewStyle: StyleConfig = {
+    accentColor:  style.accentColor,
+    bgColor:      style.bgColor,
+    headingFont:  style.headingFont,
+    bodyFont:     style.bodyFont,
+    borderRadius: style.borderRadius,
+    buttonStyle:  style.buttonStyle,
+    density:      style.density,
+  };
+
+  // Sync fonts whenever the style changes
+  useEffect(() => {
+    previewInjectFonts(style.headingFont, style.bodyFont);
+  }, [style.headingFont, style.bodyFont]);
   const selectedDef    = selectedSection ? SECTION_DEFS[selectedSection.type as SectionType] : null;
 
   const renderStylePanel = () => (
@@ -1100,8 +1113,23 @@ export default function PageBuilderPage() {
       <div className="lg:hidden flex-1 min-h-0 relative overflow-hidden">
         {isLandscape && (
           <div className="absolute inset-0 flex">
-            <div className="flex-1 min-w-0 relative bg-slate-100">
-              {previewUrl ? <iframe key={previewKey} ref={previewRef} src={previewSrc ?? ''} className="w-full h-full border-0 bg-white" title="Preview"/> : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
+            <div className="flex-1 min-w-0 relative overflow-hidden" style={{ background: resolvedPreviewStyle.bgColor }}>
+              {selectedTenant ? (
+                <div className="w-full h-full overflow-y-auto overflow-x-hidden">
+                  {enabledSections.map(section => {
+                    const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}`;
+                    return (
+                      <SectionWrapper key={animKey} section={section} isPreview={true}
+                        onEdit={(id) => { setSelectedId(id); setShowLibrary(false); setMobileFieldView(false); setDrawerOpen(true); }}
+                        onFieldTap={(sId, fKey) => { setSelectedId(sId); setMobileFieldView(true); setDrawerOpen(true); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); }}>
+                        <SectionRenderer section={section} style={resolvedPreviewStyle} data={previewData} isPreview={true}
+                          onFieldTap={(sId, fKey) => { setSelectedId(sId); setMobileFieldView(true); setDrawerOpen(true); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); }}/>
+                      </SectionWrapper>
+                    );
+                  })}
+                  <PreviewFooter tenant={previewData.tenant ?? selectedTenant} style={resolvedPreviewStyle}/>
+                </div>
+              ) : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
               {!drawerOpen && (
                 <button onClick={() => setDrawerOpen(true)} className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 py-4 bg-white border-y border-l border-border rounded-l-xl shadow-lg flex flex-col items-center gap-1.5 text-primary">
                   <Layers className="w-3.5 h-3.5"/>
@@ -1109,7 +1137,6 @@ export default function PageBuilderPage() {
                 </button>
               )}
               <div className="absolute top-2 right-2 flex gap-1.5 z-10">
-                <button onClick={() => setPreviewKey(k => k+1)} className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur shadow flex items-center justify-center text-slate-500"><RefreshCw className="w-3.5 h-3.5"/></button>
                 {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur shadow flex items-center justify-center text-slate-500"><ExternalLink className="w-3.5 h-3.5"/></a>}
               </div>
             </div>
@@ -1128,11 +1155,25 @@ export default function PageBuilderPage() {
         )}
         {!isLandscape && (
           <>
-            <div className="absolute inset-0 bg-slate-100">
-              {previewUrl ? <iframe key={previewKey} ref={previewRef} src={previewSrc ?? ''} className="w-full h-full border-0 bg-white" title="Preview"/> : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
+            <div className="absolute inset-0 overflow-hidden" style={{ background: resolvedPreviewStyle.bgColor }}>
+              {selectedTenant ? (
+                <div className="w-full h-full overflow-y-auto overflow-x-hidden">
+                  {enabledSections.map(section => {
+                    const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}`;
+                    return (
+                      <SectionWrapper key={animKey} section={section} isPreview={true}
+                        onEdit={(id) => { setSelectedId(id); setShowLibrary(false); setMobileFieldView(false); setMobileSheet('full'); }}
+                        onFieldTap={(sId, fKey) => { setSelectedId(sId); setMobileFieldView(true); setMobileSheet('full'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); }}>
+                        <SectionRenderer section={section} style={resolvedPreviewStyle} data={previewData} isPreview={true}
+                          onFieldTap={(sId, fKey) => { setSelectedId(sId); setMobileFieldView(true); setMobileSheet('full'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); }}/>
+                      </SectionWrapper>
+                    );
+                  })}
+                  <PreviewFooter tenant={previewData.tenant ?? selectedTenant} style={resolvedPreviewStyle}/>
+                </div>
+              ) : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
             </div>
             <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
-              <button onClick={() => setPreviewKey(k => k+1)} className="w-9 h-9 rounded-xl bg-white/90 backdrop-blur shadow-lg flex items-center justify-center text-slate-500"><RefreshCw className="w-4 h-4"/></button>
               {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-xl bg-white/90 backdrop-blur shadow-lg flex items-center justify-center text-slate-500"><ExternalLink className="w-4 h-4"/></a>}
             </div>
             <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-[0_-8px_40px_rgba(0,0,0,0.14)] flex flex-col z-20"
@@ -1251,31 +1292,77 @@ export default function PageBuilderPage() {
             )}
           </div>
 
-          {/* Right: live preview */}
+          {/* Right: live preview — inline render, zero latency */}
           <div className="flex-1 min-w-0 h-full flex flex-col bg-slate-100">
             <div className="h-12 px-4 border-b bg-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"/>
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Live Preview</span>
                 {isDirty && <Badge variant="secondary" className="text-[8px] font-black uppercase tracking-widest">Unsaved</Badge>}
-                <span className="text-[9px] text-slate-300 font-bold hidden xl:block">· Hover sections · Tap text to jump to field</span>
+                <span className="text-[9px] text-slate-300 font-bold hidden xl:block">· Hover to select · Click text to edit field</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex gap-0.5 p-1 bg-slate-100 rounded-lg">
                   <button onClick={() => setPreviewMode('desktop')} className={cn('p-1.5 rounded-md transition-all', previewMode === 'desktop' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600')} title="Desktop"><Monitor className="w-3.5 h-3.5"/></button>
                   <button onClick={() => setPreviewMode('mobile')}  className={cn('p-1.5 rounded-md transition-all', previewMode === 'mobile'  ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600')} title="Mobile"><Smartphone className="w-3.5 h-3.5"/></button>
                 </div>
-                <button onClick={() => setPreviewKey(k => k+1)} className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all" title="Reload"><RefreshCw className="w-3.5 h-3.5"/></button>
-                {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all" title="Open live"><ExternalLink className="w-3.5 h-3.5"/></a>}
+                {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all" title="Open live page"><ExternalLink className="w-3.5 h-3.5"/></a>}
               </div>
             </div>
-            <div className="flex-1 min-h-0 p-6 overflow-hidden flex items-center justify-center">
-              {previewUrl ? (
-                previewMode === 'desktop'
-                  ? <iframe key={previewKey} ref={previewRef} src={previewSrc ?? ''} className="w-full h-full border-0 bg-white rounded-2xl shadow-xl" title="Preview"/>
-                  : <div className="h-full w-[390px] max-w-full flex-shrink-0"><iframe key={previewKey} ref={previewRef} src={previewSrc ?? ''} className="w-full h-full border-0 bg-white rounded-[2.5rem] shadow-2xl ring-8 ring-slate-800" title="Preview"/></div>
+
+            {/* Scrollable preview — direct React render, updates on every state change */}
+            <div className={cn('flex-1 min-h-0 overflow-hidden flex', previewMode === 'mobile' ? 'items-start justify-center p-6 bg-slate-200' : 'bg-slate-100')}>
+              {selectedTenant ? (
+                <div className={cn(
+                  'overflow-y-auto overflow-x-hidden h-full',
+                  previewMode === 'desktop'
+                    ? 'w-full rounded-xl shadow-xl bg-white'
+                    : 'w-[390px] shrink-0 rounded-[2rem] shadow-2xl ring-8 ring-slate-800 bg-white'
+                )} style={{ background: resolvedPreviewStyle.bgColor }}>
+                  {enabledSections.map(section => {
+                    const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}-${(section.config as any)._animation?.speed || 700}`;
+                    return (
+                      <SectionWrapper
+                        key={animKey}
+                        section={section}
+                        isPreview={true}
+                        onEdit={(id) => {
+                          setSelectedId(id);
+                          setActivePanel('sections');
+                          setHighlightedField(null);
+                          setShowLibrary(false);
+                        }}
+                        onFieldTap={(sId, fKey) => {
+                          setSelectedId(sId);
+                          setActivePanel('sections');
+                          setHighlightedField(fKey);
+                          setTimeout(() => setHighlightedField(null), 4000);
+                        }}
+                      >
+                        <SectionRenderer
+                          section={section}
+                          style={resolvedPreviewStyle}
+                          data={previewData}
+                          isPreview={true}
+                          onFieldTap={(sId, fKey) => {
+                            setSelectedId(sId);
+                            setActivePanel('sections');
+                            setHighlightedField(fKey);
+                            setTimeout(() => setHighlightedField(null), 4000);
+                          }}
+                        />
+                      </SectionWrapper>
+                    );
+                  })}
+                  <PreviewFooter tenant={previewData.tenant ?? selectedTenant} style={resolvedPreviewStyle}/>
+                </div>
               ) : (
-                <div className="text-center space-y-3"><Eye className="w-10 h-10 text-slate-200 mx-auto"/><p className="text-[10px] font-black uppercase tracking-widest text-slate-300">No tenant selected</p></div>
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="text-center space-y-3">
+                    <Eye className="w-10 h-10 text-slate-200 mx-auto"/>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-300">No tenant selected</p>
+                  </div>
+                </div>
               )}
             </div>
           </div>
