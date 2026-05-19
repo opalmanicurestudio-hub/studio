@@ -1485,9 +1485,17 @@ function SectionRenderer(p: { section: PageSection; style: StyleConfig; data: Pa
 // ─── Main ─────────────────────────────────────────────────────────────────────
 function BookingPageContent({ tenantId }: { tenantId: string }) {
   const isPreview = (() => {
-    try { return typeof window !== 'undefined' && window !== window.parent; }
-    catch { return false; }
+    try {
+      if (typeof window === 'undefined') return false;
+      // URL param set by the builder iframe src — most reliable signal
+      if (new URLSearchParams(window.location.search).get('__preview') === '1') return true;
+      return window !== window.parent;
+    } catch { return false; }
   })();
+
+  // Track whether we have ever received a live builder message.
+  // Once set, liveConfig is authoritative regardless of isPreview.
+  const hasLivePreview = useRef(false);
 
   const [loadingStyle] = useState<StyleConfig>(() => {
     try {
@@ -1589,6 +1597,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     const h = (e: MessageEvent) => {
       if (e.data?.type === 'CLARITY_PREVIEW') {
+        hasLivePreview.current = true;
         setLiveConfig({ sections: e.data.sections, style: e.data.style });
       }
     };
@@ -1622,18 +1631,23 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     if (isPreview) { try { window.parent.postMessage({ type:'EDIT_SECTION', sectionId }, '*'); } catch {} }
   }, [isPreview]);
 
-  const resolvedSections: PageSection[] = isPreview
-    ? (liveConfig?.sections ?? savedConfig?.sections ?? buildDefaults())
+  // Use live builder data when: we're in the iframe, OR we've already received a message.
+  // Guard against empty-array liveConfig (from old stale-closure BOOKING_READY responses)
+  // by only trusting liveConfig.sections when it's actually non-empty.
+  const useLive = isPreview || hasLivePreview.current;
+
+  const resolvedSections: PageSection[] = (useLive && liveConfig?.sections?.length)
+    ? liveConfig.sections
     : (savedConfig?.sections ?? buildDefaults());
 
   const resolvedStyle: StyleConfig = {
-    accentColor:  (isPreview ? liveConfig?.style?.accentColor  : null) ?? savedConfig?.accentColor  ?? DS.accentColor,
-    bgColor:      (isPreview ? liveConfig?.style?.bgColor      : null) ?? savedConfig?.bgColor      ?? DS.bgColor,
-    headingFont:  (isPreview ? liveConfig?.style?.headingFont  : null) ?? savedConfig?.headingFont  ?? DS.headingFont,
-    bodyFont:     (isPreview ? liveConfig?.style?.bodyFont     : null) ?? savedConfig?.bodyFont     ?? DS.bodyFont,
-    borderRadius: (isPreview ? liveConfig?.style?.borderRadius : null) ?? savedConfig?.borderRadius ?? DS.borderRadius,
-    buttonStyle:  (isPreview ? liveConfig?.style?.buttonStyle  : null) ?? savedConfig?.buttonStyle  ?? DS.buttonStyle,
-    density:      (isPreview ? liveConfig?.style?.density      : null) ?? savedConfig?.density      ?? DS.density,
+    accentColor:  (useLive ? liveConfig?.style?.accentColor  : null) ?? savedConfig?.accentColor  ?? DS.accentColor,
+    bgColor:      (useLive ? liveConfig?.style?.bgColor      : null) ?? savedConfig?.bgColor      ?? DS.bgColor,
+    headingFont:  (useLive ? liveConfig?.style?.headingFont  : null) ?? savedConfig?.headingFont  ?? DS.headingFont,
+    bodyFont:     (useLive ? liveConfig?.style?.bodyFont     : null) ?? savedConfig?.bodyFont     ?? DS.bodyFont,
+    borderRadius: (useLive ? liveConfig?.style?.borderRadius : null) ?? savedConfig?.borderRadius ?? DS.borderRadius,
+    buttonStyle:  (useLive ? liveConfig?.style?.buttonStyle  : null) ?? savedConfig?.buttonStyle  ?? DS.buttonStyle,
+    density:      (useLive ? liveConfig?.style?.density      : null) ?? savedConfig?.density      ?? DS.density,
   };
 
   const activeSections = resolvedSections.filter(s => s.enabled).sort((a,b) => a.order - b.order);
