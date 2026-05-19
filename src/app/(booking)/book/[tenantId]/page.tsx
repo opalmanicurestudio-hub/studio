@@ -15,7 +15,7 @@ import {
   DS, ac, hf, bf, br, hexToHsl, injectFonts,
   SectionWrapper, SectionRenderer, Footer,
   isBuilderConfig, buildDefaults,
-} from './_sections';
+} from '@/lib/booking-sections';
 
 // ─── Font loading ─────────────────────────────────────────────────────────────
 const GFONTS_HREF = `https://fonts.googleapis.com/css2?${
