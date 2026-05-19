@@ -17,6 +17,15 @@ const ANIM_CSS = `
 @keyframes cf-scale-up   { from{opacity:0;transform:scale(0.92)} to{opacity:1;transform:scale(1)} }
 @keyframes cf-zoom-in    { from{opacity:0;transform:scale(1.08)} to{opacity:1;transform:scale(1)} }
 @keyframes cf-marquee    { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+@keyframes cf-word-up    { from{opacity:0;transform:translateY(110%)} to{opacity:1;transform:translateY(0)} }
+@keyframes cf-drift-a    { 0%,100%{transform:translateY(0) rotate(0deg)} 50%{transform:translateY(-14px) rotate(2deg)} }
+@keyframes cf-drift-b    { 0%,100%{transform:translateY(0) rotate(0deg)} 50%{transform:translateY(10px) rotate(-1.5deg)} }
+@keyframes cf-drift-c    { 0%,100%{transform:translateX(0)} 50%{transform:translateX(10px)} }
+@keyframes cf-line-grow  { from{transform:scaleX(0);opacity:0} to{transform:scaleX(1);opacity:1} }
+@keyframes cf-reveal-r   { from{clip-path:inset(0 100% 0 0)} to{clip-path:inset(0 0% 0 0)} }
+@keyframes cf-float-up   { 0%{opacity:0;transform:translateY(40px) scale(0.96)} 100%{opacity:1;transform:translateY(0) scale(1)} }
+@keyframes cf-blur-in    { from{opacity:0;filter:blur(12px);transform:scale(1.04)} to{opacity:1;filter:blur(0);transform:scale(1)} }
+@keyframes cf-count-up   { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
 `;
 
 const STACKS: Record<string, string> = {
@@ -211,81 +220,541 @@ function buildDefaults(): PageSection[] {
 // ─── Section components ────────────────────────────────────────────────────────
 
 function NavSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const isMinimal = (config.layout || 'centered') === 'minimal';
-  return (
-    <nav className={cn('z-50 flex items-center justify-between px-6 md:px-14 py-4 border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
-         style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '22' }}>
-      <div className="flex items-center gap-3">
+  const layout = config.layout || 'centered';
+
+  const Logo = () => config.logoUrl
+    ? <img src={config.logoUrl} alt="Logo" className="h-9 w-auto object-contain"/>
+    : <FieldTap sectionId={sectionId} fieldKey="logoText" isPreview={isPreview} onFieldTap={onFieldTap} as="span"
+        style={{ fontFamily: hf(style), color: ac(style), fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.05em' }}>
+        {config.logoText || 'Studio'}
+      </FieldTap>;
+
+  const Links = ({ className = '' }: { className?: string }) => config.showLinks !== false ? (
+    <div className={cn('hidden md:flex items-center gap-8', className)}>
+      {['Services','Team','Contact'].map(l =>
+        <a key={l} href={`#${l.toLowerCase()}`}
+           className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors"
+           style={{ fontFamily: bf(style) }}>{l}</a>)}
+    </div>
+  ) : null;
+
+  const Cta = ({ size = 'default' }: { size?: 'default' | 'sm' }) => (
+    <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
+      <button onClick={cta(config.ctaAction, config.ctaUrl)}
+              className={cn('font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95',
+                size === 'sm' ? 'px-4 py-2 text-[10px]' : 'px-6 py-2.5 text-[11px]')}
+              style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+        {config.ctaText || 'Book Now'}
+      </button>
+    </FieldTap>
+  );
+
+  // ── floating — pill/capsule that hovers above content ─────────────────
+  if (layout === 'floating') return (
+    <div className={cn('z-50 flex justify-center px-4 pt-4', config.sticky !== false && 'sticky top-4')}>
+      <nav className="flex items-center gap-6 px-6 py-3"
+           style={{
+             background: config.transparent ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.92)',
+             backdropFilter: 'blur(20px)',
+             WebkitBackdropFilter: 'blur(20px)',
+             borderRadius: '999px',
+             border: `1.5px solid rgba(0,0,0,0.07)`,
+             boxShadow: '0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)',
+           }}>
+        <Logo/>
+        <Links/>
+        <Cta size="sm"/>
+      </nav>
+    </div>
+  );
+
+  // ── bold — giant centered logo + link row below ───────────────────────
+  if (layout === 'bold') return (
+    <nav className={cn('z-50 w-full border-b', config.sticky !== false && 'sticky top-0',
+                       config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
+         style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
+      <div className="flex flex-col items-center gap-1 py-4 px-6">
+        {/* Giant logo */}
         {config.logoUrl
-          ? <img src={config.logoUrl} alt="Logo" className="h-9 w-auto object-contain"/>
+          ? <img src={config.logoUrl} alt="Logo" className="h-12 w-auto object-contain"/>
           : <FieldTap sectionId={sectionId} fieldKey="logoText" isPreview={isPreview} onFieldTap={onFieldTap} as="span"
-              style={{ fontFamily: hf(style), color: ac(style), fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.05em' }}>
+              style={{ fontFamily: hf(style), color: ac(style), fontSize: 'clamp(28px,4vw,48px)', fontWeight: 900, letterSpacing: '-0.05em', lineHeight: 1 }}>
               {config.logoText || 'Studio'}
             </FieldTap>}
-      </div>
-      {!isMinimal && config.showLinks !== false && (
-        <div className="hidden md:flex items-center gap-8">
-          {['Services','Team','Contact'].map(l =>
-            <a key={l} href={`#${l.toLowerCase()}`} className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors" style={{ fontFamily: bf(style) }}>{l}</a>
-          )}
+        {/* Links row */}
+        <div className="flex items-center gap-6 flex-wrap justify-center">
+          {config.showLinks !== false && ['Services','Team','Contact'].map(l =>
+            <a key={l} href={`#${l.toLowerCase()}`}
+               className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-slate-900 transition-colors"
+               style={{ fontFamily: bf(style) }}>{l}</a>)}
+          <Cta size="sm"/>
         </div>
-      )}
-      <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
-        <button onClick={cta(config.ctaAction, config.ctaUrl)} className="px-6 py-2.5 text-[11px] font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-all active:scale-95" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Book Now'}</button>
-      </FieldTap>
+      </div>
+    </nav>
+  );
+
+  // ── split — logo centered, links on both sides ────────────────────────
+  if (layout === 'split') return (
+    <nav className={cn('z-50 grid grid-cols-3 items-center px-8 py-4 border-b',
+                       config.sticky !== false && 'sticky top-0',
+                       config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
+         style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
+      {/* Left links */}
+      <div className="hidden md:flex items-center gap-6">
+        {['Services','Gallery'].map(l =>
+          <a key={l} href={`#${l.toLowerCase()}`}
+             className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors"
+             style={{ fontFamily: bf(style) }}>{l}</a>)}
+      </div>
+      {/* Center logo */}
+      <div className="flex justify-center">
+        <Logo/>
+      </div>
+      {/* Right: links + cta */}
+      <div className="hidden md:flex items-center justify-end gap-6">
+        {['Team','Contact'].map(l =>
+          <a key={l} href={`#${l.toLowerCase()}`}
+             className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors"
+             style={{ fontFamily: bf(style) }}>{l}</a>)}
+        <Cta size="sm"/>
+      </div>
+      {/* Mobile: logo + cta */}
+      <div className="md:hidden flex justify-end col-start-3"><Cta size="sm"/></div>
+    </nav>
+  );
+
+  // ── logo-top — stacked two-row layout ────────────────────────────────
+  if (layout === 'logo-top') return (
+    <nav className={cn('z-50 flex flex-col items-center gap-2 py-4 px-6 border-b',
+                       config.sticky !== false && 'sticky top-0',
+                       config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
+         style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
+      <Logo/>
+      <div className="flex items-center gap-6">
+        <Links/><Cta size="sm"/>
+      </div>
+    </nav>
+  );
+
+  // ── minimal — just logo + cta ─────────────────────────────────────────
+  if (layout === 'minimal') return (
+    <nav className={cn('z-50 flex items-center justify-between px-6 md:px-14 py-4',
+                       config.sticky !== false && 'sticky top-0',
+                       config.transparent ? 'bg-transparent' : 'bg-white/95 backdrop-blur-xl')}>
+      <Logo/><Cta/>
+    </nav>
+  );
+
+  // ── centered — default ────────────────────────────────────────────────
+  return (
+    <nav className={cn('z-50 flex items-center justify-between px-6 md:px-14 py-4 border-b',
+                       config.sticky !== false && 'sticky top-0',
+                       config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
+         style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '22' }}>
+      <Logo/>
+      <Links/>
+      <Cta/>
     </nav>
   );
 }
 
 function HeroSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const layout = config.layout || 'centered';
-  const isSplit = layout === 'split' || layout === 'magazine';
-  const isFullbleed = layout === 'fullbleed' || layout === 'cinematic';
-  const isMinimal = layout === 'minimal';
   const hasBg = !!config.bgImage, hasVideo = !!config.videoUrl;
   const opacity = (config.overlayOpacity ?? 40) / 100;
-  const tc = (hasBg || hasVideo) && !isMinimal ? 'white' : '#0f172a';
-  const sc = (hasBg || hasVideo) && !isMinimal ? 'rgba(255,255,255,0.75)' : '#64748b';
-  const Headline = () => (
-    <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
-      as="h1" className={cn(isSplit ? 'text-5xl md:text-7xl' : 'text-6xl md:text-8xl', 'leading-[0.95] font-light')}
-      style={{ fontFamily: hf(style), color: tc }}>
-      {config.headline || 'Book Your Experience'}
-    </FieldTap>
+  const hasMedia = (hasBg || hasVideo);
+  const [mouse, setMouse] = useState({ x: 0, y: 0 });
+
+  const tc = (l: string) => hasMedia && l !== 'minimal' ? 'white' : '#0f172a';
+  const sc = (l: string) => hasMedia && l !== 'minimal' ? 'rgba(255,255,255,0.72)' : '#64748b';
+
+  const headline = config.headline || 'Book Your Experience';
+  const subheadline = config.subheadline || 'A sanctuary of craft, curated for those who appreciate the details.';
+  const words = headline.split(' ');
+
+  const BgMedia = ({ extraClass = '' }: { extraClass?: string }) => (
+    <>
+      {hasBg && <div className={cn('absolute inset-0 bg-center bg-cover', extraClass)} style={{ backgroundImage: `url(${config.bgImage})` }}/>}
+      {hasVideo && <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover"><source src={config.videoUrl}/></video>}
+      {hasMedia && <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${opacity})` }}/>}
+    </>
   );
-  const Sub = () => (
-    <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
-      as="p" className={cn(isSplit ? 'text-lg max-w-md' : 'text-xl max-w-2xl mx-auto', 'leading-relaxed')}
-      style={{ fontFamily: bf(style), color: sc }}>
-      {config.subheadline}
-    </FieldTap>
-  );
-  const Btns = () => (
-    <div className={cn('flex flex-wrap gap-4', !isSplit && 'justify-center')}>
+
+  const BookBtns = ({ tc: textColor }: { tc: string }) => (
+    <div className="flex flex-wrap gap-4">
       <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
-        <button onClick={cta(config.ctaAction, config.ctaUrl)} className={cn(isSplit ? 'px-9 py-4' : 'px-12 py-4', 'font-bold shadow-2xl hover:opacity-90 hover:scale-[1.02] transition-all')} style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Book a Session'}</button>
+        <button onClick={cta(config.ctaAction, config.ctaUrl)}
+                className="px-10 py-4 font-bold shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all"
+                style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+          {config.ctaText || 'Book a Session'}
+        </button>
       </FieldTap>
       {config.showWalkIn !== false && (
         <FieldTap sectionId={sectionId} fieldKey="cta2Text" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
-          <button onClick={cta(config.cta2Action, config.ctaUrl)} className={cn(isSplit ? 'px-9 py-4' : 'px-12 py-4', 'font-bold hover:opacity-80 transition-all')} style={{ ...btnStyle(style, 'secondary'), borderColor: (hasBg||hasVideo) ? 'white' : ac(style), color: (hasBg||hasVideo) ? 'white' : ac(style), fontFamily: bf(style) }}>{config.cta2Text || 'Walk In'}</button>
+          <button onClick={cta(config.cta2Action)}
+                  className="px-10 py-4 font-bold hover:opacity-80 transition-all"
+                  style={{ ...btnStyle(style, 'secondary'), borderColor: hasMedia ? 'white' : ac(style), color: hasMedia ? 'white' : ac(style), fontFamily: bf(style) }}>
+            {config.cta2Text || 'Walk In'}
+          </button>
         </FieldTap>
       )}
     </div>
   );
-  return (
-    <section className="relative flex items-center overflow-hidden" style={{ minHeight: isFullbleed ? '100vh' : '82vh', background: hasBg && !isMinimal ? `url(${config.bgImage}) center/cover no-repeat` : isMinimal ? '#ffffff' : style.bgColor }}>
-      {hasVideo && !isMinimal && <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover"><source src={config.videoUrl}/></video>}
-      {(hasBg||hasVideo) && !isMinimal && <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${opacity})` }}/>}
-      {config.showBadge && config.badgeText && <FieldTap sectionId={sectionId} fieldKey="badgeText" isPreview={isPreview} onFieldTap={onFieldTap} as="div" className="absolute top-6 left-1/2 -translate-x-1/2 z-10 px-5 py-1.5 border border-white/30 bg-white/10 backdrop-blur text-white text-[10px] font-black uppercase tracking-widest rounded-full">{config.badgeText}</FieldTap>}
-      <div className="relative z-10 w-full max-w-7xl mx-auto px-6 md:px-16 py-24">
-        {isSplit ? (
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            <div className="space-y-8"><Headline/><Sub/><Btns/></div>
-            <div>{config.heroImage ? <img src={config.heroImage} alt="" className="w-full aspect-[4/5] object-cover shadow-2xl" style={{ borderRadius: br(style, 2) }}/> : <div className="w-full aspect-[4/5]" style={{ background: ac(style)+'18', borderRadius: br(style, 2) }}/>}</div>
+
+  // ── KINETIC — word-by-word animated reveal ────────────────────────────
+  if (layout === 'kinetic') return (
+    <section className="relative flex flex-col items-center justify-center overflow-hidden"
+             style={{ minHeight: '92vh', background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : style.bgColor }}>
+      {hasVideo && <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover"><source src={config.videoUrl}/></video>}
+      {hasMedia && <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${opacity})` }}/>}
+
+      {/* Floating ambient blobs */}
+      <div className="absolute top-[15%] left-[8%] w-48 h-48 rounded-full pointer-events-none"
+           style={{ background: ac(style), opacity: 0.12, filter: 'blur(60px)', animation: 'cf-drift-a 9s ease-in-out infinite' }}/>
+      <div className="absolute bottom-[20%] right-[10%] w-64 h-64 rounded-full pointer-events-none"
+           style={{ background: ac(style), opacity: 0.1, filter: 'blur(80px)', animation: 'cf-drift-b 12s ease-in-out infinite 2s' }}/>
+
+      <div className="relative z-10 text-center px-6 max-w-5xl mx-auto space-y-10">
+        {/* Badge */}
+        {config.showBadge && config.badgeText && (
+          <div className="flex justify-center"
+               style={{ animation: 'cf-fade-in 0.8s 0.2s both' }}>
+            <span className="px-5 py-1.5 border border-current/30 text-[10px] font-black uppercase tracking-[0.3em] rounded-full"
+                  style={{ color: hasMedia ? 'rgba(255,255,255,0.7)' : ac(style) + 'aa' }}>
+              {config.badgeText}
+            </span>
           </div>
-        ) : (
-          <div className="max-w-4xl mx-auto text-center space-y-8"><Headline/><Sub/><Btns/></div>
         )}
+
+        {/* Word-by-word animated headline */}
+        <h1 className="flex flex-wrap justify-center gap-x-[0.3em] leading-[0.9]"
+            style={{ fontSize: 'clamp(48px, 8vw, 96px)', fontFamily: hf(style) }}>
+          {words.map((word, i) => (
+            <span key={i} className="overflow-hidden inline-block">
+              <span className="inline-block"
+                    style={{ color: tc(layout), animation: `cf-word-up 0.9s cubic-bezier(0.16,1,0.3,1) ${0.15 + i * 0.1}s both` }}>
+                {word}
+              </span>
+            </span>
+          ))}
+        </h1>
+
+        {/* Animated accent line + subtext */}
+        <div className="flex flex-col items-center gap-3"
+             style={{ animation: `cf-fade-in 1s ${0.2 + words.length * 0.1}s both` }}>
+          <div className="h-px w-16 origin-left"
+               style={{ background: hasMedia ? 'rgba(255,255,255,0.4)' : ac(style), animation: `cf-line-grow 0.8s ${0.3 + words.length * 0.1}s both` }}/>
+          <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="p" className="text-base md:text-lg max-w-xl leading-relaxed text-center"
+            style={{ fontFamily: bf(style), color: sc(layout) }}>
+            {subheadline}
+          </FieldTap>
+        </div>
+
+        {/* CTAs with spring pop */}
+        <div className="flex flex-wrap gap-4 justify-center"
+             style={{ animation: `cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) ${0.4 + words.length * 0.1}s both` }}>
+          <BookBtns tc={tc(layout)}/>
+        </div>
+      </div>
+
+      {/* Floating dot accents */}
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className="absolute pointer-events-none rounded-full"
+             style={{
+               width: [6,4,8,5][i], height: [6,4,8,5][i],
+               top: ['20%','70%','40%','80%'][i], left: ['15%','80%','5%','60%'][i],
+               background: hasMedia ? 'rgba(255,255,255,0.4)' : ac(style),
+               animation: `${['cf-drift-a','cf-drift-b','cf-drift-c','cf-drift-a'][i]} ${[7,9,11,8][i]}s ease-in-out infinite ${i * 1.5}s`,
+               opacity: 0.5,
+             }}/>
+      ))}
+    </section>
+  );
+
+  // ── LAYERS — mouse-reactive parallax depth ────────────────────────────
+  if (layout === 'layers') {
+    const handleMM = (e: React.MouseEvent<HTMLElement>) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      setMouse({ x: (e.clientX - r.left) / r.width - 0.5, y: (e.clientY - r.top) / r.height - 0.5 });
+    };
+    return (
+      <section className="relative flex items-center overflow-hidden"
+               style={{ minHeight: '95vh', background: hasMedia ? 'transparent' : '#0c0c0c', cursor: 'crosshair' }}
+               onMouseMove={handleMM}>
+        {/* Deep background — most movement */}
+        <div className="absolute inset-[-6%] transition-transform duration-700 ease-out"
+             style={{ transform: `translate(${mouse.x * 24}px, ${mouse.y * 16}px)` }}>
+          {hasBg
+            ? <div className="absolute inset-0 bg-center bg-cover" style={{ backgroundImage: `url(${config.bgImage})` }}/>
+            : <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${ac(style)}30 0%, #000 70%)` }}/>}
+          {hasMedia && <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${Math.min(opacity + 0.15, 0.85)})` }}/>}
+        </div>
+
+        {/* Mid glow orbs */}
+        <div className="absolute inset-0 pointer-events-none transition-transform duration-500 ease-out"
+             style={{ transform: `translate(${mouse.x * 12}px, ${mouse.y * 8}px)` }}>
+          <div className="absolute top-1/4 right-1/4 w-96 h-96 rounded-full"
+               style={{ background: ac(style) + '22', filter: 'blur(80px)' }}/>
+          <div className="absolute bottom-1/3 left-1/5 w-64 h-64 rounded-full"
+               style={{ background: ac(style) + '18', filter: 'blur(60px)' }}/>
+        </div>
+
+        {/* Foreground text — least movement */}
+        <div className="relative z-10 w-full max-w-7xl mx-auto px-6 md:px-16 transition-transform duration-700 ease-out"
+             style={{ transform: `translate(${mouse.x * 6}px, ${mouse.y * 4}px)` }}>
+          <div className="max-w-3xl space-y-8" style={{ animation: 'cf-blur-in 1.2s 0.1s both' }}>
+            {config.showBadge && config.badgeText && (
+              <span className="inline-block px-4 py-1 text-[10px] font-black uppercase tracking-[0.25em] text-white/60 border border-white/20 rounded-full">
+                {config.badgeText}
+              </span>
+            )}
+            <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="h1" className="font-light leading-[0.9]"
+              style={{ fontSize: 'clamp(52px,8vw,100px)', fontFamily: hf(style), color: 'white' }}>
+              {headline}
+            </FieldTap>
+            <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="p" className="text-lg max-w-md leading-relaxed"
+              style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.65)' }}>
+              {subheadline}
+            </FieldTap>
+            <BookBtns tc="white"/>
+          </div>
+        </div>
+
+        {/* Mouse cursor follower */}
+        <div className="absolute pointer-events-none rounded-full transition-all duration-300 ease-out"
+             style={{
+               width: 300, height: 300,
+               left: `calc(${(mouse.x + 0.5) * 100}% - 150px)`,
+               top: `calc(${(mouse.y + 0.5) * 100}% - 150px)`,
+               background: `radial-gradient(circle, ${ac(style)}18 0%, transparent 70%)`,
+               filter: 'blur(2px)',
+             }}/>
+      </section>
+    );
+  }
+
+  // ── FILMSTRIP — scrolling image reel behind text ──────────────────────
+  if (layout === 'filmstrip') {
+    const strips = config.filmImages?.length > 0
+      ? config.filmImages
+      : Array(8).fill(config.bgImage || null);
+    const shade = (i: number) => ['10','18','14','20','12','16','0e','1c'][i % 8];
+    return (
+      <section className="relative flex items-center overflow-hidden"
+               style={{ minHeight: '90vh', background: '#0a0a0a' }}>
+        {/* Scrolling image strips */}
+        <div className="absolute inset-0 flex flex-col gap-0 overflow-hidden opacity-50">
+          {[0,1,2].map(row => (
+            <div key={row} className="flex-1 flex items-stretch overflow-hidden">
+              <div className="flex gap-1 items-stretch"
+                   style={{
+                     animation: `cf-marquee ${28 + row * 6}s linear infinite ${row % 2 === 1 ? 'reverse' : 'normal'}`,
+                     width: 'max-content',
+                   }}>
+                {[...strips, ...strips, ...strips].map((img: any, i: number) => (
+                  <div key={i} className="w-48 md:w-64 flex-shrink-0 h-full"
+                       style={{
+                         background: img ? `url(${img}) center/cover no-repeat` : ac(style) + shade(i),
+                         filter: 'brightness(0.7)',
+                       }}/>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Gradient vignette */}
+        <div className="absolute inset-0"
+             style={{ background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.75) 100%)' }}/>
+
+        {/* Content */}
+        <div className="relative z-10 w-full max-w-5xl mx-auto px-6 md:px-16 text-center space-y-8">
+          {config.showBadge && config.badgeText && (
+            <div style={{ animation: 'cf-fade-in 1s 0.3s both' }}>
+              <span className="inline-block px-5 py-1.5 border border-white/25 text-[10px] font-black uppercase tracking-[0.3em] text-white/60 rounded-full">
+                {config.badgeText}
+              </span>
+            </div>
+          )}
+          <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="h1" className="font-light leading-[0.9] text-white text-center"
+            style={{ fontSize: 'clamp(48px,9vw,110px)', fontFamily: hf(style), animation: 'cf-blur-in 1.4s 0.2s both' }}>
+            {headline}
+          </FieldTap>
+          <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="p" className="text-lg max-w-2xl mx-auto leading-relaxed"
+            style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.65)', animation: 'cf-fade-up 1s 0.5s both' }}>
+            {subheadline}
+          </FieldTap>
+          <div className="flex gap-4 justify-center flex-wrap" style={{ animation: 'cf-float-up 0.9s 0.7s both' }}>
+            <BookBtns tc="white"/>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // ── MAGAZINE — editorial bold typography ──────────────────────────────
+  if (layout === 'magazine') return (
+    <section className="relative overflow-hidden" style={{ minHeight: '90vh', background: style.bgColor }}>
+      <div className="grid md:grid-cols-2 min-h-[90vh]">
+        {/* Left: typography */}
+        <div className="flex flex-col justify-center px-8 md:px-16 py-20 space-y-8">
+          {config.showBadge && config.badgeText && (
+            <span className="text-[10px] font-black uppercase tracking-[0.3em]"
+                  style={{ color: ac(style) }}>
+              — {config.badgeText}
+            </span>
+          )}
+          <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="h1" className="font-light leading-[0.88]"
+            style={{ fontSize: 'clamp(40px,6vw,80px)', fontFamily: hf(style), color: '#0f172a', animation: 'cf-fade-up 1s 0.1s both' }}>
+            {headline}
+          </FieldTap>
+          <div className="h-0.5 w-12 origin-left" style={{ background: ac(style), animation: 'cf-line-grow 0.8s 0.4s both' }}/>
+          <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+            as="p" className="text-base leading-relaxed max-w-sm"
+            style={{ fontFamily: bf(style), color: '#64748b', animation: 'cf-fade-up 1s 0.5s both' }}>
+            {subheadline}
+          </FieldTap>
+          <div style={{ animation: 'cf-fade-up 1s 0.7s both' }}>
+            <BookBtns tc="#0f172a"/>
+          </div>
+        </div>
+        {/* Right: image */}
+        <div className="relative overflow-hidden" style={{ background: ac(style) + '12' }}>
+          {hasBg
+            ? <img src={config.bgImage} alt="" className="w-full h-full object-cover"
+                   style={{ animation: 'cf-zoom-in 1.4s 0.1s both' }}/>
+            : config.heroImage
+            ? <img src={config.heroImage} alt="" className="w-full h-full object-cover"
+                   style={{ animation: 'cf-zoom-in 1.4s 0.1s both' }}/>
+            : <div className="w-full h-full flex items-center justify-center">
+                <span className="text-[80px] font-light opacity-20" style={{ fontFamily: hf(style), color: ac(style) }}>
+                  {(config.logoText || 'S')[0]}
+                </span>
+              </div>}
+          {/* Accent stripe */}
+          <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: ac(style) }}/>
+        </div>
+      </div>
+    </section>
+  );
+
+  // ── SPLIT ─────────────────────────────────────────────────────────────
+  if (layout === 'split') return (
+    <section className="relative flex items-center overflow-hidden"
+             style={{ minHeight: '85vh', background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : style.bgColor }}>
+      <BgMedia/>
+      {config.showBadge && config.badgeText && (
+        <FieldTap sectionId={sectionId} fieldKey="badgeText" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="div" className="absolute top-6 left-1/2 -translate-x-1/2 z-10 px-5 py-1.5 border border-white/30 bg-white/10 backdrop-blur text-white text-[10px] font-black uppercase tracking-widest rounded-full">
+          {config.badgeText}
+        </FieldTap>
+      )}
+      <div className="relative z-10 w-full max-w-7xl mx-auto px-6 md:px-16 py-20">
+        <div className="grid md:grid-cols-2 gap-16 items-center">
+          <div className="space-y-8">
+            <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="h1" className="text-5xl md:text-7xl font-light leading-[0.95]"
+              style={{ fontFamily: hf(style), color: tc(layout) }}>
+              {headline}
+            </FieldTap>
+            <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+              as="p" className="text-lg max-w-md leading-relaxed"
+              style={{ fontFamily: bf(style), color: sc(layout) }}>
+              {subheadline}
+            </FieldTap>
+            <BookBtns tc={tc(layout)}/>
+          </div>
+          <div>
+            {config.heroImage
+              ? <img src={config.heroImage} alt="" className="w-full aspect-[4/5] object-cover shadow-2xl" style={{ borderRadius: br(style, 2) }}/>
+              : <div className="w-full aspect-[4/5]" style={{ background: ac(style)+'18', borderRadius: br(style, 2) }}/>}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+
+  // ── CINEMATIC ─────────────────────────────────────────────────────────
+  if (layout === 'cinematic') return (
+    <section className="relative flex items-end overflow-hidden"
+             style={{ minHeight: '100vh', background: hasMedia ? 'transparent' : '#0a0a0a' }}>
+      <BgMedia/>
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)' }}/>
+      {hasVideo && <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover"><source src={config.videoUrl}/></video>}
+      <div className="relative z-10 w-full max-w-7xl mx-auto px-6 md:px-16 pb-20 space-y-6">
+        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h1" className="font-light leading-[0.9] text-white"
+          style={{ fontSize: 'clamp(44px,8vw,96px)', fontFamily: hf(style) }}>
+          {headline}
+        </FieldTap>
+        <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-lg max-w-xl leading-relaxed"
+          style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.65)' }}>
+          {subheadline}
+        </FieldTap>
+        <BookBtns tc="white"/>
+      </div>
+    </section>
+  );
+
+  // ── FULLBLEED ─────────────────────────────────────────────────────────
+  if (layout === 'fullbleed') return (
+    <section className="relative flex items-center overflow-hidden"
+             style={{ minHeight: '100vh', background: hasBg ? `url(${config.bgImage}) center/cover` : style.bgColor }}>
+      <BgMedia/>
+      <div className="relative z-10 w-full max-w-4xl mx-auto px-6 md:px-16 py-24 text-center space-y-8">
+        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h1" className="text-6xl md:text-8xl leading-[0.95] font-light"
+          style={{ fontFamily: hf(style), color: tc(layout) }}>{headline}</FieldTap>
+        <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-xl max-w-2xl mx-auto leading-relaxed"
+          style={{ fontFamily: bf(style), color: sc(layout) }}>{subheadline}</FieldTap>
+        <div className="flex flex-wrap gap-4 justify-center"><BookBtns tc={tc(layout)}/></div>
+      </div>
+    </section>
+  );
+
+  // ── MINIMAL ───────────────────────────────────────────────────────────
+  if (layout === 'minimal') return (
+    <section className="flex items-center" style={{ minHeight: '70vh', background: '#ffffff' }}>
+      <div className="w-full max-w-4xl mx-auto px-6 md:px-16 py-20 space-y-8">
+        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h1" className="text-5xl md:text-7xl font-light leading-[0.9]"
+          style={{ fontFamily: hf(style), color: '#0f172a' }}>{headline}</FieldTap>
+        <div className="h-0.5 w-16" style={{ background: ac(style) }}/>
+        <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-lg max-w-lg leading-relaxed text-slate-500"
+          style={{ fontFamily: bf(style) }}>{subheadline}</FieldTap>
+        <BookBtns tc="#0f172a"/>
+      </div>
+    </section>
+  );
+
+  // ── CENTERED — default ────────────────────────────────────────────────
+  return (
+    <section className="relative flex items-center overflow-hidden"
+             style={{ minHeight: '82vh', background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : style.bgColor }}>
+      <BgMedia/>
+      {config.showBadge && config.badgeText && (
+        <FieldTap sectionId={sectionId} fieldKey="badgeText" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="div" className="absolute top-6 left-1/2 -translate-x-1/2 z-10 px-5 py-1.5 border border-white/30 bg-white/10 backdrop-blur text-white text-[10px] font-black uppercase tracking-widest rounded-full">
+          {config.badgeText}
+        </FieldTap>
+      )}
+      <div className="relative z-10 w-full max-w-4xl mx-auto px-6 md:px-16 py-24 text-center space-y-8">
+        <FieldTap sectionId={sectionId} fieldKey="headline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h1" className="text-6xl md:text-8xl leading-[0.95] font-light"
+          style={{ fontFamily: hf(style), color: tc(layout) }}>{headline}</FieldTap>
+        <FieldTap sectionId={sectionId} fieldKey="subheadline" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-xl max-w-2xl mx-auto leading-relaxed"
+          style={{ fontFamily: bf(style), color: sc(layout) }}>{subheadline}</FieldTap>
+        <div className="flex flex-wrap gap-4 justify-center"><BookBtns tc={tc(layout)}/></div>
       </div>
     </section>
   );
