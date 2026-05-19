@@ -828,12 +828,13 @@ export default function PageBuilderPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
 
-  // Live preview sync — debounced, fires on every change
+  // Live preview sync — fires on the next animation frame after any state change (~16ms).
+  // This makes every keypress, toggle, and colour picker move appear instantly in the preview.
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const raf = requestAnimationFrame(() => {
       previewRef.current?.contentWindow?.postMessage({ type: 'CLARITY_PREVIEW', sections, style }, '*');
-    }, 400);
-    return () => clearTimeout(timer);
+    });
+    return () => cancelAnimationFrame(raf);
   }, [sections, style]);
 
   // ── Message handler ────────────────────────────────────────────────────────
@@ -933,6 +934,8 @@ export default function PageBuilderPage() {
   const headingFontDef = FONTS.find(f => f.id === style.headingFont);
   const bodyFontDef    = FONTS.find(f => f.id === style.bodyFont);
   const previewUrl     = selectedTenant ? `/book/${selectedTenant.id}` : null;
+  // Adds ?__preview=1 so the booking page can reliably detect it's in the builder iframe
+  const previewSrc     = previewUrl ? `${previewUrl}?__preview=1` : null;
   const selectedDef    = selectedSection ? SECTION_DEFS[selectedSection.type as SectionType] : null;
 
   const renderStylePanel = () => (
@@ -1098,7 +1101,7 @@ export default function PageBuilderPage() {
         {isLandscape && (
           <div className="absolute inset-0 flex">
             <div className="flex-1 min-w-0 relative bg-slate-100">
-              {previewUrl ? <iframe key={previewKey} ref={previewRef} src={previewUrl} className="w-full h-full border-0 bg-white" title="Preview"/> : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
+              {previewUrl ? <iframe key={previewKey} ref={previewRef} src={previewSrc ?? ''} className="w-full h-full border-0 bg-white" title="Preview"/> : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
               {!drawerOpen && (
                 <button onClick={() => setDrawerOpen(true)} className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 py-4 bg-white border-y border-l border-border rounded-l-xl shadow-lg flex flex-col items-center gap-1.5 text-primary">
                   <Layers className="w-3.5 h-3.5"/>
@@ -1126,7 +1129,7 @@ export default function PageBuilderPage() {
         {!isLandscape && (
           <>
             <div className="absolute inset-0 bg-slate-100">
-              {previewUrl ? <iframe key={previewKey} ref={previewRef} src={previewUrl} className="w-full h-full border-0 bg-white" title="Preview"/> : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
+              {previewUrl ? <iframe key={previewKey} ref={previewRef} src={previewSrc ?? ''} className="w-full h-full border-0 bg-white" title="Preview"/> : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
             </div>
             <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
               <button onClick={() => setPreviewKey(k => k+1)} className="w-9 h-9 rounded-xl bg-white/90 backdrop-blur shadow-lg flex items-center justify-center text-slate-500"><RefreshCw className="w-4 h-4"/></button>
@@ -1269,8 +1272,8 @@ export default function PageBuilderPage() {
             <div className="flex-1 min-h-0 p-6 overflow-hidden flex items-center justify-center">
               {previewUrl ? (
                 previewMode === 'desktop'
-                  ? <iframe key={previewKey} ref={previewRef} src={previewUrl} className="w-full h-full border-0 bg-white rounded-2xl shadow-xl" title="Preview"/>
-                  : <div className="h-full w-[390px] max-w-full flex-shrink-0"><iframe key={previewKey} ref={previewRef} src={previewUrl} className="w-full h-full border-0 bg-white rounded-[2.5rem] shadow-2xl ring-8 ring-slate-800" title="Preview"/></div>
+                  ? <iframe key={previewKey} ref={previewRef} src={previewSrc ?? ''} className="w-full h-full border-0 bg-white rounded-2xl shadow-xl" title="Preview"/>
+                  : <div className="h-full w-[390px] max-w-full flex-shrink-0"><iframe key={previewKey} ref={previewRef} src={previewSrc ?? ''} className="w-full h-full border-0 bg-white rounded-[2.5rem] shadow-2xl ring-8 ring-slate-800" title="Preview"/></div>
               ) : (
                 <div className="text-center space-y-3"><Eye className="w-10 h-10 text-slate-200 mx-auto"/><p className="text-[10px] font-black uppercase tracking-widest text-slate-300">No tenant selected</p></div>
               )}
