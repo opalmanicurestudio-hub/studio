@@ -191,12 +191,14 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'sticky', t: 'toggle', l: 'Sticky nav', d: true }, { k: 'transparent', t: 'toggle', l: 'Transparent background', d: false },
     { k: 'socialLinks', t: 'social-links', l: 'Social icons in nav', d: [] },
   ], layouts: [
-    { id: 'centered',  label: 'Centered',      preview: '[ logo | links | cta ]'      },
-    { id: 'floating',  label: 'Floating pill',  preview: '  ╭─ logo · links · cta ─╮  ' },
-    { id: 'split',     label: 'Logo left',      preview: '[ logo ] ─ [ links | cta ]'  },
-    { id: 'bold',      label: 'Bold stacked',   preview: '   STUDIO NAME\n links · cta' },
-    { id: 'minimal',   label: 'Minimal',        preview: '[ logo ] ──────── [ cta ]'   },
-    { id: 'logo-top',  label: 'Logo top',       preview: '[ logo ]\n[ links | cta ]'   },
+    { id: 'centered',    label: 'Centered',        preview: '[ logo | links | cta ]'           },
+    { id: 'floating',    label: 'Floating pill',    preview: '  ╭─ logo · links · cta ─╮  '    },
+    { id: 'split',       label: 'Logo center',      preview: '[ links ] logo [ links ]'         },
+    { id: 'bold',        label: 'Bold stacked',     preview: '   STUDIO NAME\n  links · cta'   },
+    { id: 'drawer',      label: 'Drawer (mobile)',  preview: '[ logo ──────────── ☰ ]'         },
+    { id: 'bottom-bar',  label: 'Bottom bar',       preview: '▬▬▬▬▬▬▬▬▬▬▬▬▬\n⊹ ✦ ◉ ◎ Book'  },
+    { id: 'minimal',     label: 'Minimal',          preview: '[ logo ] ──────── [ cta ]'        },
+    { id: 'logo-top',    label: 'Logo top',         preview: '[ logo ]\n[ links | cta ]'        },
   ]},
   hero: { label: 'Hero', icon: ImageIcon, color: '#534AB7', fields: [
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'heroImage', t: 'image', l: 'Feature image (split/magazine)', d: '' },
@@ -237,14 +239,14 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showDesc', t: 'toggle', l: 'Show descriptions', d: true }, { k: 'showImages', t: 'toggle', l: 'Show service images', d: false },
     { k: 'hoverEffect', t: 'toggle', l: 'Hover lift effect', d: true },
   ], layouts: [
-    { id: 'cards',      label: 'Cards',           preview: '┌────┐ ┌────┐'              },
-    { id: 'horizontal', label: 'Horizontal rows',  preview: '[ img | text ]\n[ text | img ]' },
-    { id: 'bento',      label: 'Bento grid',       preview: '┌────────┬──┐\n│ feature│sm│\n└────────┴──┘' },
-    { id: 'luxury',     label: 'Luxury list',      preview: '01  Service ··· $99  →\n02  Service ··· $89  →' },
-    { id: 'magazine',   label: 'Editorial',        preview: '[ hero feature ]\n[ sm ][ sm ]' },
-    { id: 'masonry',    label: 'Masonry',          preview: '┌──┐ ┌────┐\n│  │ │    │\n│  │ └────┘' },
-    { id: 'list',       label: 'List',             preview: '── Service · price ──'         },
-    { id: 'grid',       label: 'Grid',             preview: '┌──┬──┬──┐'                   },
+    { id: 'cards',      label: 'Cards',           preview: '┌────┐ ┌────┐'                     },
+    { id: 'carousel',   label: 'Carousel',        preview: '← [ card ] [ card ] [ card ] →'     },
+    { id: 'horizontal', label: 'Horizontal rows',  preview: '[ img | text ]\n[ text | img ]'     },
+    { id: 'luxury',     label: 'Luxury list',      preview: '01  Service ··· $99  →\n02  ···'   },
+    { id: 'magazine',   label: 'Editorial',        preview: '[ hero feature | sm sm sm ]'        },
+    { id: 'masonry',    label: 'Masonry',          preview: '┌──┐ ┌───┐\n│  │ │   │\n└──┘ └───┘' },
+    { id: 'list',       label: 'List',             preview: '┌──────────────┐\n│ name   $xx  │\n│ [  Book  ]   │' },
+    { id: 'grid',       label: 'Grid',             preview: '┌──┬──┬──┐'                        },
   ]},
   team: { label: 'Team', icon: Users, color: '#0F6E56', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'The Artists' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Expert hands for every style' },
@@ -559,10 +561,14 @@ const PolicyListEditor = ({ value, onChange }: { value: PolicyItem[]; onChange: 
 
 const BeforeAfterPairsEditor = ({ value, onChange }: { value: BeforeAfterPair[]; onChange: (v: BeforeAfterPair[]) => void }) => {
   const pairs: BeforeAfterPair[] = Array.isArray(value) ? value : [];
+  // Ref always holds latest pairs — fixes stale-closure bug when
+  // ImageUpload.onImageUploaded fires after an async upload completes.
+  const pairsRef = useRef(pairs);
+  pairsRef.current = pairs;
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const add    = () => { const n: BeforeAfterPair = { id: generateId(), beforeUrl: '', afterUrl: '', caption: '' }; onChange([...pairs, n]); setExpandedId(n.id); };
-  const update = (id: string, f: keyof BeforeAfterPair, v: string) => onChange(pairs.map(p => p.id === id ? { ...p, [f]: v } : p));
-  const remove = (id: string) => onChange(pairs.filter(p => p.id !== id));
+  const add    = () => { const n: BeforeAfterPair = { id: generateId(), beforeUrl: '', afterUrl: '', caption: '' }; onChange([...pairsRef.current, n]); setExpandedId(n.id); };
+  const update = (id: string, f: keyof BeforeAfterPair, v: string) => onChange(pairsRef.current.map(p => p.id === id ? { ...p, [f]: v } : p));
+  const remove = (id: string) => onChange(pairsRef.current.filter(p => p.id !== id));
   return (
     <div className="space-y-3">
       {pairs.map((pair, idx) => {
