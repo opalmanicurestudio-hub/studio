@@ -7,6 +7,8 @@ import {
   Calendar, Clock, MapPin, Phone, Mail, Instagram,
   ChevronDown, ChevronUp, Star, Gift, Sparkles, Pencil,
   ChevronLeft, ChevronRight, X as XIcon, ArrowRight, ArrowLeftRight,
+  Users, Award, Heart, Scissors, Zap, Crown, Shield, TrendingUp,
+  CheckCircle, ThumbsUp, Smile, Coffee, Menu, BookOpen,
 } from 'lucide-react';
 
 const ANIM_CSS = `
@@ -760,19 +762,203 @@ function HeroSection({ config, style, isPreview, sectionId, onFieldTap }: Sectio
   );
 }
 
+// ─── Jackpot rolling number animation ─────────────────────────────────────────
+function JackpotNumber({ target, visible, delay = 0, className = '', style: s }: {
+  target: string; visible: boolean; delay?: number; className?: string; style?: React.CSSProperties;
+}) {
+  const [display, setDisplay] = useState('—');
+  const numStr  = target.replace(/[^0-9.]/g, '');
+  const numVal  = parseFloat(numStr) || 0;
+  const prefix  = target.match(/^[^0-9]*/)?.[0] || '';
+  const suffix  = target.slice(prefix.length + numStr.length);
+
+  useEffect(() => {
+    if (!visible) return;
+    const tid = setTimeout(() => {
+      let step = 0;
+      const total = 28;
+      const id = setInterval(() => {
+        step++;
+        if (step < Math.floor(total * 0.65)) {
+          // Jackpot phase — random values cycling
+          const rand = Math.floor(Math.random() * Math.max(numVal * 1.5, 99));
+          setDisplay(`${prefix}${rand}${suffix}`);
+        } else if (step < total) {
+          // Converge phase — ramp up to target
+          const p = (step - Math.floor(total * 0.65)) / (total * 0.35);
+          setDisplay(`${prefix}${Math.floor(numVal * p)}${suffix}`);
+        } else {
+          setDisplay(target || '—');
+          clearInterval(id);
+        }
+      }, 55);
+      return () => clearInterval(id);
+    }, delay);
+    return () => clearTimeout(tid);
+  }, [visible, target, delay]);
+
+  return <span className={className} style={s}>{display}</span>;
+}
+
+const TRUST_ICON_MAP: Record<string, React.ElementType> = {
+  star: Star, users: Users, heart: Heart, award: Award, scissors: Scissors,
+  zap: Zap, crown: Crown, shield: Shield, trending: TrendingUp,
+  check: CheckCircle, thumbs: ThumbsUp, smile: Smile, coffee: Coffee,
+  sparkles: Sparkles, clock: Clock, calendar: Calendar,
+};
+
 function TrustSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const stats = [{ v:config.stat1v,l:config.stat1l },{ v:config.stat2v,l:config.stat2l },{ v:config.stat3v,l:config.stat3l },{ v:config.stat4v,l:config.stat4l }].filter(s => s.v);
-  const layout = config.layout || 'strip', showDiv = config.showDividers !== false;
-  const SV = ({ s, i, dark=false }: { s:{v:string;l:string}; i:number; dark?:boolean }) => (
-    <div className={cn('space-y-1 py-2 text-center', showDiv && i < stats.length-1 && (dark ? 'border-r border-white/10' : 'border-r border-slate-100'))}>
-      <FieldTap sectionId={sectionId} fieldKey={`stat${i+1}v`} isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: dark ? 'white' : ac(style) }}>{s.v}</FieldTap>
-      <FieldTap sectionId={sectionId} fieldKey={`stat${i+1}l`} isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-[10px] font-black uppercase tracking-widest" style={{ color: dark ? ac(style)+'cc' : '#94a3b8', fontFamily: bf(style) }}>{s.l}</FieldTap>
+  const { ref, visible } = useInView(0.2);
+  const layout = config.layout || 'strip';
+
+  const stats = [1,2,3,4].map(n => ({
+    v: config[`stat${n}v`] || ['500+','4.9','6','20+'][n-1],
+    l: config[`stat${n}l`] || ['Happy Clients','Avg Rating','Years Open','Services'][n-1],
+    i: config[`stat${n}i`] || ['smile','star','clock','scissors'][n-1],
+  })).filter(s => s.v);
+
+  // ── strip — animated horizontal ───────────────────────────────────────
+  if (layout === 'strip') return (
+    <div ref={ref} className="border-y overflow-hidden" style={{ borderColor: ac(style) + '18' }}>
+      <div className="max-w-5xl mx-auto px-4 py-8 grid grid-cols-2 md:grid-cols-4 gap-0">
+        {stats.map((s, i) => {
+          const Icon = TRUST_ICON_MAP[s.i] || Star;
+          return (
+            <div key={i} className={cn('flex flex-col items-center gap-1 py-4 px-2 text-center',
+              i < stats.length - 1 && 'border-r border-dashed')}
+                 style={{ borderColor: ac(style) + '20' }}>
+              <Icon className="w-5 h-5 mb-1" style={{ color: ac(style), opacity: 0.7 }}/>
+              <JackpotNumber target={s.v} visible={visible} delay={i * 120}
+                className="text-3xl md:text-4xl font-light tabular-nums"
+                style={{ fontFamily: hf(style), color: ac(style) }}/>
+              <FieldTap sectionId={sectionId} fieldKey={`stat${i+1}l`} isPreview={isPreview} onFieldTap={onFieldTap}
+                as="p" className="text-[9px] font-black uppercase tracking-[0.2em] text-center leading-tight"
+                style={{ color: '#94a3b8', fontFamily: bf(style) }}>{s.l}</FieldTap>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
-  if (layout==='banner')  return <section className="py-12" style={{ background:'#0f172a' }}><div className="max-w-5xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8">{stats.map((s,i)=><SV key={i} s={s} i={i} dark/>)}</div></section>;
-  if (layout==='cards')   return <section className={py(style)} style={{ background:'#f8fafc' }}><div className="max-w-5xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-4">{stats.map((s,i)=><div key={i} className="p-6 bg-white text-center space-y-2 shadow-sm" style={{ borderRadius:br(style,1.5), border:`2px solid ${ac(style)}18` }}><FieldTap sectionId={sectionId} fieldKey={`stat${i+1}v`} isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-4xl font-light" style={{ fontFamily:hf(style), color:ac(style) }}>{s.v}</FieldTap><FieldTap sectionId={sectionId} fieldKey={`stat${i+1}l`} isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-[10px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily:bf(style) }}>{s.l}</FieldTap></div>)}</div></section>;
-  if (layout==='ticker')  return <section className="py-4 border-y overflow-hidden" style={{ borderColor:ac(style)+'20' }}><div className="flex" style={{ animation:'cf-marquee 20s linear infinite', width:'max-content' }}>{[...stats,...stats,...stats,...stats].map((s,i)=><div key={i} className="flex items-center gap-2 px-8 shrink-0"><span className="text-2xl font-light" style={{ fontFamily:hf(style), color:ac(style) }}>{s.v}</span><span className="text-[10px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily:bf(style) }}>{s.l}</span><span className="w-1 h-1 rounded-full ml-4" style={{ background:ac(style)+'40' }}/></div>)}</div></section>;
-  return <section className="py-14 border-y" style={{ borderColor:ac(style)+'20' }}><div className="max-w-5xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8">{stats.map((s,i)=><SV key={i} s={s} i={i}/>)}</div></section>;
+
+  // ── cards — elevated icon cards ───────────────────────────────────────
+  if (layout === 'cards') return (
+    <div ref={ref} className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-5xl mx-auto px-4 md:px-10 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
+        {stats.map((s, i) => {
+          const Icon = TRUST_ICON_MAP[s.i] || Star;
+          return (
+            <div key={i} className="bg-white p-5 md:p-7 text-center space-y-3 hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+                 style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}15` }}>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto"
+                   style={{ background: ac(style) + '12' }}>
+                <Icon className="w-5 h-5" style={{ color: ac(style) }}/>
+              </div>
+              <JackpotNumber target={s.v} visible={visible} delay={i * 150}
+                className="block text-3xl md:text-4xl font-light tabular-nums"
+                style={{ fontFamily: hf(style), color: ac(style) }}/>
+              <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400"
+                 style={{ fontFamily: bf(style) }}>{s.l}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── banner — dark immersive ───────────────────────────────────────────
+  if (layout === 'banner') return (
+    <div ref={ref} className="relative overflow-hidden py-12 md:py-16"
+         style={{ background: `linear-gradient(135deg, #0f172a 0%, #1e1b3a 100%)` }}>
+      {/* Ambient glow */}
+      <div className="absolute inset-0 pointer-events-none"
+           style={{ background: `radial-gradient(ellipse at center, ${ac(style)}18 0%, transparent 70%)` }}/>
+      <div className="relative max-w-5xl mx-auto px-4 md:px-10 grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-10">
+        {stats.map((s, i) => {
+          const Icon = TRUST_ICON_MAP[s.i] || Star;
+          return (
+            <div key={i} className="text-center space-y-2">
+              <Icon className="w-6 h-6 mx-auto mb-2" style={{ color: ac(style) + 'aa' }}/>
+              <JackpotNumber target={s.v} visible={visible} delay={i * 130}
+                className="block text-4xl md:text-5xl font-light tabular-nums text-white"
+                style={{ fontFamily: hf(style) }}/>
+              <p className="text-[9px] font-black uppercase tracking-[0.2em]"
+                 style={{ color: ac(style) + 'aa', fontFamily: bf(style) }}>{s.l}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── ticker — continuous horizontal scroll ─────────────────────────────
+  if (layout === 'ticker') return (
+    <div className="py-3 border-y overflow-hidden" style={{ borderColor: ac(style) + '18' }}>
+      <div className="flex" style={{ animation: 'cf-marquee 24s linear infinite', width: 'max-content' }}>
+        {[...stats,...stats,...stats,...stats].map((s, i) => {
+          const Icon = TRUST_ICON_MAP[s.i] || Star;
+          return (
+            <div key={i} className="flex items-center gap-2 px-8 shrink-0">
+              <Icon className="w-4 h-4 shrink-0" style={{ color: ac(style) }}/>
+              <span className="text-xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>{s.v}</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{s.l}</span>
+              <span className="w-1 h-1 rounded-full ml-6" style={{ background: ac(style) + '40' }}/>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── counter — large centred showcase ─────────────────────────────────
+  if (layout === 'counter') return (
+    <div ref={ref} className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-5xl mx-auto px-4 md:px-10">
+        <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0"
+             style={{ '--tw-divide-opacity': 1 } as any}>
+          {stats.map((s, i) => {
+            const Icon = TRUST_ICON_MAP[s.i] || Star;
+            return (
+              <div key={i} className="flex flex-col items-center gap-3 p-8 text-center group">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110"
+                     style={{ background: ac(style) + '10' }}>
+                  <Icon className="w-6 h-6" style={{ color: ac(style) }}/>
+                </div>
+                <JackpotNumber target={s.v} visible={visible} delay={i * 140}
+                  className="block font-light tabular-nums leading-none"
+                  style={{ fontSize: 'clamp(32px, 6vw, 56px)', fontFamily: hf(style), color: '#0f172a' }}/>
+                <div className="h-0.5 w-8 mx-auto rounded-full transition-all duration-500 group-hover:w-14"
+                     style={{ background: ac(style) }}/>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400"
+                   style={{ fontFamily: bf(style) }}>{s.l}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── centered default ──────────────────────────────────────────────────
+  return (
+    <div ref={ref} className="py-12 border-y" style={{ borderColor: ac(style) + '18' }}>
+      <div className="max-w-5xl mx-auto px-4 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+        {stats.map((s, i) => {
+          const Icon = TRUST_ICON_MAP[s.i] || Star;
+          return (
+            <div key={i}>
+              <Icon className="w-5 h-5 mx-auto mb-2" style={{ color: ac(style), opacity: 0.6 }}/>
+              <JackpotNumber target={s.v} visible={visible} delay={i * 120}
+                className="block text-3xl md:text-4xl font-light tabular-nums"
+                style={{ fontFamily: hf(style), color: ac(style) }}/>
+              <p className="text-[9px] font-black uppercase tracking-widest mt-1 text-slate-400"
+                 style={{ fontFamily: bf(style) }}>{s.l}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
@@ -1935,9 +2121,9 @@ function BeforeAfterSlider({ pair, sliderColor, showLabels, style }: {
             </div>}
       </div>
 
-      {/* ── After layer — clipped ── */}
+      {/* ── After layer — clips left side, reveals on right of divider ── */}
       <div className="absolute inset-0 pointer-events-none"
-           style={{ clipPath: `inset(0 ${100 - pct}% 0 0)`, transition: isDragging ? 'none' : 'clip-path 0.04s ease' }}>
+           style={{ clipPath: `inset(0 0 0 ${pct}%)`, transition: isDragging ? 'none' : 'clip-path 0.04s ease' }}>
         {hasAfter
           ? <img src={pair.afterUrl} alt="After" className="w-full h-full object-cover" draggable={false}/>
           : <div className="w-full h-full flex items-center justify-center"
@@ -2009,20 +2195,26 @@ function BeforeAfterSlider({ pair, sliderColor, showLabels, style }: {
   );
 }
 
-// Stack hover-reveal card
+// Stack hover-reveal card — hover on desktop, tap on mobile
 function StackRevealCard({ pair, sliderColor, showLabels, style }: {
   pair: any; sliderColor: string; showLabels: boolean; style: StyleConfig;
 }) {
   const [revealed, setRevealed] = useState(false);
+  const [isTouch, setIsTouch] = useState(false);
+  useEffect(() => { setIsTouch('ontouchstart' in window || navigator.maxTouchPoints > 0); }, []);
   const hasBefore = !!pair?.beforeUrl;
   const hasAfter  = !!pair?.afterUrl;
+
+  const toggle = () => setRevealed(r => !r);
+  const enter  = () => { if (!isTouch) setRevealed(true); };
+  const leave  = () => { if (!isTouch) setRevealed(false); };
   return (
     <div
       className="relative overflow-hidden cursor-pointer group"
       style={{ borderRadius: br(style), aspectRatio: '4/3' }}
-      onClick={() => setRevealed(r => !r)}
-      onMouseEnter={() => setRevealed(true)}
-      onMouseLeave={() => setRevealed(false)}
+      onClick={toggle}
+      onMouseEnter={enter}
+      onMouseLeave={leave}
     >
       {/* Before */}
       <div className="absolute inset-0">
@@ -2064,12 +2256,12 @@ function StackRevealCard({ pair, sliderColor, showLabels, style }: {
         </>
       )}
 
-      {/* Hover prompt */}
+      {/* Hover/tap prompt */}
       <div className="absolute inset-0 flex items-end justify-center pb-5 pointer-events-none"
            style={{ opacity: revealed ? 0 : 1, transition: 'opacity 0.3s' }}>
         <div className="px-4 py-2 rounded-full text-white text-[10px] font-black uppercase tracking-widest"
              style={{ background: 'rgba(0,0,0,0.42)', backdropFilter: 'blur(8px)' }}>
-          Hover to reveal ✦
+          {isTouch ? 'Tap to reveal ✦' : 'Hover to reveal ✦'}
         </div>
       </div>
     </div>
