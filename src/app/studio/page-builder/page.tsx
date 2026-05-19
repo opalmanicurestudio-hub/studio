@@ -29,7 +29,7 @@ import {
   ANIM_CSS, injectFonts as previewInjectFonts,
   SectionWrapper, SectionRenderer, Footer as PreviewFooter,
   buildDefaults as previewBuildDefaults,
-} from '@/app/book/[tenantId]/_sections';
+} from '@/lib/booking-sections';
 import { useTenant } from '@/context/TenantContext';
 import {
   Navigation, ImageIcon, Award, Scissors, Users, Star,
