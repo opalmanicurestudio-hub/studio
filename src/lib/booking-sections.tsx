@@ -776,50 +776,715 @@ function TrustSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
 }
 
 function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const services = data.services, layout = config.layout || 'cards';
-  const cols = parseInt(config.columns) || 2;
-  const gridCls = cols===1 ? 'grid-cols-1 max-w-lg mx-auto' : cols===3 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2';
+  const layout = config.layout || 'cards';
+  const allServices = data.services;
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+  // ── Working category filter ──────────────────────────────────────────
+  const categories = Array.from(new Set(
+    allServices.map((s: any) => s.category).filter(Boolean)
+  )) as string[];
+  const services = activeCategory
+    ? allServices.filter((s: any) => s.category === activeCategory)
+    : allServices;
+
+  // ── Shared header ────────────────────────────────────────────────────
+  const Header = () => (
+    <div className="text-center mb-12 space-y-4">
+      <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+        as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>
+        {config.heading || 'Our Services'}
+      </FieldTap>
+      {config.subheading && (
+        <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>
+          {config.subheading}
+        </FieldTap>
+      )}
+    </div>
+  );
+
+  // ── Working category filter pills ────────────────────────────────────
+  const CategoryFilter = () => config.showFilters && categories.length > 1 ? (
+    <div className="flex flex-wrap gap-2 justify-center mb-10">
+      <button
+        onClick={() => setActiveCategory(null)}
+        className="px-5 py-2 text-[10px] font-black uppercase tracking-widest transition-all duration-200"
+        style={{
+          background: !activeCategory ? ac(style) : 'transparent',
+          color: !activeCategory ? 'white' : '#94a3b8',
+          borderRadius: br(style, 2),
+          border: `1.5px solid ${!activeCategory ? ac(style) : '#e2e8f0'}`,
+        }}>
+        All
+      </button>
+      {categories.map((cat) => (
+        <button key={cat} onClick={() => setActiveCategory(cat === activeCategory ? null : cat)}
+          className="px-5 py-2 text-[10px] font-black uppercase tracking-widest transition-all duration-200"
+          style={{
+            background: activeCategory === cat ? ac(style) : 'transparent',
+            color: activeCategory === cat ? 'white' : '#94a3b8',
+            borderRadius: br(style, 2),
+            border: `1.5px solid ${activeCategory === cat ? ac(style) : '#e2e8f0'}`,
+          }}>
+          {cat}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  const Empty = () => (
+    <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">
+      {allServices.length === 0 ? 'Services coming soon' : 'No services in this category'}
+    </p>
+  );
+
+  const BookBtn = ({ svc, full = false }: { svc: any; full?: boolean }) => (
+    <button
+      onClick={e => { e.stopPropagation(); openBooking(svc); }}
+      className={cn('text-[11px] font-black uppercase tracking-widest hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] transition-all', full ? 'w-full py-3.5' : 'px-6 py-3')}
+      style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+      {config.ctaText || 'Book Now'}
+    </button>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ── 1. CARDS — premium image cards with hover depth ──────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  if (layout === 'cards') {
+    const cols = parseInt(config.columns) || 2;
+    const gridCls = cols === 1 ? 'grid-cols-1 max-w-lg mx-auto'
+      : cols === 3 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+      : 'grid-cols-1 sm:grid-cols-2';
+    return (
+      <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto px-6 md:px-16">
+          <Header/><CategoryFilter/>
+          {services.length > 0 ? (
+            <div className={`grid gap-6 ${gridCls}`}>
+              {services.map((svc: any) => (
+                <div key={svc.id}
+                     className="group relative bg-white overflow-hidden transition-all duration-400 hover:shadow-2xl hover:-translate-y-2"
+                     style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}18` }}>
+                  {/* Image with overlay */}
+                  {config.showImages && svc.imageUrl ? (
+                    <div className="relative overflow-hidden aspect-[3/2]">
+                      <img src={svc.imageUrl} alt={svc.name}
+                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
+                      {/* Gradient overlay */}
+                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-400"
+                           style={{ background: `linear-gradient(to top, ${ac(style)}cc 0%, transparent 60%)` }}/>
+                      {/* Price badge on image */}
+                      {config.showPrices !== false && svc.price && (
+                        <div className="absolute top-3 right-3 px-3 py-1.5 text-white text-[11px] font-black shadow-lg"
+                             style={{ background: ac(style), borderRadius: br(style) }}>
+                          ${svc.price}
+                        </div>
+                      )}
+                    </div>
+                  ) : config.showImages && (
+                    <div className="aspect-[3/2] flex items-center justify-center"
+                         style={{ background: `linear-gradient(135deg, ${ac(style)}12 0%, ${ac(style)}06 100%)` }}>
+                      <div className="w-12 h-12 rounded-full" style={{ background: ac(style) + '20' }}/>
+                    </div>
+                  )}
+                  {/* Content */}
+                  <div className="p-6 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight"
+                          style={{ fontFamily: bf(style) }}>{svc.name}</h3>
+                      {config.showPrices !== false && svc.price && !config.showImages && (
+                        <span className="text-lg font-light shrink-0" style={{ color: ac(style), fontFamily: hf(style) }}>
+                          ${svc.price}
+                        </span>
+                      )}
+                    </div>
+                    {config.showDesc !== false && svc.description && (
+                      <p className="text-sm text-slate-500 leading-relaxed line-clamp-2" style={{ fontFamily: bf(style) }}>
+                        {svc.description}
+                      </p>
+                    )}
+                    {config.showDuration !== false && svc.duration && (
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3 h-3" style={{ color: ac(style) }}/>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          {svc.duration} min
+                        </p>
+                      </div>
+                    )}
+                    {/* Accent line that grows on hover */}
+                    <div className="h-px scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left mt-1"
+                         style={{ background: ac(style) }}/>
+                    <BookBtn svc={svc} full/>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <Empty/>}
+        </div>
+      </section>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ── 2. HORIZONTAL — alternating image + content rows ─────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  if (layout === 'horizontal') return (
+    <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16">
+        <Header/><CategoryFilter/>
+        {services.length > 0 ? (
+          <div className="space-y-6">
+            {services.map((svc: any, i: number) => {
+              const imageLeft = i % 2 === 0;
+              return (
+                <div key={svc.id}
+                     className="group grid md:grid-cols-2 overflow-hidden bg-white hover:shadow-2xl transition-all duration-400"
+                     style={{ borderRadius: br(style, 2), border: `1.5px solid ${ac(style)}15` }}>
+                  {/* Image */}
+                  {(config.showImages || true) && (
+                    <div className={cn('relative overflow-hidden', imageLeft ? 'md:order-1' : 'md:order-2')}
+                         style={{ minHeight: '240px', background: ac(style) + '10' }}>
+                      {svc.imageUrl
+                        ? <img src={svc.imageUrl} alt={svc.name}
+                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 absolute inset-0"/>
+                        : <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="text-5xl font-light opacity-20" style={{ fontFamily: hf(style), color: ac(style) }}>
+                              {svc.name?.[0]}
+                            </div>
+                          </div>}
+                      {/* Category tag */}
+                      {svc.category && (
+                        <div className="absolute top-4 left-4 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white"
+                             style={{ background: ac(style) + 'dd', borderRadius: '999px', backdropFilter: 'blur(4px)' }}>
+                          {svc.category}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* Content */}
+                  <div className={cn('flex flex-col justify-center p-8 md:p-10 space-y-4', imageLeft ? 'md:order-2' : 'md:order-1')}>
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-2"
+                         style={{ color: ac(style) }}>
+                        {String(i + 1).padStart(2, '0')}
+                      </p>
+                      <h3 className="text-2xl font-light text-slate-900 mb-1"
+                          style={{ fontFamily: hf(style) }}>{svc.name}</h3>
+                      {config.showDuration !== false && svc.duration && (
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          {svc.duration} min
+                        </p>
+                      )}
+                    </div>
+                    {config.showDesc !== false && svc.description && (
+                      <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>
+                        {svc.description}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between pt-2">
+                      {config.showPrices !== false && svc.price && (
+                        <span className="text-3xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>
+                          ${svc.price}
+                        </span>
+                      )}
+                      <BookBtn svc={svc}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : <Empty/>}
+      </div>
+    </section>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ── 3. BENTO — modern mixed-size grid ────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  if (layout === 'bento') return (
+    <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16">
+        <Header/><CategoryFilter/>
+        {services.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 auto-rows-[minmax(200px,auto)]">
+            {services.map((svc: any, i: number) => {
+              const isFeatured = i === 0;
+              return (
+                <div key={svc.id}
+                     className={cn(
+                       'group relative overflow-hidden bg-white hover:shadow-2xl transition-all duration-400 cursor-pointer',
+                       isFeatured ? 'col-span-2 row-span-2' : '',
+                     )}
+                     style={{ borderRadius: br(style, 2), border: `1.5px solid ${ac(style)}18` }}
+                     onClick={() => openBooking(svc)}>
+                  {/* Full image background */}
+                  {svc.imageUrl && (
+                    <>
+                      <img src={svc.imageUrl} alt={svc.name}
+                           className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
+                      <div className="absolute inset-0 transition-opacity duration-400"
+                           style={{ background: isFeatured
+                             ? 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.2) 60%, transparent 100%)'
+                             : 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.1) 100%)' }}/>
+                    </>
+                  )}
+                  {/* No-image placeholder */}
+                  {!svc.imageUrl && (
+                    <div className="absolute inset-0"
+                         style={{ background: isFeatured
+                           ? `linear-gradient(135deg, ${ac(style)}22 0%, ${ac(style)}08 100%)`
+                           : `linear-gradient(135deg, ${ac(style)}18 0%, ${ac(style)}06 100%)` }}/>
+                  )}
+
+                  {/* Content */}
+                  <div className="absolute inset-0 flex flex-col justify-end p-5 md:p-6">
+                    {svc.category && (
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em] mb-1.5"
+                            style={{ color: svc.imageUrl ? 'rgba(255,255,255,0.6)' : ac(style) + 'aa' }}>
+                        {svc.category}
+                      </span>
+                    )}
+                    <h3 className={cn('font-light leading-tight', isFeatured ? 'text-2xl md:text-3xl' : 'text-base md:text-lg')}
+                        style={{ fontFamily: hf(style), color: svc.imageUrl ? 'white' : '#0f172a' }}>
+                      {svc.name}
+                    </h3>
+                    {isFeatured && config.showDesc !== false && svc.description && (
+                      <p className="text-sm mt-2 line-clamp-2"
+                         style={{ color: svc.imageUrl ? 'rgba(255,255,255,0.65)' : '#64748b', fontFamily: bf(style) }}>
+                        {svc.description}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between mt-3">
+                      <div className="flex items-center gap-3">
+                        {config.showPrices !== false && svc.price && (
+                          <span className="font-black text-sm" style={{ color: svc.imageUrl ? 'white' : ac(style) }}>
+                            ${svc.price}
+                          </span>
+                        )}
+                        {config.showDuration !== false && svc.duration && (
+                          <span className="text-[10px] font-bold uppercase tracking-widest"
+                                style={{ color: svc.imageUrl ? 'rgba(255,255,255,0.55)' : '#94a3b8' }}>
+                            {svc.duration}m
+                          </span>
+                        )}
+                      </div>
+                      {isFeatured && (
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-white px-4 py-2"
+                                style={{ background: ac(style), borderRadius: br(style) }}>
+                            {config.ctaText || 'Book →'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : <Empty/>}
+      </div>
+    </section>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ── 4. LUXURY LIST — numbered editorial list with hover image ─────────
+  // ─────────────────────────────────────────────────────────────────────
+  if (layout === 'luxury') return (
+    <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-4xl mx-auto px-6 md:px-16">
+        <Header/><CategoryFilter/>
+        {services.length > 0 ? (
+          <div className="space-y-0">
+            {services.map((svc: any, i: number) => (
+              <div key={svc.id}
+                   className="group relative"
+                   onMouseEnter={() => setHoveredIdx(i)}
+                   onMouseLeave={() => setHoveredIdx(null)}>
+                {/* Hover image peek — right side */}
+                {svc.imageUrl && hoveredIdx === i && (
+                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-40 h-28 overflow-hidden shadow-2xl z-20 pointer-events-none"
+                       style={{ borderRadius: br(style, 1.5), animation: 'cf-scale-up 0.3s ease both' }}>
+                    <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover"/>
+                  </div>
+                )}
+                <div className="flex items-center gap-6 md:gap-10 py-6 border-b transition-all duration-200 group-hover:px-4"
+                     style={{ borderColor: ac(style) + '15', background: hoveredIdx === i ? ac(style) + '04' : 'transparent' }}>
+                  {/* Number */}
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] shrink-0 w-8 text-right transition-all duration-200"
+                        style={{ color: hoveredIdx === i ? ac(style) : '#cbd5e1' }}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  {/* Name + meta */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-xl md:text-2xl font-light transition-all duration-200"
+                        style={{ fontFamily: hf(style), color: hoveredIdx === i ? '#0f172a' : '#334155' }}>
+                      {svc.name}
+                    </h3>
+                    {hoveredIdx === i && config.showDesc !== false && svc.description && (
+                      <p className="text-sm text-slate-400 mt-1 leading-relaxed max-w-sm"
+                         style={{ fontFamily: bf(style), animation: 'cf-fade-in 0.3s both' }}>
+                        {svc.description}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-4 mt-1">
+                      {config.showDuration !== false && svc.duration && (
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                          {svc.duration} min
+                        </span>
+                      )}
+                      {svc.category && (
+                        <span className="text-[10px] font-bold uppercase tracking-widest"
+                              style={{ color: ac(style) + '80' }}>
+                          {svc.category}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Price */}
+                  {config.showPrices !== false && svc.price && (
+                    <span className="text-2xl font-light shrink-0 transition-all duration-200"
+                          style={{ fontFamily: hf(style), color: hoveredIdx === i ? ac(style) : '#94a3b8' }}>
+                      ${svc.price}
+                    </span>
+                  )}
+                  {/* Book arrow — visible on hover */}
+                  <button onClick={e => { e.stopPropagation(); openBooking(svc); }}
+                          className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300"
+                          style={{
+                            background: hoveredIdx === i ? ac(style) : 'transparent',
+                            border: `1.5px solid ${hoveredIdx === i ? ac(style) : '#e2e8f0'}`,
+                            opacity: hoveredIdx === i ? 1 : 0.4,
+                          }}>
+                    <ArrowRight className="w-4 h-4" style={{ color: hoveredIdx === i ? 'white' : '#94a3b8' }}/>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <Empty/>}
+      </div>
+    </section>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ── 5. EDITORIAL / MAGAZINE — large feature + sidebar ────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  if (layout === 'magazine') {
+    const [feature, ...rest] = services;
+    return (
+      <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
+        <div className="max-w-6xl mx-auto px-6 md:px-16">
+          <Header/><CategoryFilter/>
+          {services.length > 0 ? (
+            <div className="grid md:grid-cols-3 gap-5">
+              {/* Feature card — 2 cols */}
+              {feature && (
+                <div className="md:col-span-2 group relative overflow-hidden bg-white hover:shadow-2xl transition-all duration-500 cursor-pointer"
+                     style={{ borderRadius: br(style, 2), border: `1.5px solid ${ac(style)}15`, minHeight: '420px' }}
+                     onClick={() => openBooking(feature)}>
+                  {feature.imageUrl ? (
+                    <>
+                      <img src={feature.imageUrl} alt={feature.name}
+                           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"/>
+                      <div className="absolute inset-0"
+                           style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 55%)' }}/>
+                    </>
+                  ) : (
+                    <div className="absolute inset-0"
+                         style={{ background: `linear-gradient(135deg, ${ac(style)}18 0%, ${ac(style)}06 100%)` }}/>
+                  )}
+                  <div className="absolute bottom-0 inset-x-0 p-8 space-y-3">
+                    {feature.category && (
+                      <span className="text-[9px] font-black uppercase tracking-[0.3em]"
+                            style={{ color: feature.imageUrl ? 'rgba(255,255,255,0.55)' : ac(style) }}>
+                        {feature.category}
+                      </span>
+                    )}
+                    <h3 className="text-3xl md:text-4xl font-light"
+                        style={{ fontFamily: hf(style), color: feature.imageUrl ? 'white' : '#0f172a' }}>
+                      {feature.name}
+                    </h3>
+                    {config.showDesc !== false && feature.description && (
+                      <p className="text-sm max-w-sm leading-relaxed"
+                         style={{ color: feature.imageUrl ? 'rgba(255,255,255,0.65)' : '#64748b', fontFamily: bf(style) }}>
+                        {feature.description}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-4">
+                        {config.showPrices !== false && feature.price && (
+                          <span className="text-2xl font-light"
+                                style={{ fontFamily: hf(style), color: feature.imageUrl ? 'white' : ac(style) }}>
+                            ${feature.price}
+                          </span>
+                        )}
+                        {config.showDuration !== false && feature.duration && (
+                          <span className="text-[10px] font-black uppercase tracking-widest"
+                                style={{ color: feature.imageUrl ? 'rgba(255,255,255,0.5)' : '#94a3b8' }}>
+                            {feature.duration} min
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-white px-5 py-2.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            style={{ background: ac(style), borderRadius: br(style) }}>
+                        {config.ctaText || 'Book Now'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Sidebar: remaining services */}
+              <div className="flex flex-col gap-3">
+                {rest.slice(0, 5).map((svc: any) => (
+                  <div key={svc.id}
+                       className="group flex items-center gap-4 p-4 bg-white hover:shadow-md transition-all duration-300 cursor-pointer"
+                       style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}12` }}
+                       onClick={() => openBooking(svc)}>
+                    {svc.imageUrl && (
+                      <div className="w-16 h-16 shrink-0 overflow-hidden"
+                           style={{ borderRadius: br(style) }}>
+                        <img src={svc.imageUrl} alt={svc.name}
+                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
+                      </div>
+                    )}
+                    {!svc.imageUrl && (
+                      <div className="w-12 h-12 shrink-0 flex items-center justify-center"
+                           style={{ background: ac(style) + '12', borderRadius: br(style) }}>
+                        <span className="text-lg font-light" style={{ color: ac(style), fontFamily: hf(style) }}>
+                          {svc.name?.[0]}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate"
+                         style={{ fontFamily: bf(style) }}>{svc.name}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {config.showPrices !== false && svc.price && (
+                          <span className="text-sm font-light" style={{ color: ac(style), fontFamily: hf(style) }}>
+                            ${svc.price}
+                          </span>
+                        )}
+                        {config.showDuration !== false && svc.duration && (
+                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                            {svc.duration}m
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                style={{ color: ac(style) }}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : <Empty/>}
+        </div>
+      </section>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ── 6. MASONRY — Pinterest-style varied heights ───────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  if (layout === 'masonry') return (
+    <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16">
+        <Header/><CategoryFilter/>
+        {services.length > 0 ? (
+          <div className="columns-1 sm:columns-2 lg:columns-3 gap-5 space-y-0">
+            {services.map((svc: any, i: number) => (
+              <div key={svc.id}
+                   className="group break-inside-avoid mb-5 bg-white overflow-hidden hover:shadow-2xl transition-all duration-400 cursor-pointer block"
+                   style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}15` }}
+                   onClick={() => openBooking(svc)}>
+                {svc.imageUrl && (
+                  <div className="overflow-hidden"
+                       style={{ aspectRatio: [4/3, 1, 3/4, 5/4, 1, 4/3][i % 6].toString().replace(',', '/') }}>
+                    <img src={svc.imageUrl} alt={svc.name}
+                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
+                  </div>
+                )}
+                {!svc.imageUrl && (
+                  <div className="aspect-square flex items-center justify-center"
+                       style={{ background: `linear-gradient(135deg, ${ac(style)}14 0%, ${ac(style)}06 100%)` }}>
+                    <span className="text-5xl font-light opacity-30" style={{ fontFamily: hf(style), color: ac(style) }}>
+                      {svc.name?.[0]}
+                    </span>
+                  </div>
+                )}
+                <div className="p-5 space-y-2">
+                  <h3 className="text-sm font-black uppercase tracking-tight text-slate-900"
+                      style={{ fontFamily: bf(style) }}>{svc.name}</h3>
+                  {config.showDesc !== false && svc.description && (
+                    <p className="text-xs text-slate-500 leading-relaxed line-clamp-3"
+                       style={{ fontFamily: bf(style) }}>{svc.description}</p>
+                  )}
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center gap-3">
+                      {config.showPrices !== false && svc.price && (
+                        <span className="text-base font-light" style={{ color: ac(style), fontFamily: hf(style) }}>
+                          ${svc.price}
+                        </span>
+                      )}
+                      {config.showDuration !== false && svc.duration && (
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                          {svc.duration}m
+                        </span>
+                      )}
+                    </div>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300"
+                         style={{ background: ac(style) }}>
+                      <ArrowRight className="w-3 h-3 text-white"/>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <Empty/>}
+      </div>
+    </section>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ── 7. LIST — refined full-width list ────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  if (layout === 'list') return (
+    <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-3xl mx-auto px-6 md:px-16">
+        <Header/><CategoryFilter/>
+        {services.length > 0 ? (
+          <div className="space-y-3">
+            {services.map((svc: any) => (
+              <div key={svc.id}
+                   className="group flex items-center gap-5 p-5 bg-white hover:shadow-lg transition-all duration-300"
+                   style={{ borderRadius: br(style), border: `1.5px solid ${ac(style)}18` }}>
+                {config.showImages && svc.imageUrl && (
+                  <div className="w-16 h-16 shrink-0 overflow-hidden" style={{ borderRadius: br(style) }}>
+                    <img src={svc.imageUrl} alt={svc.name}
+                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline justify-between gap-3 mb-1">
+                    <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 truncate"
+                        style={{ fontFamily: bf(style) }}>{svc.name}</h3>
+                    {config.showPrices !== false && svc.price && (
+                      <span className="text-lg font-light shrink-0" style={{ color: ac(style), fontFamily: hf(style) }}>
+                        ${svc.price}
+                      </span>
+                    )}
+                  </div>
+                  {config.showDesc !== false && svc.description && (
+                    <p className="text-xs text-slate-400 leading-relaxed line-clamp-2"
+                       style={{ fontFamily: bf(style) }}>{svc.description}</p>
+                  )}
+                  {config.showDuration !== false && svc.duration && (
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-300 mt-1">
+                      {svc.duration} min
+                    </p>
+                  )}
+                </div>
+                <BookBtn svc={svc}/>
+              </div>
+            ))}
+          </div>
+        ) : <Empty/>}
+      </div>
+    </section>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ── 8. GRID — compact uniform grid ───────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  if (layout === 'grid') return (
+    <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16">
+        <Header/><CategoryFilter/>
+        {services.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {services.map((svc: any) => (
+              <div key={svc.id}
+                   className="group bg-white overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer"
+                   style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}15` }}
+                   onClick={() => openBooking(svc)}>
+                {svc.imageUrl ? (
+                  <div className="aspect-square overflow-hidden">
+                    <img src={svc.imageUrl} alt={svc.name}
+                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-600"/>
+                  </div>
+                ) : (
+                  <div className="aspect-square flex items-center justify-center"
+                       style={{ background: ac(style) + '10' }}>
+                    <span className="text-3xl font-light opacity-40" style={{ color: ac(style), fontFamily: hf(style) }}>
+                      {svc.name?.[0]}
+                    </span>
+                  </div>
+                )}
+                <div className="p-4">
+                  <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 mb-1"
+                     style={{ fontFamily: bf(style) }}>{svc.name}</p>
+                  <div className="flex items-center justify-between">
+                    {config.showPrices !== false && svc.price && (
+                      <span className="text-sm font-light" style={{ color: ac(style), fontFamily: hf(style) }}>
+                        ${svc.price}
+                      </span>
+                    )}
+                    {config.showDuration !== false && svc.duration && (
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        {svc.duration}m
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <Empty/>}
+      </div>
+    </section>
+  );
+
+  // ── FEATURED fallback → same as magazine ─────────────────────────────
   return (
     <section id="services" className={py(style)} style={{ background: style.bgColor }}>
       <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily:hf(style), color:'#0f172a' }}>{config.heading||'Our Services'}</FieldTap>
-          {config.subheading && <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily:bf(style) }}>{config.subheading}</FieldTap>}
-        </div>
+        <Header/><CategoryFilter/>
         {services.length > 0 ? (
-          layout==='list' ? (
-            <div className="space-y-3 max-w-3xl mx-auto">
-              {services.map((svc:any) => (
-                <div key={svc.id} className="flex items-center gap-5 p-5 bg-white hover:shadow-md transition-all" style={{ borderRadius:br(style), border:`2px solid ${ac(style)}20` }}>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between gap-3 mb-1">
-                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 truncate" style={{ fontFamily:bf(style) }}>{svc.name}</h3>
-                      {config.showPrices!==false && svc.price && <span className="text-base font-black shrink-0" style={{ color:ac(style) }}>${svc.price}</span>}
-                    </div>
-                    {config.showDesc!==false && svc.description && <p className="text-xs text-slate-400 leading-relaxed line-clamp-2" style={{ fontFamily:bf(style) }}>{svc.description}</p>}
-                    {config.showDuration!==false && svc.duration && <p className="text-[10px] font-black uppercase tracking-widest text-slate-300 mt-1">{svc.duration} min</p>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {services.map((svc: any) => (
+              <div key={svc.id}
+                   className="group p-7 bg-white hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+                   style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}20` }}>
+                {config.showImages && svc.imageUrl && (
+                  <div className="overflow-hidden aspect-[3/2] mb-5" style={{ borderRadius: br(style) }}>
+                    <img src={svc.imageUrl} alt={svc.name}
+                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"/>
                   </div>
-                  <button onClick={e=>{e.stopPropagation();openBooking(svc);}} className="shrink-0 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily:bf(style) }}>{config.ctaText||'Book'}</button>
+                )}
+                <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 mb-2"
+                    style={{ fontFamily: bf(style) }}>{svc.name}</h3>
+                {config.showDesc !== false && svc.description && (
+                  <p className="text-sm text-slate-500 leading-relaxed mb-4" style={{ fontFamily: bf(style) }}>
+                    {svc.description}
+                  </p>
+                )}
+                <div className="flex items-center justify-between">
+                  {config.showPrices !== false && svc.price && (
+                    <span className="text-xl font-light" style={{ color: ac(style), fontFamily: hf(style) }}>
+                      ${svc.price}
+                    </span>
+                  )}
+                  <BookBtn svc={svc}/>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className={`grid gap-5 ${gridCls}`}>
-              {services.map((svc:any) => (
-                <div key={svc.id} className={cn('group p-7 bg-white transition-all duration-300', config.hoverEffect!==false && 'hover:shadow-xl hover:-translate-y-1')} style={{ borderRadius:br(style,1.5), border:`2px solid ${ac(style)}25` }}>
-                  {config.showImages && svc.imageUrl && <img src={svc.imageUrl} alt={svc.name} className="w-full aspect-video object-cover mb-4" style={{ borderRadius:br(style) }}/>}
-                  <div className="flex justify-between items-start mb-3">
-                    <h3 className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily:bf(style) }}>{svc.name}</h3>
-                    {config.showPrices!==false && svc.price && <span className="text-base font-black ml-3 shrink-0" style={{ color:ac(style) }}>${svc.price}</span>}
-                  </div>
-                  {config.showDesc!==false && svc.description && <p className="text-sm text-slate-500 leading-relaxed mb-4" style={{ fontFamily:bf(style) }}>{svc.description}</p>}
-                  {config.showDuration!==false && svc.duration && <div className="flex items-center gap-1.5 mb-5"><Clock className="w-3 h-3" style={{ color:ac(style) }}/><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{svc.duration} min</p></div>}
-                  <button onClick={e=>{e.stopPropagation();openBooking(svc);}} className="w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily:bf(style) }}>{config.ctaText||'Book Now'}</button>
-                </div>
-              ))}
-            </div>
-          )
-        ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Services coming soon</p>}
+              </div>
+            ))}
+          </div>
+        ) : <Empty/>}
       </div>
     </section>
   );
