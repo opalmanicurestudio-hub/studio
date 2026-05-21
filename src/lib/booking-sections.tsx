@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { type PageSection } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import {
@@ -220,7 +220,6 @@ function buildDefaults(): PageSection[] {
   ];
 }
 
-// ─── Section label maps (shared by nav + bottom-bar) ──────────────────────────
 const SECTION_LABEL_MAP: Record<string, string> = {
   hero: 'Home', services: 'Services', team: 'Team', gallery: 'Gallery',
   reviews: 'Reviews', contact: 'Contact', story: 'About', events: 'Events',
@@ -243,20 +242,36 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
   const layout = config.layout || 'centered';
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // ── Derive nav links from _enabledSections (passed by page builder) or config ──
+  const navZ: React.CSSProperties = { zIndex: 100, isolation: 'isolate' };
+
   const rawEnabledSections = config._enabledSections as string[] | undefined;
+
   const navLinks: string[] = (config.navLinks as string[] | undefined)?.length
     ? (config.navLinks as string[])
     : rawEnabledSections
         ?.filter(t => t !== 'nav' && t !== 'trust' && t !== 'waitlist' && SECTION_LABEL_MAP[t])
         .map(t => SECTION_LABEL_MAP[t])
-        .filter((v, i, a) => a.indexOf(v) === i) // dedupe
+        .filter((v, i, a) => a.indexOf(v) === i)
         .slice(0, 6)
       ?? ['Services', 'Team', 'Gallery', 'Reviews', 'Contact'];
 
-  // ── Shared sub-components ─────────────────────────────────────────────
+  const labelToType = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (rawEnabledSections) {
+      rawEnabledSections.forEach(t => {
+        if (SECTION_LABEL_MAP[t]) map[SECTION_LABEL_MAP[t]] = t;
+      });
+    }
+    return map;
+  }, [rawEnabledSections]);
+
+  const linkHref = (label: string) => {
+    const type = labelToType[label];
+    return type ? `#${type}` : `#${label.toLowerCase().replace(/\s+/g, '-')}`;
+  };
+
   const Logo = () => config.logoUrl
-    ? <img src={config.logoUrl} alt="Logo" className="h-9 w-auto object-contain"/>
+    ? <img src={config.logoUrl} alt="Logo" className="h-9 w-auto object-contain" />
     : <FieldTap sectionId={sectionId} fieldKey="logoText" isPreview={isPreview} onFieldTap={onFieldTap} as="span"
         style={{ fontFamily: hf(style), color: ac(style), fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.05em' }}>
         {config.logoText || 'Studio'}
@@ -265,7 +280,7 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
   const Links = ({ className = '' }: { className?: string }) => config.showLinks !== false ? (
     <div className={cn('flex items-center gap-6 md:gap-8', className)}>
       {navLinks.map(l =>
-        <a key={l} href={`#${l.toLowerCase().replace(/\s+/g, '-')}`}
+        <a key={l} href={linkHref(l)}
            className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors flex-shrink-0"
            style={{ fontFamily: bf(style) }}>{l}</a>)}
     </div>
@@ -286,42 +301,40 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
     <button onClick={() => setDrawerOpen(true)}
             className={cn('w-10 h-10 flex flex-col items-center justify-center gap-1.5 rounded-lg hover:bg-slate-100 transition-colors', className)}
             aria-label="Open menu">
-      <span className="w-5 h-0.5 bg-slate-800 transition-all"/>
-      <span className="w-3.5 h-0.5 bg-slate-800 transition-all"/>
-      <span className="w-5 h-0.5 bg-slate-800 transition-all"/>
+      <span className="w-5 h-0.5 bg-slate-800 transition-all" />
+      <span className="w-3.5 h-0.5 bg-slate-800 transition-all" />
+      <span className="w-5 h-0.5 bg-slate-800 transition-all" />
     </button>
   );
 
-  // ── Full slide-in drawer with all page sections populated ─────────────
   const Drawer = () => !drawerOpen ? null : (
     <>
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60]"
-           style={{ animation: 'cf-fade-in 0.2s both' }}
-           onClick={() => setDrawerOpen(false)}/>
-      <div className="fixed inset-y-0 right-0 w-[85vw] max-w-sm bg-white z-[70] flex flex-col shadow-2xl"
-           style={{ animation: 'cf-slide-right 0.35s cubic-bezier(0.16,1,0.3,1) both' }}>
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+           style={{ zIndex: 200 }}
+           onClick={() => setDrawerOpen(false)} />
+      <div className="fixed inset-y-0 right-0 w-[85vw] max-w-sm bg-white flex flex-col shadow-2xl"
+           style={{ zIndex: 201, animation: 'cf-slide-right 0.35s cubic-bezier(0.16,1,0.3,1) both' }}>
         <div className="flex items-center justify-between px-6 py-4 border-b"
              style={{ borderColor: ac(style) + '14' }}>
-          <Logo/>
+          <Logo />
           <button onClick={() => setDrawerOpen(false)}
                   className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors">
-            <XIcon className="w-4 h-4"/>
+            <XIcon className="w-4 h-4" />
           </button>
         </div>
         <nav className="flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-0">
             {navLinks.map((link, i) => (
-              <a key={link} href={`#${link.toLowerCase().replace(/\s+/g, '-')}`}
+              <a key={link} href={linkHref(link)}
                  onClick={() => setDrawerOpen(false)}
                  className="flex items-center justify-between py-4 border-b group transition-all hover:pl-2"
                  style={{ borderColor: ac(style) + '10', animation: `cf-fade-up 0.4s ${i * 0.04}s both` }}>
                 <span className="text-base font-black uppercase tracking-tight text-slate-900"
                       style={{ fontFamily: hf(style) }}>{link}</span>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors"/>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
               </a>
             ))}
           </div>
-          {/* All page sections for quick scroll */}
           {rawEnabledSections && rawEnabledSections.filter(t => t !== 'nav').length > navLinks.length && (
             <div className="mt-6">
               <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3"
@@ -336,7 +349,7 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
                          onClick={() => setDrawerOpen(false)}
                          className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors"
                          style={{ animation: `cf-fade-up 0.3s ${i * 0.03}s both` }}>
-                        {SIcon && <SIcon className="w-3.5 h-3.5 text-slate-400"/>}
+                        {SIcon && <SIcon className="w-3.5 h-3.5 text-slate-400" />}
                         <span className="text-sm font-bold text-slate-600" style={{ fontFamily: bf(style) }}>
                           {SECTION_LABEL_MAP[t]}
                         </span>
@@ -346,7 +359,6 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
               </div>
             </div>
           )}
-          {/* Quick book from services */}
           {data.services.length > 0 && (
             <div className="mt-6">
               <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3"
@@ -369,9 +381,13 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
           )}
         </nav>
         <div className="px-6 pb-8 pt-4 space-y-2 border-t" style={{ borderColor: ac(style) + '10' }}>
-          <button onClick={() => { cta(config.ctaAction, config.ctaUrl)({ stopPropagation: () => {} } as any); setDrawerOpen(false); }}
-                  className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all"
-                  style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+          <button
+            onClick={() => {
+              cta(config.ctaAction, config.ctaUrl)({ stopPropagation: () => {} } as any);
+              setDrawerOpen(false);
+            }}
+            className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all"
+            style={{ ...btnStyle(style), fontFamily: bf(style) }}>
             {config.ctaText || 'Book Now'}
           </button>
           {data.tenant?.phone && (
@@ -388,111 +404,122 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
   // ── floating pill ─────────────────────────────────────────────────────
   if (layout === 'floating') return (
     <>
-      <div className={cn('z-50 flex justify-center px-4 pt-3', config.sticky !== false && 'sticky top-3')}>
+      <div className={cn('flex justify-center px-4 pt-3', config.sticky !== false && 'sticky top-3')}
+           style={navZ}>
         <nav className="flex items-center gap-3 md:gap-4 px-4 md:px-6 py-2.5 md:py-3 w-full max-w-2xl"
-             style={{ background: config.transparent ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.92)',
-                      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-                      borderRadius: '999px', border: '1.5px solid rgba(0,0,0,0.07)',
-                      boxShadow: '0 8px 32px rgba(0,0,0,0.10)' }}>
-          <Logo/>
-          {/* Horizontally scrollable links so all sections are reachable */}
+             style={{
+               background: config.transparent ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.92)',
+               backdropFilter: 'blur(20px)',
+               WebkitBackdropFilter: 'blur(20px)',
+               borderRadius: '999px',
+               border: '1.5px solid rgba(0,0,0,0.07)',
+               boxShadow: '0 8px 32px rgba(0,0,0,0.10)',
+             }}>
+          <Logo />
           {config.showLinks !== false && (
             <div className="flex items-center gap-6 flex-1 overflow-x-auto"
                  style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none' }}>
               {navLinks.map(l =>
-                <a key={l} href={`#${l.toLowerCase().replace(/\s+/g, '-')}`}
+                <a key={l} href={linkHref(l)}
                    className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors flex-shrink-0"
                    style={{ fontFamily: bf(style) }}>{l}</a>
               )}
             </div>
           )}
           <div className="flex items-center gap-2 ml-auto shrink-0">
-            <Cta size="sm" className="hidden md:inline-flex"/>
-            <HamburgerBtn className="md:hidden"/>
+            <Cta size="sm" className="hidden md:inline-flex" />
+            <HamburgerBtn className="md:hidden" />
           </div>
         </nav>
       </div>
-      <Drawer/>
+      <Drawer />
     </>
   );
 
   // ── bold stacked ──────────────────────────────────────────────────────
   if (layout === 'bold') return (
     <>
-      <nav className={cn('z-50 w-full border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
-           style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
+      <nav className={cn('w-full border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
+           style={{ ...navZ, borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
         <div className="flex flex-col items-center gap-1 py-4 px-6">
-          {config.logoUrl ? <img src={config.logoUrl} alt="Logo" className="h-12 w-auto object-contain"/>
+          {config.logoUrl
+            ? <img src={config.logoUrl} alt="Logo" className="h-12 w-auto object-contain" />
             : <FieldTap sectionId={sectionId} fieldKey="logoText" isPreview={isPreview} onFieldTap={onFieldTap} as="span"
                 style={{ fontFamily: hf(style), color: ac(style), fontSize: 'clamp(28px,4vw,48px)', fontWeight: 900, letterSpacing: '-0.05em', lineHeight: 1 }}>
                 {config.logoText || 'Studio'}
               </FieldTap>}
           <div className="flex items-center gap-4 md:gap-6 flex-wrap justify-center mt-1">
             <div className="overflow-x-auto flex items-center gap-4 md:gap-6" style={{ scrollbarWidth: 'none' }}>
-              <Links className="hidden md:flex"/>
+              <Links className="hidden md:flex" />
             </div>
-            <Cta size="sm"/>
-            <HamburgerBtn className="md:hidden"/>
+            <Cta size="sm" />
+            <HamburgerBtn className="md:hidden" />
           </div>
         </div>
       </nav>
-      <Drawer/>
+      <Drawer />
     </>
   );
 
-  // ── split — logo center, links both sides ────────────────────────────
+  // ── split — logo center, links both sides ─────────────────────────────
   if (layout === 'split') return (
     <>
-      <nav className={cn('z-50 grid grid-cols-3 items-center px-8 py-4 border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
-           style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
+      <nav className={cn('grid grid-cols-3 items-center px-8 py-4 border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
+           style={{ ...navZ, borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
         <div className="hidden md:flex items-center gap-6 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-          {navLinks.slice(0,3).map(l => <a key={l} href={`#${l.toLowerCase()}`} className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors flex-shrink-0" style={{ fontFamily: bf(style) }}>{l}</a>)}
+          {navLinks.slice(0, 3).map(l =>
+            <a key={l} href={linkHref(l)}
+               className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors flex-shrink-0"
+               style={{ fontFamily: bf(style) }}>{l}</a>)}
         </div>
         <div className="flex items-center justify-between md:justify-center">
-          <Logo/>
-          <HamburgerBtn className="md:hidden"/>
+          <Logo />
+          <HamburgerBtn className="md:hidden" />
         </div>
         <div className="hidden md:flex items-center justify-end gap-6">
-          {navLinks.slice(3,6).map(l => <a key={l} href={`#${l.toLowerCase()}`} className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors" style={{ fontFamily: bf(style) }}>{l}</a>)}
-          <Cta size="sm"/>
+          {navLinks.slice(3, 6).map(l =>
+            <a key={l} href={linkHref(l)}
+               className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors"
+               style={{ fontFamily: bf(style) }}>{l}</a>)}
+          <Cta size="sm" />
         </div>
       </nav>
-      <Drawer/>
+      <Drawer />
     </>
   );
 
   // ── logo-top stacked ──────────────────────────────────────────────────
   if (layout === 'logo-top') return (
     <>
-      <nav className={cn('z-50 flex flex-col items-center gap-1.5 py-4 px-6 border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
-           style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
-        <Logo/>
+      <nav className={cn('flex flex-col items-center gap-1.5 py-4 px-6 border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
+           style={{ ...navZ, borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
+        <Logo />
         <div className="flex items-center gap-4 md:gap-6">
-          <Links className="hidden md:flex"/>
-          <Cta size="sm"/>
-          <HamburgerBtn className="md:hidden"/>
+          <Links className="hidden md:flex" />
+          <Cta size="sm" />
+          <HamburgerBtn className="md:hidden" />
         </div>
       </nav>
-      <Drawer/>
+      <Drawer />
     </>
   );
 
   // ── drawer — always hamburger ─────────────────────────────────────────
   if (layout === 'drawer') return (
     <>
-      <nav className={cn('z-50 flex items-center justify-between px-6 py-4 border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
-           style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
-        <Logo/>
+      <nav className={cn('flex items-center justify-between px-6 py-4 border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
+           style={{ ...navZ, borderColor: config.transparent ? 'transparent' : ac(style) + '18' }}>
+        <Logo />
         <div className="flex items-center gap-3">
-          <Cta size="sm" className="hidden sm:inline-flex"/>
-          <HamburgerBtn/>
+          <Cta size="sm" className="hidden sm:inline-flex" />
+          <HamburgerBtn />
         </div>
       </nav>
-      <Drawer/>
+      <Drawer />
     </>
   );
 
-  // ── bottom-bar — dynamic sections + scrollable ────────────────────────
+  // ── bottom-bar ────────────────────────────────────────────────────────
   if (layout === 'bottom-bar') {
     const barSections = (rawEnabledSections ?? [])
       .filter(t => t !== 'nav' && t !== 'trust' && t !== 'waitlist' && SECTION_ICON_MAP[t]);
@@ -502,50 +529,85 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
           Icon: SECTION_ICON_MAP[t] ?? BookOpen,
           label: SECTION_LABEL_MAP[t] ?? t,
           href: `#${t}`,
+          type: t,
         }))
       : [
-          { Icon: BookOpen,       label: 'Home',     href: '#'         },
-          { Icon: Scissors,       label: 'Services', href: '#services' },
-          { Icon: Users,          label: 'Team',     href: '#team'     },
-          { Icon: MapPin,         label: 'Contact',  href: '#contact'  },
+          { Icon: BookOpen, label: 'Home',     href: '#',         type: 'hero'     },
+          { Icon: Scissors, label: 'Services', href: '#services', type: 'services' },
+          { Icon: Users,    label: 'Team',     href: '#team',     type: 'team'     },
+          { Icon: MapPin,   label: 'Contact',  href: '#contact',  type: 'contact'  },
         ];
 
     return (
       <>
-        <nav className={cn('z-50 flex items-center justify-between px-6 py-3',
-               config.sticky !== false && 'sticky top-0',
-               config.transparent ? 'bg-transparent' : 'bg-white/90 backdrop-blur-xl border-b')}
-             style={{ borderColor: ac(style) + '12' }}>
-          <Logo/>
-          <HamburgerBtn/>
+        <nav
+          className={cn(
+            'flex items-center justify-between px-6 py-3',
+            config.sticky !== false && 'sticky top-0',
+            config.transparent ? 'bg-transparent' : 'bg-white/90 backdrop-blur-xl border-b',
+          )}
+          style={{ ...navZ, borderColor: ac(style) + '12' }}>
+          <Logo />
+          <HamburgerBtn />
         </nav>
-        <Drawer/>
-        {/* Fixed bottom bar — horizontally scrollable when many sections */}
-        <div className="fixed bottom-0 inset-x-0 z-50 border-t"
-             style={{ background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(20px)',
-                      borderColor: ac(style) + '12',
-                      paddingBottom: 'env(safe-area-inset-bottom,0px)' }}>
-          <div className="flex items-stretch overflow-x-auto"
-               style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none' }}>
+
+        <Drawer />
+
+        <div
+          className="fixed bottom-0 inset-x-0 border-t"
+          style={{
+            background: 'rgba(255,255,255,0.97)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderColor: ac(style) + '12',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            zIndex: 110,
+            isolation: 'isolate',
+          }}>
+          <div
+            className="flex items-stretch overflow-x-auto"
+            style={{
+              scrollbarWidth: 'none',
+              WebkitOverflowScrolling: 'touch',
+              msOverflowStyle: 'none',
+              scrollSnapType: 'x mandatory',
+            }}>
             {barItems.map(item => (
-              <a key={item.label} href={item.href}
-                 className="flex-shrink-0 flex flex-col items-center gap-0.5 py-3 px-3
-                            text-slate-400 hover:text-slate-900 transition-colors group"
-                 style={{ minWidth: 56 }}>
-                <item.Icon className="w-5 h-5 group-hover:scale-110 transition-transform"/>
-                <span className="text-[8px] font-black uppercase tracking-wider whitespace-nowrap">{item.label}</span>
+              
+                key={item.type}
+                href={item.href}
+                className="flex-shrink-0 flex flex-col items-center gap-0.5 py-3 px-3 text-slate-400 hover:text-slate-900 active:text-slate-900 transition-colors group"
+                style={{
+                  minWidth: 56,
+                  scrollSnapAlign: 'start',
+                  WebkitTapHighlightColor: ac(style) + '33',
+                }}>
+                <item.Icon className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                <span className="text-[8px] font-black uppercase tracking-wider whitespace-nowrap">
+                  {item.label}
+                </span>
               </a>
             ))}
-            {/* Book CTA always visible at the end */}
-            <button onClick={cta(config.ctaAction, config.ctaUrl)}
-                    className="flex-shrink-0 flex flex-col items-center gap-0.5 py-3 mx-2 my-1 px-4 rounded-xl"
-                    style={{ background: ac(style) }}>
-              <span className="text-white text-[11px] font-black uppercase tracking-widest leading-none">Book</span>
+            <button
+              onClick={cta(config.ctaAction, config.ctaUrl)}
+              className="flex-shrink-0 flex flex-col items-center gap-0.5 py-3 mx-2 my-1 px-4 rounded-xl active:scale-95 transition-transform"
+              style={{
+                background: ac(style),
+                scrollSnapAlign: 'end',
+                WebkitTapHighlightColor: ac(style) + '55',
+              }}>
+              <span className="text-white text-[11px] font-black uppercase tracking-widest leading-none">
+                {config.ctaText || 'Book'}
+              </span>
               <span className="text-white opacity-70 text-[8px]">Now</span>
             </button>
           </div>
         </div>
-        <div className="h-16 pointer-events-none"/>
+
+        <div
+          className="h-20 pointer-events-none"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        />
       </>
     );
   }
@@ -553,32 +615,43 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
   // ── minimal ───────────────────────────────────────────────────────────
   if (layout === 'minimal') return (
     <>
-      <nav className={cn('z-50 flex items-center justify-between px-6 md:px-14 py-4', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent' : 'bg-white/95 backdrop-blur-xl')}>
-        <Logo/>
+      <nav
+        className={cn(
+          'flex items-center justify-between px-6 md:px-14 py-4',
+          config.sticky !== false && 'sticky top-0',
+          config.transparent ? 'bg-transparent' : 'bg-white/95 backdrop-blur-xl',
+        )}
+        style={navZ}>
+        <Logo />
         <div className="flex items-center gap-3">
-          <Cta/>
-          <HamburgerBtn className="md:hidden"/>
+          <Cta />
+          <HamburgerBtn className="md:hidden" />
         </div>
       </nav>
-      <Drawer/>
+      <Drawer />
     </>
   );
 
-  // ── centered — default ────────────────────────────────────────────────
+  // ── centered (default) ────────────────────────────────────────────────
   return (
     <>
-      <nav className={cn('z-50 flex items-center justify-between px-6 md:px-14 py-4 border-b', config.sticky !== false && 'sticky top-0', config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl')}
-           style={{ borderColor: config.transparent ? 'transparent' : ac(style) + '22' }}>
-        <Logo/>
+      <nav
+        className={cn(
+          'flex items-center justify-between px-6 md:px-14 py-4 border-b',
+          config.sticky !== false && 'sticky top-0',
+          config.transparent ? 'bg-transparent border-transparent' : 'bg-white/95 backdrop-blur-xl',
+        )}
+        style={{ ...navZ, borderColor: config.transparent ? 'transparent' : ac(style) + '22' }}>
+        <Logo />
         <div className="overflow-x-auto hidden md:block" style={{ scrollbarWidth: 'none' }}>
-          <Links className="flex"/>
+          <Links className="flex" />
         </div>
         <div className="flex items-center gap-3">
-          <Cta className="hidden md:inline-flex"/>
-          <HamburgerBtn className="md:hidden"/>
+          <Cta className="hidden md:inline-flex" />
+          <HamburgerBtn className="md:hidden" />
         </div>
       </nav>
-      <Drawer/>
+      <Drawer />
     </>
   );
 }
@@ -930,7 +1003,6 @@ function HeroSection({ config, style, isPreview, sectionId, onFieldTap }: Sectio
     );
   }
 
-  // ── DEFAULT: centered ─────────────────────────────────────────────────
   return (
     <section className="relative flex items-center overflow-hidden"
              style={{ minHeight: '85svh', background: hasBg ? 'transparent' : style.bgColor }}>
@@ -1133,14 +1205,13 @@ function TrustSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
   );
 }
 
-// ─── ServicesSection — FIX: all hooks declared unconditionally at top ──────────
+// ─── ServicesSection ──────────────────────────────────────────────────────────
 function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const layout = config.layout || 'cards';
   const allServices = data.services;
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  // ── Carousel hooks — declared unconditionally to satisfy Rules of Hooks ──
   const scrollRef  = useRef<HTMLDivElement>(null);
   const [canLeft,  setCanLeft]  = useState(false);
   const [canRight, setCanRight] = useState(true);
@@ -1195,7 +1266,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     </button>
   );
 
-  // ── CARDS ─────────────────────────────────────────────────────────────
   if (layout === 'cards') {
     const cols = parseInt(config.columns) || 2;
     const gridCls = cols === 1 ? 'grid-cols-1 max-w-lg mx-auto' : cols === 3 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2';
@@ -1252,7 +1322,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     );
   }
 
-  // ── CAROUSEL — FIX: hooks already declared above, no re-declaration here ──
   if (layout === 'carousel') {
     const checkScroll = () => {
       const el = scrollRef.current; if (!el) return;
@@ -1346,7 +1415,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     );
   }
 
-  // ── HORIZONTAL ────────────────────────────────────────────────────────
   if (layout === 'horizontal') return (
     <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
       <div className="max-w-5xl mx-auto px-6 md:px-16">
@@ -1397,7 +1465,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     </section>
   );
 
-  // ── LUXURY LIST ───────────────────────────────────────────────────────
   if (layout === 'luxury') return (
     <section id="services" className={py(style)} style={{ background: style.bgColor }}>
       <div className="max-w-4xl mx-auto px-6 md:px-16">
@@ -1446,7 +1513,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     </section>
   );
 
-  // ── MAGAZINE ──────────────────────────────────────────────────────────
   if (layout === 'magazine') {
     const [feature, ...rest] = services;
     return (
@@ -1514,7 +1580,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     );
   }
 
-  // ── MASONRY ───────────────────────────────────────────────────────────
   if (layout === 'masonry') return (
     <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
       <div className="max-w-6xl mx-auto px-6 md:px-16">
@@ -1557,7 +1622,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     </section>
   );
 
-  // ── LIST ──────────────────────────────────────────────────────────────
   if (layout === 'list') return (
     <section id="services" className={py(style)} style={{ background: style.bgColor }}>
       <div className="max-w-3xl mx-auto px-4 md:px-16">
@@ -1603,7 +1667,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     </section>
   );
 
-  // ── GRID ──────────────────────────────────────────────────────────────
   if (layout === 'grid') return (
     <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
       <div className="max-w-6xl mx-auto px-6 md:px-16">
@@ -1638,7 +1701,6 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
     </section>
   );
 
-  // ── FEATURED fallback ─────────────────────────────────────────────────
   return (
     <section id="services" className={py(style)} style={{ background: style.bgColor }}>
       <div className="max-w-6xl mx-auto px-6 md:px-16">
@@ -2168,22 +2230,25 @@ function BeforeAfterSection({ config, style, isPreview, sectionId, onFieldTap }:
   );
 }
 
-// ─── Remaining sections (compact) ─────────────────────────────────────────────
+// ─── MembershipsSection ───────────────────────────────────────────────────────
 function MembershipsSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const plans=[1,2,3].map(n=>({ name:config[`plan${n}Name`]||['Essential','Luxe','Elite'][n-1],price:config[`plan${n}Price`]||['$89','$149','$249'][n-1],period:config[`plan${n}Period`]||'/mo',features:(config[`plan${n}Features`]||['2 services/month\nPriority booking\n10% off retail','4 services/month\nVIP priority\n20% off retail\nFree upgrades','Unlimited services\nDedicated artist\n30% off retail\nExclusive events'][n-1]).split('\n').filter(Boolean),featured:n===2?(config.plan2Featured!==undefined?config.plan2Featured:true):false }));
   return (<section className={py(style)} style={{ background:'#f8fafc' }}><div className="max-w-5xl mx-auto px-6 md:px-16"><div className="text-center mb-16 space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily:hf(style),color:'#0f172a' }}>{config.heading||'Join the Club'}</FieldTap>{config.subheading&&<p className="text-base text-slate-500" style={{ fontFamily:bf(style) }}>{config.subheading}</p>}</div><div className="grid md:grid-cols-3 gap-6 items-center">{plans.map((plan,i)=><div key={i} className={cn('p-8 space-y-6 hover:shadow-2xl transition-all',plan.featured&&'md:scale-105')} style={{ borderRadius:br(style,1.5),border:`2px solid ${plan.featured?ac(style):ac(style)+'25'}`,background:plan.featured?ac(style):'white' }}><div><p className="text-[10px] font-black uppercase tracking-widest" style={{ color:plan.featured?'rgba(255,255,255,0.65)':ac(style) }}>{plan.name}</p>{config.showBadge&&plan.featured&&<span className="inline-block mt-1 px-2 py-0.5 text-[8px] font-black uppercase text-white bg-white/20 rounded">Most Popular</span>}<div className="flex items-end gap-1 mt-2"><span className="text-4xl font-light" style={{ fontFamily:hf(style),color:plan.featured?'white':'#0f172a' }}>{plan.price}</span><span className="text-sm mb-1" style={{ color:plan.featured?'rgba(255,255,255,0.5)':'#94a3b8',fontFamily:bf(style) }}>{plan.period}</span></div></div><ul className="space-y-2.5">{plan.features.map((f:string,j:number)=><li key={j} className="flex items-center gap-2.5 text-sm" style={{ fontFamily:bf(style),color:plan.featured?'rgba(255,255,255,0.8)':'#64748b' }}><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background:plan.featured?'rgba(255,255,255,0.6)':ac(style) }}/>{f}</li>)}</ul><button onClick={cta(config.ctaAction,config.ctaUrl)} className="w-full py-3.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ background:plan.featured?'white':ac(style),color:plan.featured?ac(style):'white',borderRadius:br(style),fontFamily:bf(style) }}>{config.ctaText||'Join Now'}</button></div>)}</div></div></section>);
 }
 
+// ─── PackagesSection ──────────────────────────────────────────────────────────
 function PackagesSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const pkgs=[1,2,3].map(n=>({ name:config[`pkg${n}Name`]||['5-Pack','10-Pack','20-Pack'][n-1],sessions:config[`pkg${n}Sessions`]||[5,10,20][n-1],price:config[`pkg${n}Price`]||['$199','$349','$599'][n-1],saving:config[`pkg${n}Saving`]||['Save 15%','Save 25%','Save 35%'][n-1] }));
   return (<section className={py(style)} style={{ background:style.bgColor }}><div className="max-w-5xl mx-auto px-6 md:px-16"><div className="text-center mb-16 space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily:hf(style),color:'#0f172a' }}>{config.heading||'Prepaid Sessions'}</FieldTap>{config.subheading&&<p className="text-base text-slate-500" style={{ fontFamily:bf(style) }}>{config.subheading}</p>}</div><div className="grid md:grid-cols-3 gap-6">{pkgs.map((pkg,i)=><div key={i} className="p-8 bg-white text-center space-y-5 hover:shadow-xl hover:-translate-y-1 transition-all duration-300" style={{ borderRadius:br(style,1.5),border:`2px solid ${ac(style)}25` }}><p className="text-[10px] font-black uppercase tracking-widest" style={{ color:ac(style) }}>{pkg.name}</p><p className="text-4xl font-light" style={{ fontFamily:hf(style),color:'#0f172a' }}>{pkg.price}</p><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{pkg.sessions} sessions</p>{config.showExpiry!==false&&<p className="text-xs text-slate-400">Valid 12 months</p>}{config.showSavings!==false&&<span className="inline-block px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white" style={{ background:ac(style),borderRadius:br(style,2) }}>{pkg.saving}</span>}<button onClick={cta(config.ctaAction,config.ctaUrl)} className="block w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style),fontFamily:bf(style) }}>Purchase</button></div>)}</div></div></section>);
 }
 
+// ─── GiftCardsSection ─────────────────────────────────────────────────────────
 function GiftCardsSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const amounts=(config.amounts||'25,50,75,100').split(',').map((a:string)=>a.trim()),hasBg=!!config.bgImage;
   return (<section className={cn(py(style),'relative')} style={{ background:hasBg?`url(${config.bgImage}) center/cover no-repeat`:'#f8fafc' }}>{hasBg&&<div className="absolute inset-0" style={{ background:'rgba(0,0,0,0.45)' }}/>}<div className="relative max-w-2xl mx-auto px-6 md:px-16 text-center space-y-10"><div className="space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily:hf(style),color:hasBg?'white':'#0f172a' }}>{config.heading||'Give the Gift of Beauty'}</FieldTap>{config.subheading&&<p className="text-base" style={{ fontFamily:bf(style),color:hasBg?'rgba(255,255,255,0.75)':'#64748b' }}>{config.subheading}</p>}</div><div className="p-10 shadow-2xl space-y-8 text-white" style={{ background:`linear-gradient(135deg,${ac(style)} 0%,${ac(style)}cc 100%)`,borderRadius:br(style,2) }}><Gift className="w-12 h-12 mx-auto opacity-80"/><p className="text-lg font-light" style={{ fontFamily:hf(style) }}>Choose an amount</p><div className="flex flex-wrap gap-3 justify-center">{amounts.map((a:string,i:number)=><button key={i} className="px-6 py-3 border-2 border-white/40 font-black text-sm hover:bg-white/20 transition-all" style={{ borderRadius:br(style) }}>${a}</button>)}<button className="px-6 py-3 border-2 border-white/40 font-black text-sm hover:bg-white/20 transition-all" style={{ borderRadius:br(style) }}>Custom</button></div><button onClick={cta(config.ctaAction,config.ctaUrl)} className="px-12 py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all" style={{ background:'white',color:ac(style),borderRadius:br(style,3),fontFamily:bf(style) }}>{config.ctaText||'Send a Gift Card'}</button></div></div></section>);
 }
 
+// ─── QuoteSection ─────────────────────────────────────────────────────────────
 function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const rawTags = config.tags;
   const tags: string[] = Array.isArray(rawTags) ? rawTags : typeof rawTags === 'string' ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean) : [];
@@ -2266,11 +2331,13 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
   );
 }
 
+// ─── NewClientSection ─────────────────────────────────────────────────────────
 function NewClientSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const hasBg=!!config.bgImage;
   return (<section className={cn(py(style),'relative')} style={{ background:hasBg?`url(${config.bgImage}) center/cover no-repeat`:ac(style)+'0e' }}>{hasBg&&<div className="absolute inset-0" style={{ background:'rgba(0,0,0,0.55)' }}/>}<div className="relative max-w-5xl mx-auto px-6 md:px-16"><div className="flex flex-col md:flex-row items-center justify-between gap-8 p-8 md:p-12" style={{ borderRadius:br(style,2),border:`2px solid ${hasBg?'rgba(255,255,255,0.2)':ac(style)+'28'}` }}><div className={cn('text-center md:text-left space-y-3',hasBg&&'text-white')}><div className="flex items-center gap-2 justify-center md:justify-start"><Sparkles className="w-4 h-4" style={{ color:hasBg?'white':ac(style) }}/><p className="text-[11px] font-black uppercase tracking-widest" style={{ color:hasBg?'rgba(255,255,255,0.7)':ac(style) }}>First Visit</p></div><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-3xl md:text-4xl font-light" style={{ fontFamily:hf(style),color:hasBg?'white':'#0f172a' }}>{config.heading||'First Visit Special'}</FieldTap>{config.offerText&&<FieldTap sectionId={sectionId} fieldKey="offerText" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-xl font-black" style={{ color:hasBg?'rgba(255,255,255,0.9)':ac(style),fontFamily:bf(style) }}>{config.offerText}</FieldTap>}{config.expiryText&&<p className="text-xs font-bold uppercase tracking-widest" style={{ color:hasBg?'rgba(255,255,255,0.5)':'#94a3b8' }}>{config.expiryText}</p>}{config.finePrint&&<p className="text-xs" style={{ color:hasBg?'rgba(255,255,255,0.4)':'#94a3b8' }}>{config.finePrint}</p>}</div><FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span"><button onClick={cta(config.ctaAction,config.ctaUrl)} className="shrink-0 px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.ctaText||'Claim Offer'}</button></FieldTap></div></div></section>);
 }
 
+// ─── FAQSection ───────────────────────────────────────────────────────────────
 function FAQSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const [open,setOpen]=React.useState<number|null>(null),layout=config.layout||'accordion';
   const items=[1,2,3,4,5,6].map(n=>({ q:config[`q${n}`],a:config[`a${n}`] })).filter(i=>i.q&&i.a);
@@ -2280,12 +2347,14 @@ function FAQSection({ config, style, isPreview, sectionId, onFieldTap }: Section
   return <section className={py(style)} style={{ background:'#f8fafc' }}><div className="max-w-3xl mx-auto px-6 md:px-16"><H/><div className="space-y-2">{items.map((item,i)=><div key={i} className="overflow-hidden bg-white" style={{ borderRadius:br(style),border:`2px solid ${ac(style)}22` }}><button onClick={()=>setOpen(open===i?null:i)} className="w-full flex items-center justify-between p-6 text-left hover:bg-slate-50/80 transition-colors"><span className="font-black text-sm uppercase tracking-tight text-slate-900 pr-4" style={{ fontFamily:bf(style) }}>{item.q}</span>{open===i?<ChevronUp className="w-4 h-4 shrink-0" style={{ color:ac(style) }}/>:<ChevronDown className="w-4 h-4 shrink-0 text-slate-300"/>}</button>{open===i&&<div className="px-6 pb-6 text-sm text-slate-500 leading-relaxed" style={{ fontFamily:bf(style) }}>{item.a}</div>}</div>)}</div></div></section>;
 }
 
+// ─── PoliciesSection ──────────────────────────────────────────────────────────
 function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const policyItems:any[]=Array.isArray(config.policies)?config.policies:[],layout=config.layout||'cards';
   const ie:Record<string,string>={ shield:'🛡','shield-check':'✅',clock:'🕐',clock3:'⏰',alert:'⚠️',ban:'🚫',credit:'💳',heart:'❤️',badge:'🏅',info:'ℹ️',zap:'⚡',leaf:'🌿',coffee:'☕',flame:'🔥',phone:'📞',mail:'✉️' };
   return (<section className={py(style)} style={{ background:style.bgColor }}><div className="max-w-5xl mx-auto px-6 md:px-16"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light text-center mb-4" style={{ fontFamily:hf(style),color:'#0f172a' }}>{config.heading||'Our Policies'}</FieldTap>{config.subheading?<p className="text-base text-slate-500 text-center mb-14" style={{ fontFamily:bf(style) }}>{config.subheading}</p>:<div className="mb-14"/>}{policyItems.length>0?(layout==='list'?(<div className="max-w-2xl mx-auto space-y-5">{policyItems.map((p:any,i:number)=><div key={p.id||i} className="flex items-start gap-4 py-4 border-b" style={{ borderColor:ac(style)+'18' }}><span className="text-xl shrink-0 mt-0.5">{ie[p.icon]||'🛡'}</span><div><p className="text-sm font-black uppercase tracking-tight text-slate-900 mb-1" style={{ fontFamily:bf(style) }}>{p.title}</p><p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily:bf(style) }}>{p.body}</p></div></div>)}</div>):(<div className="grid md:grid-cols-3 gap-6">{policyItems.map((p:any,i:number)=><div key={p.id||i} className="p-7 bg-white space-y-3" style={{ borderRadius:br(style,1.5),border:`2px solid ${ac(style)}22` }}><div className="flex items-center gap-2.5"><span className="text-xl">{ie[p.icon]||'🛡'}</span><p className="text-[11px] font-black uppercase tracking-widest" style={{ color:ac(style) }}>{p.title}</p></div><p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily:bf(style) }}>{p.body}</p></div>)}</div>)):<p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-12">No policies configured yet</p>}</div></section>);
 }
 
+// ─── ContactSection ───────────────────────────────────────────────────────────
 function ContactSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const tenant=data.tenant,socialLinks:any[]=Array.isArray(config.socialLinks)?config.socialLinks:[],layout=config.layout||'split-map';
   const Info=()=>(
@@ -2303,20 +2372,24 @@ function ContactSection({ config, style, data, isPreview, sectionId, onFieldTap 
   return (<section id="contact" className={py(style)} style={{ background:'#f8fafc' }}><div className="max-w-5xl mx-auto px-6 md:px-16"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light text-center mb-16" style={{ fontFamily:hf(style),color:'#0f172a' }}>{config.heading||'Find Us'}</FieldTap>{layout==='stacked'?(<div className="space-y-10 max-w-2xl mx-auto">{config.showMap!==false&&<Map/>}<Info/></div>):(<div className="grid md:grid-cols-2 gap-14 items-start"><Info/>{config.showMap!==false&&<Map/>}</div>)}</div></section>);
 }
 
+// ─── EventsSection ────────────────────────────────────────────────────────────
 function EventsSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const events=data.events;
   return (<section className={py(style)} style={{ background:style.bgColor }}><div className="max-w-5xl mx-auto px-6 md:px-16"><div className="text-center mb-16 space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily:hf(style),color:'#0f172a' }}>{config.heading||'Upcoming Events'}</FieldTap>{config.subheading&&<p className="text-base text-slate-500" style={{ fontFamily:bf(style) }}>{config.subheading}</p>}</div>{events.length>0?(<div className="space-y-4">{events.map((event:any)=>{const d=event.date?new Date(event.date?.toDate?.()??event.date):null;return(<div key={event.id} className="flex items-center gap-6 p-6 bg-white hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ borderRadius:br(style,1.5),border:`2px solid ${ac(style)}22` }}>{d&&<div className="shrink-0 w-14 h-14 flex flex-col items-center justify-center text-white" style={{ background:ac(style),borderRadius:br(style) }}><span className="text-[9px] font-black uppercase">{d.toLocaleString('default',{month:'short'})}</span><span className="text-xl font-black leading-none">{d.getDate()}</span></div>}<div className="flex-1 min-w-0"><p className="font-black uppercase tracking-tight text-slate-900 text-sm truncate" style={{ fontFamily:bf(style) }}>{event.title||event.name}</p>{event.description&&<p className="text-xs text-slate-400 mt-1 truncate">{event.description}</p>}</div><button onClick={cta(config.ctaAction,config.ctaUrl)} className="shrink-0 px-5 py-2 text-[11px] font-black uppercase tracking-widest" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.ctaText||'RSVP'}</button></div>);})}</div>):(<div className="text-center py-16 space-y-4"><Calendar className="w-12 h-12 mx-auto text-slate-200"/><p className="text-[11px] font-black uppercase tracking-widest text-slate-300">{config.emptyText||'Check back soon!'}</p></div>)}</div></section>);
 }
 
+// ─── ReferralSection ──────────────────────────────────────────────────────────
 function ReferralSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   return (<section className={py(style)} style={{ background:'#f8fafc' }}><div className="max-w-3xl mx-auto px-6 md:px-16 text-center space-y-12"><div className="space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily:hf(style),color:'#0f172a' }}>{config.heading||'Refer a Friend'}</FieldTap>{config.subheading&&<p className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily:bf(style) }}>{config.subheading}</p>}</div><div className="grid grid-cols-2 gap-5 max-w-md mx-auto">{[{l:'You get',v:config.rewardYou,k:'rewardYou'},{l:'Friend gets',v:config.rewardFriend,k:'rewardFriend'}].map((item,i)=><div key={i} className="p-6 bg-white space-y-2" style={{ borderRadius:br(style,1.5),border:`2px solid ${ac(style)}22` }}><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{item.l}</p><FieldTap sectionId={sectionId} fieldKey={item.k} isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-2xl font-black" style={{ fontFamily:hf(style),color:ac(style) }}>{item.v}</FieldTap></div>)}</div><button onClick={cta(config.ctaAction,config.ctaUrl)} className="px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.ctaText||'Get My Referral Link'}</button></div></section>);
 }
 
+// ─── StorySection ─────────────────────────────────────────────────────────────
 function StorySection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const hasImage=!!config.image;
   return (<section className={py(style)} style={{ background:style.bgColor }}><div className="max-w-5xl mx-auto px-6 md:px-16"><div className={cn('grid gap-14 items-center',hasImage?'md:grid-cols-2':'max-w-2xl mx-auto')}><div className="space-y-8"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily:hf(style),color:'#0f172a' }}>{config.heading||'Our Story'}</FieldTap><div className="w-12 h-px" style={{ background:ac(style) }}/>{config.pullQuote&&<FieldTap sectionId={sectionId} fieldKey="pullQuote" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-2xl font-light italic" style={{ fontFamily:hf(style),color:ac(style) }}>"{config.pullQuote}"</FieldTap>}<FieldTap sectionId={sectionId} fieldKey="body" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500 leading-relaxed" style={{ fontFamily:bf(style) }}>{config.body}</FieldTap>{config.ctaText&&<button onClick={cta(config.ctaAction,config.ctaUrl)} className="px-8 py-3.5 font-black text-sm uppercase tracking-widest hover:opacity-80 transition-all" style={{ ...btnStyle(style,'secondary'),fontFamily:bf(style) }}>{config.ctaText}</button>}</div>{hasImage&&<img src={config.image} alt="Our Story" className="w-full aspect-square object-cover shadow-2xl" style={{ borderRadius:br(style,2) }}/>}</div></div></section>);
 }
 
+// ─── InstagramSection ─────────────────────────────────────────────────────────
 function InstagramSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const uploaded:any[]=Array.isArray(config.images)?config.images:[],layout=config.layout||'grid',cols=parseInt(config.columns)||4;
   const gridCls=cols===3?'grid-cols-3':cols===6?'grid-cols-3 md:grid-cols-6':'grid-cols-2 md:grid-cols-4';
@@ -2326,11 +2399,13 @@ function InstagramSection({ config, style, isPreview, sectionId, onFieldTap }: S
   return (<section className={py(style)} style={{ background:'#f8fafc' }}><div className="max-w-5xl mx-auto px-6 md:px-16 text-center space-y-12"><Head/><div className={`grid ${gridCls} gap-2`}>{imgs.map((item:any,i:number)=><div key={i} className="aspect-square overflow-hidden group" style={{ borderRadius:br(style) }}>{item.url?<img src={item.url} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>:<div className="w-full h-full" style={{ background:ac(style)+item.shade }}/>}</div>)}</div><a href={`https://instagram.com/${(config.handle||'').replace('@','')}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-8 py-3.5 font-black text-sm uppercase tracking-widest hover:opacity-80 transition-all" style={{ ...btnStyle(style,'secondary'),fontFamily:bf(style) }}><Instagram className="w-4 h-4"/>{config.ctaText||'Follow us on Instagram'}</a></div></section>);
 }
 
+// ─── WaitlistSection ──────────────────────────────────────────────────────────
 function WaitlistSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const hasBg=!!config.bgImage;
   return (<section className={cn(py(style),'relative')} style={{ background:hasBg?`url(${config.bgImage}) center/cover no-repeat`:style.bgColor }}>{hasBg&&<div className="absolute inset-0" style={{ background:'rgba(0,0,0,0.55)' }}/>}<div className="relative max-w-lg mx-auto px-6 md:px-16 text-center space-y-8"><div className="space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-3xl md:text-5xl font-light" style={{ fontFamily:hf(style),color:hasBg?'white':'#0f172a' }}>{config.heading||'Fully Booked?'}</FieldTap>{config.subheading&&<p className="text-base" style={{ fontFamily:bf(style),color:hasBg?'rgba(255,255,255,0.75)':'#64748b' }}>{config.subheading}</p>}</div><div className="flex gap-2"><input type="email" placeholder="your@email.com" className="flex-1 px-4 py-3 text-sm focus:outline-none" style={{ borderRadius:br(style),border:`2px solid ${hasBg?'rgba(255,255,255,0.3)':ac(style)+'40'}`,fontFamily:bf(style),background:hasBg?'rgba(255,255,255,0.1)':'white',color:hasBg?'white':'inherit' }}/><button onClick={cta(config.ctaAction,config.ctaUrl)} className="px-6 py-3 font-black text-sm uppercase tracking-widest whitespace-nowrap hover:opacity-90 transition-all" style={{ ...btnStyle(style),fontFamily:bf(style) }}>{config.ctaText||'Join'}</button></div></div></section>);
 }
 
+// ─── Footer ───────────────────────────────────────────────────────────────────
 function Footer({ tenant, style }: { tenant: any; style: StyleConfig }) {
   return (
     <footer className="py-8 border-t text-center" style={{ borderColor: ac(style)+'20' }}>
