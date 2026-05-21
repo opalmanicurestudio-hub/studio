@@ -44,7 +44,7 @@ import {
   AtSign, Hash, Layers, Undo2, Redo2,
   ShieldCheck, Heart, Zap, Coffee, Leaf, Flame,
   AlertTriangle, Info, Ban, Clock3, CreditCard, BadgeCheck,
-  ArrowLeftRight, Wand2,
+  ArrowLeftRight, Wand2, ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type PageSection, type PageBuilderConfig } from '@/lib/data';
@@ -226,11 +226,13 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'stat2l', t: 'text', l: 'Stat 2 label', d: 'Avg rating' },   { k: 'stat2v', t: 'text', l: 'Stat 2 value', d: '4.9' },
     { k: 'stat3l', t: 'text', l: 'Stat 3 label', d: 'Years open' },   { k: 'stat3v', t: 'text', l: 'Stat 3 value', d: '6' },
     { k: 'stat4l', t: 'text', l: 'Stat 4 label', d: 'Services' },     { k: 'stat4v', t: 'text', l: 'Stat 4 value', d: '20+' },
-    { k: 'animate', t: 'toggle', l: 'Animate counters on scroll', d: true }, { k: 'showDividers', t: 'toggle', l: 'Show dividers', d: true },
+    { k: 'animate', t: 'toggle', l: 'Animate counters on scroll', d: true },
   ], layouts: [
-    { id: 'strip',    label: 'Horizontal strip',  preview: '[ stat | stat | stat | stat ]' }, { id: 'cards',   label: 'Stat cards',     preview: '┌──┐┌──┐┌──┐┌──┐' },
-    { id: 'centered', label: 'Centered large',    preview: '   stat   stat   stat   '       }, { id: 'banner',  label: 'Dark banner',     preview: '▓[ stat | stat | stat ]▓' },
-    { id: 'ticker',   label: 'Scrolling ticker',  preview: '→ stat · stat · stat →'         },
+    { id: 'strip',    label: 'Horizontal strip',  preview: '[ stat | stat | stat | stat ]' },
+    { id: 'cards',    label: 'Stat cards',        preview: '┌──┐┌──┐┌──┐┌──┐'             },
+    { id: 'banner',   label: 'Dark banner',       preview: '▓[ stat | stat | stat ]▓'     },
+    { id: 'ticker',   label: 'Scrolling ticker',  preview: '→ stat · stat · stat →'        },
+    { id: 'counter',  label: 'Counter showcase',  preview: '  ↑↑  ↑↑  ↑↑  ↑↑  '          },
   ]},
   services: { label: 'Services', icon: Scissors, color: '#185FA5', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Services' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Handcrafted treatments for every occasion' },
@@ -238,124 +240,123 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'columns', t: 'select', l: 'Columns', d: '2', opts: ['1','2','3'] }, { k: 'showPrices', t: 'toggle', l: 'Show prices', d: true },
     { k: 'showDuration', t: 'toggle', l: 'Show duration', d: true }, { k: 'showFilters', t: 'toggle', l: 'Category filter', d: false },
     { k: 'showDesc', t: 'toggle', l: 'Show descriptions', d: true }, { k: 'showImages', t: 'toggle', l: 'Show service images', d: false },
-    { k: 'hoverEffect', t: 'toggle', l: 'Hover lift effect', d: true },
   ], layouts: [
     { id: 'cards',      label: 'Cards',           preview: '┌────┐ ┌────┐'                     },
     { id: 'carousel',   label: 'Carousel',        preview: '← [ card ] [ card ] [ card ] →'     },
     { id: 'horizontal', label: 'Horizontal rows',  preview: '[ img | text ]\n[ text | img ]'     },
     { id: 'luxury',     label: 'Luxury list',      preview: '01  Service ··· $99  →\n02  ···'   },
     { id: 'magazine',   label: 'Editorial',        preview: '[ hero feature | sm sm sm ]'        },
-    { id: 'masonry',    label: 'Masonry',          preview: '┌──┐ ┌───┐\n│  │ │   │\n└──┘ └───┘' },
-    { id: 'list',       label: 'List',             preview: '┌──────────────┐\n│ name   $xx  │\n│ [  Book  ]   │' },
+    { id: 'masonry',    label: 'Masonry',          preview: '┌──┐ ┌───┐\n│  │ │   │'           },
+    { id: 'list',       label: 'List',             preview: '┌──────────────┐\n│ name   $xx  │' },
     { id: 'grid',       label: 'Grid',             preview: '┌──┬──┬──┐'                        },
   ]},
   team: { label: 'Team', icon: Users, color: '#0F6E56', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'The Artists' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Expert hands for every style' },
     { k: 'showBio', t: 'toggle', l: 'Show bio', d: false }, { k: 'showSpecialties', t: 'toggle', l: 'Show specialties', d: true },
     { k: 'showBookButton', t: 'toggle', l: 'Book per artist', d: false }, { k: 'bookCta', t: 'text', l: 'Book button text', d: 'Book with me' },
-    { k: 'bookAction', t: 'select', l: 'Book action', d: 'booking', opts: ['booking','url'] }, { k: 'hoverReveal', t: 'toggle', l: 'Hover reveal bio', d: true },
+    { k: 'hoverReveal', t: 'toggle', l: 'Hover reveal bio', d: true },
   ], layouts: [
-    { id: 'circles',   label: 'Circle avatars',  preview: '  ◯   ◯   ◯\n name name name' }, { id: 'editorial', label: 'Editorial cards', preview: '┌────┐ ┌────┐' },
-    { id: 'row',       label: 'Horizontal row',  preview: '[ ◯ name ][ ◯ name ]'          }, { id: 'grid',      label: 'Grid',           preview: '┌──┬──┬──┐'    },
-    { id: 'featured',  label: 'Featured artist', preview: '[ large lead ]\n◯ ◯ ◯ team'    }, { id: 'minimal',   label: 'Minimal list',   preview: '— Name · Title' },
+    { id: 'circles',   label: 'Circle avatars',  preview: '  ◯   ◯   ◯\n name name name' },
+    { id: 'editorial', label: 'Editorial cards', preview: '┌────┐ ┌────┐'                },
+    { id: 'row',       label: 'Horizontal row',  preview: '[ ◯ name ][ ◯ name ]'         },
+    { id: 'grid',      label: 'Grid',            preview: '┌──┬──┬──┐'                   },
+    { id: 'featured',  label: 'Featured artist', preview: '[ large lead ]\n◯ ◯ ◯ team'   },
+    { id: 'minimal',   label: 'Minimal list',    preview: '— Name · Title'               },
   ]},
   reviews: { label: 'Reviews', icon: Star, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'What Clients Say' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Real words from real guests' },
     { k: 'showRating', t: 'toggle', l: 'Show star ratings', d: true }, { k: 'showPhotos', t: 'toggle', l: 'Show client photos', d: false },
-    { k: 'autoScroll', t: 'toggle', l: 'Auto-scroll carousel', d: false }, { k: 'scrollSpeed', t: 'range', l: 'Scroll speed (s)', d: 4, min: 2, max: 10, step: 1 },
-    { k: 'rev1Name', t: 'text', l: 'Review 1 name', d: 'Sarah M.' }, { k: 'rev1Rating', t: 'range', l: 'Review 1 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev1Text', t: 'textarea', l: 'Review 1 text', d: 'Absolutely incredible experience. The attention to detail is unmatched — I leave feeling taken care of every single time.' },
-    { k: 'rev2Name', t: 'text', l: 'Review 2 name', d: 'Jessica T.' }, { k: 'rev2Rating', t: 'range', l: 'Review 2 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev2Text', t: 'textarea', l: 'Review 2 text', d: "I've been coming here for over a year and every visit exceeds my expectations. The team is truly world-class." },
-    { k: 'rev3Name', t: 'text', l: 'Review 3 name', d: 'Priya K.' }, { k: 'rev3Rating', t: 'range', l: 'Review 3 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev3Text', t: 'textarea', l: 'Review 3 text', d: 'The atmosphere is luxurious yet so welcoming. I always feel like a VIP. Truly the best in the city.' },
+    { k: 'rev1Name', t: 'text', l: 'Review 1 name', d: 'Sarah M.' }, { k: 'rev1Rating', t: 'range', l: 'Review 1 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev1Text', t: 'textarea', l: 'Review 1 text', d: 'Absolutely incredible experience. The attention to detail is unmatched.' },
+    { k: 'rev2Name', t: 'text', l: 'Review 2 name', d: 'Jessica T.' }, { k: 'rev2Rating', t: 'range', l: 'Review 2 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev2Text', t: 'textarea', l: 'Review 2 text', d: "Every visit exceeds my expectations. The team is truly world-class." },
+    { k: 'rev3Name', t: 'text', l: 'Review 3 name', d: 'Priya K.' }, { k: 'rev3Rating', t: 'range', l: 'Review 3 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev3Text', t: 'textarea', l: 'Review 3 text', d: 'Luxurious yet so welcoming. I always feel like a VIP.' },
   ], layouts: [
-    { id: 'grid',     label: 'Grid',          preview: '┌────┐ ┌────┐'      }, { id: 'masonry',  label: 'Masonry',        preview: '┌──┐ ┌────┐'        },
-    { id: 'carousel', label: 'Carousel',      preview: '← [ review ] →'     }, { id: 'quotes',   label: 'Large quotes',   preview: '" quote text "'     },
-    { id: 'ticker',   label: 'Auto-scroll',   preview: '→ review · review →' }, { id: 'featured', label: 'Featured',       preview: '[ big quote ]\n[ ★ small ]' },
+    { id: 'grid',     label: 'Grid',         preview: '┌────┐ ┌────┐'  },
+    { id: 'carousel', label: 'Carousel',     preview: '← [ review ] →' },
+    { id: 'quotes',   label: 'Large quotes', preview: '" quote text "' },
   ]},
   gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Work' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Every set, a canvas' },
-    { k: 'images', t: 'image-array', l: 'Gallery images', d: [] }, { k: 'showFilters', t: 'toggle', l: 'Style filter tabs', d: true },
-    { k: 'showCaptions', t: 'toggle', l: 'Show captions', d: false }, { k: 'lightbox', t: 'toggle', l: 'Lightbox on click', d: true },
-    { k: 'hoverEffect', t: 'select', l: 'Hover effect', d: 'zoom', opts: ['zoom','fade','slide-up','none'] },
-    { k: 'columns', t: 'select', l: 'Columns', d: '3', opts: ['2','3','4'] },
+    { k: 'images', t: 'image-array', l: 'Gallery images', d: [] }, { k: 'showCaptions', t: 'toggle', l: 'Show captions', d: false },
+    { k: 'lightbox', t: 'toggle', l: 'Lightbox on click', d: true }, { k: 'columns', t: 'select', l: 'Columns', d: '3', opts: ['2','3','4'] },
   ], layouts: [
-    { id: 'masonry',   label: 'Masonry',           preview: '┌──┐ ┌────┐\n│  │ │    │' }, { id: 'grid',      label: 'Uniform grid',      preview: '┌──┬──┬──┐' },
-    { id: 'carousel',  label: 'Carousel',          preview: '← [ img ] →'               }, { id: 'editorial', label: 'Editorial',         preview: '[ large ][ sm ]' },
-    { id: 'fullwidth', label: 'Full-width scroll',  preview: '← img · img · img →'       }, { id: 'mosaic',    label: 'Mosaic',            preview: '┌────┬──┐\n│    │  │' },
+    { id: 'masonry',   label: 'Masonry',          preview: '┌──┐ ┌────┐\n│  │ │    │' },
+    { id: 'grid',      label: 'Uniform grid',      preview: '┌──┬──┬──┐'               },
+    { id: 'carousel',  label: 'Carousel',          preview: '← [ img ] →'               },
   ]},
   beforeafter: { label: 'Before / After', icon: RotateCcw, color: '#0F6E56', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Transformations' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'See the difference we make' },
     { k: 'pairs', t: 'beforeafter-pairs', l: 'Before / After pairs', d: [] }, { k: 'sliderColor', t: 'color', l: 'Slider handle color', d: '#000000' },
-    { k: 'autoPlay', t: 'toggle', l: 'Auto-reveal on scroll', d: true }, { k: 'showLabels', t: 'toggle', l: 'Show Before/After labels', d: true },
+    { k: 'showLabels', t: 'toggle', l: 'Show Before/After labels', d: true },
   ], layouts: [
-    { id: 'slider',   label: 'Drag slider',    preview: '[ before ←→ after ]'  }, { id: 'side',     label: 'Side by side',   preview: '[ before ] [ after ]' },
-    { id: 'stack',    label: 'Stacked hover',  preview: '[ hover to reveal ]'   }, { id: 'carousel', label: 'Carousel pairs', preview: '← [ B/A pair ] →'     },
+    { id: 'slider',   label: 'Drag slider',    preview: '[ before ←→ after ]'  },
+    { id: 'side',     label: 'Side by side',   preview: '[ before ] [ after ]' },
+    { id: 'stack',    label: 'Stacked hover',  preview: '[ hover to reveal ]'   },
+    { id: 'carousel', label: 'Carousel pairs', preview: '← [ B/A pair ] →'     },
   ]},
   memberships: { label: 'Memberships', icon: Crown, color: '#534AB7', fields: [
-    { k: 'heading', t: 'text', l: 'Section heading', d: 'Join the Club' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Exclusive perks for loyal guests' },
-    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get started' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
-    { k: 'showSavings', t: 'toggle', l: 'Highlight savings', d: true }, { k: 'showBadge', t: 'toggle', l: 'Show popular badge', d: true },
-    { k: 'plan1Name', t: 'text', l: 'Tier 1 name', d: 'Essential' }, { k: 'plan1Price', t: 'text', l: 'Tier 1 price', d: '$89' }, { k: 'plan1Period', t: 'text', l: 'Tier 1 period', d: '/mo' },
+    { k: 'heading', t: 'text', l: 'Section heading', d: 'Join the Club' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get started' },
+    { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
+    { k: 'plan1Name', t: 'text', l: 'Tier 1 name', d: 'Essential' }, { k: 'plan1Price', t: 'text', l: 'Tier 1 price', d: '$89' },
     { k: 'plan1Features', t: 'textarea', l: 'Tier 1 features (one per line)', d: '2 services/month\nPriority booking\n10% off retail' },
-    { k: 'plan2Name', t: 'text', l: 'Tier 2 name', d: 'Luxe' }, { k: 'plan2Price', t: 'text', l: 'Tier 2 price', d: '$149' }, { k: 'plan2Period', t: 'text', l: 'Tier 2 period', d: '/mo' },
-    { k: 'plan2Features', t: 'textarea', l: 'Tier 2 features (one per line)', d: '4 services/month\nVIP priority\n20% off retail\nFree upgrades' }, { k: 'plan2Featured', t: 'toggle', l: 'Mark as featured', d: true },
-    { k: 'plan3Name', t: 'text', l: 'Tier 3 name', d: 'Elite' }, { k: 'plan3Price', t: 'text', l: 'Tier 3 price', d: '$249' }, { k: 'plan3Period', t: 'text', l: 'Tier 3 period', d: '/mo' },
+    { k: 'plan2Name', t: 'text', l: 'Tier 2 name', d: 'Luxe' }, { k: 'plan2Price', t: 'text', l: 'Tier 2 price', d: '$149' },
+    { k: 'plan2Features', t: 'textarea', l: 'Tier 2 features (one per line)', d: '4 services/month\nVIP priority\n20% off retail\nFree upgrades' },
+    { k: 'plan2Featured', t: 'toggle', l: 'Mark as featured', d: true },
+    { k: 'plan3Name', t: 'text', l: 'Tier 3 name', d: 'Elite' }, { k: 'plan3Price', t: 'text', l: 'Tier 3 price', d: '$249' },
     { k: 'plan3Features', t: 'textarea', l: 'Tier 3 features (one per line)', d: 'Unlimited services\nDedicated artist\n30% off retail\nExclusive events' },
   ], layouts: [
-    { id: 'cards',   label: 'Pricing cards', preview: '┌────┐ ┌────┐ ┌────┐' }, { id: 'table',   label: 'Feature table',  preview: '| ✓  | ✓  | ✓  |' },
-    { id: 'minimal', label: 'Minimal list',  preview: '── Tier · price ──'    }, { id: 'featured',label: 'Featured tier',   preview: '[ best ] [sm] [sm]'  },
+    { id: 'cards',   label: 'Pricing cards', preview: '┌────┐ ┌────┐ ┌────┐' },
+    { id: 'minimal', label: 'Minimal list',  preview: '── Tier · price ──'    },
   ]},
   packages: { label: 'Packages', icon: Package, color: '#185FA5', fields: [
-    { k: 'heading', t: 'text', l: 'Section heading', d: 'Prepaid Sessions' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Buy more, save more' },
-    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Buy package' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
+    { k: 'heading', t: 'text', l: 'Section heading', d: 'Prepaid Sessions' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Buy package' },
+    { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
     { k: 'showExpiry', t: 'toggle', l: 'Show expiry', d: true }, { k: 'showSavings', t: 'toggle', l: 'Show savings %', d: true },
-    { k: 'pkg1Name', t: 'text', l: 'Package 1 name', d: '5-Pack' }, { k: 'pkg1Sessions', t: 'text', l: 'Package 1 sessions', d: '5' }, { k: 'pkg1Price', t: 'text', l: 'Package 1 price', d: '$199' }, { k: 'pkg1Saving', t: 'text', l: 'Package 1 saving', d: 'Save 15%' },
-    { k: 'pkg2Name', t: 'text', l: 'Package 2 name', d: '10-Pack' }, { k: 'pkg2Sessions', t: 'text', l: 'Package 2 sessions', d: '10' }, { k: 'pkg2Price', t: 'text', l: 'Package 2 price', d: '$349' }, { k: 'pkg2Saving', t: 'text', l: 'Package 2 saving', d: 'Save 25%' },
-    { k: 'pkg3Name', t: 'text', l: 'Package 3 name', d: '20-Pack' }, { k: 'pkg3Sessions', t: 'text', l: 'Package 3 sessions', d: '20' }, { k: 'pkg3Price', t: 'text', l: 'Package 3 price', d: '$599' }, { k: 'pkg3Saving', t: 'text', l: 'Package 3 saving', d: 'Save 35%' },
+    { k: 'pkg1Name', t: 'text', l: 'Package 1 name', d: '5-Pack' }, { k: 'pkg1Price', t: 'text', l: 'Package 1 price', d: '$199' }, { k: 'pkg1Saving', t: 'text', l: 'Package 1 saving', d: 'Save 15%' },
+    { k: 'pkg2Name', t: 'text', l: 'Package 2 name', d: '10-Pack' }, { k: 'pkg2Price', t: 'text', l: 'Package 2 price', d: '$349' }, { k: 'pkg2Saving', t: 'text', l: 'Package 2 saving', d: 'Save 25%' },
+    { k: 'pkg3Name', t: 'text', l: 'Package 3 name', d: '20-Pack' }, { k: 'pkg3Price', t: 'text', l: 'Package 3 price', d: '$599' }, { k: 'pkg3Saving', t: 'text', l: 'Package 3 saving', d: 'Save 35%' },
   ], layouts: [
-    { id: 'cards',   label: 'Cards',    preview: '┌────┐ ┌────┐'       },
-    { id: 'list',    label: 'List',     preview: '── 5-pack · $xxx ──' },
-    { id: 'featured',label: 'Featured', preview: '[ best deal ] [ sm ]' },
+    { id: 'cards', label: 'Cards', preview: '┌────┐ ┌────┐' },
+    { id: 'list',  label: 'List',  preview: '── 5-pack · $xxx ──' },
   ]},
   giftcards: { label: 'Gift Cards', icon: Gift, color: '#993556', fields: [
-    { k: 'heading', t: 'text', l: 'Section heading', d: 'Give the Gift of Beauty' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'For birthdays, holidays, or just because' },
-    { k: 'bgImage', t: 'image', l: 'Background / card image', d: '' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Send a Gift Card' },
-    { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] }, { k: 'amounts', t: 'text', l: 'Preset amounts (comma-sep)', d: '25,50,75,100' },
+    { k: 'heading', t: 'text', l: 'Section heading', d: 'Give the Gift of Beauty' },
+    { k: 'bgImage', t: 'image', l: 'Background / card image', d: '' },
+    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Send a Gift Card' },
+    { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
+    { k: 'amounts', t: 'text', l: 'Preset amounts (comma-sep)', d: '25,50,75,100' },
   ], layouts: [
     { id: 'hero',    label: 'Hero style',   preview: '[ bg image | text + cta ]' },
-    { id: 'card',    label: 'Card preview', preview: '┌─gift card design─┐'       },
     { id: 'minimal', label: 'Minimal',      preview: '[ amounts ] [buy]'           },
   ]},
   quote: { label: 'Quote Request', icon: FileText, color: '#3B6D11', fields: [
-    { k: 'heading', t: 'text', l: 'Heading', d: 'Need Something Bigger?' }, { k: 'subheading', t: 'textarea', l: 'Description', d: 'Planning a wedding, bridal party, or corporate event? We craft bespoke experiences.' },
+    { k: 'heading', t: 'text', l: 'Heading', d: 'Need Something Bigger?' }, { k: 'subheading', t: 'textarea', l: 'Description', d: 'Planning a wedding, bridal party, or corporate event?' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Request a Quote' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'tags', t: 'tag-list', l: 'Event types', d: ['Bridal Parties','Corporate Events','Destination Services'] },
   ], layouts: [
     { id: 'split',    label: 'Split',       preview: '[ text | form ]'    },
-    { id: 'centered', label: 'Centered',    preview: '  heading\n  tags\n  [cta]' },
+    { id: 'centered', label: 'Centered',    preview: '  heading\n  [cta]' },
     { id: 'banner',   label: 'Dark banner', preview: '▓▓[ text · cta ]▓▓' },
   ]},
   newclient: { label: 'New Client Offer', icon: Sparkles, color: '#854F0B', fields: [
     { k: 'heading', t: 'text', l: 'Heading', d: 'First Visit Special' }, { k: 'offerText', t: 'text', l: 'Offer description', d: '20% off your first appointment' },
-    { k: 'finePrint', t: 'text', l: 'Fine print', d: 'Valid for new clients only.' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Claim Offer' },
-    { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] }, { k: 'bgImage', t: 'image', l: 'Background image', d: '' },
-    { k: 'expiryText', t: 'text', l: 'Expiry text', d: 'Limited time only' }, { k: 'showTimer', t: 'toggle', l: 'Show countdown', d: false },
+    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Claim Offer' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
+    { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'expiryText', t: 'text', l: 'Expiry text', d: 'Limited time only' },
   ], layouts: [
-    { id: 'banner',   label: 'Banner',     preview: '[ offer · highlight · cta ]'    },
-    { id: 'card',     label: 'Offer card', preview: '┌──────────────┐'               },
-    { id: 'fullbleed',label: 'Full bleed', preview: '[ bg img · overlay · text ]'    },
-    { id: 'popup',    label: 'Callout',    preview: '⚡ banner across top'           },
+    { id: 'banner',    label: 'Banner',     preview: '[ offer · highlight · cta ]' },
+    { id: 'fullbleed', label: 'Full bleed', preview: '[ bg img · overlay · text ]' },
   ]},
   faq: { label: 'FAQ', icon: HelpCircle, color: '#185FA5', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Common Questions' },
-    { k: 'q1', t: 'text', l: 'Question 1', d: 'How do I book an appointment?' }, { k: 'a1', t: 'textarea', l: 'Answer 1', d: 'Use the Book Now button above or select any service to get started.' },
+    { k: 'q1', t: 'text', l: 'Question 1', d: 'How do I book an appointment?' }, { k: 'a1', t: 'textarea', l: 'Answer 1', d: 'Use the Book Now button above or select any service.' },
     { k: 'q2', t: 'text', l: 'Question 2', d: 'What is your cancellation policy?' }, { k: 'a2', t: 'textarea', l: 'Answer 2', d: 'We require 24 hours notice to avoid a cancellation fee.' },
     { k: 'q3', t: 'text', l: 'Question 3', d: 'Do you accept walk-ins?' }, { k: 'a3', t: 'textarea', l: 'Answer 3', d: 'Yes! Walk-ins welcome based on availability.' },
     { k: 'q4', t: 'text', l: 'Question 4', d: 'Do you offer gift cards?' }, { k: 'a4', t: 'textarea', l: 'Answer 4', d: 'Absolutely — gift cards available in any amount.' },
     { k: 'q5', t: 'text', l: 'Question 5 (optional)', d: '' }, { k: 'a5', t: 'textarea', l: 'Answer 5', d: '' },
     { k: 'q6', t: 'text', l: 'Question 6 (optional)', d: '' }, { k: 'a6', t: 'textarea', l: 'Answer 6', d: '' },
   ], layouts: [
-    { id: 'accordion', label: 'Accordion',    preview: '▶ Question 1\n▶ Question 2' }, { id: 'two-col', label: 'Two columns', preview: '┌──┬──┐\n│Q │Q │' },
-    { id: 'cards',     label: 'Cards',        preview: '┌────┐ ┌────┐'              }, { id: 'minimal', label: 'Minimal list', preview: 'Q · A\nQ · A'         },
+    { id: 'accordion', label: 'Accordion',   preview: '▶ Question 1\n▶ Question 2' },
+    { id: 'two-col',   label: 'Two columns', preview: '┌──┬──┐\n│Q │Q │'          },
+    { id: 'minimal',   label: 'Minimal list', preview: 'Q · A\nQ · A'              },
   ]},
   policies: { label: 'Policies', icon: Shield, color: '#0F6E56', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Policies' }, { k: 'subheading', t: 'text', l: 'Subheading', d: '' },
@@ -365,8 +366,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
       { id: 'p3', icon: 'ban',    title: 'No-Shows',      body: 'No-shows may be required to prepay future bookings.'  },
     ]},
   ], layouts: [
-    { id: 'cards',   label: 'Icon cards',     preview: '┌──┐ ┌──┐ ┌──┐'    }, { id: 'list',   label: 'Icon list',      preview: '🛡 Cancellation\n🕐 Late arrival' },
-    { id: 'table',   label: 'Compact table',  preview: '│policy │ details │' }, { id: 'minimal',label: 'Minimal',        preview: 'Policy · details'              },
+    { id: 'cards', label: 'Icon cards',  preview: '┌──┐ ┌──┐ ┌──┐'    },
+    { id: 'list',  label: 'Icon list',   preview: '🛡 Cancellation\n🕐 Late arrival' },
   ]},
   contact: { label: 'Location & Contact', icon: MapPin, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Find Us' }, { k: 'customHours', t: 'textarea', l: 'Hours text', d: 'Monday – Saturday: 9am – 7pm\nSunday: 10am – 5pm' },
@@ -375,52 +376,48 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showSocial', t: 'toggle', l: 'Show social links', d: true }, { k: 'ctaText', t: 'text', l: 'Book CTA text', d: 'Book an Appointment' },
     { k: 'ctaAction', t: 'select', l: 'CTA action', d: 'booking', opts: ['booking','url'] }, { k: 'socialLinks', t: 'social-links', l: 'Social links', d: [] },
   ], layouts: [
-    { id: 'split-map', label: 'Map + info',   preview: '[ map | hours · address ]' }, { id: 'stacked', label: 'Stacked',     preview: '[ map ]\n[ details ]' },
-    { id: 'cards',     label: 'Info cards',   preview: '┌──┐┌──┐┌──┐'              }, { id: 'minimal', label: 'Minimal',    preview: '  address · hours  '   },
+    { id: 'split-map', label: 'Map + info', preview: '[ map | hours · address ]' },
+    { id: 'stacked',   label: 'Stacked',    preview: '[ map ]\n[ details ]'       },
   ]},
   events: { label: 'Events Calendar', icon: Calendar, color: '#854F0B', fields: [
-    { k: 'heading', t: 'text', l: 'Section heading', d: 'Upcoming Events' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Workshops, pop-ups & studio specials' },
-    { k: 'emptyText', t: 'text', l: 'When no events', d: 'Check back soon for upcoming events!' }, { k: 'ctaText', t: 'text', l: 'RSVP button', d: 'RSVP Now' },
-    { k: 'ctaAction', t: 'select', l: 'RSVP action', d: 'booking', opts: ['booking','url'] },
+    { k: 'heading', t: 'text', l: 'Section heading', d: 'Upcoming Events' }, { k: 'emptyText', t: 'text', l: 'When no events', d: 'Check back soon!' },
+    { k: 'ctaText', t: 'text', l: 'RSVP button', d: 'RSVP Now' }, { k: 'ctaAction', t: 'select', l: 'RSVP action', d: 'booking', opts: ['booking','url'] },
   ], layouts: [
-    { id: 'cards',    label: 'Event cards', preview: '┌────┐ ┌────┐'       },
-    { id: 'list',     label: 'List',        preview: '── date · event ──'  },
-    { id: 'calendar', label: 'Calendar',    preview: '┌su│mo│tu│we┐'       },
+    { id: 'cards', label: 'Event cards', preview: '┌────┐ ┌────┐' },
+    { id: 'list',  label: 'List',        preview: '── date · event ──' },
   ]},
   referral: { label: 'Referral Program', icon: Share2, color: '#185FA5', fields: [
-    { k: 'heading', t: 'text', l: 'Section heading', d: 'Refer a Friend' }, { k: 'subheading', t: 'text', l: 'Description', d: 'Share the love — give $15, get $15 toward your next visit' },
+    { k: 'heading', t: 'text', l: 'Section heading', d: 'Refer a Friend' }, { k: 'subheading', t: 'text', l: 'Description', d: 'Share the love — give $15, get $15' },
     { k: 'rewardYou', t: 'text', l: 'Your reward', d: '$15 credit' }, { k: 'rewardFriend', t: 'text', l: 'Friend reward', d: '$15 off first visit' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get My Referral Link' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
   ], layouts: [
     { id: 'split',    label: 'Split reward', preview: '[ you get | friend gets ]' },
     { id: 'centered', label: 'Centered',     preview: '  offer · [get link]  '   },
-    { id: 'banner',   label: 'Banner',       preview: '▓[ refer a friend · cta ]▓' },
   ]},
   story: { label: 'Studio Story', icon: BookOpen, color: '#3B6D11', fields: [
     { k: 'image', t: 'image', l: 'Section image', d: '' }, { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Story' },
-    { k: 'body', t: 'textarea', l: 'Story text', d: 'Opal was born from a belief that nail care is more than maintenance — it is a ritual of self-expression.' },
+    { k: 'body', t: 'textarea', l: 'Story text', d: 'Opal was born from a belief that nail care is more than maintenance.' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Meet the team' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-team', opts: ['booking','scroll-team','url'] },
     { k: 'pullQuote', t: 'text', l: 'Pull quote (optional)', d: '' },
   ], layouts: [
-    { id: 'split',     label: 'Text + image', preview: '[ text | image ]'              }, { id: 'centered',  label: 'Centered',     preview: '  heading\n  body\n  [cta]' },
-    { id: 'editorial', label: 'Editorial',    preview: '[ large img ]\n[ quote ] [ text ]' }, { id: 'timeline', label: 'Timeline',    preview: '2019 ── 2021 ── 2024'     },
+    { id: 'split',    label: 'Text + image', preview: '[ text | image ]'  },
+    { id: 'centered', label: 'Centered',     preview: '  heading\n  body' },
   ]},
   instagram: { label: 'Instagram Feed', icon: Camera, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Follow Along' }, { k: 'handle', t: 'text', l: 'Instagram handle', d: '@opalmanicure' },
-    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Follow us on Instagram' }, { k: 'images', t: 'image-array', l: 'Preview images (if no API)', d: [] },
+    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Follow us on Instagram' }, { k: 'images', t: 'image-array', l: 'Preview images', d: [] },
     { k: 'columns', t: 'select', l: 'Columns', d: '4', opts: ['3','4','6'] },
   ], layouts: [
-    { id: 'grid',    label: 'Square grid', preview: '┌──┬──┬──┬──┐' }, { id: 'masonry', label: 'Masonry',     preview: '┌──┐ ┌────┐'    },
-    { id: 'banner',  label: 'Wide banner', preview: '← scroll row →' },
+    { id: 'grid',   label: 'Square grid', preview: '┌──┬──┬──┬──┐' },
+    { id: 'banner', label: 'Wide banner', preview: '← scroll row →' },
   ]},
   waitlist: { label: 'Waitlist', icon: Clock, color: '#534AB7', fields: [
     { k: 'heading', t: 'text', l: 'Heading', d: 'Fully Booked?' }, { k: 'subheading', t: 'text', l: 'Subheading', d: "Join our waitlist and we'll notify you when a slot opens" },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Join Waitlist' }, { k: 'ctaAction', t: 'select', l: 'Action', d: 'booking', opts: ['booking','url'] },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' },
   ], layouts: [
-    { id: 'banner',   label: 'Banner',  preview: '[ heading · form · cta ]' },
-    { id: 'centered', label: 'Centered',preview: '  heading\n  [join]'       },
-    { id: 'card',     label: 'Card',    preview: '┌────────────┐\n│ join list  │' },
+    { id: 'banner',   label: 'Banner',   preview: '[ heading · form · cta ]' },
+    { id: 'centered', label: 'Centered', preview: '  heading\n  [join]'       },
   ]},
 };
 
@@ -562,8 +559,6 @@ const PolicyListEditor = ({ value, onChange }: { value: PolicyItem[]; onChange: 
 
 const BeforeAfterPairsEditor = ({ value, onChange }: { value: BeforeAfterPair[]; onChange: (v: BeforeAfterPair[]) => void }) => {
   const pairs: BeforeAfterPair[] = Array.isArray(value) ? value : [];
-  // Ref always holds latest pairs — fixes stale-closure bug when
-  // ImageUpload.onImageUploaded fires after an async upload completes.
   const pairsRef = useRef(pairs);
   pairsRef.current = pairs;
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -589,13 +584,13 @@ const BeforeAfterPairsEditor = ({ value, onChange }: { value: BeforeAfterPair[];
             {isExp && (
               <div className="p-3 pt-2 space-y-4 border-t border-border/50">
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-slate-400"/><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">Before image</Label></div>
-                  {pair.beforeUrl && <div className="relative rounded-xl overflow-hidden border-2 border-border aspect-video mb-2"><img src={pair.beforeUrl} alt="before" className="w-full h-full object-cover"/><button onClick={() => update(pair.id, 'beforeUrl', '')} className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-500 transition-colors"><X className="w-3 h-3"/></button><div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-white text-[8px] font-black uppercase tracking-widest">Before</div></div>}
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">Before image</Label>
+                  {pair.beforeUrl && <div className="relative rounded-xl overflow-hidden border-2 border-border aspect-video mb-2"><img src={pair.beforeUrl} alt="before" className="w-full h-full object-cover"/><button onClick={() => update(pair.id, 'beforeUrl', '')} className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-500 transition-colors"><X className="w-3 h-3"/></button></div>}
                   {!pair.beforeUrl && <ImageUpload initialImage="" onImageUploaded={url => update(pair.id, 'beforeUrl', url)}/>}
                 </div>
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-primary"/><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">After image</Label></div>
-                  {pair.afterUrl && <div className="relative rounded-xl overflow-hidden border-2 border-border aspect-video mb-2"><img src={pair.afterUrl} alt="after" className="w-full h-full object-cover"/><button onClick={() => update(pair.id, 'afterUrl', '')} className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-500 transition-colors"><X className="w-3 h-3"/></button><div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-primary/80 text-white text-[8px] font-black uppercase tracking-widest">After</div></div>}
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">After image</Label>
+                  {pair.afterUrl && <div className="relative rounded-xl overflow-hidden border-2 border-border aspect-video mb-2"><img src={pair.afterUrl} alt="after" className="w-full h-full object-cover"/><button onClick={() => update(pair.id, 'afterUrl', '')} className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-500 transition-colors"><X className="w-3 h-3"/></button></div>}
                   {!pair.afterUrl && <ImageUpload initialImage="" onImageUploaded={url => update(pair.id, 'afterUrl', url)}/>}
                 </div>
                 <div className="space-y-1"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">Caption (optional)</Label><Input value={pair.caption || ''} onChange={e => update(pair.id, 'caption', e.target.value)} placeholder="e.g. Gel removal & fresh set" className="h-8 rounded-lg border-2 text-xs"/></div>
@@ -737,7 +732,6 @@ export default function PageBuilderPage() {
   const { toast }          = useToast();
   useGoogleFonts();
 
-  const previewRef          = useRef<HTMLIFrameElement>(null); // kept for compatibility, unused
   const isFirstLoad         = useRef(true);
   const historyRef          = useRef<{ sections: PageSection[]; style: any }[]>([]);
   const futureRef           = useRef<{ sections: PageSection[]; style: any }[]>([]);
@@ -761,8 +755,7 @@ export default function PageBuilderPage() {
   const [isLandscape,     setIsLandscape]     = useState(false);
   const [drawerOpen,      setDrawerOpen]      = useState(true);
 
-  // ── Inline preview data ─────────────────────────────────────────────────────
-  const [previewData,    setPreviewData]      = useState<PageData>({
+  const [previewData, setPreviewData] = useState<PageData>({
     tenant: null, services: [], staff: [], events: [], tenantId: '',
   });
 
@@ -774,7 +767,6 @@ export default function PageBuilderPage() {
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  // ── Inject animation keyframes for inline preview ─────────────────────────
   useEffect(() => {
     if (!document.getElementById('cf-anim')) {
       const s = document.createElement('style');
@@ -783,7 +775,6 @@ export default function PageBuilderPage() {
     }
   }, []);
 
-  // ── Fetch data for inline preview (services / staff / events) ─────────────
   useEffect(() => {
     if (!selectedTenant || !firestore) return;
     let cancelled = false;
@@ -792,38 +783,29 @@ export default function PageBuilderPage() {
         const [svSnap, stSnap, evSnap] = await Promise.all([
           getDocs(collection(firestore, `tenants/${selectedTenant.id}/services`)),
           getDocs(collection(firestore, `tenants/${selectedTenant.id}/staff`)),
-          getDocs(collection(firestore, `tenants/${selectedTenant.id}/studioEvents`))
-            .catch(() => ({ docs: [] as any[] })),
+          getDocs(collection(firestore, `tenants/${selectedTenant.id}/studioEvents`)).catch(() => ({ docs: [] as any[] })),
         ]);
         if (!cancelled) {
           setPreviewData({
-            tenant:    selectedTenant,
-            tenantId:  selectedTenant.id,
-            services:  svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false),
-            staff:     stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false),
-            events:    evSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+            tenant:   selectedTenant,
+            tenantId: selectedTenant.id,
+            services: svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false),
+            staff:    stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false),
+            events:   evSnap.docs.map(d => ({ id: d.id, ...d.data() })),
           });
         }
       } catch (e) { console.warn('[builder:preview-data]', e); }
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedTenant?.id, firestore]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedTenant?.id, firestore]); // eslint-disable-line
 
-  // ── Default style: clean black & white ────────────────────────────────────
   const [style, setStyle] = useState({
-    accentColor: '#000000',
-    bgColor:     '#ffffff',
-    headingFont: 'josefin',
-    bodyFont:    'inter',
-    borderRadius: 4,
-    buttonStyle: 'filled' as 'filled' | 'outline' | 'ghost' | 'pill',
-    density:     'balanced' as 'compact' | 'balanced' | 'airy',
-    brandKit:    null as string | null,
+    accentColor: '#000000', bgColor: '#ffffff', headingFont: 'josefin', bodyFont: 'inter',
+    borderRadius: 4, buttonStyle: 'filled' as 'filled' | 'outline' | 'ghost' | 'pill',
+    density: 'balanced' as 'compact' | 'balanced' | 'airy', brandKit: null as string | null,
   });
 
-
-  // Load existing config
   useEffect(() => {
     const raw = (selectedTenant?.bookingPageSettings as any)?.cfPageConfig;
     if (!raw) return;
@@ -831,8 +813,7 @@ export default function PageBuilderPage() {
     const existing: PageBuilderConfig | undefined =
       Array.isArray(raw?.sections) && raw.sections.length > 0 &&
       (raw.sections as any[]).every((s: any) => typeof s?.type === 'string' && validTypes.has(s.type) && typeof s?.id === 'string')
-        ? raw as PageBuilderConfig
-        : undefined;
+        ? raw as PageBuilderConfig : undefined;
     if (!existing) return;
     isFirstLoad.current = true;
     if (existing.sections?.length) setSections(existing.sections);
@@ -847,13 +828,11 @@ export default function PageBuilderPage() {
     setTimeout(() => { isFirstLoad.current = false; }, 0);
   }, [selectedTenant]);
 
-  // Dirty tracking
   useEffect(() => {
     if (isFirstLoad.current) { isFirstLoad.current = false; return; }
     setIsDirty(true);
   }, [sections, style]);
 
-  // History
   const pushHistory = useCallback(() => {
     historyRef.current = [...historyRef.current.slice(-19), { sections: JSON.parse(JSON.stringify(sections)), style: { ...style } }];
     futureRef.current = []; setCanUndo(true); setCanRedo(false);
@@ -877,7 +856,6 @@ export default function PageBuilderPage() {
     setCanUndo(true); setCanRedo(futureRef.current.length > 0);
   }, [sections, style]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
@@ -890,6 +868,14 @@ export default function PageBuilderPage() {
   const enabledSections  = useMemo(() => sections.filter(s => s.enabled).sort((a,b) => a.order - b.order), [sections]);
   const disabledSections = useMemo(() => sections.filter(s => !s.enabled), [sections]);
   const selectedSection  = useMemo(() => sections.find(s => s.id === selectedId), [sections, selectedId]);
+
+  // ── KEY: ordered list of enabled section types for nav/bottom-bar ──────
+  // Computed once per render; passed into every SectionRenderer call so the
+  // nav drawer and bottom-bar always reflect the current live page structure.
+  const allSectionTypes = useMemo(
+    () => enabledSections.map(s => s.type),
+    [enabledSections]
+  );
 
   const moveUp = (id: string) => {
     pushHistory();
@@ -954,24 +940,77 @@ export default function PageBuilderPage() {
 
   const headingFontDef = FONTS.find(f => f.id === style.headingFont);
   const bodyFontDef    = FONTS.find(f => f.id === style.bodyFont);
-  const previewUrl          = selectedTenant ? `/book/${selectedTenant.id}` : null;
+  const previewUrl     = selectedTenant ? `/book/${selectedTenant.id}` : null;
 
-  // ── Resolved style for the inline preview (always current, no postMessage needed) ──
   const resolvedPreviewStyle: StyleConfig = {
-    accentColor:  style.accentColor,
-    bgColor:      style.bgColor,
-    headingFont:  style.headingFont,
-    bodyFont:     style.bodyFont,
-    borderRadius: style.borderRadius,
-    buttonStyle:  style.buttonStyle,
-    density:      style.density,
+    accentColor: style.accentColor, bgColor: style.bgColor,
+    headingFont: style.headingFont, bodyFont: style.bodyFont,
+    borderRadius: style.borderRadius, buttonStyle: style.buttonStyle, density: style.density,
   };
 
-  // Sync fonts whenever the style changes
-  useEffect(() => {
-    previewInjectFonts(style.headingFont, style.bodyFont);
-  }, [style.headingFont, style.bodyFont]);
-  const selectedDef    = selectedSection ? SECTION_DEFS[selectedSection.type as SectionType] : null;
+  useEffect(() => { previewInjectFonts(style.headingFont, style.bodyFont); }, [style.headingFont, style.bodyFont]);
+
+  const selectedDef = selectedSection ? SECTION_DEFS[selectedSection.type as SectionType] : null;
+
+  // ── Shared render helper: renders all enabled sections with allSectionTypes ──
+  // This is the single source of truth — used in desktop preview, mobile
+  // portrait, and mobile landscape. allSectionTypes is passed through so the
+  // nav drawer + bottom-bar always knows the full page structure.
+  const renderPreview = () => (
+    <>
+      {enabledSections.map(section => {
+        const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}-${(section.config as any)._animation?.speed || 700}`;
+        return (
+          <SectionWrapper
+            key={animKey}
+            section={section}
+            isPreview={true}
+            onEdit={(id) => {
+              setSelectedId(id);
+              setActivePanel('sections');
+              setHighlightedField(null);
+              setShowLibrary(false);
+              // Open mobile panel when tapping edit overlay
+              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                setMobileFieldView(false);
+                setMobilePanelTab('sections');
+                if (mobileSheet === 'closed') setMobileSheet('half');
+              }
+            }}
+            onFieldTap={(sId, fKey) => {
+              setSelectedId(sId);
+              setActivePanel('sections');
+              setHighlightedField(fKey);
+              setTimeout(() => setHighlightedField(null), 4000);
+              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                setMobileFieldView(true);
+                setMobileSheet('full');
+              }
+            }}
+          >
+            <SectionRenderer
+              section={section}
+              style={resolvedPreviewStyle}
+              data={previewData}
+              isPreview={true}
+              allSectionTypes={allSectionTypes}
+              onFieldTap={(sId, fKey) => {
+                setSelectedId(sId);
+                setActivePanel('sections');
+                setHighlightedField(fKey);
+                setTimeout(() => setHighlightedField(null), 4000);
+                if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                  setMobileFieldView(true);
+                  setMobileSheet('full');
+                }
+              }}
+            />
+          </SectionWrapper>
+        );
+      })}
+      <PreviewFooter tenant={previewData.tenant ?? selectedTenant} style={resolvedPreviewStyle}/>
+    </>
+  );
 
   const renderStylePanel = () => (
     <div className="space-y-6 p-4">
@@ -1137,20 +1176,7 @@ export default function PageBuilderPage() {
           <div className="absolute inset-0 flex">
             <div className="flex-1 min-w-0 relative overflow-hidden" style={{ background: resolvedPreviewStyle.bgColor }}>
               {selectedTenant ? (
-                <div className="w-full h-full overflow-y-auto overflow-x-hidden">
-                  {enabledSections.map(section => {
-                    const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}`;
-                    return (
-                      <SectionWrapper key={animKey} section={section} isPreview={true}
-                        onEdit={(id) => { setSelectedId(id); setShowLibrary(false); setMobileFieldView(false); setDrawerOpen(true); }}
-                        onFieldTap={(sId, fKey) => { setSelectedId(sId); setMobileFieldView(true); setDrawerOpen(true); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); }}>
-                        <SectionRenderer section={section} style={resolvedPreviewStyle} data={previewData} isPreview={true}
-                          onFieldTap={(sId, fKey) => { setSelectedId(sId); setMobileFieldView(true); setDrawerOpen(true); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); }}/>
-                      </SectionWrapper>
-                    );
-                  })}
-                  <PreviewFooter tenant={previewData.tenant ?? selectedTenant} style={resolvedPreviewStyle}/>
-                </div>
+                <div className="w-full h-full overflow-y-auto overflow-x-hidden">{renderPreview()}</div>
               ) : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
               {!drawerOpen && (
                 <button onClick={() => setDrawerOpen(true)} className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 py-4 bg-white border-y border-l border-border rounded-l-xl shadow-lg flex flex-col items-center gap-1.5 text-primary">
@@ -1179,20 +1205,7 @@ export default function PageBuilderPage() {
           <>
             <div className="absolute inset-0 overflow-hidden" style={{ background: resolvedPreviewStyle.bgColor }}>
               {selectedTenant ? (
-                <div className="w-full h-full overflow-y-auto overflow-x-hidden">
-                  {enabledSections.map(section => {
-                    const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}`;
-                    return (
-                      <SectionWrapper key={animKey} section={section} isPreview={true}
-                        onEdit={(id) => { setSelectedId(id); setShowLibrary(false); setMobileFieldView(false); setMobileSheet('full'); }}
-                        onFieldTap={(sId, fKey) => { setSelectedId(sId); setMobileFieldView(true); setMobileSheet('full'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); }}>
-                        <SectionRenderer section={section} style={resolvedPreviewStyle} data={previewData} isPreview={true}
-                          onFieldTap={(sId, fKey) => { setSelectedId(sId); setMobileFieldView(true); setMobileSheet('full'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); }}/>
-                      </SectionWrapper>
-                    );
-                  })}
-                  <PreviewFooter tenant={previewData.tenant ?? selectedTenant} style={resolvedPreviewStyle}/>
-                </div>
+                <div className="w-full h-full overflow-y-auto overflow-x-hidden">{renderPreview()}</div>
               ) : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
             </div>
             <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
@@ -1314,7 +1327,7 @@ export default function PageBuilderPage() {
             )}
           </div>
 
-          {/* Right: live preview — inline render, zero latency */}
+          {/* Right: live preview */}
           <div className="flex-1 min-w-0 h-full flex flex-col bg-slate-100">
             <div className="h-12 px-4 border-b bg-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
@@ -1331,8 +1344,6 @@ export default function PageBuilderPage() {
                 {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all" title="Open live page"><ExternalLink className="w-3.5 h-3.5"/></a>}
               </div>
             </div>
-
-            {/* Scrollable preview — direct React render, updates on every state change */}
             <div className={cn('flex-1 min-h-0 overflow-hidden flex', previewMode === 'mobile' ? 'items-start justify-center p-6 bg-slate-200' : 'bg-slate-100')}>
               {selectedTenant ? (
                 <div className={cn(
@@ -1341,42 +1352,7 @@ export default function PageBuilderPage() {
                     ? 'w-full rounded-xl shadow-xl bg-white'
                     : 'w-[390px] shrink-0 rounded-[2rem] shadow-2xl ring-8 ring-slate-800 bg-white'
                 )} style={{ background: resolvedPreviewStyle.bgColor }}>
-                  {enabledSections.map(section => {
-                    const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}-${(section.config as any)._animation?.speed || 700}`;
-                    return (
-                      <SectionWrapper
-                        key={animKey}
-                        section={section}
-                        isPreview={true}
-                        onEdit={(id) => {
-                          setSelectedId(id);
-                          setActivePanel('sections');
-                          setHighlightedField(null);
-                          setShowLibrary(false);
-                        }}
-                        onFieldTap={(sId, fKey) => {
-                          setSelectedId(sId);
-                          setActivePanel('sections');
-                          setHighlightedField(fKey);
-                          setTimeout(() => setHighlightedField(null), 4000);
-                        }}
-                      >
-                        <SectionRenderer
-                          section={section}
-                          style={resolvedPreviewStyle}
-                          data={previewData}
-                          isPreview={true}
-                          onFieldTap={(sId, fKey) => {
-                            setSelectedId(sId);
-                            setActivePanel('sections');
-                            setHighlightedField(fKey);
-                            setTimeout(() => setHighlightedField(null), 4000);
-                          }}
-                        />
-                      </SectionWrapper>
-                    );
-                  })}
-                  <PreviewFooter tenant={previewData.tenant ?? selectedTenant} style={resolvedPreviewStyle}/>
+                  {renderPreview()}
                 </div>
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
