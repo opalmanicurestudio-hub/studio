@@ -572,8 +572,8 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
               msOverflowStyle: 'none',
               scrollSnapType: 'x mandatory',
             }}>
-{barItems.map(item => (
-              
+            {barItems.map(item => (
+              <a
                 key={item.type}
                 href={item.href}
                 className="flex-shrink-0 flex flex-col items-center gap-0.5 py-3 px-3 text-slate-400 hover:text-slate-900 active:text-slate-900 transition-colors group"
