@@ -572,7 +572,7 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
               msOverflowStyle: 'none',
               scrollSnapType: 'x mandatory',
             }}>
-            {barItems.map(item => (
+{barItems.map(item => (
               
                 key={item.type}
                 href={item.href}
