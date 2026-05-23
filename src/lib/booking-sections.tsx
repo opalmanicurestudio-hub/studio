@@ -553,30 +553,16 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
       <div
         className="flex items-stretch overflow-x-auto"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', scrollSnapType: 'x mandatory' }}>
-       {barItems.map(item => (
+    {barItems.map(item => (
   <Link
     key={item.type}
     href={item.href}
     className="flex-shrink-0 flex flex-col items-center justify-center gap-0.5 py-2.5 px-3 transition-all group"
-    style={{
-            key={item.type}
-            href={item.href}
-            className="flex-shrink-0 flex flex-col items-center justify-center gap-0.5 py-2.5 px-3 transition-all group"
-            style={{
-              minWidth: 58,
-              scrollSnapAlign: 'start',
-              color: '#94a3b8',
-              WebkitTapHighlightColor: ac(style) + '22',
-            }}>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center group-hover:scale-110 transition-all duration-200 group-hover:bg-slate-50">
-              <item.Icon className="w-4 h-4" />
-            </div>
-            <span className="text-[7.5px] font-black uppercase tracking-wider whitespace-nowrap leading-none"
-                  style={{ fontFamily: bf(style) }}>
-              {item.label}
-            </span>
-          </a>
-        ))}
+    style={{ ... }}
+  >
+    {/* children */}
+  </Link>
+))}
         <div className="flex items-center ml-1 mr-2 my-1.5 shrink-0" style={{ scrollSnapAlign: 'end' }}>
           <button
             onClick={cta(config.ctaAction, config.ctaUrl)}
