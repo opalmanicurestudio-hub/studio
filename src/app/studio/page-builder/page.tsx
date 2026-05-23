@@ -190,8 +190,10 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' }, { k: 'showLinks', t: 'toggle', l: 'Show nav links', d: true },
     { k: 'sticky', t: 'toggle', l: 'Sticky nav', d: true }, { k: 'transparent', t: 'toggle', l: 'Transparent background', d: false },
     { k: 'socialLinks', t: 'social-links', l: 'Social icons in nav', d: [] },
+    { k: 'showQuickBook', t: 'toggle', l: 'Show Quick Book in drawer', d: true },
+    { k: 'quickBookLimit', t: 'select', l: 'Max services shown', d: '6', opts: ['3','4','5','6','8','10'] },
   ], layouts: [
-    { id: 'centered',    label: 'Centered',        preview: '[ logo | links | cta ]'           },
+    { id: 'centered',    label: 'Centered',       preview: '[ logo | links | cta ]'           },
     { id: 'floating',    label: 'Floating pill',    preview: '  ╭─ logo · links · cta ─╮  '    },
     { id: 'split',       label: 'Logo center',      preview: '[ links ] logo [ links ]'         },
     { id: 'bold',        label: 'Bold stacked',     preview: '   STUDIO NAME\n  links · cta'   },
@@ -260,8 +262,11 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'editorial', label: 'Editorial cards', preview: '┌────┐ ┌────┐'                },
     { id: 'row',       label: 'Horizontal row',  preview: '[ ◯ name ][ ◯ name ]'         },
     { id: 'grid',      label: 'Grid',            preview: '┌──┬──┬──┐'                   },
-    { id: 'featured',  label: 'Featured artist', preview: '[ large lead ]\n◯ ◯ ◯ team'   },
-    { id: 'minimal',   label: 'Minimal list',    preview: '— Name · Title'               },
+    { id: 'featured',   label: 'Featured artist', preview: '[ large lead ]\n◯ ◯ ◯ team'    },
+    { id: 'minimal',    label: 'Minimal list',    preview: '— Name · Title'                },
+    { id: 'solo-hero',  label: 'Solo hero',       preview: '[ portrait | name + bio ]'     },
+    { id: 'solo-card',  label: 'Solo card',       preview: '┌──────────┐\n│ portrait  │'  },
+    { id: 'solo-split', label: 'Solo editorial',  preview: '[ photo | name\n  bio · book ]'},
   ]},
   reviews: { label: 'Reviews', icon: Star, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'What Clients Say' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Real words from real guests' },
@@ -274,14 +279,19 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'carousel', label: 'Carousel',     preview: '← [ review ] →' },
     { id: 'quotes',   label: 'Large quotes', preview: '" quote text "' },
   ]},
-  gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', fields: [
+gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Work' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Every set, a canvas' },
-    { k: 'images', t: 'image-array', l: 'Gallery images', d: [] }, { k: 'showCaptions', t: 'toggle', l: 'Show captions', d: false },
+    { k: 'images', t: 'image-array', l: 'Gallery images (max 24)', d: [] }, { k: 'showCaptions', t: 'toggle', l: 'Show captions', d: false },
     { k: 'lightbox', t: 'toggle', l: 'Lightbox on click', d: true }, { k: 'columns', t: 'select', l: 'Columns', d: '3', opts: ['2','3','4'] },
+    { k: 'hoverEffect', t: 'select', l: 'Hover effect', d: 'zoom', opts: ['zoom','fade','none'] },
   ], layouts: [
-    { id: 'masonry',   label: 'Masonry',          preview: '┌──┐ ┌────┐\n│  │ │    │' },
-    { id: 'grid',      label: 'Uniform grid',      preview: '┌──┬──┬──┐'               },
-    { id: 'carousel',  label: 'Carousel',          preview: '← [ img ] →'               },
+    { id: 'masonry',   label: 'Masonry',      preview: '┌──┐ ┌────┐\n│  │ │    │' },
+    { id: 'grid',      label: 'Uniform grid', preview: '┌──┬──┬──┐'               },
+    { id: 'carousel',  label: 'Carousel',     preview: '← [ img ] →'               },
+    { id: 'bento',     label: 'Bento',        preview: '┌───┬──┐\n├──┬┴──┤'      },
+    { id: 'spotlight', label: 'Spotlight',    preview: '[ HERO ]\n─ grid ─'        },
+    { id: 'polaroid',  label: 'Polaroid',     preview: '⌐─╗  ⌐─╗\n╚─╝  ╚─╝'    },
+    { id: 'filmstrip', label: 'Filmstrip',    preview: '▐███▌▐███▌▐███▌'          },
   ]},
   beforeafter: { label: 'Before / After', icon: RotateCcw, color: '#0F6E56', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Transformations' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'See the difference we make' },
@@ -354,9 +364,12 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'q5', t: 'text', l: 'Question 5 (optional)', d: '' }, { k: 'a5', t: 'textarea', l: 'Answer 5', d: '' },
     { k: 'q6', t: 'text', l: 'Question 6 (optional)', d: '' }, { k: 'a6', t: 'textarea', l: 'Answer 6', d: '' },
   ], layouts: [
-    { id: 'accordion', label: 'Accordion',   preview: '▶ Question 1\n▶ Question 2' },
-    { id: 'two-col',   label: 'Two columns', preview: '┌──┬──┐\n│Q │Q │'          },
+    { id: 'accordion', label: 'Accordion',    preview: '▶ Question 1\n▶ Question 2' },
+    { id: 'two-col',   label: 'Two columns',  preview: '┌──┬──┐\n│Q │Q │'          },
     { id: 'minimal',   label: 'Minimal list', preview: 'Q · A\nQ · A'              },
+    { id: 'cards',     label: 'Cards',        preview: '┌────┐ ┌────┐\n│Q+A │ │Q+A│'},
+    { id: 'bold',      label: 'Bold numbers', preview: '01 Big Q?\n   Answer here'  },
+    { id: 'split',     label: 'Split panel',  preview: '[ Questions | Answer ]'    },
   ]},
   policies: { label: 'Policies', icon: Shield, color: '#0F6E56', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Policies' }, { k: 'subheading', t: 'text', l: 'Subheading', d: '' },
@@ -394,14 +407,24 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'split',    label: 'Split reward', preview: '[ you get | friend gets ]' },
     { id: 'centered', label: 'Centered',     preview: '  offer · [get link]  '   },
   ]},
-  story: { label: 'Studio Story', icon: BookOpen, color: '#3B6D11', fields: [
-    { k: 'image', t: 'image', l: 'Section image', d: '' }, { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Story' },
-    { k: 'body', t: 'textarea', l: 'Story text', d: 'Opal was born from a belief that nail care is more than maintenance.' },
-    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Meet the team' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-team', opts: ['booking','scroll-team','url'] },
+  story: { label: 'Studio Story / Content', icon: BookOpen, color: '#3B6D11', fields: [
+    { k: 'image', t: 'image', l: 'Section image', d: '' },
+    { k: 'heading', t: 'text', l: 'Heading', d: 'Our Story' },
+    { k: 'tag', t: 'text', l: 'Eyebrow label (optional)', d: '' },
     { k: 'pullQuote', t: 'text', l: 'Pull quote (optional)', d: '' },
+    { k: 'body', t: 'textarea', l: 'Body text', d: 'Opal was born from a belief that nail care is more than maintenance.' },
+    { k: 'body2', t: 'textarea', l: 'Second paragraph (optional)', d: '' },
+    { k: 'stat1Value', t: 'text', l: 'Stat 1 value (optional)', d: '' }, { k: 'stat1Label', t: 'text', l: 'Stat 1 label', d: '' },
+    { k: 'stat2Value', t: 'text', l: 'Stat 2 value (optional)', d: '' }, { k: 'stat2Label', t: 'text', l: 'Stat 2 label', d: '' },
+    { k: 'ctaText', t: 'text', l: 'Button text', d: '' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-team', opts: ['booking','scroll-team','scroll-services','url'] },
   ], layouts: [
-    { id: 'split',    label: 'Text + image', preview: '[ text | image ]'  },
-    { id: 'centered', label: 'Centered',     preview: '  heading\n  body' },
+    { id: 'split',      label: 'Text + image',   preview: '[ text | image ]'           },
+    { id: 'centered',   label: 'Centered',       preview: '  heading\n  body'           },
+    { id: 'immersive',  label: 'Immersive',      preview: '[ full image + overlay text ]'},
+    { id: 'founder',    label: 'Founder focus',  preview: '[ portrait | bio + stats ]'  },
+    { id: 'manifesto',  label: 'Manifesto',      preview: 'GIANT TYPE\n── body ──'      },
+    { id: 'editorial',  label: 'Editorial',      preview: '▌ #01 │ HEADING\n   body'    },
+    { id: 'minimal',    label: 'Minimal',        preview: '── heading ──\n    body'     },
   ]},
   instagram: { label: 'Instagram Feed', icon: Camera, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Follow Along' }, { k: 'handle', t: 'text', l: 'Instagram handle', d: '@opalmanicure' },
@@ -604,7 +627,7 @@ const BeforeAfterPairsEditor = ({ value, onChange }: { value: BeforeAfterPair[];
   );
 };
 
-const ImageArrayEditor = ({ value, onChange, maxImages = 50 }: { value: GalleryImage[]; onChange: (v: GalleryImage[]) => void; maxImages?: number }) => {
+const ImageArrayEditor = ({ value, onChange, maxImages = 24 }: { value: GalleryImage[]; onChange: (v: GalleryImage[]) => void; maxImages?: number }) => {
   const images: GalleryImage[] = Array.isArray(value) ? value : [];
   const remove = (id: string) => onChange(images.filter(img => img.id !== id));
   return (
@@ -666,17 +689,28 @@ const SectionListItem = ({ section, isSelected, isFirst, isLast, onSelect, onMov
   onSelect: () => void; onMoveUp: () => void; onMoveDown: () => void; onHide: () => void; onDuplicate: () => void;
 }) => {
   const def = SECTION_DEFS[section.type as SectionType]; const Icon = def.icon;
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
-    <div onClick={onSelect} className={cn('flex items-center gap-2.5 p-2.5 rounded-2xl border-2 cursor-pointer transition-all group', isSelected ? 'border-primary/30 bg-primary/5 shadow-md' : 'border-border bg-background hover:border-primary/20')}>
+    <div onClick={onSelect} className={cn('flex items-center gap-2.5 p-2.5 rounded-2xl border-2 cursor-pointer transition-all group', confirmDelete ? 'border-red-300 bg-red-50' : isSelected ? 'border-primary/30 bg-primary/5 shadow-md' : 'border-border bg-background hover:border-primary/20')}>
       <GripVertical className="w-3.5 h-3.5 text-muted-foreground/30 shrink-0"/>
       <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0" style={{ background: def.color + '18' }}><Icon className="w-3.5 h-3.5" style={{ color: def.color }}/></div>
-      <span className={cn('flex-1 text-[10px] font-black uppercase tracking-tight truncate', isSelected ? 'text-primary' : 'text-slate-700')}>{def.label}</span>
-      <div className="flex items-center gap-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-        <button onClick={onDuplicate} title="Duplicate" className="p-1 rounded hover:bg-muted text-muted-foreground"><Copy className="w-3 h-3"/></button>
-        <button onClick={onMoveUp}   disabled={isFirst} className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronUp className="w-3 h-3"/></button>
-        <button onClick={onMoveDown} disabled={isLast}  className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronDown className="w-3 h-3"/></button>
-        <button onClick={onHide} className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500"><X className="w-3 h-3"/></button>
-      </div>
+      {confirmDelete ? (
+        <div className="flex-1 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+          <span className="text-[9px] font-black uppercase tracking-widest text-red-600 flex-1">Remove section?</span>
+          <button onClick={() => { onHide(); setConfirmDelete(false); }} className="px-2 py-1 rounded-lg bg-red-500 text-white text-[9px] font-black uppercase tracking-widest hover:bg-red-600 transition-colors">Yes</button>
+          <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-[9px] font-black uppercase tracking-widest hover:bg-slate-200 transition-colors">Cancel</button>
+        </div>
+      ) : (
+        <>
+          <span className={cn('flex-1 text-[10px] font-black uppercase tracking-tight truncate', isSelected ? 'text-primary' : 'text-slate-700')}>{def.label}</span>
+          <div className="flex items-center gap-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+            <button onClick={onDuplicate} title="Duplicate" className="p-1 rounded hover:bg-muted text-muted-foreground"><Copy className="w-3 h-3"/></button>
+            <button onClick={onMoveUp}   disabled={isFirst} className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronUp className="w-3 h-3"/></button>
+            <button onClick={onMoveDown} disabled={isLast}  className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronDown className="w-3 h-3"/></button>
+            <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 4000); }} className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500"><X className="w-3 h-3"/></button>
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -754,6 +788,8 @@ export default function PageBuilderPage() {
   const [mobileFieldView, setMobileFieldView] = useState(false);
   const [isLandscape,     setIsLandscape]     = useState(false);
   const [drawerOpen,      setDrawerOpen]      = useState(true);
+  const [dragId,          setDragId]          = useState<string | null>(null);
+  const [dragOverId,      setDragOverId]      = useState<string | null>(null);
 
   const [previewData, setPreviewData] = useState<PageData>({
     tenant: null, services: [], staff: [], events: [], tenantId: '',
@@ -877,6 +913,24 @@ export default function PageBuilderPage() {
     [enabledSections]
   );
 
+const handleDrop = (targetId: string) => {
+    if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
+    pushHistory();
+    setSections(prev => {
+      const en = prev.filter(s => s.enabled).sort((a,b) => a.order - b.order);
+      const dragIdx  = en.findIndex(s => s.id === dragId);
+      const dropIdx  = en.findIndex(s => s.id === targetId);
+      if (dragIdx < 0 || dropIdx < 0) return prev;
+      const reordered = [...en];
+      const [moved] = reordered.splice(dragIdx, 1);
+      reordered.splice(dropIdx, 0, moved);
+      const orderMap: Record<string,number> = {};
+      reordered.forEach((s, i) => { orderMap[s.id] = i; });
+      return prev.map(s => orderMap[s.id] !== undefined ? { ...s, order: orderMap[s.id] } : s);
+    });
+    setDragId(null); setDragOverId(null);
+  };
+
   const moveUp = (id: string) => {
     pushHistory();
     setSections(prev => {
@@ -930,7 +984,12 @@ export default function PageBuilderPage() {
     if (!selectedTenant || !firestore) return;
     setIsSaving(true);
     try {
-      const config: PageBuilderConfig = { sections, ...style };
+      const sanitize = (v: any): any => {
+        if (Array.isArray(v)) return v.map(sanitize);
+        if (v !== null && typeof v === 'object') return Object.fromEntries(Object.entries(v).filter(([,x])=>x!==undefined).map(([k,x])=>[k,sanitize(x)]));
+        return v;
+      };
+      const config: PageBuilderConfig = sanitize({ sections, ...style });
       await updateDoc(doc(firestore, 'tenants', selectedTenant.id), { 'bookingPageSettings.cfPageConfig': config });
       setIsDirty(false);
       toast({ title: 'Page saved', description: 'Your booking page is updated and live.' });
@@ -988,12 +1047,11 @@ export default function PageBuilderPage() {
               }
             }}
           >
-            <SectionRenderer
-              section={section}
+         <SectionRenderer
+              section={section.type === 'nav' ? { ...section, config: { ...section.config, _enabledSections: allSectionTypes } } : section}
               style={resolvedPreviewStyle}
               data={previewData}
               isPreview={true}
-              allSectionTypes={allSectionTypes}
               onFieldTap={(sId, fKey) => {
                 setSelectedId(sId);
                 setActivePanel('sections');
@@ -1247,10 +1305,18 @@ export default function PageBuilderPage() {
               {activePanel === 'sections' && !showLibrary && (
                 <div className="space-y-1.5">
                   <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Active sections</p>
-                  {enabledSections.map((s, idx) => (
-                    <SectionListItem key={s.id} section={s} isSelected={selectedId === s.id} isFirst={idx === 0} isLast={idx === enabledSections.length - 1}
-                      onSelect={() => { setSelectedId(s.id); setActivePanel('sections'); setHighlightedField(null); }}
-                      onMoveUp={() => moveUp(s.id)} onMoveDown={() => moveDown(s.id)} onHide={() => hideSection(s.id)} onDuplicate={() => duplicateSection(s.id)}/>
+{enabledSections.map((s, idx) => (
+                    <div key={s.id}
+                      draggable
+                      onDragStart={() => setDragId(s.id)}
+                      onDragOver={e => { e.preventDefault(); setDragOverId(s.id); }}
+                      onDragLeave={() => setDragOverId(null)}
+                      onDrop={() => handleDrop(s.id)}
+                      className={cn('transition-all duration-150', dragOverId === s.id && dragId !== s.id && 'ring-2 ring-primary/40 rounded-2xl scale-[1.01]')}>
+                      <SectionListItem section={s} isSelected={selectedId === s.id} isFirst={idx === 0} isLast={idx === enabledSections.length - 1}
+                        onSelect={() => { setSelectedId(s.id); setActivePanel('sections'); setHighlightedField(null); }}
+                        onMoveUp={() => moveUp(s.id)} onMoveDown={() => moveDown(s.id)} onHide={() => hideSection(s.id)} onDuplicate={() => duplicateSection(s.id)}/>
+                    </div>
                   ))}
                   {enabledSections.length === 0 && <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">No active sections</div>}
                 </div>
