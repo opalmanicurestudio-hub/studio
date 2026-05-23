@@ -361,12 +361,12 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
               </div>
             </div>
           )}
-          {data.services.length > 0 && (
+        {config.showQuickBook !== false && data.services.length > 0 && (
             <div className="mt-6">
               <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3"
                  style={{ color: ac(style) }}>Quick Book</p>
               <div className="space-y-1">
-                {data.services.slice(0, 6).map((svc: any) => (
+                {data.services.slice(0, parseInt(config.quickBookLimit || '6')).map((svc: any) => (
                   <button key={svc.id}
                           onClick={() => { openBooking(svc); setDrawerOpen(false); }}
                           className="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors text-left">
@@ -553,14 +553,15 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
 
         <Drawer />
 
-        <div
-          className="fixed bottom-0 inset-x-0 border-t"
+     <div
+          className="bottom-0 inset-x-0 border-t"
           style={{
+            position: isPreview ? 'sticky' : 'fixed',
             background: 'rgba(255,255,255,0.97)',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
             borderColor: ac(style) + '12',
-            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            paddingBottom: isPreview ? '0px' : 'env(safe-area-inset-bottom, 0px)',
             zIndex: 110,
             isolation: 'isolate',
           }}>
@@ -1901,6 +1902,94 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
     );
   }
 
+  if (layout === 'solo-hero') {
+    const solo = staff[0];
+    return (
+      <section id="team" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-5xl mx-auto px-6 md:px-16">
+          <Header/>
+          {solo ? (
+            <div className="grid md:grid-cols-2 gap-14 md:gap-20 items-center">
+              <div className="relative">
+                <div className="overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2), aspectRatio: '3/4' }}>
+                  {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center" style={{ background: ac(style)+'14' }}><span className="text-8xl font-light" style={{ fontFamily: hf(style), color: ac(style)+'40' }}>{solo.name?.[0]}</span></div>}
+                </div>
+                <div className="absolute -bottom-4 -left-4 px-5 py-3 text-white shadow-xl" style={{ background: ac(style), borderRadius: br(style,1.5) }}>
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Artist</p>
+                  <p className="text-sm font-black uppercase tracking-tight">{solo.name}</p>
+                </div>
+              </div>
+              <div className="space-y-7 pt-8 md:pt-0">
+                <div className="w-10 h-px" style={{ background: ac(style) }}/>
+                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'The Artist'}</FieldTap>
+                {config.showSpecialties !== false && solo.specialties?.length > 0 && (
+                  <div className="flex flex-wrap gap-2">{solo.specialties.map((s: string, i: number) => <span key={i} className="px-3 py-1 text-[10px] font-black uppercase tracking-widest" style={{ background: ac(style)+'12', color: ac(style), borderRadius: br(style,2) }}>{s}</span>)}</div>
+                )}
+                {config.showBio && solo.bio && <p className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
+                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="inline-flex items-center gap-2 px-8 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'} <ArrowRight className="w-3.5 h-3.5"/></button>}
+              </div>
+            </div>
+          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (layout === 'solo-card') {
+    const solo = staff[0];
+    return (
+      <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
+        <div className="max-w-sm mx-auto px-6 md:px-0 text-center">
+          <Header/>
+          {solo ? (
+            <div className="bg-white overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2), border: `2px solid ${ac(style)}15` }}>
+              <div className="relative overflow-hidden" style={{ aspectRatio: '3/4', background: ac(style)+'10' }}>
+                {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover"/> : <div className="absolute inset-0 flex items-center justify-center"><span className="text-9xl font-light" style={{ fontFamily: hf(style), color: ac(style)+'25' }}>{solo.name?.[0]}</span></div>}
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)' }}/>
+                <div className="absolute bottom-0 inset-x-0 p-6 text-left">
+                  <p className="text-xl font-light text-white" style={{ fontFamily: hf(style) }}>{solo.name}</p>
+                  {config.showSpecialties !== false && solo.specialties?.length > 0 && <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mt-1">{solo.specialties.slice(0,3).join(' · ')}</p>}
+                </div>
+              </div>
+              <div className="p-6 space-y-4">
+                {config.showBio && solo.bio && <p className="text-sm text-slate-500 leading-relaxed text-left" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
+                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book an appointment'}</button>}
+              </div>
+            </div>
+          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (layout === 'solo-split') {
+    const solo = staff[0];
+    return (
+      <section id="team" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto px-6 md:px-16">
+          <Header/>
+          {solo ? (
+            <div className="grid md:grid-cols-[1.2fr_1fr] gap-0 overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2) }}>
+              <div className="relative overflow-hidden" style={{ minHeight: 500, background: ac(style)+'12' }}>
+                {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="absolute inset-0 w-full h-full object-cover"/> : <div className="absolute inset-0 flex items-center justify-center"><span className="text-[180px] font-light opacity-10" style={{ fontFamily: hf(style), color: ac(style) }}>{solo.name?.[0]}</span></div>}
+              </div>
+              <div className="bg-white p-8 md:p-12 flex flex-col justify-center space-y-7">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] mb-2" style={{ color: ac(style) }}>{config.heading || 'The Artist'}</p>
+                  <h2 className="text-3xl md:text-4xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{solo.name}</h2>
+                </div>
+                <div className="w-10 h-px" style={{ background: ac(style) }}/>
+                {config.showSpecialties !== false && solo.specialties?.length > 0 && <div className="flex flex-wrap gap-2">{solo.specialties.map((s: string, i: number) => <span key={i} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest border" style={{ color: '#64748b', borderColor: ac(style)+'25', borderRadius: br(style) }}>{s}</span>)}</div>}
+                {config.showBio && solo.bio && <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
+                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="inline-flex items-center gap-2 px-8 py-4 font-black text-sm uppercase tracking-widest shadow-lg hover:opacity-90 transition-all w-fit" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'} <ArrowRight className="w-3.5 h-3.5"/></button>}
+              </div>
+            </div>
+          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section id="team" className={py(style)} style={{ background: style.bgColor }}>
       <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
@@ -1996,9 +2085,106 @@ function GallerySection({ config, style, isPreview, sectionId, onFieldTap }: Sec
   const H = () => <div className="text-center mb-16 space-y-4"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Work'}</FieldTap>{config.subheading && <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</FieldTap>}</div>;
   const Lb = () => lb ? (<div className="fixed inset-0 z-[999] bg-black/90 flex items-center justify-center p-4" onClick={() => setLb(null)}><button className="absolute top-4 right-4 text-white/60 hover:text-white transition-colors"><XIcon className="w-8 h-8"/></button><img src={lb} alt="" className="max-w-full max-h-full object-contain rounded-xl" onClick={e => e.stopPropagation()}/></div>) : null;
   if (layout === 'carousel') return (<section className={py(style)} style={{ background: '#f8fafc' }}><div className="max-w-6xl mx-auto px-6 md:px-16"><H/><div className="flex gap-4 overflow-x-auto pb-4 snap-x" style={{ scrollbarWidth: 'none' }}>{imgs.map((img:any,i:number) => <div key={i} className="shrink-0 snap-start overflow-hidden group cursor-pointer" style={{ width:'280px', height:'350px', borderRadius: br(style) }} onClick={() => img.url && config.lightbox !== false && setLb(img.url)}>{img.url ? <img src={img.url} alt={img.caption||''} className={`w-full h-full object-cover ${hCls}`}/> : <div className="w-full h-full" style={{ background: ac(style)+img.shade }}/>}</div>)}</div></div><Lb/></section>);
+
+  if (layout === 'bento') {
+    const bentoImgs = imgs.slice(0, 9);
+    const bentoPattern = ['col-span-2 row-span-2','col-span-1 row-span-1','col-span-1 row-span-1','col-span-1 row-span-1','col-span-1 row-span-1','col-span-1 row-span-2','col-span-2 row-span-1','col-span-1 row-span-1','col-span-1 row-span-1'];
+    return (
+      <section className={py(style)} style={{ background: '#f8fafc' }}>
+        <div className="max-w-6xl mx-auto px-6 md:px-16"><H/>
+          <div className="grid grid-cols-3 md:grid-cols-4 gap-3 auto-rows-[180px] md:auto-rows-[200px]">
+            {bentoImgs.map((img:any, i:number) => (
+              <div key={img.id??i} className={cn('overflow-hidden group cursor-pointer relative', bentoPattern[i] || 'col-span-1 row-span-1')} style={{ borderRadius: br(style, 2) }}
+                   onClick={() => img.url && config.lightbox !== false && setLb(img.url)}>
+                {img.url
+                  ? <><img src={img.url} alt={img.caption||''} className={`w-full h-full object-cover ${hCls}`}/><div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-400"/>{config.showCaptions && img.caption && <div className="absolute bottom-0 inset-x-0 px-4 py-3 bg-gradient-to-t from-black/70 to-transparent text-white text-[11px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">{img.caption}</div>}</>
+                  : <div className="w-full h-full" style={{ background: ac(style)+img.shade }}/>}
+              </div>
+            ))}
+          </div>
+        </div><Lb/>
+      </section>
+    );
+  }
+
+  if (layout === 'spotlight') {
+    const [hero, ...rest] = imgs;
+    return (
+      <section className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto px-6 md:px-16"><H/>
+          <div className="space-y-3">
+            {hero && (
+              <div className="relative overflow-hidden group cursor-pointer w-full" style={{ height: '480px', borderRadius: br(style, 2) }}
+                   onClick={() => hero.url && config.lightbox !== false && setLb(hero.url)}>
+                {hero.url
+                  ? <><img src={hero.url} alt={hero.caption||''} className={`w-full h-full object-cover ${hCls}`}/><div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-all"/>{config.showCaptions && hero.caption && <div className="absolute bottom-0 inset-x-0 px-8 py-6 bg-gradient-to-t from-black/70 to-transparent"><p className="text-white text-sm font-black uppercase tracking-widest">{hero.caption}</p></div>}</>
+                  : <div className="w-full h-full" style={{ background: ac(style)+hero.shade }}/>}
+                <div className="absolute top-4 left-4 px-3 py-1 text-[9px] font-black uppercase tracking-[0.3em] text-white" style={{ background: ac(style), borderRadius: br(style) }}>Featured</div>
+              </div>
+            )}
+            <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {rest.map((img:any, i:number) => (
+                <div key={img.id??i} className="overflow-hidden group cursor-pointer aspect-square relative" style={{ borderRadius: br(style) }}
+                     onClick={() => img.url && config.lightbox !== false && setLb(img.url)}>
+                  {img.url ? <img src={img.url} alt={img.caption||''} className={`w-full h-full object-cover ${hCls}`}/> : <div className="w-full h-full" style={{ background: ac(style)+img.shade }}/>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div><Lb/>
+      </section>
+    );
+  }
+
+  if (layout === 'polaroid') return (
+    <section className={cn(py(style), 'overflow-hidden')} style={{ background: '#f8fafc' }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16"><H/>
+        <div className="flex flex-wrap justify-center gap-6 md:gap-8">
+          {imgs.map((img:any, i:number) => {
+            const rotations = [-3, 1.5, -1, 2.5, -2, 1, -1.5, 2, -0.5, 1.8, -2.2, 0.8];
+            const rot = rotations[i % rotations.length];
+            return (
+              <div key={img.id??i} className="group cursor-pointer bg-white shadow-xl hover:shadow-2xl transition-all duration-400 hover:-translate-y-3 p-3 pb-10"
+                   style={{ borderRadius: '4px', transform: `rotate(${rot}deg)`, transformOrigin: 'center' }}
+                   onClick={() => img.url && config.lightbox !== false && setLb(img.url)}>
+                <div className="overflow-hidden" style={{ width: 180, height: 200, background: ac(style)+(img.shade||'10') }}>
+                  {img.url ? <img src={img.url} alt={img.caption||''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-600"/> : <div className="w-full h-full"/>}
+                </div>
+                {config.showCaptions && img.caption && <p className="mt-3 text-center text-xs text-slate-500" style={{ fontFamily: 'cursive', fontSize: '13px' }}>{img.caption}</p>}
+              </div>
+            );
+          })}
+        </div>
+      </div><Lb/>
+    </section>
+  );
+
+  if (layout === 'filmstrip') return (
+    <section className={py(style)} style={{ background: '#0c0c0e' }}>
+      <div className="max-w-6xl mx-auto px-6 md:px-16">
+        <div className="text-center mb-12 space-y-4">
+          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light text-white" style={{ fontFamily: hf(style) }}>{config.heading || 'Our Work'}</FieldTap>
+          {config.subheading && <p className="text-base text-white/50" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
+        </div>
+        <div className="border-y-2 py-4" style={{ borderColor: ac(style)+'40' }}>
+          <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+            {[...imgs,...imgs].map((img:any, i:number) => (
+              <div key={i} className="shrink-0 overflow-hidden group cursor-pointer relative" style={{ width: 220, height: 300, borderRadius: br(style) }}
+                   onClick={() => img.url && config.lightbox !== false && setLb(img.url)}>
+                {img.url
+                  ? <><img src={img.url} alt={img.caption||''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"/><div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"/></>
+                  : <div className="w-full h-full" style={{ background: ac(style)+img.shade+'aa' }}/>}
+                <div className="absolute top-2 left-2 text-[9px] font-black uppercase tracking-widest text-white/40">{String(i % imgs.length + 1).padStart(2,'0')}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div><Lb/>
+    </section>
+  );
+
   return (<section className={py(style)} style={{ background: '#f8fafc' }}><div className="max-w-6xl mx-auto px-6 md:px-16"><H/><div className={`grid ${gridCls} gap-3`}>{imgs.map((img:any,i:number) => <div key={img.id??i} className={cn('overflow-hidden group cursor-pointer aspect-square', layout === 'masonry' && (i===0||i===5) ? 'row-span-2' : '')} style={{ borderRadius: br(style) }} onClick={() => img.url && config.lightbox !== false && setLb(img.url)}>{img.url ? (<div className="relative h-full"><img src={img.url} alt={img.caption||''} className={`w-full h-full object-cover ${hCls}`}/>{config.showCaptions && img.caption && <div className="absolute bottom-0 inset-x-0 px-3 py-2 bg-black/50 text-white text-[10px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">{img.caption}</div>}</div>) : <div className="w-full h-full" style={{ background: ac(style)+img.shade }}/>}</div>)}</div></div><Lb/></section>);
 }
-
 // ─── BeforeAfterSlider ────────────────────────────────────────────────────────
 function BeforeAfterSlider({ pair, sliderColor, showLabels, style }: {
   pair: any; sliderColor: string; showLabels: boolean; style: StyleConfig;
@@ -2435,6 +2621,89 @@ function FAQSection({ config, style, isPreview, sectionId, onFieldTap }: Section
   const H = () => <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light text-center mb-14" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Common Questions'}</FieldTap>;
   if (layout === 'two-col') return <section className={py(style)} style={{ background: '#f8fafc' }}><div className="max-w-5xl mx-auto px-6 md:px-16"><H/><div className="grid md:grid-cols-2 gap-6">{items.map((item,i) => <div key={i} className="p-6 bg-white space-y-2" style={{ borderRadius: br(style), border: `2px solid ${ac(style)}20` }}><p className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{item.q}</p><p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{item.a}</p></div>)}</div></div></section>;
   if (layout === 'minimal') return <section className={py(style)} style={{ background: style.bgColor }}><div className="max-w-3xl mx-auto px-6 md:px-16"><H/><div className="space-y-6">{items.map((item,i) => <div key={i} className="border-b pb-6" style={{ borderColor: ac(style)+'18' }}><p className="text-sm font-black uppercase tracking-tight text-slate-900 mb-2" style={{ fontFamily: bf(style) }}>{item.q}</p><p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{item.a}</p></div>)}</div></div></section>;
+  if (layout === 'cards') return (
+    <section className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16"><H/>
+        <div className="grid md:grid-cols-2 gap-4">
+          {items.map((item, i) => {
+            const isOpen = open === i;
+            return (
+              <div key={i} className="group bg-white p-6 space-y-3 cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+                   style={{ borderRadius: br(style, 1.5), border: `2px solid ${isOpen ? ac(style) : ac(style)+'20'}` }}
+                   onClick={() => setOpen(isOpen ? null : i)}>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="font-black text-sm uppercase tracking-tight text-slate-900 flex-1" style={{ fontFamily: bf(style) }}>{item.q}</span>
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ background: isOpen ? ac(style) : ac(style)+'12' }}>
+                    {isOpen ? <ChevronUp className="w-3 h-3 text-white"/> : <ChevronDown className="w-3 h-3" style={{ color: ac(style) }}/>}
+                  </div>
+                </div>
+                {isOpen && <p className="text-sm text-slate-500 leading-relaxed border-t pt-3" style={{ fontFamily: bf(style), borderColor: ac(style)+'15' }}>{item.a}</p>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+
+  if (layout === 'bold') return (
+    <section className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-4xl mx-auto px-6 md:px-16"><H/>
+        <div className="space-y-0">
+          {items.map((item, i) => {
+            const isOpen = open === i;
+            return (
+              <div key={i} className="group border-b cursor-pointer" style={{ borderColor: ac(style)+'15' }}
+                   onClick={() => setOpen(isOpen ? null : i)}>
+                <div className="flex items-start gap-6 py-8 hover:pl-3 transition-all duration-300">
+                  <span className="text-5xl font-light shrink-0 leading-none" style={{ color: isOpen ? ac(style) : ac(style)+'22', fontFamily: hf(style) }}>{String(i+1).padStart(2,'0')}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black text-lg md:text-xl uppercase tracking-tight text-slate-900 leading-tight" style={{ fontFamily: bf(style) }}>{item.q}</p>
+                    <div style={{ maxHeight: isOpen ? '200px' : '0px', overflow: 'hidden', opacity: isOpen ? 1 : 0, transition: 'max-height 0.4s ease, opacity 0.3s' }}>
+                      <p className="text-sm text-slate-500 leading-relaxed mt-3" style={{ fontFamily: bf(style) }}>{item.a}</p>
+                    </div>
+                  </div>
+                  <ChevronDown className="w-5 h-5 shrink-0 mt-1 transition-transform duration-300" style={{ color: ac(style)+'60', transform: isOpen ? 'rotate(180deg)' : 'none' }}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+
+  if (layout === 'split') {
+    const [activeIdx, setActiveIdx] = React.useState(0);
+    return (
+      <section className={py(style)} style={{ background: '#f8fafc' }}>
+        <div className="max-w-5xl mx-auto px-6 md:px-16"><H/>
+          <div className="grid md:grid-cols-2 gap-0 bg-white overflow-hidden shadow-xl" style={{ borderRadius: br(style, 2), border: `2px solid ${ac(style)}18` }}>
+            <div className="border-r" style={{ borderColor: ac(style)+'15' }}>
+              {items.map((item, i) => (
+                <button key={i} onClick={() => setActiveIdx(i)}
+                  className="w-full flex items-center gap-4 px-6 py-5 text-left border-b last:border-0 transition-all hover:bg-slate-50"
+                  style={{ borderColor: ac(style)+'10', background: activeIdx === i ? ac(style)+'08' : 'transparent', borderLeft: activeIdx === i ? `3px solid ${ac(style)}` : '3px solid transparent' }}>
+                  <span className="text-[11px] font-black uppercase tracking-tight leading-snug flex-1" style={{ color: activeIdx === i ? '#0f172a' : '#64748b', fontFamily: bf(style) }}>{item.q}</span>
+                  <ChevronRight className="w-4 h-4 shrink-0" style={{ color: activeIdx === i ? ac(style) : '#cbd5e1' }}/>
+                </button>
+              ))}
+            </div>
+            <div className="p-8 md:p-10 flex flex-col justify-center min-h-[300px]">
+              {items[activeIdx] && (
+                <div className="space-y-4" key={activeIdx} style={{ animation: 'cf-fade-up 0.35s both' }}>
+                  <div className="w-8 h-px" style={{ background: ac(style) }}/>
+                  <p className="font-black text-base uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{items[activeIdx].q}</p>
+                  <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{items[activeIdx].a}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return <section className={py(style)} style={{ background: '#f8fafc' }}><div className="max-w-3xl mx-auto px-6 md:px-16"><H/><div className="space-y-2">{items.map((item,i) => <div key={i} className="overflow-hidden bg-white" style={{ borderRadius: br(style), border: `2px solid ${ac(style)}22` }}><button onClick={() => setOpen(open === i ? null : i)} className="w-full flex items-center justify-between p-6 text-left hover:bg-slate-50/80 transition-colors"><span className="font-black text-sm uppercase tracking-tight text-slate-900 pr-4" style={{ fontFamily: bf(style) }}>{item.q}</span>{open === i ? <ChevronUp className="w-4 h-4 shrink-0" style={{ color: ac(style) }}/> : <ChevronDown className="w-4 h-4 shrink-0 text-slate-300"/>}</button>{open === i && <div className="px-6 pb-6 text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{item.a}</div>}</div>)}</div></div></section>;
 }
 
@@ -2543,16 +2812,141 @@ function ReferralSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 // ─── StorySection ─────────────────────────────────────────────────────────────
 function StorySection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const hasImage = !!config.image;
+  const layout = config.layout || 'split';
+
+  const EyebrowTag = () => config.tag ? (
+    <span className="inline-block px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] mb-2" style={{ background: ac(style)+'14', color: ac(style), borderRadius: '999px' }}>{config.tag}</span>
+  ) : null;
+
+  const Stats = () => (config.stat1Label || config.stat2Label) ? (
+    <div className="flex gap-8 pt-2">
+      {config.stat1Value && config.stat1Label && <div><p className="text-2xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>{config.stat1Value}</p><p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-0.5">{config.stat1Label}</p></div>}
+      {config.stat2Value && config.stat2Label && <div><p className="text-2xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>{config.stat2Value}</p><p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-0.5">{config.stat2Label}</p></div>}
+    </div>
+  ) : null;
+
+  const CtaBtn = ({ dark = false }: { dark?: boolean }) => config.ctaText ? (
+    <button onClick={cta(config.ctaAction, config.ctaUrl)} className="inline-flex items-center gap-2 px-8 py-3.5 font-black text-sm uppercase tracking-widest hover:opacity-80 transition-all"
+      style={dark ? { background: 'white', color: ac(style), borderRadius: br(style), fontFamily: bf(style) } : { ...btnStyle(style,'secondary'), fontFamily: bf(style) }}>
+      {config.ctaText} <ArrowRight className="w-3.5 h-3.5"/>
+    </button>
+  ) : null;
+
+  if (layout === 'immersive') return (
+    <section className="relative overflow-hidden" style={{ minHeight: '80vh', background: '#0c0c0e' }}>
+      {hasImage && <><img src={config.image} alt="" className="absolute inset-0 w-full h-full object-cover opacity-35"/><div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.3) 100%)' }}/></>}
+      {!hasImage && <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 30% 50%, ${ac(style)}25 0%, #0c0c0e 70%)` }}/>}
+      <div className="relative z-10 max-w-5xl mx-auto px-8 md:px-14 py-28 flex flex-col justify-center min-h-[80vh]">
+        <div className="max-w-xl space-y-7">
+          <EyebrowTag/><div className="w-12 h-px" style={{ background: ac(style) }}/>
+          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="font-light leading-[0.9] text-white" style={{ fontSize: 'clamp(40px,6vw,76px)', fontFamily: hf(style) }}>{config.heading || 'Our Story'}</FieldTap>
+          {config.pullQuote && <p className="text-xl font-light italic" style={{ fontFamily: hf(style), color: ac(style) }}>"{config.pullQuote}"</p>}
+          <FieldTap sectionId={sectionId} fieldKey="body" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base leading-relaxed" style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.62)' }}>{config.body}</FieldTap>
+          {config.body2 && <p className="text-base leading-relaxed" style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.42)' }}>{config.body2}</p>}
+          <Stats/><CtaBtn dark/>
+        </div>
+      </div>
+    </section>
+  );
+
+  if (layout === 'founder') return (
+    <section className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-5xl mx-auto px-8 md:px-14">
+        <div className="grid md:grid-cols-[1fr_1.6fr] gap-14 md:gap-20 items-center">
+          <div className="relative">
+            {hasImage
+              ? <div className="relative"><img src={config.image} alt="" className="w-full aspect-[3/4] object-cover shadow-2xl" style={{ borderRadius: br(style,2) }}/><div className="absolute -bottom-4 -right-4 w-20 h-20 flex items-center justify-center text-white text-3xl font-light shadow-xl" style={{ background: ac(style), borderRadius: br(style,1.5), fontFamily: hf(style) }}>{(config.heading||'S')[0]}</div></div>
+              : <div className="w-full aspect-[3/4] flex items-center justify-center" style={{ background: ac(style)+'0e', borderRadius: br(style,2), border: `2px solid ${ac(style)}18` }}><span className="text-8xl font-light" style={{ color: ac(style)+'30', fontFamily: hf(style) }}>{(config.heading||'S')[0]}</span></div>}
+          </div>
+          <div className="space-y-7">
+            <EyebrowTag/>
+            {config.pullQuote && <p className="text-2xl md:text-3xl font-light italic leading-relaxed" style={{ fontFamily: hf(style), color: ac(style) }}>"{config.pullQuote}"</p>}
+            <div className="w-10 h-px" style={{ background: ac(style) }}/>
+            <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-3xl md:text-4xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Story'}</FieldTap>
+            <FieldTap sectionId={sectionId} fieldKey="body" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body}</FieldTap>
+            {config.body2 && <p className="text-base text-slate-400 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body2}</p>}
+            <Stats/><CtaBtn/>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+
+  if (layout === 'manifesto') return (
+    <section className={cn(py(style), 'relative overflow-hidden')} style={{ background: style.bgColor }}>
+      <div className="absolute inset-0 pointer-events-none" style={{ background: `radial-gradient(ellipse at 80% 50%, ${ac(style)}07 0%, transparent 60%)` }}/>
+      <div className="max-w-5xl mx-auto px-8 md:px-14 relative z-10">
+        <EyebrowTag/>
+        <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="font-light leading-[0.85] mb-10" style={{ fontSize: 'clamp(52px,10vw,120px)', fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Story'}</FieldTap>
+        <div className="grid md:grid-cols-[2px_1fr] gap-8 md:gap-14 items-start">
+          <div className="hidden md:block self-stretch" style={{ background: ac(style)+'30' }}/>
+          <div className="space-y-6 max-w-2xl">
+            {config.pullQuote && <p className="text-2xl font-light italic" style={{ fontFamily: hf(style), color: ac(style) }}>"{config.pullQuote}"</p>}
+            <FieldTap sectionId={sectionId} fieldKey="body" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-lg text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body}</FieldTap>
+            {config.body2 && <p className="text-base text-slate-400 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body2}</p>}
+            <Stats/><CtaBtn/>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+
+  if (layout === 'editorial') return (
+    <section className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-6xl mx-auto px-8 md:px-14">
+        <div className="grid md:grid-cols-[auto_1fr] gap-10 md:gap-16 items-start">
+          <div className="hidden md:flex flex-col items-center gap-3 pt-3">
+            <span className="text-[9px] font-black uppercase tracking-[0.35em] text-slate-400" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>{config.tag || 'Story'}</span>
+            <div className="flex-1 w-px min-h-[200px]" style={{ background: ac(style)+'25' }}/>
+            <span className="text-[9px] font-black text-slate-300">01</span>
+          </div>
+          <div className="space-y-10">
+            <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="font-light leading-[0.88]" style={{ fontSize: 'clamp(44px,7vw,92px)', fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Story'}</FieldTap>
+            <div className="grid md:grid-cols-2 gap-8 items-start">
+              {hasImage && <img src={config.image} alt="" className="w-full aspect-[3/4] object-cover" style={{ borderRadius: br(style,1.5) }}/>}
+              <div className="space-y-6">
+                {config.pullQuote && <p className="text-xl font-light italic border-l-2 pl-5" style={{ fontFamily: hf(style), color: ac(style), borderColor: ac(style) }}>"{config.pullQuote}"</p>}
+                <FieldTap sectionId={sectionId} fieldKey="body" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body}</FieldTap>
+                {config.body2 && <p className="text-sm text-slate-400 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body2}</p>}
+                <Stats/><CtaBtn/>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+
+  if (layout === 'minimal') return (
+    <section className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-2xl mx-auto px-8 md:px-14 text-center space-y-8">
+        <EyebrowTag/>
+        <div className="flex items-center gap-4">
+          <div className="flex-1 h-px" style={{ background: ac(style)+'20' }}/>
+          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-3xl md:text-4xl font-light whitespace-nowrap" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Story'}</FieldTap>
+          <div className="flex-1 h-px" style={{ background: ac(style)+'20' }}/>
+        </div>
+        {config.pullQuote && <p className="text-xl font-light italic" style={{ fontFamily: hf(style), color: ac(style) }}>"{config.pullQuote}"</p>}
+        <FieldTap sectionId={sectionId} fieldKey="body" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body}</FieldTap>
+        {config.body2 && <p className="text-base text-slate-400 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body2}</p>}
+        <Stats/><CtaBtn/>
+      </div>
+    </section>
+  );
+
+  // default: split / centered
   return (
     <section className={py(style)} style={{ background: style.bgColor }}>
       <div className="max-w-5xl mx-auto px-6 md:px-16">
         <div className={cn('grid gap-14 items-center', hasImage ? 'md:grid-cols-2' : 'max-w-2xl mx-auto')}>
           <div className="space-y-8">
+            <EyebrowTag/>
             <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Our Story'}</FieldTap>
             <div className="w-12 h-px" style={{ background: ac(style) }}/>
-            {config.pullQuote && <FieldTap sectionId={sectionId} fieldKey="pullQuote" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-2xl font-light italic" style={{ fontFamily: hf(style), color: ac(style) }}>"{config.pullQuote}"</FieldTap>}
+            {config.pullQuote && <p className="text-2xl font-light italic" style={{ fontFamily: hf(style), color: ac(style) }}>"{config.pullQuote}"</p>}
             <FieldTap sectionId={sectionId} fieldKey="body" isPreview={isPreview} onFieldTap={onFieldTap} as="p" className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body}</FieldTap>
-            {config.ctaText && <button onClick={cta(config.ctaAction, config.ctaUrl)} className="px-8 py-3.5 font-black text-sm uppercase tracking-widest hover:opacity-80 transition-all" style={{ ...btnStyle(style,'secondary'), fontFamily: bf(style) }}>{config.ctaText}</button>}
+            {config.body2 && <p className="text-base text-slate-400 leading-relaxed" style={{ fontFamily: bf(style) }}>{config.body2}</p>}
+            <Stats/><CtaBtn/>
           </div>
           {hasImage && <img src={config.image} alt="Our Story" className="w-full aspect-square object-cover shadow-2xl" style={{ borderRadius: br(style,2) }}/>}
         </div>
