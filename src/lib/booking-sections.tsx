@@ -553,8 +553,12 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
       <div
         className="flex items-stretch overflow-x-auto"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', scrollSnapType: 'x mandatory' }}>
-        {barItems.map(item => (
-          
+       {barItems.map(item => (
+  <Link
+    key={item.type}
+    href={item.href}
+    className="flex-shrink-0 flex flex-col items-center justify-center gap-0.5 py-2.5 px-3 transition-all group"
+    style={{
             key={item.type}
             href={item.href}
             className="flex-shrink-0 flex flex-col items-center justify-center gap-0.5 py-2.5 px-3 transition-all group"
