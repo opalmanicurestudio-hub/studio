@@ -232,13 +232,11 @@ const SECTION_LABEL_MAP: Record<string, string> = {
 };
 
 const SECTION_ICON_MAP: Record<string, React.ElementType> = {
-  hero: BookOpen,        services: Scissors,      team: Users,
-  gallery: Camera,       reviews: Star,           contact: MapPin,
-  story: BookOpen,       events: Calendar,        faq: HelpCircle,
-  beforeafter: ArrowLeftRight, memberships: Crown, packages: Package,
-  giftcards: Gift,       instagram: Camera,       quote: Mail,
-  newclient: Sparkles,   referral: Heart,         waitlist: Clock,
-  policies: Shield,
+  hero: BookOpen, services: Scissors, team: Users, gallery: LayoutDashboard,
+  reviews: Star, contact: MapPin, story: BookOpen, events: Calendar,
+  faq: HelpCircle, beforeafter: LayoutDashboard, memberships: Crown,
+  packages: Package, giftcards: Gift, instagram: Camera,
+  quote: Mail, newclient: Sparkles, referral: Users, waitlist: Clock,
 };
 
 // ─── NavSection ────────────────────────────────────────────────────────────────
@@ -524,7 +522,7 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
   // ── bottom-bar ────────────────────────────────────────────────────────
   if (layout === 'bottom-bar') {
     const barSections = (rawEnabledSections ?? [])
-      .filter(t => t !== 'nav' && t !== 'trust' && SECTION_ICON_MAP[t]);
+      .filter(t => t !== 'nav' && t !== 'trust' && t !== 'waitlist' && SECTION_ICON_MAP[t]);
 
     const barItems = barSections.length > 0
       ? barSections.map(t => ({
@@ -534,52 +532,14 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
           type: t,
         }))
       : [
-          { Icon: BookOpen,  label: 'Home',     href: '#',         type: 'hero'     },
-          { Icon: Scissors,  label: 'Services', href: '#services', type: 'services' },
-          { Icon: Users,     label: 'Team',     href: '#team',     type: 'team'     },
-          { Icon: MapPin,    label: 'Contact',  href: '#contact',  type: 'contact'  },
+          { Icon: BookOpen, label: 'Home',     href: '#',         type: 'hero'     },
+          { Icon: Scissors, label: 'Services', href: '#services', type: 'services' },
+          { Icon: Users,    label: 'Team',     href: '#team',     type: 'team'     },
+          { Icon: MapPin,   label: 'Contact',  href: '#contact',  type: 'contact'  },
         ];
-
-    const sharedBarStyle: React.CSSProperties = {
-      background: 'rgba(255,255,255,0.97)',
-      backdropFilter: 'blur(20px)',
-      WebkitBackdropFilter: 'blur(20px)',
-      borderColor: ac(style) + '14',
-      zIndex: 110,
-      isolation: 'isolate',
-    };
-
-    const BarInner = () => (
-      <div
-        className="flex items-stretch overflow-x-auto"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', scrollSnapType: 'x mandatory' }}>
-    {barItems.map(item => (
-  <Link
-    key={item.type}
-    href={item.href}
-    className="flex-shrink-0 flex flex-col items-center justify-center gap-0.5 py-2.5 px-3 transition-all group"
-    style={{ ... }}
-  >
-    {/* children */}
-  </Link>
-))}
-        <div className="flex items-center ml-1 mr-2 my-1.5 shrink-0" style={{ scrollSnapAlign: 'end' }}>
-          <button
-            onClick={cta(config.ctaAction, config.ctaUrl)}
-            className="h-full px-5 rounded-2xl flex flex-col items-center justify-center gap-0.5 active:scale-95 transition-transform"
-            style={{ background: ac(style), minWidth: 64 }}>
-            <span className="text-white text-[10px] font-black uppercase tracking-widest leading-tight">
-              {config.ctaText || 'Book'}
-            </span>
-            <span className="text-white opacity-60 text-[7px] font-bold uppercase tracking-widest">Now</span>
-          </button>
-        </div>
-      </div>
-    );
 
     return (
       <>
-        {/* Top nav header — always sticky at top */}
         <nav
           className={cn(
             'flex items-center justify-between px-6 py-3',
@@ -588,42 +548,66 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
           )}
           style={{ ...navZ, borderColor: ac(style) + '12' }}>
           <Logo />
-          <div className="flex items-center gap-3">
-            <Cta size="sm" className="hidden sm:inline-flex" />
-            <HamburgerBtn />
-          </div>
+          <HamburgerBtn />
         </nav>
 
         <Drawer />
 
-        {isPreview ? (
-          /* ── PREVIEW MODE: render bar inline directly below the top nav
-             so the builder can see all the items without it floating over the UI ── */
+        <div
+          className="fixed bottom-0 inset-x-0 border-t"
+          style={{
+            background: 'rgba(255,255,255,0.97)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderColor: ac(style) + '12',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            zIndex: 110,
+            isolation: 'isolate',
+          }}>
           <div
-            className="border-t border-b"
-            style={{ ...sharedBarStyle, borderTopColor: ac(style) + '14', borderBottomColor: ac(style) + '08' }}>
-            <div className="flex items-center gap-1.5 px-4 py-1 border-b" style={{ borderColor: ac(style) + '10' }}>
-              <div className="w-1.5 h-1.5 rounded-full" style={{ background: ac(style) }} />
-              <span className="text-[8px] font-black uppercase tracking-[0.3em]"
-                    style={{ color: ac(style) + '80', fontFamily: bf(style) }}>
-                Bottom bar — appears fixed at bottom on live site
+            className="flex items-stretch overflow-x-auto"
+            style={{
+              scrollbarWidth: 'none',
+              WebkitOverflowScrolling: 'touch',
+              msOverflowStyle: 'none',
+              scrollSnapType: 'x mandatory',
+            }}>
+            {barItems.map(item => (
+              <a
+                key={item.type}
+                href={item.href}
+                className="flex-shrink-0 flex flex-col items-center gap-0.5 py-3 px-3 text-slate-400 hover:text-slate-900 active:text-slate-900 transition-colors group"
+                style={{
+                  minWidth: 56,
+                  scrollSnapAlign: 'start',
+                  WebkitTapHighlightColor: ac(style) + '33',
+                }}>
+                <item.Icon className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                <span className="text-[8px] font-black uppercase tracking-wider whitespace-nowrap">
+                  {item.label}
+                </span>
+              </a>
+            ))}
+            <button
+              onClick={cta(config.ctaAction, config.ctaUrl)}
+              className="flex-shrink-0 flex flex-col items-center gap-0.5 py-3 mx-2 my-1 px-4 rounded-xl active:scale-95 transition-transform"
+              style={{
+                background: ac(style),
+                scrollSnapAlign: 'end',
+                WebkitTapHighlightColor: ac(style) + '55',
+              }}>
+              <span className="text-white text-[11px] font-black uppercase tracking-widest leading-none">
+                {config.ctaText || 'Book'}
               </span>
-            </div>
-            <BarInner />
+              <span className="text-white opacity-70 text-[8px]">Now</span>
+            </button>
           </div>
-        ) : (
-          /* ── LIVE MODE: fixed to the viewport bottom ── */
-          <>
-            <div
-              className="fixed bottom-0 inset-x-0 border-t"
-              style={{ ...sharedBarStyle, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-              <BarInner />
-            </div>
-            <div
-              className="h-20 pointer-events-none"
-              style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} />
-          </>
-        )}
+        </div>
+
+        <div
+          className="h-20 pointer-events-none"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        />
       </>
     );
   }
@@ -1764,8 +1748,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
     </div>
   );
 
-  const soloLayouts = ['solo', 'owner-bio', 'letterpress'];
-  if (staff.length === 0 && !soloLayouts.includes(layout)) return (
+  if (staff.length === 0) return (
     <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
       <div className="max-w-6xl mx-auto px-6 md:px-16"><Header/>
         <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Team coming soon</p>
@@ -1797,197 +1780,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
       </div>
     </section>
   );
-// ── solo (split hero — best for single-artist studios) ────────────────
-  if (layout === 'solo') {
-    const solo = staff[0];
-    const placeholderName = config.heading || 'Your Name Here';
-    return (
-      <section id="team" className={py(style)} style={{ background: style.bgColor }}>
-        <div className="max-w-5xl mx-auto px-6 md:px-16">
-          <div className={cn('grid gap-16 items-center', solo?.avatarUrl ? 'md:grid-cols-2' : 'max-w-2xl mx-auto')}>
-            {solo?.avatarUrl && (
-              <div className="relative">
-                <div className="aspect-[3/4] overflow-hidden shadow-2xl" style={{ borderRadius: br(style, 2) }}>
-                  <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover"/>
-                </div>
-                <div className="absolute -bottom-5 -right-5 w-20 h-20 rounded-full border-[3px] border-white flex items-center justify-center shadow-2xl"
-                     style={{ background: ac(style) }}>
-                  <Scissors className="w-7 h-7 text-white"/>
-                </div>
-              </div>
-            )}
-            <div className="space-y-7">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.35em] mb-2"
-                   style={{ color: ac(style), fontFamily: bf(style) }}>
-                  {config.roleLabel || (solo?.role) || 'Founder & Lead Artist'}
-                </p>
-                <h2 className="text-4xl md:text-5xl font-light leading-tight"
-                    style={{ fontFamily: hf(style), color: '#0f172a' }}>
-                  {solo?.name || placeholderName}
-                </h2>
-              </div>
-              {solo?.specialties?.length > 0 && config.showSpecialties !== false && (
-                <div className="flex flex-wrap gap-2">
-                  {solo.specialties.map((sp: string, i: number) => (
-                    <span key={i} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
-                          style={{ background: ac(style) + '12', color: ac(style), borderRadius: br(style, 2) }}>{sp}</span>
-                  ))}
-                </div>
-              )}
-              {config.showBio !== false && solo?.bio && (
-                <p className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>
-              )}
-              {config.showStats && (
-                <div className="flex gap-8 pt-2">
-                  {[
-                    { v: config.stat1v || '500+', l: config.stat1l || 'Clients' },
-                    { v: config.stat2v || '5.0★', l: config.stat2l || 'Rating' },
-                    { v: config.stat3v || '8 yrs', l: config.stat3l || 'Experience' },
-                  ].map((s, i) => (
-                    <div key={i}>
-                      <p className="text-2xl font-light tabular-nums" style={{ fontFamily: hf(style), color: ac(style) }}>{s.v}</p>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily: bf(style) }}>{s.l}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {config.showBookButton && (
-                <button onClick={e => { e.stopPropagation(); openBooking(); }}
-                        className="inline-flex items-center gap-2.5 px-10 py-4 font-black text-sm uppercase tracking-widest shadow-lg hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                        style={{ ...btnStyle(style), fontFamily: bf(style) }}>
-                  {config.bookCta || 'Book with Me'} <ArrowRight className="w-3.5 h-3.5"/>
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  // ── owner-bio (accented card — great for personal brand with bio + pull quote) ──
-  if (layout === 'owner-bio') {
-    const solo = staff[0];
-    return (
-      <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
-        <div className="max-w-4xl mx-auto px-6 md:px-16">
-          <div className="relative overflow-hidden bg-white shadow-xl"
-               style={{ borderRadius: br(style, 2), border: `2px solid ${ac(style)}18` }}>
-            {/* Accent bar */}
-            <div className="absolute top-0 left-0 bottom-0 w-1.5 rounded-l-2xl" style={{ background: ac(style) }}/>
-            <div className="pl-10 pr-8 md:pr-14 py-12 md:py-14">
-              <div className="flex flex-col md:flex-row gap-10 items-start">
-                {solo?.avatarUrl ? (
-                  <div className="shrink-0 w-28 h-28 md:w-36 md:h-36 overflow-hidden shadow-2xl"
-                       style={{ borderRadius: '50%', border: `4px solid ${ac(style)}30` }}>
-                    <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover"/>
-                  </div>
-                ) : (
-                  <div className="shrink-0 w-24 h-24 flex items-center justify-center shadow-inner"
-                       style={{ borderRadius: '50%', background: ac(style) + '14', border: `3px solid ${ac(style)}25` }}>
-                    <span className="text-3xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>
-                      {(solo?.name || config.heading || 'Y')[0]}
-                    </span>
-                  </div>
-                )}
-                <div className="flex-1 space-y-5">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.35em]"
-                       style={{ color: ac(style), fontFamily: bf(style) }}>
-                      {config.roleLabel || solo?.role || 'Founder & Lead Artist'}
-                    </p>
-                    <h2 className="text-3xl md:text-4xl font-light mt-1.5"
-                        style={{ fontFamily: hf(style), color: '#0f172a' }}>
-                      {solo?.name || config.heading || 'Meet Your Artist'}
-                    </h2>
-                  </div>
-                  {config.pullQuote && (
-                    <blockquote className="text-xl font-light italic border-l-0 pl-0"
-                                style={{ fontFamily: hf(style), color: ac(style) }}>
-                      "{config.pullQuote}"
-                    </blockquote>
-                  )}
-                  {config.showBio !== false && solo?.bio && (
-                    <p className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>
-                  )}
-                  {solo?.specialties?.length > 0 && config.showSpecialties !== false && (
-                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400"
-                       style={{ fontFamily: bf(style) }}>
-                      {solo.specialties.join(' · ')}
-                    </p>
-                  )}
-                  {config.showBookButton && (
-                    <button onClick={e => { e.stopPropagation(); openBooking(); }}
-                            className="inline-flex items-center gap-2 px-8 py-3.5 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all mt-2"
-                            style={{ ...btnStyle(style, 'secondary'), fontFamily: bf(style) }}>
-                      {config.bookCta || 'Book a Session'} <ArrowRight className="w-3.5 h-3.5"/>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  // ── letterpress (full-color typographic — no photo needed, strong solo brand) ──
-  if (layout === 'letterpress') {
-    const solo = staff[0];
-    return (
-      <section id="team" className={cn(py(style), 'relative overflow-hidden')}
-               style={{ background: ac(style) }}>
-        {/* Subtle dot texture */}
-        <div className="absolute inset-0 opacity-[0.07] pointer-events-none"
-             style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.9) 1.5px, transparent 1.5px)', backgroundSize: '26px 26px' }}/>
-        {/* Glow blob */}
-        <div className="absolute -top-32 -right-32 w-[500px] h-[500px] rounded-full pointer-events-none"
-             style={{ background: 'rgba(255,255,255,0.06)', filter: 'blur(80px)' }}/>
-        <div className="relative max-w-3xl mx-auto px-6 md:px-16 text-center space-y-8">
-          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-white/50"
-             style={{ fontFamily: bf(style) }}>
-            {config.roleLabel || solo?.role || 'Founder & Lead Artist'}
-          </p>
-          <h2 className="text-5xl md:text-7xl font-light text-white leading-[0.88]"
-              style={{ fontFamily: hf(style) }}>
-            {solo?.name || config.heading || 'Your Name Here'}
-          </h2>
-          <div className="w-14 h-px mx-auto bg-white/25"/>
-          {config.pullQuote && (
-            <p className="text-xl md:text-2xl font-light italic text-white/65 max-w-lg mx-auto"
-               style={{ fontFamily: hf(style) }}>
-              "{config.pullQuote}"
-            </p>
-          )}
-          {config.showBio !== false && solo?.bio && (
-            <p className="text-base text-white/55 leading-relaxed max-w-md mx-auto"
-               style={{ fontFamily: bf(style) }}>
-              {solo.bio}
-            </p>
-          )}
-          {solo?.specialties?.length > 0 && config.showSpecialties !== false && (
-            <div className="flex flex-wrap gap-2 justify-center pt-2">
-              {solo.specialties.map((sp: string, i: number) => (
-                <span key={i} className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white/65 border border-white/22"
-                      style={{ borderRadius: br(style, 3), fontFamily: bf(style) }}>{sp}</span>
-              ))}
-            </div>
-          )}
-          {config.showBookButton && (
-            <div className="pt-4">
-              <button onClick={e => { e.stopPropagation(); openBooking(); }}
-                      className="inline-flex items-center gap-2.5 px-12 py-4 font-black text-sm uppercase tracking-widest hover:scale-[1.03] active:scale-[0.98] transition-all"
-                      style={{ background: 'white', color: ac(style), borderRadius: br(style), fontFamily: bf(style), boxShadow: '0 12px 40px rgba(0,0,0,0.2)' }}>
-                {config.bookCta || 'Book Now'} <ArrowRight className="w-3.5 h-3.5"/>
-              </button>
-            </div>
-          )}
-        </div>
-      </section>
-    );
-  }
 
   if (layout === 'row') return (
     <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
