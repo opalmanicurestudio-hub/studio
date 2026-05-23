@@ -232,11 +232,13 @@ const SECTION_LABEL_MAP: Record<string, string> = {
 };
 
 const SECTION_ICON_MAP: Record<string, React.ElementType> = {
-  hero: BookOpen, services: Scissors, team: Users, gallery: LayoutDashboard,
-  reviews: Star, contact: MapPin, story: BookOpen, events: Calendar,
-  faq: HelpCircle, beforeafter: LayoutDashboard, memberships: Crown,
-  packages: Package, giftcards: Gift, instagram: Camera,
-  quote: Mail, newclient: Sparkles, referral: Users, waitlist: Clock,
+  hero: BookOpen,        services: Scissors,      team: Users,
+  gallery: Camera,       reviews: Star,           contact: MapPin,
+  story: BookOpen,       events: Calendar,        faq: HelpCircle,
+  beforeafter: ArrowLeftRight, memberships: Crown, packages: Package,
+  giftcards: Gift,       instagram: Camera,       quote: Mail,
+  newclient: Sparkles,   referral: Heart,         waitlist: Clock,
+  policies: Shield,
 };
 
 // ─── NavSection ────────────────────────────────────────────────────────────────
