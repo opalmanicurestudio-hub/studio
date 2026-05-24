@@ -10,8 +10,8 @@ import {
   Users, Award, Heart, Scissors, Zap, Crown, Shield, TrendingUp,
   CheckCircle, ThumbsUp, Smile, Coffee, Menu, BookOpen,
   LayoutDashboard, HelpCircle, Package, Camera,
+  ShieldCheck, BadgeCheck, AlertTriangle, Ban, CreditCard, Leaf, Flame, Info,
 } from 'lucide-react';
-
 const ANIM_CSS = `
 @keyframes cf-fade-up    { from{opacity:0;transform:translateY(28px)} to{opacity:1;transform:translateY(0)} }
 @keyframes cf-fade-in    { from{opacity:0} to{opacity:1} }
