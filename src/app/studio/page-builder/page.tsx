@@ -371,16 +371,25 @@ gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', 
     { id: 'bold',      label: 'Bold numbers', preview: '01 Big Q?\n   Answer here'  },
     { id: 'split',     label: 'Split panel',  preview: '[ Questions | Answer ]'    },
   ]},
+  // ─── SECTION_DEFS policies layouts PATCH ─────────────────────────────────────
+// In the page-builder page (second document), find the policies entry in SECTION_DEFS
+// and replace its layouts array with this:
+
   policies: { label: 'Policies', icon: Shield, color: '#0F6E56', fields: [
-    { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Policies' }, { k: 'subheading', t: 'text', l: 'Subheading', d: '' },
+    { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Policies' },
+    { k: 'subheading', t: 'text', l: 'Subheading', d: '' },
     { k: 'policies', t: 'policy-list', l: 'Policy items', d: [
       { id: 'p1', icon: 'clock',  title: 'Cancellation', body: 'Please provide 24 hours notice for all cancellations.' },
       { id: 'p2', icon: 'clock3', title: 'Late Arrival',  body: 'Arrivals 15+ minutes late may need to reschedule.'    },
       { id: 'p3', icon: 'ban',    title: 'No-Shows',      body: 'No-shows may be required to prepay future bookings.'  },
     ]},
   ], layouts: [
-    { id: 'cards', label: 'Icon cards',  preview: '┌──┐ ┌──┐ ┌──┐'    },
-    { id: 'list',  label: 'Icon list',   preview: '🛡 Cancellation\n🕐 Late arrival' },
+    { id: 'cards',      label: 'Icon cards',        preview: '┌──┐ ┌──┐ ┌──┐'                    },
+    { id: 'list',       label: 'Icon list',          preview: '🛡 Cancellation\n🕐 Late arrival'   },
+    { id: 'timeline',   label: 'Timeline',           preview: '○─ card\n│\n─○ card\n│\n○─ card'   },
+    { id: 'accordion',  label: 'Accordion',          preview: '▶ 01 · Policy title\n▶ 02 · Title' },
+    { id: 'editorial',  label: 'Editorial rows',     preview: '01 | TITLE | body text here'        },
+    { id: 'dark',       label: 'Dark luxury',        preview: '█▓ glowing cards on dark ▓█'        },
   ]},
   contact: { label: 'Location & Contact', icon: MapPin, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Find Us' }, { k: 'customHours', t: 'textarea', l: 'Hours text', d: 'Monday – Saturday: 9am – 7pm\nSunday: 10am – 5pm' },
