@@ -2707,44 +2707,635 @@ function FAQSection({ config, style, isPreview, sectionId, onFieldTap }: Section
   return <section className={py(style)} style={{ background: '#f8fafc' }}><div className="max-w-3xl mx-auto px-6 md:px-16"><H/><div className="space-y-2">{items.map((item,i) => <div key={i} className="overflow-hidden bg-white" style={{ borderRadius: br(style), border: `2px solid ${ac(style)}22` }}><button onClick={() => setOpen(open === i ? null : i)} className="w-full flex items-center justify-between p-6 text-left hover:bg-slate-50/80 transition-colors"><span className="font-black text-sm uppercase tracking-tight text-slate-900 pr-4" style={{ fontFamily: bf(style) }}>{item.q}</span>{open === i ? <ChevronUp className="w-4 h-4 shrink-0" style={{ color: ac(style) }}/> : <ChevronDown className="w-4 h-4 shrink-0 text-slate-300"/>}</button>{open === i && <div className="px-6 pb-6 text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{item.a}</div>}</div>)}</div></div></section>;
 }
 
-// ─── PoliciesSection PATCH ───────────────────────────────────────────────────
-// Replace the entire PoliciesSection function in booking-sections.tsx with this.
-// New layouts added: 'timeline', 'accordion', 'editorial', 'dark'
-// Existing layouts kept: 'cards', 'list'
+// ─── PoliciesSection FULL PATCH ──────────────────────────────────────────────
+// In booking-sections.tsx:
+// 1. Find the line: // ─── PoliciesSection ─────────
+// 2. Select everything from that line to just before: // ─── ContactSection ───
+// 3. Replace with this entire file.
+//
+// Also verify these Lucide icons are in your import block at the top:
+// Shield, ShieldCheck, Clock, AlertTriangle, Ban, CreditCard,
+// Heart, BadgeCheck, Info, Zap, Leaf, Coffee, Flame, Phone, Mail
+// Clock3 → import as Clock3 if available, else use Clock
+
+const POLICY_ICON_MAP: Record<string, React.ElementType> = {
+  shield:          Shield,
+  'shield-check':  ShieldCheck,
+  clock:           Clock,
+  clock3:          Clock,       // fallback to Clock if Clock3 unavailable
+  alert:           AlertTriangle,
+  ban:             Ban,
+  credit:          CreditCard,
+  heart:           Heart,
+  badge:           BadgeCheck,
+  info:            Info,
+  zap:             Zap,
+  leaf:            Leaf,
+  coffee:          Coffee,
+  flame:           Flame,
+  phone:           Phone,
+  mail:            Mail,
+};
 
 function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const [openIdx, setOpenIdx] = React.useState<number | null>(null);
+  const { ref, visible } = useInView(0.15);
   const policyItems: any[] = Array.isArray(config.policies) ? config.policies : [];
   const layout = config.layout || 'cards';
 
-  const ie: Record<string, string> = {
-    shield: '🛡', 'shield-check': '✅', clock: '🕐', clock3: '⏰',
-    alert: '⚠️', ban: '🚫', credit: '💳', heart: '❤️',
-    badge: '🏅', info: 'ℹ️', zap: '⚡', leaf: '🌿',
-    coffee: '☕', flame: '🔥', phone: '📞', mail: '✉️',
+  const PolicyIcon = ({
+    iconId,
+    size = 'md',
+    color,
+  }: {
+    iconId: string;
+    size?: 'sm' | 'md' | 'lg';
+    color?: string;
+  }) => {
+    const IconComp = POLICY_ICON_MAP[iconId] || Shield;
+    const sizeMap = { sm: 'w-3.5 h-3.5', md: 'w-5 h-5', lg: 'w-6 h-6' };
+    return <IconComp className={sizeMap[size]} style={{ color: color || ac(style) }} />;
   };
 
-  const Header = () => (
-    <div className="text-center mb-14 space-y-3">
-      <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-        as="h2" className="text-4xl md:text-5xl font-light"
-        style={{ fontFamily: hf(style), color: '#0f172a' }}>
+  const SectionHeading = ({ light = false }: { light?: boolean }) => (
+    <div className="text-center mb-16 space-y-3">
+      <FieldTap
+        sectionId={sectionId}
+        fieldKey="heading"
+        isPreview={isPreview}
+        onFieldTap={onFieldTap}
+        as="h2"
+        className="text-4xl md:text-5xl font-light"
+        style={{ fontFamily: hf(style), color: light ? 'white' : '#0f172a' }}
+      >
         {config.heading || 'Our Policies'}
       </FieldTap>
       {config.subheading && (
-        <p className="text-base text-slate-500 text-center" style={{ fontFamily: bf(style) }}>
+        <FieldTap
+          sectionId={sectionId}
+          fieldKey="subheading"
+          isPreview={isPreview}
+          onFieldTap={onFieldTap}
+          as="p"
+          className="text-base max-w-xl mx-auto"
+          style={{ fontFamily: bf(style), color: light ? 'rgba(255,255,255,0.45)' : '#94a3b8' }}
+        >
           {config.subheading}
-        </p>
+        </FieldTap>
       )}
     </div>
   );
 
-  const Empty = () => (
-    <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-12">
+  const Empty = ({ light = false }: { light?: boolean }) => (
+    <p
+      className="text-center text-[11px] font-black uppercase tracking-widest py-16"
+      style={{ color: light ? 'rgba(255,255,255,0.2)' : '#cbd5e1' }}
+    >
       No policies configured yet
     </p>
   );
 
+  // ── CARDS — Frosted glass elevation ───────────────────────────────────────
+  if (layout === 'cards') return (
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16">
+        <SectionHeading />
+        {policyItems.length > 0 ? (
+          <div className="grid md:grid-cols-3 gap-5">
+            {policyItems.map((p: any, i: number) => (
+              <div
+                key={p.id || i}
+                className="group relative overflow-hidden bg-white hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 cursor-default"
+                style={{
+                  borderRadius: br(style, 2),
+                  border: `1.5px solid ${ac(style)}18`,
+                  animation: visible ? `cf-float-up 0.7s ${i * 0.1}s both` : 'none',
+                }}
+              >
+                {/* Animated top bar */}
+                <div
+                  className="h-[3px] w-full"
+                  style={{
+                    background: `linear-gradient(to right, ${ac(style)}, ${ac(style)}55)`,
+                    transform: visible ? 'scaleX(1)' : 'scaleX(0)',
+                    transformOrigin: 'left',
+                    transition: `transform 0.7s cubic-bezier(0.16,1,0.3,1) ${i * 0.12}s`,
+                  }}
+                />
+                {/* Hover glow */}
+                <div
+                  className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+                  style={{ background: `radial-gradient(ellipse at 50% 0%, ${ac(style)}08 0%, transparent 65%)` }}
+                />
+                <div className="p-7 space-y-5 relative z-10">
+                  {/* Icon */}
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg"
+                    style={{
+                      background: `linear-gradient(135deg, ${ac(style)}18, ${ac(style)}08)`,
+                      border: `1.5px solid ${ac(style)}22`,
+                    }}
+                  >
+                    <PolicyIcon iconId={p.icon} size="md" />
+                  </div>
+                  <div className="space-y-2">
+                    <p
+                      className="text-[11px] font-black uppercase tracking-[0.2em]"
+                      style={{ color: ac(style), fontFamily: bf(style) }}
+                    >
+                      {p.title}
+                    </p>
+                    <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>
+                      {p.body}
+                    </p>
+                  </div>
+                </div>
+                {/* Subtle index */}
+                <div
+                  className="absolute bottom-4 right-5 text-[10px] font-black tabular-nums select-none"
+                  style={{ color: ac(style) + '18', fontFamily: hf(style) }}
+                >
+                  {String(i + 1).padStart(2, '0')}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <Empty />}
+      </div>
+    </section>
+  );
+
+  // ── LIST — Ruled editorial columns ────────────────────────────────────────
+  if (layout === 'list') return (
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-3xl mx-auto px-6 md:px-16">
+        <SectionHeading />
+        {policyItems.length > 0 ? (
+          <div className="space-y-0">
+            {policyItems.map((p: any, i: number) => (
+              <div
+                key={p.id || i}
+                className="group grid grid-cols-[48px_1fr] md:grid-cols-[48px_180px_1fr] gap-0 items-start border-b py-6 hover:bg-slate-50/60 transition-colors -mx-4 px-4"
+                style={{
+                  borderColor: ac(style) + '12',
+                  animation: visible ? `cf-fade-up 0.5s ${i * 0.08}s both` : 'none',
+                }}
+              >
+                {/* Icon */}
+                <div className="flex items-start pt-0.5">
+                  <div
+                    className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300 group-hover:scale-110"
+                    style={{ background: ac(style) + '10', border: `1.5px solid ${ac(style)}20` }}
+                  >
+                    <PolicyIcon iconId={p.icon} size="sm" />
+                  </div>
+                </div>
+                {/* Title */}
+                <div className="pt-1 mb-3 md:mb-0 col-span-1">
+                  <p
+                    className="text-[11px] font-black uppercase tracking-[0.18em] leading-tight"
+                    style={{ color: ac(style), fontFamily: bf(style) }}
+                  >
+                    {p.title}
+                  </p>
+                  <div
+                    className="w-6 h-px mt-2 transition-all duration-400 group-hover:w-12"
+                    style={{ background: ac(style) + '50' }}
+                  />
+                </div>
+                {/* Body */}
+                <p
+                  className="text-sm text-slate-500 leading-relaxed col-start-2 md:col-start-3"
+                  style={{ fontFamily: bf(style) }}
+                >
+                  {p.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : <Empty />}
+      </div>
+    </section>
+  );
+
+  // ── TIMELINE — Vertical connective thread ──────────────────────────────────
+  if (layout === 'timeline') return (
+    <section ref={ref} className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-4xl mx-auto px-6 md:px-16">
+        <SectionHeading />
+        {policyItems.length > 0 ? (
+          <div className="relative">
+            {/* Vertical spine */}
+            <div
+              className="absolute left-1/2 top-6 bottom-6 w-px hidden md:block -translate-x-1/2"
+              style={{
+                background: `linear-gradient(to bottom, transparent 0%, ${ac(style)}28 15%, ${ac(style)}28 85%, transparent 100%)`,
+              }}
+            />
+            <div className="space-y-6 md:space-y-0">
+              {policyItems.map((p: any, i: number) => {
+                const isLeft = i % 2 === 0;
+                return (
+                  <div
+                    key={p.id || i}
+                    className="relative md:grid md:grid-cols-2 md:gap-12 items-center md:mb-10"
+                    style={{ animation: visible ? `cf-fade-up 0.65s ${i * 0.12}s both` : 'none' }}
+                  >
+                    {/* Card */}
+                    <div className={`group ${isLeft ? 'md:text-right' : 'md:order-2'}`}>
+                      <div
+                        className={`bg-white p-7 shadow-md hover:shadow-2xl hover:-translate-y-1 transition-all duration-400 ${isLeft ? 'md:ml-auto' : ''}`}
+                        style={{
+                          borderRadius: br(style, 2),
+                          maxWidth: '380px',
+                          border: `1.5px solid ${ac(style)}15`,
+                          borderLeft: isLeft ? `1.5px solid ${ac(style)}15` : `4px solid ${ac(style)}`,
+                          borderRight: isLeft ? `4px solid ${ac(style)}` : `1.5px solid ${ac(style)}15`,
+                        }}
+                      >
+                        <div className={`flex items-center gap-3 mb-4 ${isLeft ? 'md:flex-row-reverse' : ''}`}>
+                          <div
+                            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-300"
+                            style={{
+                              background: `linear-gradient(135deg, ${ac(style)}18, ${ac(style)}08)`,
+                              border: `1.5px solid ${ac(style)}25`,
+                            }}
+                          >
+                            <PolicyIcon iconId={p.icon} size="md" />
+                          </div>
+                          <p
+                            className="text-[11px] font-black uppercase tracking-[0.2em]"
+                            style={{ color: ac(style), fontFamily: bf(style) }}
+                          >
+                            {p.title}
+                          </p>
+                        </div>
+                        <p
+                          className={`text-sm text-slate-500 leading-relaxed ${isLeft ? 'md:text-right' : ''}`}
+                          style={{ fontFamily: bf(style) }}
+                        >
+                          {p.body}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Center icon node */}
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex z-10">
+                      <div
+                        className="w-11 h-11 rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform duration-300"
+                        style={{
+                          background: 'white',
+                          border: `2.5px solid ${ac(style)}`,
+                          boxShadow: `0 0 0 5px ${ac(style)}12, 0 4px 20px ${ac(style)}22`,
+                        }}
+                      >
+                        <PolicyIcon iconId={p.icon} size="sm" />
+                      </div>
+                    </div>
+                    {isLeft ? <div /> : <div className="md:order-1" />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : <Empty />}
+      </div>
+    </section>
+  );
+
+  // ── ACCORDION — Architectural expand ──────────────────────────────────────
+  if (layout === 'accordion') return (
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-3xl mx-auto px-6 md:px-16">
+        <SectionHeading />
+        {policyItems.length > 0 ? (
+          <div className="space-y-2">
+            {policyItems.map((p: any, i: number) => {
+              const isOpen = openIdx === i;
+              return (
+                <div
+                  key={p.id || i}
+                  className="overflow-hidden bg-white transition-all duration-300"
+                  style={{
+                    borderRadius: br(style, 1.5),
+                    border: `1.5px solid ${isOpen ? ac(style) + '50' : ac(style) + '15'}`,
+                    borderLeft: `4px solid ${isOpen ? ac(style) : ac(style) + '20'}`,
+                    boxShadow: isOpen ? `0 8px 40px ${ac(style)}10` : 'none',
+                    animation: visible ? `cf-fade-up 0.5s ${i * 0.09}s both` : 'none',
+                  }}
+                >
+                  <button
+                    className="w-full flex items-center gap-5 px-6 py-5 text-left group"
+                    onClick={() => setOpenIdx(isOpen ? null : i)}
+                  >
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300 group-hover:scale-105"
+                      style={{
+                        background: isOpen ? ac(style) : ac(style) + '0e',
+                        border: `1.5px solid ${isOpen ? ac(style) : ac(style) + '20'}`,
+                      }}
+                    >
+                      <PolicyIcon iconId={p.icon} size="sm" color={isOpen ? 'white' : ac(style)} />
+                    </div>
+                    <span
+                      className="flex-1 font-black text-sm uppercase tracking-[0.15em] text-slate-900 pr-4"
+                      style={{ fontFamily: bf(style) }}
+                    >
+                      {p.title}
+                    </span>
+                    <div
+                      className="w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-300"
+                      style={{ borderColor: isOpen ? ac(style) : ac(style) + '25' }}
+                    >
+                      <ChevronDown
+                        className="w-3.5 h-3.5 transition-transform duration-400"
+                        style={{
+                          color: isOpen ? ac(style) : '#94a3b8',
+                          transform: isOpen ? 'rotate(180deg)' : 'none',
+                        }}
+                      />
+                    </div>
+                  </button>
+                  <div
+                    style={{
+                      maxHeight: isOpen ? '280px' : '0px',
+                      overflow: 'hidden',
+                      opacity: isOpen ? 1 : 0,
+                      transition: 'max-height 0.45s cubic-bezier(0.16,1,0.3,1), opacity 0.3s ease',
+                    }}
+                  >
+                    <div className="px-6 pb-7 pt-1">
+                      <div className="h-px mb-5" style={{ background: ac(style) + '15' }} />
+                      <p
+                        className="text-sm text-slate-500 leading-relaxed pl-[60px]"
+                        style={{ fontFamily: bf(style) }}
+                      >
+                        {p.body}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : <Empty />}
+      </div>
+    </section>
+  );
+
+  // ── EDITORIAL — Newspaper column grid ─────────────────────────────────────
+  if (layout === 'editorial') return (
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16">
+        {/* Masthead */}
+        <div className="mb-16">
+          <div className="flex items-end justify-between pb-5 border-b-2" style={{ borderColor: '#0f172a' }}>
+            <FieldTap
+              sectionId={sectionId}
+              fieldKey="heading"
+              isPreview={isPreview}
+              onFieldTap={onFieldTap}
+              as="h2"
+              className="text-4xl md:text-6xl font-light leading-none"
+              style={{ fontFamily: hf(style), color: '#0f172a' }}
+            >
+              {config.heading || 'Our Policies'}
+            </FieldTap>
+            <div className="text-right hidden md:block mb-1 space-y-1">
+              <p className="text-[9px] font-black uppercase tracking-[0.35em]" style={{ color: ac(style) }}>
+                Studio Guidelines
+              </p>
+              {config.subheading && (
+                <p className="text-[10px] text-slate-400" style={{ fontFamily: bf(style) }}>
+                  {config.subheading}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="h-px mt-0.5" style={{ background: ac(style) }} />
+        </div>
+
+        {policyItems.length > 0 ? (
+          <div className="space-y-0">
+            {policyItems.map((p: any, i: number) => (
+              <div
+                key={p.id || i}
+                className="group grid md:grid-cols-[52px_200px_1fr] gap-0 items-start py-8 border-b hover:bg-slate-50/40 transition-colors -mx-4 px-4"
+                style={{
+                  borderColor: ac(style) + '10',
+                  animation: visible ? `cf-fade-up 0.5s ${i * 0.08}s both` : 'none',
+                }}
+              >
+                {/* Icon column */}
+                <div className="hidden md:flex items-start pt-0.5">
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:-rotate-3"
+                    style={{ background: ac(style) + '0e', border: `1.5px solid ${ac(style)}1e` }}
+                  >
+                    <PolicyIcon iconId={p.icon} size="sm" />
+                  </div>
+                </div>
+                {/* Title column */}
+                <div className="md:border-r md:pr-8 mb-4 md:mb-0" style={{ borderColor: ac(style) + '12' }}>
+                  <div className="flex items-center gap-3 md:hidden mb-2">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ background: ac(style) + '10' }}
+                    >
+                      <PolicyIcon iconId={p.icon} size="sm" />
+                    </div>
+                  </div>
+                  <p
+                    className="text-[10px] font-black uppercase tracking-[0.25em] leading-snug"
+                    style={{ color: ac(style), fontFamily: bf(style) }}
+                  >
+                    {p.title}
+                  </p>
+                  <div
+                    className="w-6 h-px mt-3 transition-all duration-500 group-hover:w-14"
+                    style={{ background: ac(style) + '40' }}
+                  />
+                </div>
+                {/* Body column */}
+                <p
+                  className="md:pl-8 text-sm text-slate-500 leading-relaxed"
+                  style={{ fontFamily: bf(style) }}
+                >
+                  {p.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : <Empty />}
+      </div>
+    </section>
+  );
+
+  // ── DARK — Obsidian tiles ──────────────────────────────────────────────────
+  if (layout === 'dark') return (
+    <section ref={ref} className={py(style)} style={{ background: '#0a0a0c', position: 'relative', overflow: 'hidden' }}>
+      {/* Ambient depth */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: `radial-gradient(ellipse at 30% 0%, ${ac(style)}16 0%, transparent 55%), radial-gradient(ellipse at 70% 100%, ${ac(style)}0e 0%, transparent 50%)`,
+        }}
+      />
+      {/* Subtle grid texture */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.025]"
+        style={{
+          backgroundImage: `linear-gradient(${ac(style)} 1px, transparent 1px), linear-gradient(90deg, ${ac(style)} 1px, transparent 1px)`,
+          backgroundSize: '52px 52px',
+        }}
+      />
+      <div className="relative max-w-5xl mx-auto px-6 md:px-16">
+        {/* Heading */}
+        <div className="text-center mb-16 space-y-4">
+          <FieldTap
+            sectionId={sectionId}
+            fieldKey="heading"
+            isPreview={isPreview}
+            onFieldTap={onFieldTap}
+            as="h2"
+            className="text-4xl md:text-5xl font-light text-white"
+            style={{ fontFamily: hf(style) }}
+          >
+            {config.heading || 'Our Policies'}
+          </FieldTap>
+          {config.subheading && (
+            <FieldTap
+              sectionId={sectionId}
+              fieldKey="subheading"
+              isPreview={isPreview}
+              onFieldTap={onFieldTap}
+              as="p"
+              className="text-base max-w-xl mx-auto"
+              style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.38)' }}
+            >
+              {config.subheading}
+            </FieldTap>
+          )}
+          <div className="flex justify-center pt-1">
+            <div
+              className="h-px w-16"
+              style={{ background: `linear-gradient(to right, transparent, ${ac(style)}, transparent)` }}
+            />
+          </div>
+        </div>
+
+        {policyItems.length > 0 ? (
+          <div className="grid md:grid-cols-3 gap-4">
+            {policyItems.map((p: any, i: number) => (
+              <div
+                key={p.id || i}
+                className="group relative overflow-hidden cursor-default transition-all duration-500 hover:-translate-y-2"
+                style={{
+                  borderRadius: br(style, 2),
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  backdropFilter: 'blur(16px)',
+                  animation: visible ? `cf-float-up 0.7s ${i * 0.11}s both` : 'none',
+                }}
+              >
+                {/* Top glow line on hover */}
+                <div
+                  className="absolute top-0 left-0 right-0 h-px opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                  style={{ background: `linear-gradient(to right, transparent 5%, ${ac(style)} 50%, transparent 95%)` }}
+                />
+                {/* Left accent on hover */}
+                <div
+                  className="absolute left-0 top-8 bottom-8 w-px opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                  style={{ background: `linear-gradient(to bottom, transparent, ${ac(style)}70, transparent)` }}
+                />
+                {/* Inner radial glow */}
+                <div
+                  className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+                  style={{ background: `radial-gradient(ellipse at 50% 0%, ${ac(style)}12 0%, transparent 60%)` }}
+                />
+                <div className="relative p-7 space-y-5">
+                  {/* Large icon */}
+                  <div
+                    className="w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-400 group-hover:scale-110 group-hover:rotate-3"
+                    style={{
+                      background: `linear-gradient(135deg, ${ac(style)}20, ${ac(style)}08)`,
+                      border: `1.5px solid ${ac(style)}30`,
+                      boxShadow: `0 4px 20px ${ac(style)}15`,
+                    }}
+                  >
+                    <PolicyIcon iconId={p.icon} size="lg" />
+                  </div>
+                  {/* Title */}
+                  <div className="space-y-2">
+                    <p
+                      className="text-[11px] font-black uppercase tracking-[0.22em]"
+                      style={{ color: ac(style), fontFamily: bf(style) }}
+                    >
+                      {p.title}
+                    </p>
+                    <div
+                      className="h-px w-8 transition-all duration-500 group-hover:w-full"
+                      style={{ background: `linear-gradient(to right, ${ac(style)}50, transparent)` }}
+                    />
+                  </div>
+                  {/* Body */}
+                  <p
+                    className="text-sm leading-relaxed"
+                    style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.45)' }}
+                  >
+                    {p.body}
+                  </p>
+                </div>
+                {/* Corner index — appears on hover */}
+                <div
+                  className="absolute bottom-5 right-6 text-[11px] font-black tabular-nums select-none opacity-0 group-hover:opacity-100 transition-opacity duration-400"
+                  style={{ color: ac(style) + '50', fontFamily: hf(style) }}
+                >
+                  {String(i + 1).padStart(2, '0')}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <Empty light />}
+      </div>
+    </section>
+  );
+
+  // ── fallback → cards ───────────────────────────────────────────────────────
+  return (
+    <section className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16">
+        <SectionHeading />
+        {policyItems.length > 0 ? (
+          <div className="grid md:grid-cols-3 gap-5">
+            {policyItems.map((p: any, i: number) => (
+              <div
+                key={p.id || i}
+                className="p-7 bg-white space-y-4 hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+                style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}20` }}
+              >
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: ac(style) + '10', border: `1.5px solid ${ac(style)}20` }}
+                >
+                  <PolicyIcon iconId={p.icon} size="md" />
+                </div>
+                <p
+                  className="text-[11px] font-black uppercase tracking-[0.2em]"
+                  style={{ color: ac(style), fontFamily: bf(style) }}
+                >
+                  {p.title}
+                </p>
+                <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>
+                  {p.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : <Empty />}
+      </div>
+    </section>
+  );
+}
   // ── cards (existing) ───────────────────────────────────────────────────────
   if (layout === 'cards') return (
     <section className={py(style)} style={{ background: style.bgColor }}>
