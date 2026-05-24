@@ -11,7 +11,7 @@ import { useFirestore } from '@/firebase/provider';
 
 const protectedRoutes = ['/dashboard', '/planner', '/inventory', '/clients', '/services', '/staff', '/financials', '/reports', '/settings', '/ai-cfo', '/bills', '/consents', '/ledger', '/memberships', '/payday', '/quotes', '/retail', '/walk-in-queue', '/transactions'];
 const publicRoutes = ['/login', '/signup', '/'];
-const subscriptionRoute = '/subscribe';
+const subscriptionRoute = '/subscriptions';
 
 
 export function AuthGuard({ children }: { children: ReactNode }) {
