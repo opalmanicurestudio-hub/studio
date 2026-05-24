@@ -188,7 +188,7 @@ export default function SignupPage() {
         description: "Welcome to ClarityFlow. Let's get started.",
       });
 
-    router.push('/subscribe');
+    router.push('/subscriptions');
     } catch (error: any) {
       console.error('SIGNUP ERROR:', error.code, error.message);
 
