@@ -29,6 +29,7 @@ const ANIM_CSS = `
 @keyframes cf-float-up   { 0%{opacity:0;transform:translateY(40px) scale(0.96)} 100%{opacity:1;transform:translateY(0) scale(1)} }
 @keyframes cf-blur-in    { from{opacity:0;filter:blur(12px);transform:scale(1.04)} to{opacity:1;filter:blur(0);transform:scale(1)} }
 @keyframes cf-count-up   { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
+@keyframes cf-hscroll    { from{transform:translateX(0)} to{transform:translateX(-33.333%)} }
 `;
 
 const STACKS: Record<string, string> = {
@@ -2759,29 +2760,32 @@ const POLICY_ICON_MAP: Record<string, React.ElementType> = {
 
 function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const [openIdx, setOpenIdx] = React.useState<number | null>(null);
+  const [scrollPaused, setScrollPaused] = React.useState(false);
   const { ref, visible } = useInView(0.1);
+
   const policyItems: any[] = Array.isArray(config.policies) ? config.policies : [];
   const layout = config.layout || 'cards';
-  const dark = bgIsDark(style.bgColor);
-  const txt  = pText(style);
+  const dark = isDark(style);
+  const t = txt(style);
+  const pad = cardPad(style);
 
   const PI = ({ id, size = 'md', color }: { id: string; size?: 'sm'|'md'|'lg'; color?: string }) => {
     const C = POLICY_ICON_MAP[id] || Shield;
-    const s = { sm: 'w-3.5 h-3.5', md: 'w-4 h-4', lg: 'w-5 h-5' }[size];
-    return <C className={s} style={{ color: color || ac(style) }} />;
+    const cls = { sm: 'w-3.5 h-3.5', md: 'w-4 h-4', lg: 'w-5 h-5' }[size];
+    return <C className={cls} style={{ color: color || ac(style) }} />;
   };
 
   const Header = () => (
-    <div className="text-center mb-14 space-y-3">
+    <div className="text-center mb-12 space-y-3">
       <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-        as="h2" className="text-4xl md:text-5xl font-light tracking-tight"
-        style={{ fontFamily: hf(style), color: txt.primary }}>
+        as="h2" className="text-3xl md:text-5xl font-light tracking-tight"
+        style={{ fontFamily: hf(style), color: t.primary }}>
         {config.heading || 'Our Policies'}
       </FieldTap>
       {config.subheading && (
         <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
           as="p" className="text-sm max-w-md mx-auto leading-relaxed"
-          style={{ fontFamily: bf(style), color: txt.secondary }}>
+          style={{ fontFamily: bf(style), color: t.secondary }}>
           {config.subheading}
         </FieldTap>
       )}
@@ -2790,47 +2794,43 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 
   const Empty = () => (
     <p className="text-center text-[10px] font-black uppercase tracking-[0.25em] py-16"
-      style={{ color: txt.muted }}>
+      style={{ color: t.muted }}>
       No policies configured yet
     </p>
   );
 
-  const pad = pCardPad(style);
-
   // ── CARDS ──────────────────────────────────────────────────────────────────
   if (layout === 'cards') return (
-    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor, overflow: 'hidden' }}>
+      <div className="max-w-5xl mx-auto px-4 md:px-10">
         <Header />
         {policyItems.length > 0 ? (
-          <div className="grid md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {policyItems.map((p: any, i: number) => (
               <div key={p.id || i}
-                className="group relative overflow-hidden cursor-default transition-all duration-400 hover:-translate-y-1"
+                className="group relative w-full overflow-hidden cursor-default transition-all duration-400 hover:-translate-y-1"
                 style={{
                   borderRadius: br(style, 2),
                   animation: visible ? `cf-float-up 0.6s ${i * 0.09}s both` : 'none',
-                  ...pSurface(style, true),
+                  ...surface(style, true),
                 }}>
-                <div className="absolute left-0 top-8 bottom-8 w-[2px] rounded-full opacity-0 group-hover:opacity-100 transition-all duration-400"
+                <div className="absolute left-0 top-6 bottom-6 w-[2px] rounded-full opacity-0 group-hover:opacity-100 transition-all duration-400"
                   style={{ background: `linear-gradient(to bottom, transparent, ${ac(style)}, transparent)` }} />
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
-                  style={{ background: `radial-gradient(ellipse at 0% 50%, ${ac(style)}06 0%, transparent 70%)` }} />
-                <div className={`${pad} space-y-5 relative`}>
-                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center transition-transform duration-300 group-hover:scale-105"
-                    style={{ ...pIconBg(style), borderRadius: br(style, 1.5) }}>
+                <div className={`${pad} space-y-4`}>
+                  <div className="w-10 h-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-105"
+                    style={{ ...iconBg(style), borderRadius: br(style, 1.5) }}>
                     <PI id={p.icon} />
                   </div>
                   <div className="space-y-2">
-                    <p className="text-[11px] font-black uppercase tracking-[0.18em]"
+                    <p className="text-[11px] font-black uppercase tracking-[0.18em] leading-tight"
                       style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
-                    <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: txt.secondary }}>{p.body}</p>
+                    <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: t.secondary }}>{p.body}</p>
                   </div>
                 </div>
-                <div className="absolute bottom-4 right-5 text-[10px] font-black tabular-nums select-none"
+                <span className="absolute bottom-3 right-4 text-[10px] font-black tabular-nums select-none"
                   style={{ color: ac(style) + '14', fontFamily: hf(style) }}>
                   {String(i + 1).padStart(2, '0')}
-                </div>
+                </span>
               </div>
             ))}
           </div>
@@ -2841,26 +2841,26 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 
   // ── LIST ───────────────────────────────────────────────────────────────────
   if (layout === 'list') return (
-    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-3xl mx-auto px-6 md:px-16">
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor, overflow: 'hidden' }}>
+      <div className="max-w-2xl mx-auto px-4 md:px-10">
         <Header />
         {policyItems.length > 0 ? (
           <div>
             {policyItems.map((p: any, i: number) => (
               <div key={p.id || i}
-                className="group flex items-start gap-5 py-6 border-b transition-all duration-200 hover:px-2 -mx-2 px-2 last:border-0"
+                className="group flex items-start gap-4 py-6 border-b last:border-0 transition-colors"
                 style={{
-                  borderColor: pDivider(style),
+                  borderColor: divider(style),
                   animation: visible ? `cf-fade-up 0.5s ${i * 0.07}s both` : 'none',
                 }}>
-                <div className="w-9 h-9 shrink-0 mt-0.5 flex items-center justify-center transition-transform duration-300 group-hover:scale-105"
-                  style={{ ...pIconBg(style), borderRadius: br(style, 1.5) }}>
+                <div className="w-9 h-9 shrink-0 flex items-center justify-center mt-0.5 transition-transform duration-300 group-hover:scale-105"
+                  style={{ ...iconBg(style), borderRadius: br(style, 1.5) }}>
                   <PI id={p.icon} size="sm" />
                 </div>
                 <div className="flex-1 min-w-0 space-y-1.5">
                   <p className="text-[11px] font-black uppercase tracking-[0.18em]"
                     style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
-                  <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: txt.secondary }}>{p.body}</p>
+                  <p className="text-sm leading-relaxed break-words" style={{ fontFamily: bf(style), color: t.secondary }}>{p.body}</p>
                 </div>
                 <span className="text-[10px] font-black tabular-nums shrink-0 mt-0.5 select-none"
                   style={{ color: ac(style) + '28', fontFamily: hf(style) }}>
@@ -2876,57 +2876,43 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 
   // ── TIMELINE ───────────────────────────────────────────────────────────────
   if (layout === 'timeline') return (
-    <section ref={ref} className={py(style)} style={{ background: pSectionBg(style, true) }}>
-      <div className="max-w-4xl mx-auto px-6 md:px-16">
+    <section ref={ref} className={py(style)} style={{ background: tintedBg(style), overflow: 'hidden' }}>
+      <div className="max-w-3xl mx-auto px-4 md:px-10">
         <Header />
         {policyItems.length > 0 ? (
           <div className="relative">
-            <div className="absolute left-1/2 top-4 bottom-4 w-px hidden md:block"
-              style={{ background: `linear-gradient(to bottom, transparent, ${ac(style)}20 20%, ${ac(style)}20 80%, transparent)`, transform: 'translateX(-50%)' }} />
-            <div className="space-y-6 md:space-y-0">
-              {policyItems.map((p: any, i: number) => {
-                const isLeft = i % 2 === 0;
-                return (
-                  <div key={p.id || i}
-                    className="relative md:grid md:grid-cols-2 md:gap-12 items-center md:mb-8"
-                    style={{ animation: visible ? `cf-fade-up 0.6s ${i * 0.1}s both` : 'none' }}>
-                    <div className={isLeft ? 'md:text-right' : 'md:order-2'}>
-                      <div className={`group overflow-hidden transition-all duration-400 hover:-translate-y-1 ${isLeft ? 'md:ml-auto' : ''}`}
-                        style={{
-                          borderRadius: br(style, 2),
-                          maxWidth: '360px',
-                          borderRight: isLeft ? `3px solid ${ac(style)}50` : undefined,
-                          borderLeft: !isLeft ? `3px solid ${ac(style)}50` : undefined,
-                          ...pSurface(style, true),
-                        }}>
-                        <div className={`${pad} space-y-4`}>
-                          <div className={`flex items-center gap-3 ${isLeft ? 'md:flex-row-reverse' : ''}`}>
-                            <div className="w-9 h-9 shrink-0 flex items-center justify-center transition-transform duration-300 group-hover:scale-105"
-                              style={{ ...pIconBg(style), borderRadius: br(style, 1.5) }}>
-                              <PI id={p.icon} size="sm" />
-                            </div>
-                            <p className="text-[11px] font-black uppercase tracking-[0.18em]"
-                              style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
-                          </div>
-                          <p className={`text-sm leading-relaxed ${isLeft ? 'md:text-right' : ''}`}
-                            style={{ fontFamily: bf(style), color: txt.secondary }}>{p.body}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex z-10">
-                      <div className="w-9 h-9 rounded-full flex items-center justify-center"
-                        style={{
-                          background: style.bgColor,
-                          border: `2px solid ${ac(style)}50`,
-                          boxShadow: `0 0 0 4px ${ac(style)}0e`,
-                        }}>
-                        <PI id={p.icon} size="sm" />
-                      </div>
-                    </div>
-                    {isLeft ? <div /> : <div className="md:order-1" />}
+            {/* Spine — desktop only */}
+            <div className="absolute left-5 top-0 bottom-0 w-px hidden md:block"
+              style={{ background: `linear-gradient(to bottom, transparent, ${ac(style)}25 15%, ${ac(style)}25 85%, transparent)` }} />
+            <div className="space-y-3">
+              {policyItems.map((p: any, i: number) => (
+                <div key={p.id || i}
+                  className="group relative flex items-start gap-5 md:gap-8"
+                  style={{ animation: visible ? `cf-fade-up 0.55s ${i * 0.1}s both` : 'none' }}>
+                  {/* Node */}
+                  <div className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center z-10 transition-transform duration-300 group-hover:scale-105"
+                    style={{
+                      background: style.bgColor,
+                      border: `2px solid ${ac(style)}40`,
+                      boxShadow: `0 0 0 3px ${ac(style)}0e`,
+                    }}>
+                    <PI id={p.icon} size="sm" />
                   </div>
-                );
-              })}
+                  {/* Card */}
+                  <div className="flex-1 min-w-0 overflow-hidden mb-2 transition-all duration-300 group-hover:-translate-y-0.5"
+                    style={{
+                      borderRadius: br(style, 1.5),
+                      borderLeft: `3px solid ${ac(style)}50`,
+                      ...surface(style, true),
+                    }}>
+                    <div className={`${pad} space-y-2`}>
+                      <p className="text-[11px] font-black uppercase tracking-[0.18em]"
+                        style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
+                      <p className="text-sm leading-relaxed break-words" style={{ fontFamily: bf(style), color: t.secondary }}>{p.body}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ) : <Empty />}
@@ -2936,8 +2922,8 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 
   // ── ACCORDION ──────────────────────────────────────────────────────────────
   if (layout === 'accordion') return (
-    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-2xl mx-auto px-6 md:px-16">
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor, overflow: 'hidden' }}>
+      <div className="max-w-2xl mx-auto px-4 md:px-10">
         <Header />
         {policyItems.length > 0 ? (
           <div className="space-y-2">
@@ -2945,13 +2931,13 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
               const isOpen = openIdx === i;
               return (
                 <div key={p.id || i}
-                  className="overflow-hidden transition-all duration-300"
+                  className="overflow-hidden w-full transition-all duration-300"
                   style={{
                     borderRadius: br(style, 1.5),
                     borderLeft: `3px solid ${isOpen ? ac(style) : ac(style) + '20'}`,
                     boxShadow: isOpen ? `0 6px 28px ${ac(style)}0c` : 'none',
                     animation: visible ? `cf-fade-up 0.45s ${i * 0.07}s both` : 'none',
-                    ...pSurface(style, true),
+                    ...surface(style, true),
                     border: `1px solid ${isOpen ? ac(style) + '30' : ac(style) + '0e'}`,
                     borderLeft: `3px solid ${isOpen ? ac(style) : ac(style) + '20'}`,
                   }}>
@@ -2965,23 +2951,23 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
                       }}>
                       <PI id={p.icon} size="sm" color={isOpen ? 'white' : ac(style)} />
                     </div>
-                    <span className="flex-1 font-black text-sm uppercase tracking-[0.14em] pr-2"
-                      style={{ fontFamily: bf(style), color: txt.primary }}>{p.title}</span>
-                    <div className="w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition-all duration-300"
+                    <span className="flex-1 min-w-0 font-black text-sm uppercase tracking-[0.13em] pr-2 truncate"
+                      style={{ fontFamily: bf(style), color: t.primary }}>{p.title}</span>
+                    <div className="w-6 h-6 rounded-full border shrink-0 flex items-center justify-center transition-all duration-300"
                       style={{ borderColor: isOpen ? ac(style) + '50' : ac(style) + '18' }}>
-                      <ChevronDown className="w-3 h-3 transition-transform duration-350"
-                        style={{ color: isOpen ? ac(style) : txt.muted, transform: isOpen ? 'rotate(180deg)' : 'none' }} />
+                      <ChevronDown className="w-3 h-3 transition-transform duration-300"
+                        style={{ color: isOpen ? ac(style) : t.muted, transform: isOpen ? 'rotate(180deg)' : 'none' }} />
                     </div>
                   </button>
                   <div style={{
-                    maxHeight: isOpen ? '280px' : '0px',
+                    maxHeight: isOpen ? '300px' : '0px',
                     overflow: 'hidden',
                     opacity: isOpen ? 1 : 0,
                     transition: 'max-height 0.4s cubic-bezier(0.16,1,0.3,1), opacity 0.3s ease',
                   }}>
-                    <div className="px-5 pb-6 pt-1 pl-[3.5rem]">
-                      <div className="h-px mb-4" style={{ background: pDivider(style) }} />
-                      <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: txt.secondary }}>{p.body}</p>
+                    <div className="px-5 pb-5 pt-0 pl-[3.25rem]">
+                      <div className="h-px mb-4" style={{ background: divider(style) }} />
+                      <p className="text-sm leading-relaxed break-words" style={{ fontFamily: bf(style), color: t.secondary }}>{p.body}</p>
                     </div>
                   </div>
                 </div>
@@ -2995,55 +2981,46 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 
   // ── EDITORIAL ──────────────────────────────────────────────────────────────
   if (layout === 'editorial') return (
-    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className="mb-14 pb-5" style={{ borderBottom: `1px solid ${pDivider(style)}` }}>
-          <div className="flex items-end justify-between">
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor, overflow: 'hidden' }}>
+      <div className="max-w-4xl mx-auto px-4 md:px-10">
+        <div className="mb-12 pb-5" style={{ borderBottom: `1px solid ${divider(style)}` }}>
+          <div className="flex items-end justify-between gap-4 flex-wrap">
             <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-              as="h2" className="text-4xl md:text-6xl font-light leading-none"
-              style={{ fontFamily: hf(style), color: txt.primary }}>
+              as="h2" className="text-3xl md:text-5xl font-light leading-none"
+              style={{ fontFamily: hf(style), color: t.primary }}>
               {config.heading || 'Our Policies'}
             </FieldTap>
-            <div className="hidden md:flex flex-col items-end gap-1 mb-1">
-              <p className="text-[9px] font-black uppercase tracking-[0.35em]"
-                style={{ color: ac(style) + '70' }}>
-                {policyItems.length} {policyItems.length === 1 ? 'policy' : 'policies'}
-              </p>
-              {config.subheading && (
-                <p className="text-[10px] max-w-[180px] text-right leading-snug"
-                  style={{ fontFamily: bf(style), color: txt.muted }}>{config.subheading}</p>
-              )}
-            </div>
+            <p className="text-[9px] font-black uppercase tracking-[0.3em] mb-1 shrink-0"
+              style={{ color: ac(style) + '60' }}>
+              {policyItems.length} {policyItems.length === 1 ? 'policy' : 'policies'}
+            </p>
           </div>
-          <div className="h-px mt-1.5" style={{ background: ac(style) }} />
+          <div className="h-px mt-2" style={{ background: ac(style) }} />
         </div>
         {policyItems.length > 0 ? (
           <div>
             {policyItems.map((p: any, i: number) => (
               <div key={p.id || i}
-                className="group grid md:grid-cols-[40px_180px_1fr] gap-0 items-start py-7 border-b transition-colors -mx-4 px-4 last:border-0"
+                className="group grid grid-cols-[36px_1fr] md:grid-cols-[36px_160px_1fr] gap-4 items-start py-6 border-b last:border-0 transition-colors"
                 style={{
-                  borderColor: pDivider(style),
+                  borderColor: divider(style),
                   animation: visible ? `cf-fade-up 0.45s ${i * 0.07}s both` : 'none',
                 }}>
-                <div className="hidden md:flex items-start pt-0.5">
-                  <span className="text-[11px] font-black tabular-nums" style={{ color: ac(style) + '30', fontFamily: hf(style) }}>
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
+                {/* Icon */}
+                <div className="w-8 h-8 shrink-0 flex items-center justify-center mt-0.5 transition-transform duration-300 group-hover:scale-105"
+                  style={{ ...iconBg(style), borderRadius: br(style, 1.2) }}>
+                  <PI id={p.icon} size="sm" />
                 </div>
-                <div className="flex items-start gap-2.5 md:pr-8 mb-3 md:mb-0">
-                  <div className="w-8 h-8 shrink-0 mt-0.5 flex items-center justify-center transition-transform duration-300 group-hover:scale-105"
-                    style={{ ...pIconBg(style), borderRadius: br(style, 1.2) }}>
-                    <PI id={p.icon} size="sm" />
-                  </div>
-                  <div className="pt-0.5">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-tight"
-                      style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
-                    <div className="w-5 h-px mt-2 transition-all duration-400 group-hover:w-10"
-                      style={{ background: ac(style) + '40' }} />
-                  </div>
+                {/* Title */}
+                <div className="min-w-0 md:border-r md:pr-4" style={{ borderColor: divider(style) }}>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-snug"
+                    style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
+                  <div className="w-5 h-px mt-2 transition-all duration-400 group-hover:w-10"
+                    style={{ background: ac(style) + '40' }} />
                 </div>
-                <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: txt.secondary }}>{p.body}</p>
+                {/* Body */}
+                <p className="text-sm leading-relaxed break-words col-start-2 md:col-start-3 md:pl-4"
+                  style={{ fontFamily: bf(style), color: t.secondary }}>{p.body}</p>
               </div>
             ))}
           </div>
@@ -3053,65 +3030,63 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
   );
 
   // ── DARK ───────────────────────────────────────────────────────────────────
-  // Respects theme: uses a deep version of bgColor rather than always #080810
   if (layout === 'dark') {
     const darkBg = dark ? style.bgColor : '#090910';
     return (
       <section ref={ref} className={py(style)} style={{ background: darkBg, position: 'relative', overflow: 'hidden' }}>
         <div className="absolute inset-0 pointer-events-none"
-          style={{ background: `radial-gradient(ellipse at 25% 0%, ${ac(style)}18 0%, transparent 50%), radial-gradient(ellipse at 75% 100%, ${ac(style)}10 0%, transparent 50%)` }} />
-        <div className="absolute inset-0 pointer-events-none opacity-[0.018]"
-          style={{ backgroundImage: `linear-gradient(${ac(style)} 1px, transparent 1px), linear-gradient(90deg, ${ac(style)} 1px, transparent 1px)`, backgroundSize: '48px 48px' }} />
-        <div className="relative max-w-5xl mx-auto px-6 md:px-16">
-          <div className="text-center mb-14 space-y-3">
+          style={{ background: `radial-gradient(ellipse at 25% 0%, ${ac(style)}20 0%, transparent 50%), radial-gradient(ellipse at 75% 100%, ${ac(style)}12 0%, transparent 50%)` }} />
+        <div className="relative max-w-5xl mx-auto px-4 md:px-10">
+          <div className="text-center mb-12 space-y-3">
             <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-              as="h2" className="text-4xl md:text-5xl font-light"
-              style={{ fontFamily: hf(style), color: 'rgba(255,255,255,0.90)' }}>
+              as="h2" className="text-3xl md:text-5xl font-light"
+              style={{ fontFamily: hf(style), color: 'rgba(255,255,255,0.93)' }}>
               {config.heading || 'Our Policies'}
             </FieldTap>
             {config.subheading && (
               <p className="text-sm max-w-md mx-auto leading-relaxed"
-                style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.38)' }}>{config.subheading}</p>
+                style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.50)' }}>{config.subheading}</p>
             )}
             <div className="flex justify-center pt-1">
               <div className="h-px w-14" style={{ background: `linear-gradient(to right, transparent, ${ac(style)}, transparent)` }} />
             </div>
           </div>
           {policyItems.length > 0 ? (
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {policyItems.map((p: any, i: number) => (
                 <div key={p.id || i}
-                  className="group relative overflow-hidden cursor-default transition-all duration-500 hover:-translate-y-2"
+                  className="group relative overflow-hidden cursor-default transition-all duration-500 hover:-translate-y-1.5"
                   style={{
                     borderRadius: br(style, 2),
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.07)',
-                    backdropFilter: 'blur(16px)',
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.09)',
                     animation: visible ? `cf-float-up 0.65s ${i * 0.1}s both` : 'none',
                   }}>
                   <div className="absolute top-0 inset-x-0 h-px opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-                    style={{ background: `linear-gradient(to right, transparent 10%, ${ac(style)}80 50%, transparent 90%)` }} />
+                    style={{ background: `linear-gradient(to right, transparent 10%, ${ac(style)}90 50%, transparent 90%)` }} />
                   <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
-                    style={{ background: `radial-gradient(ellipse at 50% 0%, ${ac(style)}10 0%, transparent 60%)` }} />
-                  <div className={`relative ${pad} space-y-5`}>
-                    <div className="w-12 h-12 flex items-center justify-center transition-all duration-400 group-hover:scale-105"
+                    style={{ background: `radial-gradient(ellipse at 50% 0%, ${ac(style)}14 0%, transparent 65%)` }} />
+                  <div className={`relative ${pad} space-y-4`}>
+                    <div className="w-11 h-11 flex items-center justify-center transition-all duration-400 group-hover:scale-105"
                       style={{
-                        background: `linear-gradient(135deg, ${ac(style)}1c, ${ac(style)}08)`,
-                        border: `1px solid ${ac(style)}28`,
-                        borderRadius: br(style, 2),
+                        background: `${ac(style)}1e`,
+                        border: `1px solid ${ac(style)}35`,
+                        borderRadius: br(style, 1.8),
                       }}>
-                      <PI id={p.icon} size="lg" />
+                      <PI id={p.icon} size="md" />
                     </div>
-                    <div className="space-y-2.5">
-                      <p className="text-[11px] font-black uppercase tracking-[0.2em]"
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-black uppercase tracking-[0.18em]"
                         style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
                       <div className="h-px w-7 transition-all duration-500 group-hover:w-full"
-                        style={{ background: `linear-gradient(to right, ${ac(style)}40, transparent)` }} />
-                      <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.42)' }}>{p.body}</p>
+                        style={{ background: `linear-gradient(to right, ${ac(style)}50, transparent)` }} />
+                      {/* Fixed: opacity raised from 0.42 to 0.72 */}
+                      <p className="text-sm leading-relaxed break-words"
+                        style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.72)' }}>{p.body}</p>
                     </div>
                   </div>
-                  <div className="absolute bottom-5 right-5 text-[10px] font-black tabular-nums opacity-0 group-hover:opacity-100 transition-opacity duration-400"
-                    style={{ color: ac(style) + '45', fontFamily: hf(style) }}>
+                  <div className="absolute bottom-4 right-4 text-[10px] font-black tabular-nums opacity-0 group-hover:opacity-100 transition-opacity duration-400"
+                    style={{ color: ac(style) + '55', fontFamily: hf(style) }}>
                     {String(i + 1).padStart(2, '0')}
                   </div>
                 </div>
@@ -3119,7 +3094,7 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
             </div>
           ) : (
             <p className="text-center text-[10px] font-black uppercase tracking-[0.25em] py-16"
-              style={{ color: 'rgba(255,255,255,0.15)' }}>No policies configured yet</p>
+              style={{ color: 'rgba(255,255,255,0.22)' }}>No policies configured yet</p>
           )}
         </div>
       </section>
@@ -3128,38 +3103,34 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 
   // ── SPOTLIGHT ──────────────────────────────────────────────────────────────
   if (layout === 'spotlight') return (
-    <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-4xl mx-auto px-6 md:px-16">
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor, overflow: 'hidden' }}>
+      <div className="max-w-3xl mx-auto px-4 md:px-10">
         <Header />
         {policyItems.length > 0 ? (
           <div>
             {policyItems.map((p: any, i: number) => (
               <div key={p.id || i}
-                className="group relative flex items-center gap-6 md:gap-10 py-7 border-b transition-all duration-300 cursor-default last:border-0"
+                className="group relative flex items-center gap-5 py-6 border-b last:border-0 transition-all duration-300"
                 style={{
-                  borderColor: pDivider(style),
+                  borderColor: divider(style),
                   animation: visible ? `cf-fade-up 0.5s ${i * 0.08}s both` : 'none',
                 }}>
                 <div className="absolute left-0 top-4 bottom-4 w-[2px] rounded-full scale-y-0 group-hover:scale-y-100 transition-transform duration-400 origin-top"
                   style={{ background: ac(style) }} />
-                <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 flex items-center justify-center transition-all duration-400 group-hover:scale-105"
-                  style={{ ...pIconBg(style), borderRadius: br(style, 2) }}>
+                <div className="w-12 h-12 shrink-0 flex items-center justify-center transition-all duration-400 group-hover:scale-105"
+                  style={{ ...iconBg(style), borderRadius: br(style, 2) }}>
                   <PI id={p.icon} size="lg" />
                 </div>
-                <span className="hidden md:block text-5xl font-light tabular-nums shrink-0 select-none"
-                  style={{ fontFamily: hf(style), color: ac(style) + '18', lineHeight: 1, minWidth: '3rem', textAlign: 'right' }}>
-                  {String(i + 1).padStart(2, '0')}
-                </span>
                 <div className="flex-1 min-w-0 space-y-1.5">
-                  <p className="text-[11px] font-black uppercase tracking-[0.2em]"
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em]"
                     style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
-                  <div className="h-px w-7 transition-all duration-500 group-hover:w-16"
+                  <div className="h-px w-7 transition-all duration-500 group-hover:w-14"
                     style={{ background: `${ac(style)}30` }} />
-                  <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: txt.secondary }}>{p.body}</p>
+                  <p className="text-sm leading-relaxed break-words" style={{ fontFamily: bf(style), color: t.secondary }}>{p.body}</p>
                 </div>
-                <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 -translate-x-2 group-hover:translate-x-0"
-                  style={{ background: ac(style), boxShadow: `0 4px 16px ${ac(style)}30`, borderRadius: br(style, 3) }}>
-                  <ArrowRight className="w-3.5 h-3.5 text-white" />
+                <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300"
+                  style={{ background: ac(style), borderRadius: br(style, 3) }}>
+                  <ArrowRight className="w-3 h-3 text-white" />
                 </div>
               </div>
             ))}
@@ -3170,42 +3141,42 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
   );
 
   // ── FROSTED ────────────────────────────────────────────────────────────────
-  // Adapts: dark themes get dark frosted glass, light themes get white frosted
   if (layout === 'frosted') return (
-    <section ref={ref} className={py(style)} style={{ position: 'relative', overflow: 'hidden', background: style.bgColor }}>
-      {/* Adaptive gradient overlay */}
+    <section ref={ref} className={py(style)} style={{ background: style.bgColor, position: 'relative', overflow: 'hidden' }}>
+      {/* Contained ambient — won't overflow */}
       <div className="absolute inset-0 pointer-events-none"
         style={{ background: dark
-          ? `radial-gradient(ellipse at 30% 20%, ${ac(style)}18 0%, transparent 55%), radial-gradient(ellipse at 70% 80%, ${ac(style)}10 0%, transparent 55%)`
-          : `radial-gradient(ellipse at 30% 20%, ${ac(style)}10 0%, transparent 55%), radial-gradient(ellipse at 70% 80%, ${ac(style)}08 0%, transparent 55%)` }} />
-      <div className="relative max-w-5xl mx-auto px-6 md:px-16">
+          ? `radial-gradient(ellipse at 20% 20%, ${ac(style)}18 0%, transparent 50%), radial-gradient(ellipse at 80% 80%, ${ac(style)}12 0%, transparent 50%)`
+          : `radial-gradient(ellipse at 20% 20%, ${ac(style)}0e 0%, transparent 50%), radial-gradient(ellipse at 80% 80%, ${ac(style)}08 0%, transparent 50%)` }} />
+      <div className="relative max-w-5xl mx-auto px-4 md:px-10">
         <Header />
         {policyItems.length > 0 ? (
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {policyItems.map((p: any, i: number) => (
               <div key={p.id || i}
-                className="group relative overflow-hidden cursor-default transition-all duration-500 hover:-translate-y-1.5"
+                className="group relative overflow-hidden cursor-default transition-all duration-500 hover:-translate-y-1"
                 style={{
-                  borderRadius: br(style, 2.5),
-                  background: dark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.65)',
-                  border: dark ? '1px solid rgba(255,255,255,0.10)' : '1px solid rgba(255,255,255,0.9)',
-                  backdropFilter: 'blur(24px) saturate(1.4)',
-                  WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
-                  boxShadow: dark ? `0 4px 24px rgba(0,0,0,0.3)` : '0 4px 24px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9)',
+                  borderRadius: br(style, 2),
+                  background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.68)',
+                  border: dark ? '1px solid rgba(255,255,255,0.11)' : '1px solid rgba(255,255,255,0.92)',
+                  backdropFilter: 'blur(20px) saturate(1.4)',
+                  WebkitBackdropFilter: 'blur(20px) saturate(1.4)',
+                  boxShadow: dark
+                    ? `0 4px 24px rgba(0,0,0,0.35)`
+                    : '0 4px 20px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.95)',
                   animation: visible ? `cf-float-up 0.65s ${i * 0.09}s both` : 'none',
                 }}>
                 <div className="absolute top-0 inset-x-0 h-px"
-                  style={{ background: dark ? 'linear-gradient(to right, transparent, rgba(255,255,255,0.15), transparent)' : 'linear-gradient(to right, transparent, rgba(255,255,255,0.9), transparent)' }} />
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-400 pointer-events-none"
-                  style={{ background: `radial-gradient(ellipse at 50% 100%, ${ac(style)}08 0%, transparent 70%)` }} />
-                <div className={`relative ${pad} space-y-5`}>
+                  style={{ background: dark
+                    ? 'linear-gradient(to right, transparent, rgba(255,255,255,0.12), transparent)'
+                    : 'linear-gradient(to right, transparent, rgba(255,255,255,0.95), transparent)' }} />
+                <div className={`relative ${pad} space-y-4`}>
                   <div className="flex items-center justify-between">
-                    <div className="w-11 h-11 flex items-center justify-center transition-transform duration-300 group-hover:scale-105"
+                    <div className="w-10 h-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-105"
                       style={{
-                        background: dark ? `${ac(style)}18` : 'rgba(255,255,255,0.9)',
+                        background: dark ? `${ac(style)}1c` : 'rgba(255,255,255,0.92)',
                         border: `1px solid ${ac(style)}18`,
-                        borderRadius: br(style, 1.8),
-                        boxShadow: dark ? 'none' : `0 2px 10px ${ac(style)}0e`,
+                        borderRadius: br(style, 1.5),
                       }}>
                       <PI id={p.icon} />
                     </div>
@@ -3214,10 +3185,11 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
                       {String(i + 1).padStart(2, '0')}
                     </span>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <p className="text-[11px] font-black uppercase tracking-[0.18em]"
                       style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
-                    <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: dark ? 'rgba(255,255,255,0.5)' : txt.secondary }}>{p.body}</p>
+                    <p className="text-sm leading-relaxed break-words"
+                      style={{ fontFamily: bf(style), color: dark ? 'rgba(255,255,255,0.65)' : t.secondary }}>{p.body}</p>
                   </div>
                 </div>
               </div>
@@ -3229,60 +3201,55 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
   );
 
   // ── SCROLL ─────────────────────────────────────────────────────────────────
-  // Animation injected once via useEffect to avoid duplication
   if (layout === 'scroll') {
-    const duration = Math.max(18, policyItems.length * 5);
-    const looped = policyItems.length > 0 ? [...policyItems, ...policyItems, ...policyItems] : [];
-
-    React.useEffect(() => {
-      const id = 'cf-hscroll-style';
-      if (document.getElementById(id)) return;
-      const el = document.createElement('style');
-      el.id = id;
-      el.textContent = `
-        @keyframes cf-hscroll { from{transform:translateX(0)} to{transform:translateX(-33.333%)} }
-        .cf-scroll-wrap:hover .cf-scroll-track { animation-play-state:paused !important; }
-      `;
-      document.head.appendChild(el);
-    }, []);
-
+    const duration = Math.max(20, policyItems.length * 6);
+    const looped = policyItems.length > 0
+      ? [...policyItems, ...policyItems, ...policyItems]
+      : [];
     return (
       <section ref={ref} className={py(style)} style={{ background: style.bgColor, overflow: 'hidden' }}>
-        <div className="max-w-5xl mx-auto px-6 md:px-16 mb-12">
-          <div className="flex items-end justify-between">
+        <div className="max-w-5xl mx-auto px-4 md:px-10 mb-10">
+          <div className="flex items-end justify-between gap-4 flex-wrap">
             <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-              as="h2" className="text-4xl md:text-5xl font-light"
-              style={{ fontFamily: hf(style), color: txt.primary }}>
+              as="h2" className="text-3xl md:text-5xl font-light"
+              style={{ fontFamily: hf(style), color: t.primary }}>
               {config.heading || 'Our Policies'}
             </FieldTap>
-            <p className="hidden md:block text-[9px] font-black uppercase tracking-[0.3em] mb-1"
-              style={{ color: ac(style) + '55', fontFamily: bf(style) }}>Scroll to explore</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.28em] mb-1 shrink-0"
+              style={{ color: ac(style) + '50', fontFamily: bf(style) }}>Scroll to explore</p>
           </div>
           {config.subheading && (
-            <p className="text-sm mt-2" style={{ fontFamily: bf(style), color: txt.secondary }}>{config.subheading}</p>
+            <p className="text-sm mt-2" style={{ fontFamily: bf(style), color: t.secondary }}>{config.subheading}</p>
           )}
-          <div className="h-px mt-5" style={{ background: `linear-gradient(to right, ${ac(style)}25, transparent)` }} />
+          <div className="h-px mt-4" style={{ background: `linear-gradient(to right, ${ac(style)}25, transparent)` }} />
         </div>
         {policyItems.length > 0 ? (
-          <div className="cf-scroll-wrap relative"
+          <div
+            onMouseEnter={() => setScrollPaused(true)}
+            onMouseLeave={() => setScrollPaused(false)}
             style={{
               maskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
               WebkitMaskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+              overflow: 'hidden',
             }}>
-            <div className="cf-scroll-track flex gap-4 w-max px-4"
-              style={{ animation: `cf-hscroll ${duration}s linear infinite` }}>
+            <div
+              className="flex gap-4 w-max px-4"
+              style={{
+                animation: `cf-hscroll ${duration}s linear infinite`,
+                animationPlayState: scrollPaused ? 'paused' : 'running',
+              }}>
               {looped.map((p: any, i: number) => (
                 <div key={`${p.id || i}-${i}`}
-                  className="group flex-shrink-0 cursor-default transition-all duration-300 hover:-translate-y-1 overflow-hidden"
+                  className="flex-shrink-0 overflow-hidden transition-all duration-300 hover:-translate-y-1"
                   style={{
-                    width: '260px',
+                    width: '240px',
                     borderRadius: br(style, 2),
-                    ...pSurface(style, true),
+                    ...surface(style, true),
                   }}>
-                  <div className={`${pad} space-y-4`}>
+                  <div className={`${pad} space-y-3`}>
                     <div className="flex items-center justify-between">
-                      <div className="w-10 h-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-105"
-                        style={{ ...pIconBg(style), borderRadius: br(style, 1.5) }}>
+                      <div className="w-9 h-9 flex items-center justify-center transition-transform duration-300"
+                        style={{ ...iconBg(style), borderRadius: br(style, 1.5) }}>
                         <PI id={p.icon} size="sm" />
                       </div>
                       <span className="text-[10px] font-black tabular-nums select-none"
@@ -3290,14 +3257,14 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
                         {String((i % policyItems.length) + 1).padStart(2, '0')}
                       </span>
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <p className="text-[10px] font-black uppercase tracking-[0.18em]"
                         style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
                       <p className="text-xs leading-relaxed line-clamp-3"
-                        style={{ fontFamily: bf(style), color: txt.secondary }}>{p.body}</p>
+                        style={{ fontFamily: bf(style), color: t.secondary }}>{p.body}</p>
                     </div>
                   </div>
-                  <div className="h-[2px] w-0 group-hover:w-full transition-all duration-500"
+                  <div className="h-[2px] w-0 hover:w-full transition-all duration-500"
                     style={{ background: `linear-gradient(to right, ${ac(style)}, ${ac(style)}55)` }} />
                 </div>
               ))}
@@ -3310,21 +3277,21 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 
   // ── fallback ───────────────────────────────────────────────────────────────
   return (
-    <section className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
+    <section className={py(style)} style={{ background: style.bgColor, overflow: 'hidden' }}>
+      <div className="max-w-5xl mx-auto px-4 md:px-10">
         <Header />
         {policyItems.length > 0 ? (
-          <div className="grid md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {policyItems.map((p: any, i: number) => (
-              <div key={p.id || i} className={`${pad} space-y-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden`}
-                style={{ borderRadius: br(style, 1.5), ...pSurface(style, true) }}>
+              <div key={p.id || i} className={`${pad} space-y-4 overflow-hidden transition-all duration-300 hover:-translate-y-1`}
+                style={{ borderRadius: br(style, 1.5), ...surface(style, true) }}>
                 <div className="w-10 h-10 flex items-center justify-center"
-                  style={{ ...pIconBg(style), borderRadius: br(style, 1.5) }}>
+                  style={{ ...iconBg(style), borderRadius: br(style, 1.5) }}>
                   <PI id={p.icon} />
                 </div>
                 <p className="text-[11px] font-black uppercase tracking-[0.18em]"
                   style={{ color: ac(style), fontFamily: bf(style) }}>{p.title}</p>
-                <p className="text-sm leading-relaxed" style={{ fontFamily: bf(style), color: txt.secondary }}>{p.body}</p>
+                <p className="text-sm leading-relaxed break-words" style={{ fontFamily: bf(style), color: t.secondary }}>{p.body}</p>
               </div>
             ))}
           </div>
