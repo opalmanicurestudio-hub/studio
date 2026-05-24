@@ -1,11 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
     function isSignedIn() {
       return request.auth != null;
     }
-
     function isOwner(tenantId) {
       return isSignedIn() && (
         request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId ||
@@ -13,7 +11,6 @@ service cloud.firestore {
         get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role == 'owner'
       );
     }
-
     function isStaff(tenantId) {
       return isSignedIn() && (
         isOwner(tenantId) ||
@@ -25,6 +22,7 @@ service cloud.firestore {
     match /tenants/{tenantId} {
       allow get: if true;
       allow list: if isSignedIn();
+      allow create: if isSignedIn(); // ← ADDED: allows new users to create their tenant on signup
       allow update: if isOwner(tenantId);
     }
 
@@ -43,7 +41,7 @@ service cloud.firestore {
       allow get, list: if true;
     }
     match /tenants/{tenantId}/inventory/{itemId} {
-      allow get, list: if true; // Critical for concierge menu
+      allow get, list: if true;
       allow write: if isStaff(tenantId);
     }
 
@@ -51,25 +49,23 @@ service cloud.firestore {
     match /tenants/{tenantId}/refreshmentRequests/{requestId} {
       allow create: if true; 
       allow get: if true;
-      allow list: if true; // Allow guests to query their own requests
+      allow list: if true;
       allow update: if isStaff(tenantId);
     }
 
     // --- Check-in & Public Tokens ---
     match /appointmentCheckIns/{token} {
-      allow read, write: if true; // Token is the secret key
+      allow read, write: if true;
     }
 
     match /tenants/{tenantId}/notifications/{notificationId} {
       allow create: if true; 
       allow get, list, update, delete: if isStaff(tenantId);
     }
-
     match /tenants/{tenantId}/appointments/{appointmentId} {
       allow get: if true;
       allow list, write: if isStaff(tenantId);
     }
-
     match /tenants/{tenantId}/clients/{clientId} {
       allow get: if true;
       allow create: if true;
@@ -84,7 +80,6 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
-
     match /staffDirectory/{userId} {
       allow read: if true;
       allow write: if isSignedIn();
