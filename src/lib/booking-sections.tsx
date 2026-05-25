@@ -3589,6 +3589,7 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
     </section>
   );
 }
+
 // ─── ContactSection ───────────────────────────────────────────────────────────
 function ContactSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const tenant = data.tenant, socialLinks: any[] = Array.isArray(config.socialLinks) ? config.socialLinks : [], layout = config.layout || 'split-map';
