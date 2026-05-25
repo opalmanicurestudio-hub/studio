@@ -2808,7 +2808,9 @@ function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
   const layout = config.layout || 'cards';
   const pad = pCardPad(style);
 
-  const MAX_DEFAULT = 6;
+const MAX_DEFAULT = config.maxItems === 'all'
+    ? Infinity
+    : parseInt(config.maxItems || '6', 10);
   const visibleItems = showAll ? policyItems : policyItems.slice(0, MAX_DEFAULT);
   const hasMore = policyItems.length > MAX_DEFAULT;
 
