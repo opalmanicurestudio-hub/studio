@@ -30,7 +30,9 @@ const ANIM_CSS = `
 @keyframes cf-blur-in    { from{opacity:0;filter:blur(12px);transform:scale(1.04)} to{opacity:1;filter:blur(0);transform:scale(1)} }
 @keyframes cf-count-up   { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
 @keyframes cf-hscroll    { from{transform:translateX(0)} to{transform:translateX(-33.333%)} }
-.cf-scroll-wrap:hover .cf-scroll-track { animation-play-state:paused !important; }
+@media (hover: hover) {
+  .cf-scroll-wrap:hover .cf-scroll-track { animation-play-state:paused !important; }
+}
 `;
 
 const STACKS: Record<string, string> = {
@@ -316,34 +318,54 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm"
            style={{ zIndex: 200 }}
            onClick={() => setDrawerOpen(false)} />
-      <div className="fixed inset-y-0 right-0 w-[85vw] max-w-sm bg-white flex flex-col shadow-2xl"
-           style={{ zIndex: 201, animation: 'cf-slide-right 0.35s cubic-bezier(0.16,1,0.3,1) both' }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b"
+      <div className="fixed inset-y-0 right-0 bg-white flex flex-col"
+           style={{
+             zIndex: 201,
+             width: '100%',
+             maxWidth: '360px',
+             boxShadow: '-20px 0 60px rgba(0,0,0,0.18)',
+             animation: 'cf-slide-right 0.32s cubic-bezier(0.16,1,0.3,1) both',
+           }}>
+
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between px-6 py-5 border-b shrink-0"
              style={{ borderColor: ac(style) + '14' }}>
           <Logo />
           <button onClick={() => setDrawerOpen(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors">
-            <XIcon className="w-4 h-4" />
+                  className="w-10 h-10 rounded-full flex items-center justify-center transition-colors"
+                  style={{ background: ac(style) + '0a' }}
+                  aria-label="Close menu">
+            <XIcon className="w-4 h-4" style={{ color: ac(style) }} />
           </button>
         </div>
-        <nav className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="space-y-0">
+
+        {/* ── Nav links ───────────────────────────────────────────────────── */}
+        <nav className="flex-1 min-h-0 overflow-y-auto">
+          <div className="px-5 py-2">
             {navLinks.map((link, i) => (
               <a key={link} href={linkHref(link)}
                  onClick={() => setDrawerOpen(false)}
-                 className="flex items-center justify-between py-4 border-b group transition-all hover:pl-2"
-                 style={{ borderColor: ac(style) + '10', animation: `cf-fade-up 0.4s ${i * 0.04}s both` }}>
+                 className="flex items-center justify-between py-4 border-b last:border-0 group active:bg-slate-50 transition-colors rounded-lg px-2 -mx-2"
+                 style={{
+                   borderColor: ac(style) + '0d',
+                   animation: `cf-fade-up 0.35s ${i * 0.04}s both`,
+                 }}>
                 <span className="text-base font-black uppercase tracking-tight text-slate-900"
                       style={{ fontFamily: hf(style) }}>{link}</span>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                <div className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 opacity-30 group-hover:opacity-100"
+                     style={{ background: ac(style) + '10' }}>
+                  <ChevronRight className="w-3.5 h-3.5" style={{ color: ac(style) }} />
+                </div>
               </a>
             ))}
           </div>
+
+          {/* Extra sections not in nav bar */}
           {rawEnabledSections && rawEnabledSections.filter(t => t !== 'nav').length > navLinks.length && (
-            <div className="mt-6">
-              <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3"
-                 style={{ color: ac(style) + '80' }}>More sections</p>
-              <div className="space-y-0.5">
+            <div className="px-5 py-4 border-t" style={{ borderColor: ac(style) + '0d' }}>
+              <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3 px-2"
+                 style={{ color: ac(style) + '70' }}>More</p>
+              <div className="flex flex-wrap gap-2">
                 {rawEnabledSections
                   .filter(t => t !== 'nav' && SECTION_LABEL_MAP[t] && !navLinks.includes(SECTION_LABEL_MAP[t]))
                   .map((t, i) => {
@@ -351,10 +373,15 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
                     return (
                       <a key={t} href={`#${t}`}
                          onClick={() => setDrawerOpen(false)}
-                         className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors"
-                         style={{ animation: `cf-fade-up 0.3s ${i * 0.03}s both` }}>
-                        {SIcon && <SIcon className="w-3.5 h-3.5 text-slate-400" />}
-                        <span className="text-sm font-bold text-slate-600" style={{ fontFamily: bf(style) }}>
+                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-colors active:scale-95"
+                         style={{
+                           borderColor: ac(style) + '18',
+                           background: ac(style) + '06',
+                           animation: `cf-fade-up 0.3s ${i * 0.03}s both`,
+                         }}>
+                        {SIcon && <SIcon className="w-3 h-3" style={{ color: ac(style) }} />}
+                        <span className="text-[11px] font-black uppercase tracking-widest"
+                              style={{ color: ac(style), fontFamily: bf(style) }}>
                           {SECTION_LABEL_MAP[t]}
                         </span>
                       </a>
@@ -363,44 +390,59 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
               </div>
             </div>
           )}
-        {config.showQuickBook !== false && data.services.length > 0 && (
-            <div className="mt-6">
-              <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3"
+
+          {/* Quick book */}
+          {config.showQuickBook !== false && data.services.length > 0 && (
+            <div className="px-5 py-4 border-t" style={{ borderColor: ac(style) + '0d' }}>
+              <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3 px-2"
                  style={{ color: ac(style) }}>Quick Book</p>
               <div className="space-y-1">
                 {data.services.slice(0, parseInt(config.quickBookLimit || '6')).map((svc: any) => (
                   <button key={svc.id}
                           onClick={() => { openBooking(svc); setDrawerOpen(false); }}
-                          className="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors text-left">
-                    <span className="text-sm font-bold text-slate-700 truncate" style={{ fontFamily: bf(style) }}>
-                      {svc.name}
-                    </span>
-                    <span className="text-sm font-black shrink-0 ml-3" style={{ color: ac(style) }}>
-                      {svc.price ? `$${svc.price}` : ''}
-                    </span>
+                          className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition-colors text-left"
+                          style={{ WebkitTapHighlightColor: 'transparent' }}>
+                    <span className="text-sm font-bold text-slate-700 truncate"
+                          style={{ fontFamily: bf(style) }}>{svc.name}</span>
+                    {svc.price && (
+                      <span className="text-sm font-black shrink-0 ml-3"
+                            style={{ color: ac(style) }}>${svc.price}</span>
+                    )}
                   </button>
                 ))}
               </div>
             </div>
           )}
         </nav>
-        <div className="px-6 pb-8 pt-4 space-y-2 border-t" style={{ borderColor: ac(style) + '10' }}>
+
+        {/* ── Book CTA ────────────────────────────────────────────────────── */}
+        <div className="px-5 border-t shrink-0"
+             style={{
+               borderColor: ac(style) + '0d',
+               paddingBottom: 'max(24px, env(safe-area-inset-bottom))',
+               paddingTop: '16px',
+             }}>
           <button
             onClick={() => {
               cta(config.ctaAction, config.ctaUrl)({ stopPropagation: () => {} } as any);
               setDrawerOpen(false);
             }}
-            className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all"
-            style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+            className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 active:scale-[0.98] transition-all"
+            style={{
+              ...btnStyle(style),
+              fontFamily: bf(style),
+              borderRadius: pbr ? `${Math.min((style.borderRadius || 4), 16)}px` : br(style),
+            }}>
             {config.ctaText || 'Book Now'}
           </button>
           {data.tenant?.phone && (
             <a href={`tel:${data.tenant.phone}`}
-               className="block w-full py-2.5 text-center text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 transition-colors">
+               className="block w-full py-3 text-center text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 active:text-slate-900 transition-colors">
               {data.tenant.phone}
             </a>
           )}
         </div>
+
       </div>
     </>
   );
