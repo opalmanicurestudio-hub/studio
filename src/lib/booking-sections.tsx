@@ -2523,31 +2523,6 @@ function PackagesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
   );
 }
 
-// ─── GiftCardsSection ─────────────────────────────────────────────────────────
-function GiftCardsSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const amounts = (config.amounts || '25,50,75,100').split(',').map((a: string) => a.trim()), hasBg = !!config.bgImage;
-  return (
-    <section className={cn(py(style), 'relative')} style={{ background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : '#f8fafc' }}>
-      {hasBg && <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }}/>}
-      <div className="relative max-w-2xl mx-auto px-6 md:px-16 text-center space-y-10">
-        <div className="space-y-4">
-          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: hasBg ? 'white' : '#0f172a' }}>{config.heading || 'Give the Gift of Beauty'}</FieldTap>
-          {config.subheading && <p className="text-base" style={{ fontFamily: bf(style), color: hasBg ? 'rgba(255,255,255,0.75)' : '#64748b' }}>{config.subheading}</p>}
-        </div>
-        <div className="p-10 shadow-2xl space-y-8 text-white" style={{ background: `linear-gradient(135deg,${ac(style)} 0%,${ac(style)}cc 100%)`, borderRadius: br(style,2) }}>
-          <Gift className="w-12 h-12 mx-auto opacity-80"/>
-          <p className="text-lg font-light" style={{ fontFamily: hf(style) }}>Choose an amount</p>
-          <div className="flex flex-wrap gap-3 justify-center">
-            {amounts.map((a: string, i: number) => <button key={i} className="px-6 py-3 border-2 border-white/40 font-black text-sm hover:bg-white/20 transition-all" style={{ borderRadius: br(style) }}>${a}</button>)}
-            <button className="px-6 py-3 border-2 border-white/40 font-black text-sm hover:bg-white/20 transition-all" style={{ borderRadius: br(style) }}>Custom</button>
-          </div>
-          <button onClick={cta(config.ctaAction, config.ctaUrl)} className="px-12 py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all" style={{ background: 'white', color: ac(style), borderRadius: br(style,3), fontFamily: bf(style) }}>{config.ctaText || 'Send a Gift Card'}</button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 // ─── QuoteSection ─────────────────────────────────────────────────────────────
 function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const rawTags = config.tags;
@@ -2559,7 +2534,6 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
   const { ref, visible } = useInView(0.1);
 
   // ── CINEMATIC ────────────────────────────────────────────────────────────────
-  // Dark full-height immersive with ambient glow — high-impact, converting
   if (layout === 'cinematic') return (
     <section ref={ref}
       className={`${py(style)} relative overflow-hidden flex flex-col items-center justify-center`}
@@ -2570,14 +2544,12 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.75) 100%)' }}/>
         </>
       )}
-      {/* Multi-layer ambient atmosphere */}
       <div className="absolute inset-0 pointer-events-none" style={{
         background: `
           radial-gradient(ellipse 80% 65% at 15% 55%, ${accent}1e 0%, transparent 55%),
           radial-gradient(ellipse 60% 50% at 85% 25%, ${accent}14 0%, transparent 50%),
           radial-gradient(ellipse 40% 35% at 50% 90%, ${accent}0a 0%, transparent 55%)`,
       }}/>
-      {/* Floating particles */}
       {[...Array(7)].map((_, i) => (
         <div key={i} className="absolute rounded-full pointer-events-none"
           style={{
@@ -2588,33 +2560,25 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             animation: `cf-drift-${['a','b','c','a','b','c','a'][i]} ${[8,11,9,7,12,10,8][i]}s ease-in-out infinite ${i * 1.5}s`,
           }}/>
       ))}
-
       <div className="relative z-10 w-full max-w-4xl mx-auto px-6 md:px-16 text-center space-y-10">
-        {/* Eyebrow pill */}
         <div className="inline-flex items-center gap-2.5 px-5 py-2 rounded-full"
           style={{ background: `${accent}14`, border: `1px solid ${accent}28` }}>
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: accent, animation: 'cf-blur-in 2s ease infinite' }}/>
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: accent }}/>
           <span className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: accent }}>
             Custom Event Inquiries
           </span>
         </div>
-
-        {/* Main heading */}
         <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
           as="h2" className="font-light leading-[0.88] text-white"
           style={{ fontSize: 'clamp(42px,7.5vw,92px)', fontFamily: hf(style),
             animation: visible ? 'cf-fade-up 0.9s both' : 'none' }}>
           {config.heading || 'Planning Something Unforgettable?'}
         </FieldTap>
-
-        {/* Triple accent divider */}
         <div className="flex items-center justify-center gap-2">
           <div className="h-px w-10" style={{ background: `${accent}30` }}/>
           <div className="w-1.5 h-1.5 rounded-full" style={{ background: accent }}/>
           <div className="h-px w-10" style={{ background: `${accent}30` }}/>
         </div>
-
-        {/* Subheading */}
         {config.subheading && (
           <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
             as="p" className="text-base md:text-lg max-w-xl mx-auto leading-relaxed"
@@ -2623,8 +2587,6 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             {config.subheading}
           </FieldTap>
         )}
-
-        {/* Tags as frosted pills */}
         {tags.length > 0 && (
           <div className="flex flex-wrap gap-2.5 justify-center"
             style={{ animation: visible ? 'cf-fade-up 0.9s 0.2s both' : 'none' }}>
@@ -2643,8 +2605,6 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             ))}
           </div>
         )}
-
-        {/* Glowing CTA */}
         <div style={{ animation: visible ? 'cf-float-up 0.9s 0.3s both' : 'none' }}>
           <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
             <button onClick={cta(config.ctaAction, config.ctaUrl)}
@@ -2663,14 +2623,13 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
   );
 
   // ── EDITORIAL ────────────────────────────────────────────────────────────────
-  // Asymmetric magazine layout — oversized type + angled tag cards
   if (layout === 'editorial') return (
     <section ref={ref} className={`${py(style)} overflow-hidden`} style={{ background: style.bgColor }}>
       <div className="max-w-7xl mx-auto px-6 md:px-16">
         <div className="grid md:grid-cols-[1fr_1.15fr] gap-12 md:gap-20 items-center">
 
-          {/* Left: oversized editorial text */}
-          <div className="space-y-8 order-2 md:order-1">
+          {/* Left: text — always first on both mobile + desktop */}
+          <div className="space-y-8">
             <div className="flex items-center gap-4">
               <div className="h-px w-8" style={{ background: accent }}/>
               <span className="text-[9px] font-black uppercase tracking-[0.4em]" style={{ color: accent }}>
@@ -2694,7 +2653,6 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
                 {config.subheading}
               </FieldTap>
             )}
-            {/* Inline arrow CTA */}
             <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
               <button onClick={cta(config.ctaAction, config.ctaUrl)}
                 className="group flex items-center gap-4 transition-all duration-300 pt-2">
@@ -2708,10 +2666,26 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
                 </div>
               </button>
             </FieldTap>
+
+            {/* Mobile-only: compact accent tag chips */}
+            <div className="md:hidden flex flex-wrap gap-2.5 pt-2">
+              {(tags.length > 0 ? tags : ['Bridal Parties','Corporate Events','Destination Services']).map((tag, i) => (
+                <span key={i}
+                  className="px-4 py-2.5 text-[11px] font-black uppercase tracking-widest text-white"
+                  style={{
+                    background: accent,
+                    borderRadius: br(style, 2),
+                    boxShadow: `0 6px 20px ${accent}35`,
+                    animation: visible ? `cf-float-up 0.5s ${i * 0.09}s both` : 'none',
+                  }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
           </div>
 
-          {/* Right: image or staggered tag cards */}
-          <div className="relative order-1 md:order-2" style={{ minHeight: '480px' }}>
+          {/* Right: image or staggered tag cards — desktop only */}
+          <div className="relative hidden md:block" style={{ minHeight: '480px' }}>
             {hasBg ? (
               <div className="relative overflow-hidden h-full" style={{ borderRadius: br(style, 2), minHeight: '480px' }}>
                 <img src={config.bgImage!} alt="" className="w-full h-full object-cover absolute inset-0"/>
@@ -2730,17 +2704,16 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
                 )}
               </div>
             ) : (
-              <div className="relative h-full" style={{ minHeight: '480px' }}>
-                {/* Decorative geometric */}
+              <div className="relative overflow-hidden h-full"
+                style={{ minHeight: '480px', background: `${accent}08`, borderRadius: br(style, 2), border: `2px solid ${accent}14` }}>
                 <div className="absolute top-4 right-4 w-36 h-36 rounded-full"
                   style={{ background: `${accent}0e`, border: `2px solid ${accent}18` }}/>
                 <div className="absolute bottom-8 left-4 w-20 h-20 rounded-full"
                   style={{ background: `${accent}0a` }}/>
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-2/3"
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-1/3"
                   style={{ background: `linear-gradient(to bottom, transparent, ${accent}18, transparent)` }}/>
-                {/* Staggered tag cards */}
-                <div className="absolute inset-0 flex flex-col justify-center px-6 space-y-3">
-                  {(tags.length > 0 ? tags : ['Bridal Parties', 'Corporate Events', 'Destination Services', 'Milestone Celebrations']).map((tag, i) => (
+                <div className="absolute inset-0 flex flex-col justify-center px-8 space-y-3">
+                  {(tags.length > 0 ? tags : ['Bridal Parties','Corporate Events','Destination Services','Milestone Celebrations']).map((tag, i) => (
                     <div key={i}
                       className="flex items-center gap-4 px-7 py-5 text-white font-black text-sm uppercase tracking-widest"
                       style={{
@@ -2765,12 +2738,10 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
   );
 
   // ── LUXURY ───────────────────────────────────────────────────────────────────
-  // Architectural split: colored/image panel + white panel with event list + CTA
   if (layout === 'luxury') return (
     <section ref={ref} className="relative overflow-hidden" style={{ minHeight: '88svh' }}>
       <div className="grid md:grid-cols-2 min-h-[88svh]">
-
-        {/* Left: accent/image panel */}
+        {/* Left: accent / image panel */}
         <div className="relative overflow-hidden flex items-end p-12 md:p-16"
           style={{ background: hasBg ? 'transparent' : `linear-gradient(145deg, ${accent} 0%, ${accent}cc 100%)`, minHeight: '440px' }}>
           {hasBg && (
@@ -2779,13 +2750,10 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
               <div className="absolute inset-0" style={{ background: `linear-gradient(145deg, ${accent}cc 0%, rgba(0,0,0,0.55) 100%)` }}/>
             </>
           )}
-          {/* Dot grid overlay */}
           <div className="absolute inset-0 pointer-events-none opacity-[0.07]"
             style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '28px 28px' }}/>
-          {/* Giant watermark number */}
           <div className="absolute bottom-4 right-6 font-light select-none pointer-events-none"
             style={{ fontSize: '180px', fontFamily: hf(style), color: 'rgba(255,255,255,0.06)', lineHeight: 1 }}>01</div>
-          {/* Text */}
           <div className="relative z-10 space-y-6 max-w-sm">
             <div className="w-10 h-px" style={{ background: 'rgba(255,255,255,0.45)' }}/>
             <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
@@ -2803,16 +2771,14 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             )}
           </div>
         </div>
-
         {/* Right: white panel */}
         <div className="flex flex-col justify-center p-12 md:p-16 bg-white">
           <div className="max-w-md w-full space-y-12">
-            {/* Event type list */}
             <div className="space-y-5">
               <p className="text-[9px] font-black uppercase tracking-[0.35em]"
                 style={{ color: accent + '80' }}>We specialize in</p>
               <div className="space-y-0">
-                {(tags.length > 0 ? tags : ['Bridal Parties', 'Corporate Events', 'Destination Services', 'Milestone Celebrations']).map((tag, i) => (
+                {(tags.length > 0 ? tags : ['Bridal Parties','Corporate Events','Destination Services','Milestone Celebrations']).map((tag, i) => (
                   <div key={i}
                     className="group flex items-center justify-between py-5 border-b"
                     style={{ borderColor: `${accent}10`,
@@ -2833,7 +2799,6 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
                 ))}
               </div>
             </div>
-            {/* CTA block */}
             <div className="space-y-3">
               <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
                 <button onClick={cta(config.ctaAction, config.ctaUrl)}
@@ -2853,13 +2818,11 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
   );
 
   // ── SHOWCASE ─────────────────────────────────────────────────────────────────
-  // Event type feature cards + bold CTA block at the bottom
   if (layout === 'showcase') return (
     <section ref={ref} className={`${py(style)} overflow-hidden relative`} style={{ background: '#f8fafc' }}>
       <div className="absolute inset-0 pointer-events-none"
         style={{ background: `radial-gradient(ellipse 80% 50% at 60% 0%, ${accent}08 0%, transparent 55%)` }}/>
       <div className="relative max-w-6xl mx-auto px-6 md:px-16 space-y-16">
-        {/* Header */}
         <div className="text-center space-y-4">
           <span className="inline-block px-4 py-1.5 text-[10px] font-black uppercase tracking-[0.3em]"
             style={{ background: `${accent}10`, color: accent, borderRadius: br(style, 3) }}>
@@ -2878,8 +2841,6 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             </FieldTap>
           )}
         </div>
-
-        {/* Tag / event type cards */}
         {tags.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {tags.map((tag, i) => {
@@ -2890,16 +2851,13 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
                   className="group relative overflow-hidden bg-white hover:shadow-2xl hover:-translate-y-2 transition-all duration-400 cursor-default"
                   style={{ borderRadius: br(style, 2), border: `1.5px solid ${accent}12`,
                     animation: visible ? `cf-float-up 0.6s ${i * 0.09}s both` : 'none' }}>
-                  {/* Top accent bar on hover */}
                   <div className="h-[3px] w-0 group-hover:w-full transition-all duration-500"
                     style={{ background: `linear-gradient(to right, ${accent}, ${accent}70)` }}/>
                   <div className="p-8 space-y-5">
-                    {/* Icon */}
                     <div className="w-12 h-12 flex items-center justify-center transition-transform duration-300 group-hover:scale-110"
                       style={{ background: `${accent}0e`, border: `1px solid ${accent}18`, borderRadius: br(style, 1.5) }}>
                       <TIcon className="w-5 h-5" style={{ color: accent }}/>
                     </div>
-                    {/* Tag name */}
                     <p className="text-sm font-black uppercase tracking-tight text-slate-900"
                       style={{ fontFamily: bf(style) }}>{tag}</p>
                     <div className="h-px w-10 transition-all duration-500 group-hover:w-full"
@@ -2908,7 +2866,6 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
                       Bespoke beauty services tailored to your {tag.toLowerCase()} vision.
                     </p>
                   </div>
-                  {/* Arrow on hover */}
                   <div className="absolute bottom-7 right-7 w-8 h-8 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 -translate-x-2 group-hover:translate-x-0"
                     style={{ background: accent, boxShadow: `0 6px 20px ${accent}45` }}>
                     <ArrowRight className="w-3 h-3 text-white"/>
@@ -2918,11 +2875,15 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             })}
           </div>
         )}
-
         {/* Bold CTA block */}
         <div className="relative overflow-hidden text-center py-16 px-8 md:px-16"
-          style={{ background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : `linear-gradient(135deg, ${accent} 0%, ${accent}bb 100%)`, borderRadius: br(style, 2), boxShadow: `0 32px 80px ${accent}35` }}>
-          {hasBg && <div className="absolute inset-0" style={{ background: `rgba(0,0,0,0.55)` }}/>}
+          style={{
+            background: hasBg ? `url(${config.bgImage}) center/cover no-repeat`
+              : `linear-gradient(135deg, ${accent} 0%, ${accent}bb 100%)`,
+            borderRadius: br(style, 2),
+            boxShadow: `0 32px 80px ${accent}35`,
+          }}>
+          {hasBg && <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.55)' }}/>}
           {!hasBg && (
             <div className="absolute inset-0 opacity-[0.07] pointer-events-none"
               style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '24px 24px' }}/>
@@ -2954,8 +2915,10 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
       style={{ background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : accent }}>
       {hasBg && <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.65)' }}/>}
       {!hasBg && <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.14) 0%,rgba(0,0,0,0.32) 100%)' }}/>}
-      {!hasBg && <div className="absolute inset-0 opacity-[0.07] pointer-events-none"
-        style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.8) 1px, transparent 1px)', backgroundSize: '32px 32px' }}/>}
+      {!hasBg && (
+        <div className="absolute inset-0 opacity-[0.07] pointer-events-none"
+          style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.8) 1px, transparent 1px)', backgroundSize: '32px 32px' }}/>
+      )}
       <div className="relative max-w-4xl mx-auto px-6 md:px-16 text-center space-y-10">
         <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
           as="h2" className="text-4xl md:text-6xl font-light text-white"
@@ -2972,8 +2935,11 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
         {tags.length > 0 && (
           <div className="flex flex-wrap gap-3 justify-center">
             {tags.map((tag, i) => (
-              <span key={i} className="px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest text-white/75 border-white/20 hover:bg-white/10 hover:text-white transition-all cursor-default"
-                style={{ borderRadius: br(style, 3) }}>{tag}</span>
+              <span key={i}
+                className="px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest text-white/75 border-white/20 hover:bg-white/10 hover:text-white transition-all cursor-default"
+                style={{ borderRadius: br(style, 3) }}>
+                {tag}
+              </span>
             ))}
           </div>
         )}
@@ -2993,6 +2959,8 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
     <section ref={ref} className={py(style)} style={{ background: style.bgColor }}>
       <div className="max-w-6xl mx-auto px-6 md:px-16">
         <div className="grid md:grid-cols-2 gap-12 md:gap-20 items-center">
+
+          {/* Left: text column */}
           <div className="space-y-8">
             <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
               as="h2" className="text-4xl md:text-5xl font-light"
@@ -3019,12 +2987,33 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             )}
             <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
               <button onClick={cta(config.ctaAction, config.ctaUrl)}
-                className="inline-flex items-center gap-2.5 px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] transition-all"
                 style={{ ...btnStyle(style), fontFamily: bf(style) }}>
                 {config.ctaText || 'Request a Quote'}<ArrowRight className="w-4 h-4"/>
               </button>
             </FieldTap>
+
+            {/* Mobile-only: compact stacked cards */}
+            <div className="md:hidden space-y-2.5 pt-2">
+              {(tags.length > 0 ? tags.slice(0, 3) : ['Bridal Parties','Corporate Events','Destination Services']).map((tag, i) => (
+                <div key={i}
+                  className="flex items-center gap-4 px-6 py-4 text-white font-black text-sm uppercase tracking-widest"
+                  style={{
+                    background: accent,
+                    borderRadius: br(style, 1.5),
+                    opacity: 1 - i * 0.12,
+                    transform: `translateX(${i * 10}px)`,
+                    boxShadow: `0 8px 28px ${accent}35`,
+                    animation: visible ? `cf-fade-up 0.45s ${i * 0.08}s both` : 'none',
+                  }}>
+                  <span className="text-[10px] opacity-50 tabular-nums">{String(i + 1).padStart(2, '0')}</span>
+                  {tag}
+                </div>
+              ))}
+            </div>
           </div>
+
+          {/* Right: image or decorative cards — desktop only */}
           <div className="hidden md:block">
             {hasBg ? (
               <div className="w-full aspect-[4/5] overflow-hidden shadow-2xl" style={{ borderRadius: br(style, 2) }}>
@@ -3033,11 +3022,18 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             ) : (
               <div className="w-full aspect-[4/5] relative overflow-hidden flex items-center justify-center"
                 style={{ background: accent + '08', borderRadius: br(style, 2), border: `2px solid ${accent}15` }}>
-                <div className="absolute inset-0" style={{ backgroundImage: `radial-gradient(${accent}30 1.5px, transparent 1.5px)`, backgroundSize: '22px 22px' }}/>
+                <div className="absolute inset-0"
+                  style={{ backgroundImage: `radial-gradient(${accent}30 1.5px, transparent 1.5px)`, backgroundSize: '22px 22px' }}/>
                 <div className="relative flex flex-col gap-4 items-center p-8 w-full">
-                  {(tags.length > 0 ? tags.slice(0, 4) : ['Bridal Parties', 'Corporate Events', 'Destination']).map((tag, i) => (
+                  {(tags.length > 0 ? tags.slice(0, 4) : ['Bridal Parties','Corporate Events','Destination']).map((tag, i) => (
                     <div key={i} className="px-7 py-4 text-sm font-black uppercase tracking-widest text-white shadow-2xl w-full text-center"
-                      style={{ background: accent, borderRadius: br(style, 2), transform: `rotate(${[-1.5, 1, -0.8, 1.4][i] || 0}deg) translateX(${[8, -6, 4, -5][i] || 0}px)`, boxShadow: `0 12px 36px ${accent}40` }}>
+                      style={{
+                        background: accent,
+                        borderRadius: br(style, 2),
+                        transform: `rotate(${([-1.5, 1, -0.8, 1.4][i] || 0)}deg) translateX(${([8, -6, 4, -5][i] || 0)}px)`,
+                        boxShadow: `0 12px 36px ${accent}40`,
+                        animation: visible ? `cf-float-up 0.5s ${i * 0.1}s both` : 'none',
+                      }}>
                       {tag}
                     </div>
                   ))}
@@ -3045,12 +3041,13 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
               </div>
             )}
           </div>
+
         </div>
       </div>
     </section>
   );
 
-  // ── BANNER (default) ──────────────────────────────────────────────────────────
+  // ── BANNER (default fallback) ─────────────────────────────────────────────────
   return (
     <section ref={ref} className="relative overflow-hidden"
       style={{ background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : accent }}>
@@ -3074,8 +3071,11 @@ function QuoteSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
             {tags.length > 0 && (
               <div className="flex flex-wrap gap-2 justify-center md:justify-start">
                 {tags.map((tag, i) => (
-                  <span key={i} className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white/65 border border-white/20"
-                    style={{ borderRadius: br(style, 2) }}>{tag}</span>
+                  <span key={i}
+                    className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white/65 border border-white/20"
+                    style={{ borderRadius: br(style, 2) }}>
+                    {tag}
+                  </span>
                 ))}
               </div>
             )}
