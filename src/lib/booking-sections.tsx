@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { type PageSection } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import {
-  Calendar, Clock, MapPin, Phone, Mail, Instagram,
+  Calendar, Clock, Clock3, MapPin, Phone, Mail, Instagram,
   ChevronDown, ChevronUp, Star, Gift, Sparkles, Pencil,
   ChevronLeft, ChevronRight, X as XIcon, ArrowRight, ArrowLeftRight,
   Users, Award, Heart, Scissors, Zap, Crown, Shield, TrendingUp,
