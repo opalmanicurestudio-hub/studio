@@ -2797,6 +2797,24 @@ function pCardPad(style: StyleConfig): string {
 function pbr(style: StyleConfig, mult = 1): string {
   return `${Math.min((style.borderRadius || 4) * mult, 24)}px`;
 }
+const POLICY_ICON_MAP: Record<string, React.ElementType> = {
+  'shield':       Shield,
+  'shield-check': ShieldCheck,
+  'clock':        Clock,
+  'clock3':       Clock3,
+  'alert':        AlertTriangle,
+  'ban':          Ban,
+  'credit':       CreditCard,
+  'heart':        Heart,
+  'badge':        BadgeCheck,
+  'info':         Info,
+  'zap':          Zap,
+  'leaf':         Leaf,
+  'coffee':       Coffee,
+  'flame':        Flame,
+  'phone':        Phone,
+  'mail':         Mail,
+};
 
 // ─── PoliciesSection ──────────────────────────────────────────────────────────
 function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
