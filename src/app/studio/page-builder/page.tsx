@@ -372,8 +372,6 @@ gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', 
     { id: 'split',     label: 'Split panel',  preview: '[ Questions | Answer ]'    },
   ]},
   // ─── SECTION_DEFS policies layouts PATCH ─────────────────────────────────────
-// In the page-builder page (second document), find the policies entry in SECTION_DEFS
-// and replace its layouts array with this:
 
   policies: { label: 'Policies', icon: Shield, color: '#0F6E56', fields: [
     { k: 'heading',  t: 'text',   l: 'Section heading',              d: 'Our Policies' },
