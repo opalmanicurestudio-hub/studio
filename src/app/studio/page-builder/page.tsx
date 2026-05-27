@@ -315,7 +315,15 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   { k: 'quickBookLimit',    t: 'select', l: 'Max services shown',                    d: '6',
     opts: ['3','4','5','6','8','10'] },
 ], layouts: [
-  // keep your existing layouts unchanged
+  { id: 'centered',   label: 'Centered',   preview: '[ logo · links · btn ]'       },
+  { id: 'floating',   label: 'Floating',   preview: '( pill nav )'                 },
+  { id: 'bold',       label: 'Bold',       preview: '[ LOGO ]\n[ links · btn ]'    },
+  { id: 'split',      label: 'Split',      preview: '[ links | LOGO | links+btn ]' },
+  { id: 'logo-top',   label: 'Logo Top',   preview: '[ LOGO ]\n[ links ]'          },
+  { id: 'drawer',     label: 'Drawer',     preview: '[ logo · (≡) ]'               },
+  { id: 'bottom-bar', label: 'Bottom Bar', preview: '[ ≡ ≡ ≡ ≡ | Book ]'          },
+  { id: 'minimal',    label: 'Minimal',    preview: '[ logo · btn ]'               },
+]},
   hero: { label: 'Hero', icon: ImageIcon, color: '#534AB7', fields: [
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'heroImage', t: 'image', l: 'Feature image (split/magazine)', d: '' },
     { k: 'overlayOpacity', t: 'range', l: 'Overlay opacity', d: 40, min: 0, max: 90, step: 5 },
