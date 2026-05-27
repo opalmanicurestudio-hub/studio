@@ -134,6 +134,8 @@ const FONTS = [
   { id: 'great-vibes',label: 'Great Vibes',          stack: "'Great Vibes',cursive",                       desc: 'Luxury script',   group: 'Display' },
   { id: 'system',     label: 'System UI',            stack: 'system-ui,sans-serif',                        desc: 'Default clean',   group: 'System'  },
   { id: 'georgia',    label: 'Georgia',              stack: 'Georgia,serif',                               desc: 'Classic system',  group: 'System'  },
+  { id: 'great-vibes', label: 'Great Vibes', stack: "'Great Vibes',cursive",
+    desc: 'Luxury script', group: 'Display' },
 ];
 const FONT_GROUPS = ['Serif', 'Sans', 'Display', 'System'];
 
