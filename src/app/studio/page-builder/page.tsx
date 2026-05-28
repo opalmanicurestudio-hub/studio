@@ -812,7 +812,69 @@ const FieldRenderer = ({ field, value, onChange, highlightedField }: {
   const wrapper = (children: React.ReactNode) => (
     <div ref={fieldRef} className={cn('transition-all duration-300', isHighlighted && 'ring-2 ring-indigo-400/60 rounded-xl p-2 bg-indigo-50/50')}>{children}</div>
   );
-  if (field.t === 'image')            return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><ImageUpload initialImage={value || ''} onImageUploaded={onChange}/></div>);
+  if (field.t === 'image') {
+  const isLogoField = field.k === 'logoUrl' || field.k === 'logoDarkUrl' || field.k === 'logoLightUrl';
+  return wrapper(
+    <div className="space-y-1.5">
+      <Label className={labelCls}>{field.l}</Label>
+      <ImageUpload initialImage={value || ''} onImageUploaded={onChange}/>
+      {/* Checkerboard preview — only for logo fields, only when an image is uploaded */}
+      {isLogoField && value && (
+        <div className="mt-2 space-y-1.5">
+          <p className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground/40">
+            Transparency preview
+          </p>
+          <div className="flex gap-2">
+            {/* Light background */}
+            <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border"
+              style={{ background: '#ffffff', minHeight: 56 }}>
+              <img src={value} alt="Logo on light"
+                style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }}/>
+            </div>
+            {/* Checkerboard — shows transparency */}
+            <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border"
+              style={{
+                backgroundImage: `
+                  linear-gradient(45deg, #ccc 25%, transparent 25%),
+                  linear-gradient(-45deg, #ccc 25%, transparent 25%),
+                  linear-gradient(45deg, transparent 75%, #ccc 75%),
+                  linear-gradient(-45deg, transparent 75%, #ccc 75%)
+                `,
+                backgroundSize: '10px 10px',
+                backgroundPosition: '0 0, 0 5px, 5px -5px, -5px 0px',
+                backgroundColor: '#ffffff',
+                minHeight: 56,
+              }}>
+              <img src={value} alt="Logo transparency check"
+                style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }}/>
+            </div>
+            {/* Dark background */}
+            <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border"
+              style={{ background: '#111111', minHeight: 56 }}>
+              <img src={value} alt="Logo on dark"
+                style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block',
+                  filter: 'brightness(0) invert(1)' }}/>
+            </div>
+          </div>
+          <div className="flex justify-between px-1">
+            <span className="text-[8px] text-muted-foreground/40 font-bold">Light</span>
+            <span className="text-[8px] text-muted-foreground/40 font-bold">Transparent</span>
+            <span className="text-[8px] text-muted-foreground/40 font-bold">Dark (auto)</span>
+          </div>
+          {/* Warning if logo has a white background */}
+          {field.k === 'logoUrl' && (
+            <div className="flex items-start gap-1.5 px-2 py-2 rounded-lg bg-amber-50 border border-amber-200 mt-1">
+              <AlertCircle className="w-3 h-3 text-amber-500 shrink-0 mt-0.5"/>
+              <p className="text-[9px] text-amber-700 leading-snug">
+                If your logo has a white background, upload a PNG with transparency or add a dark variant above for use on colored navs.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
   if (field.t === 'image-array')      return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><ImageArrayEditor value={value || []} onChange={onChange}/></div>);
   if (field.t === 'beforeafter-pairs')return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><BeforeAfterPairsEditor value={value || []} onChange={onChange}/></div>);
   if (field.t === 'social-links')     return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><SocialLinksEditor value={value || []} onChange={onChange}/></div>);
