@@ -388,7 +388,12 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'minimal',    label: 'Minimal list',    preview: '— Name · Title'                },
     { id: 'solo-hero',  label: 'Solo hero',       preview: '[ portrait | name + bio ]'     },
     { id: 'solo-card',  label: 'Solo card',       preview: '┌──────────┐\n│ portrait  │'  },
-    { id: 'solo-split', label: 'Solo editorial',  preview: '[ photo | name\n  bio · book ]'},
+    { id: 'solo-hero',      label: 'Solo hero',      preview: '[ portrait | name + bio ]'       },
+    { id: 'solo-card',      label: 'Solo card',       preview: '┌──────────┐\n│ portrait  │'    },
+    { id: 'solo-split',     label: 'Solo editorial',  preview: '[ photo | name\n  bio · book ]'  },
+    { id: 'solo-cinematic', label: 'Solo cinematic',  preview: '█▓ full-bleed · name glow ▓█'   },
+    { id: 'solo-magazine',  label: 'Solo magazine',   preview: '[ portrait | drop-cap · bio ]'   },
+    { id: 'solo-spotlight', label: 'Solo spotlight',  preview: '  ◉ halo · name · skills · cta ' },
   ]},
   reviews: { label: 'Reviews', icon: Star, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'What Clients Say' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Real words from real guests' },
