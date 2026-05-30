@@ -2087,6 +2087,272 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
     );
   }
 
+  // ── SOLO CINEMATIC ─────────────────────────────────────────────────────────
+  if (layout === 'solo-cinematic') {
+    const solo = staff[0];
+    return (
+      <section id="team" className="relative overflow-hidden flex items-end"
+               style={{ minHeight: '92svh', background: '#07070d' }}>
+        {solo?.avatarUrl ? (
+          <>
+            <img src={solo.avatarUrl} alt={solo.name}
+                 className="absolute inset-0 w-full h-full object-cover"
+                 style={{ objectPosition: 'center top', filter: 'brightness(0.42) saturate(0.85)' }}/>
+            <div className="absolute inset-0"
+                 style={{ background: 'linear-gradient(105deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.45) 48%, rgba(0,0,0,0.12) 100%)' }}/>
+            <div className="absolute inset-0"
+                 style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.2) 40%, transparent 70%)' }}/>
+          </>
+        ) : (
+          <>
+            <div className="absolute inset-0"
+                 style={{ background: `radial-gradient(ellipse 70% 80% at 65% 40%, ${ac(style)}22 0%, #07070d 72%)` }}/>
+            <div className="absolute inset-0"
+                 style={{ background: 'radial-gradient(ellipse 60% 50% at 30% 70%, rgba(0,0,0,0.6) 0%, transparent 70%)' }}/>
+          </>
+        )}
+        <div className="absolute pointer-events-none"
+             style={{ top: '12%', right: '6%', width: 340, height: 340,
+               background: `${ac(style)}18`, filter: 'blur(90px)', borderRadius: '50%',
+               animation: 'cf-drift-a 14s ease-in-out infinite' }}/>
+        <div className="absolute pointer-events-none"
+             style={{ bottom: '20%', left: '2%', width: 220, height: 220,
+               background: `${ac(style)}10`, filter: 'blur(70px)', borderRadius: '50%',
+               animation: 'cf-drift-b 11s ease-in-out infinite 3s' }}/>
+        <div className="absolute bottom-0 right-8 select-none pointer-events-none hidden md:block"
+             style={{ fontSize: '38vw', fontFamily: hf(style),
+               color: 'rgba(255,255,255,0.025)', lineHeight: 0.88, userSelect: 'none' }}>
+          {solo?.name?.[0] ?? 'A'}
+        </div>
+        <div className="relative z-10 w-full max-w-6xl mx-auto px-8 md:px-16 pb-14 pt-28 md:pb-20">
+          <div className="max-w-xl space-y-7" style={{ animation: 'cf-fade-up 0.9s 0.1s both' }}>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-px" style={{ background: ac(style) }}/>
+              <span className="text-[10px] font-black uppercase tracking-[0.38em]" style={{ color: ac(style) }}>
+                {config.heading || 'The Artist'}
+              </span>
+            </div>
+            <h2 className="font-light leading-[0.87] text-white"
+                style={{ fontSize: 'clamp(50px,9vw,100px)', fontFamily: hf(style) }}>
+              {solo?.name || 'Artist Name'}
+            </h2>
+            {config.showSpecialties !== false && solo?.specialties?.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {solo.specialties.map((s: string, i: number) => (
+                  <span key={i} className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest"
+                        style={{ background: 'rgba(255,255,255,0.07)',
+                          border: '1px solid rgba(255,255,255,0.13)',
+                          color: 'rgba(255,255,255,0.68)',
+                          borderRadius: br(style, 3),
+                          backdropFilter: 'blur(8px)' }}>
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+            {config.showBio && solo?.bio && (
+              <p className="text-sm leading-relaxed max-w-sm"
+                 style={{ color: 'rgba(255,255,255,0.50)', fontFamily: bf(style) }}>
+                {solo.bio}
+              </p>
+            )}
+            {config.showBookButton && (
+              <div style={{ animation: 'cf-float-up 0.9s 0.35s both' }}>
+                <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                        className="inline-flex items-center gap-3 px-10 py-4 font-black text-sm uppercase tracking-widest hover:scale-[1.04] active:scale-[0.97] transition-all"
+                        style={{ background: ac(style), color: '#fff', borderRadius: br(style),
+                          fontFamily: bf(style),
+                          boxShadow: `0 0 60px ${ac(style)}45, 0 20px 48px rgba(0,0,0,0.45)` }}>
+                  {config.bookCta || 'Book with me'}
+                  <ArrowRight className="w-4 h-4"/>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="absolute bottom-6 right-10 hidden md:flex flex-col items-center gap-2 opacity-25 pointer-events-none">
+          <div className="w-px h-12 bg-white" style={{ animation: 'cf-count-up 2s ease-in-out infinite alternate' }}/>
+          <span className="text-[8px] font-black uppercase tracking-[0.3em] text-white"
+                style={{ writingMode: 'vertical-rl' }}>Scroll</span>
+        </div>
+      </section>
+    );
+  }
+
+  // ── SOLO MAGAZINE ──────────────────────────────────────────────────────────
+  if (layout === 'solo-magazine') {
+    const solo = staff[0];
+    return (
+      <section id="team" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto px-6 md:px-16">
+          <Header/>
+          {solo ? (
+            <div className="grid md:grid-cols-[1.15fr_1fr] overflow-hidden shadow-2xl"
+                 style={{ borderRadius: br(style, 2) }}>
+              <div className="relative overflow-hidden" style={{ minHeight: 540 }}>
+                {solo.avatarUrl
+                  ? <img src={solo.avatarUrl} alt={solo.name}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          style={{ objectPosition: 'center top' }}/>
+                  : <div className="absolute inset-0 flex items-center justify-center"
+                          style={{ background: `${ac(style)}0e` }}>
+                      <span className="font-light select-none"
+                            style={{ fontSize: '22vw', fontFamily: hf(style), color: ac(style) + '20', lineHeight: 1 }}>
+                        {solo.name?.[0]}
+                      </span>
+                    </div>}
+                <div className="absolute left-4 inset-y-0 flex items-center pointer-events-none"
+                     style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+                       fontSize: '10px', fontWeight: 900, letterSpacing: '0.4em',
+                       color: 'rgba(255,255,255,0.18)', textTransform: 'uppercase',
+                       fontFamily: bf(style) }}>
+                  {config.heading || 'The Artist'}
+                </div>
+                <div className="absolute bottom-0 inset-x-0"
+                     style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.1) 55%, transparent 100%)' }}>
+                  {config.showSpecialties !== false && solo.specialties?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 p-6">
+                      {solo.specialties.map((s: string, i: number) => (
+                        <span key={i} className="px-3 py-1 text-[9px] font-black uppercase tracking-widest"
+                              style={{ background: 'rgba(255,255,255,0.12)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(255,255,255,0.18)',
+                                color: 'rgba(255,255,255,0.75)',
+                                borderRadius: br(style, 2) }}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="bg-white flex flex-col justify-between p-8 md:p-12 md:pl-14">
+                <div className="space-y-7">
+                  <div className="space-y-0.5">
+                    <p className="text-[9px] font-black uppercase tracking-[0.45em]"
+                       style={{ color: ac(style) + '55', fontFamily: bf(style) }}>Vol. I</p>
+                    <p className="text-[11px] font-black uppercase tracking-[0.25em]"
+                       style={{ color: ac(style), fontFamily: bf(style) }}>
+                      {config.heading || 'The Artist'}
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-[88px] font-light leading-[0.78] shrink-0 select-none"
+                          style={{ fontFamily: hf(style), color: ac(style) + '20' }}>
+                      {solo.name?.[0]}
+                    </span>
+                    <div className="pt-2 min-w-0">
+                      <h2 className="text-3xl md:text-4xl font-light leading-tight"
+                          style={{ fontFamily: hf(style), color: '#0f172a' }}>
+                        {solo.name}
+                      </h2>
+                    </div>
+                  </div>
+                  <div className="h-px" style={{ background: ac(style) + '18' }}/>
+                  {config.showBio && solo.bio && (
+                    <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>
+                  )}
+                </div>
+                <div className="mt-10 space-y-4">
+                  <div className="h-px" style={{ background: ac(style) + '12' }}/>
+                  {config.showBookButton && (
+                    <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                            className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+                            style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                      {config.bookCta || 'Book an appointment'} <ArrowRight className="w-3.5 h-3.5"/>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
+        </div>
+      </section>
+    );
+  }
+
+  // ── SOLO SPOTLIGHT ─────────────────────────────────────────────────────────
+  if (layout === 'solo-spotlight') {
+    const solo = staff[0];
+    const { ref: spRef, visible: spVis } = useInView(0.15);
+    return (
+      <section id="team" ref={spRef} className={py(style)}
+               style={{ background: '#f8fafc', position: 'relative', overflow: 'hidden' }}>
+        <div className="absolute inset-0 pointer-events-none"
+             style={{ background: `radial-gradient(ellipse 70% 60% at 50% 40%, ${ac(style)}09 0%, transparent 65%)` }}/>
+        <div className="relative max-w-2xl mx-auto px-6 md:px-16 text-center">
+          <Header/>
+          {solo ? (
+            <div className="space-y-10">
+              <div className="relative inline-flex items-center justify-center">
+                <div className="absolute rounded-full pointer-events-none"
+                     style={{ inset: '-28px',
+                       background: `conic-gradient(from 0deg, ${ac(style)}08, ${ac(style)}18, ${ac(style)}05, ${ac(style)}18, ${ac(style)}08)`,
+                       borderRadius: '50%',
+                       animation: 'cf-drift-c 18s linear infinite' }}/>
+                <div className="absolute rounded-full pointer-events-none"
+                     style={{ inset: '-14px', border: `1.5px dashed ${ac(style)}20`, borderRadius: '50%' }}/>
+                <div className="absolute rounded-full pointer-events-none"
+                     style={{ inset: '-42px', boxShadow: `0 0 0 1px ${ac(style)}10`, borderRadius: '50%' }}/>
+                <div className="relative overflow-hidden"
+                     style={{ width: 192, height: 192, borderRadius: '50%',
+                       border: `3px solid ${ac(style)}30`,
+                       boxShadow: `0 0 0 8px ${ac(style)}08, 0 0 0 20px ${ac(style)}04, 0 32px 80px ${ac(style)}22, 0 8px 32px rgba(0,0,0,0.10)` }}>
+                  {solo.avatarUrl
+                    ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover object-top"
+                            style={{ transform: spVis ? 'scale(1)' : 'scale(1.1)', transition: 'transform 0.9s cubic-bezier(0.16,1,0.3,1)' }}/>
+                    : <div className="w-full h-full flex items-center justify-center" style={{ background: `${ac(style)}14` }}>
+                        <span className="text-6xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>{solo.name?.[0]}</span>
+                      </div>}
+                </div>
+              </div>
+              <div className="space-y-3" style={{ animation: spVis ? 'cf-fade-up 0.7s 0.15s both' : 'none' }}>
+                <h2 className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>
+                  {solo.name}
+                </h2>
+                <div className="flex items-center justify-center gap-2.5">
+                  <div className="h-px w-8" style={{ background: ac(style) + '35' }}/>
+                  <div className="w-1.5 h-1.5 rounded-full" style={{ background: ac(style) }}/>
+                  <div className="h-px w-8" style={{ background: ac(style) + '35' }}/>
+                </div>
+              </div>
+              {config.showSpecialties !== false && solo.specialties?.length > 0 && (
+                <div className="flex flex-wrap gap-2 justify-center"
+                     style={{ animation: spVis ? 'cf-fade-up 0.7s 0.25s both' : 'none' }}>
+                  {solo.specialties.map((s: string, i: number) => (
+                    <span key={i} className="px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+                          style={{ background: `${ac(style)}0e`, color: ac(style),
+                            border: `1.5px solid ${ac(style)}22`, borderRadius: br(style, 3) }}>
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {config.showBio && solo.bio && (
+                <p className="text-base text-slate-500 leading-relaxed max-w-md mx-auto"
+                   style={{ fontFamily: bf(style), animation: spVis ? 'cf-fade-up 0.7s 0.35s both' : 'none' }}>
+                  {solo.bio}
+                </p>
+              )}
+              {config.showBookButton && (
+                <div style={{ animation: spVis ? 'cf-float-up 0.9s 0.45s both' : 'none' }}>
+                  <button onClick={e => { e.stopPropagation(); openBooking(); }}
+                          className="inline-flex items-center gap-2.5 px-12 py-4 font-black text-sm uppercase tracking-widest hover:scale-[1.04] active:scale-[0.97] transition-all"
+                          style={{ background: ac(style), color: '#fff', borderRadius: br(style, 3),
+                            fontFamily: bf(style),
+                            boxShadow: `0 16px 48px ${ac(style)}32, 0 4px 16px ${ac(style)}20` }}>
+                    {config.bookCta || 'Book with me'}
+                    <ArrowRight className="w-4 h-4"/>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
+        </div>
+      </section>
+    );
+  }
+
   if (layout === 'solo-hero') {
     const solo = staff[0];
     return (
