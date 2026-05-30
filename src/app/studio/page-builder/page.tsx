@@ -386,8 +386,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'grid',      label: 'Grid',            preview: '┌──┬──┬──┐'                   },
     { id: 'featured',   label: 'Featured artist', preview: '[ large lead ]\n◯ ◯ ◯ team'    },
     { id: 'minimal',    label: 'Minimal list',    preview: '— Name · Title'                },
-    { id: 'solo-hero',  label: 'Solo hero',       preview: '[ portrait | name + bio ]'     },
-    { id: 'solo-card',  label: 'Solo card',       preview: '┌──────────┐\n│ portrait  │'  },
+    
     { id: 'solo-hero',      label: 'Solo hero',      preview: '[ portrait | name + bio ]'       },
     { id: 'solo-card',      label: 'Solo card',       preview: '┌──────────┐\n│ portrait  │'    },
     { id: 'solo-split',     label: 'Solo editorial',  preview: '[ photo | name\n  bio · book ]'  },
