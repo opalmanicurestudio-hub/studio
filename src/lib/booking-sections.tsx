@@ -1180,71 +1180,133 @@ function TrustSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
     i: config[`stat${n}i`] || ['smile','star','clock','scissors'][n-1],
   })).filter(s => s.v);
 
+  // ── shared mobile-scroll wrapper ──────────────────────────────────────────
+  // Used by every layout except 'ticker'.
+  // On mobile: true horizontal strip (flex, overflow-x-auto, snap).
+  // On md+: switches to whatever grid the layout wants.
+  const MobileStrip = ({
+    children,
+    desktopCls = 'md:grid md:grid-cols-4',
+    outerCls   = '',
+  }: {
+    children: React.ReactNode;
+    desktopCls?: string;
+    outerCls?: string;
+  }) => (
+    <div className={cn('overflow-x-auto md:overflow-visible', outerCls)}
+         style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none' }}>
+      <div className={cn('flex md:grid snap-x snap-mandatory w-max md:w-auto', desktopCls)}>
+        {children}
+      </div>
+    </div>
+  );
+
+  // ── STRIP ─────────────────────────────────────────────────────────────────
   if (layout === 'strip') return (
     <div ref={ref} className="border-y overflow-hidden" style={{ borderColor: ac(style) + '18' }}>
-      <div className="max-w-5xl mx-auto px-4 py-8 grid grid-cols-2 md:grid-cols-4 gap-0">
-        {stats.map((s, i) => {
-          const Icon = TRUST_ICON_MAP[s.i] || Star;
-          return (
-            <div key={i} className={cn('flex flex-col items-center gap-1 py-4 px-2 text-center', i < stats.length - 1 && 'border-r border-dashed')}
-                 style={{ borderColor: ac(style) + '20' }}>
-              <Icon className="w-5 h-5 mb-1" style={{ color: ac(style), opacity: 0.7 }}/>
-              <JackpotNumber target={s.v} visible={visible} delay={i * 120}
-                className="text-3xl md:text-4xl font-light tabular-nums"
-                style={{ fontFamily: hf(style), color: ac(style) }}/>
-              <FieldTap sectionId={sectionId} fieldKey={`stat${i+1}l`} isPreview={isPreview} onFieldTap={onFieldTap}
-                as="p" className="text-[9px] font-black uppercase tracking-[0.2em] text-center leading-tight"
-                style={{ color: '#94a3b8', fontFamily: bf(style) }}>{s.l}</FieldTap>
-            </div>
-          );
-        })}
+      <div className="max-w-5xl mx-auto px-4 py-0 md:py-8">
+        <MobileStrip desktopCls="md:grid md:grid-cols-4">
+          {stats.map((s, i) => {
+            const Icon = TRUST_ICON_MAP[s.i] || Star;
+            return (
+              <div key={i}
+                   className="flex flex-col items-center gap-1 text-center snap-start shrink-0
+                              py-6 md:py-4"
+                   style={{
+                     minWidth: 112,
+                     paddingLeft: 18, paddingRight: 18,
+                     borderRight: i < stats.length - 1
+                       ? `1px dashed ${ac(style)}22`
+                       : 'none',
+                   }}>
+                <Icon className="w-4 h-4 md:w-5 md:h-5 mb-1" style={{ color: ac(style), opacity: 0.7 }}/>
+                <JackpotNumber target={s.v} visible={visible} delay={i * 120}
+                  className="text-2xl md:text-4xl font-light tabular-nums"
+                  style={{ fontFamily: hf(style), color: ac(style) }}/>
+                <FieldTap sectionId={sectionId} fieldKey={`stat${i+1}l`}
+                  isPreview={isPreview} onFieldTap={onFieldTap}
+                  as="p"
+                  className="text-[8px] md:text-[9px] font-black uppercase tracking-[0.18em] leading-tight text-center mt-0.5"
+                  style={{ color: '#94a3b8', fontFamily: bf(style) }}>
+                  {s.l}
+                </FieldTap>
+              </div>
+            );
+          })}
+        </MobileStrip>
       </div>
     </div>
   );
 
+  // ── CARDS ─────────────────────────────────────────────────────────────────
   if (layout === 'cards') return (
     <div ref={ref} className={py(style)} style={{ background: '#f8fafc' }}>
-      <div className="max-w-5xl mx-auto px-4 md:px-10 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
-        {stats.map((s, i) => {
-          const Icon = TRUST_ICON_MAP[s.i] || Star;
-          return (
-            <div key={i} className="bg-white p-5 md:p-7 text-center space-y-3 hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
-                 style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}15` }}>
-              <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto" style={{ background: ac(style) + '12' }}>
-                <Icon className="w-5 h-5" style={{ color: ac(style) }}/>
-              </div>
-              <JackpotNumber target={s.v} visible={visible} delay={i * 150}
-                className="block text-3xl md:text-4xl font-light tabular-nums"
-                style={{ fontFamily: hf(style), color: ac(style) }}/>
-              <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400" style={{ fontFamily: bf(style) }}>{s.l}</p>
-            </div>
-          );
-        })}
+      <div className="max-w-5xl mx-auto px-4 md:px-10">
+        <div className="overflow-x-auto md:overflow-visible"
+             style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none' }}>
+          <div className="flex md:grid md:grid-cols-4 gap-3 md:gap-5 w-max md:w-auto snap-x snap-mandatory pb-3 md:pb-0">
+            {stats.map((s, i) => {
+              const Icon = TRUST_ICON_MAP[s.i] || Star;
+              return (
+                <div key={i}
+                     className="bg-white p-5 md:p-7 text-center space-y-3
+                                hover:shadow-xl hover:-translate-y-1 transition-all duration-300
+                                snap-start shrink-0 md:shrink"
+                     style={{
+                       borderRadius: br(style, 1.5),
+                       border: `1.5px solid ${ac(style)}15`,
+                       minWidth: 140,
+                     }}>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto"
+                       style={{ background: ac(style) + '12' }}>
+                    <Icon className="w-5 h-5" style={{ color: ac(style) }}/>
+                  </div>
+                  <JackpotNumber target={s.v} visible={visible} delay={i * 150}
+                    className="block text-3xl md:text-4xl font-light tabular-nums"
+                    style={{ fontFamily: hf(style), color: ac(style) }}/>
+                  <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400"
+                     style={{ fontFamily: bf(style) }}>{s.l}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
 
+  // ── BANNER ────────────────────────────────────────────────────────────────
   if (layout === 'banner') return (
     <div ref={ref} className="relative overflow-hidden py-12 md:py-16"
-         style={{ background: `linear-gradient(135deg, #0f172a 0%, #1e1b3a 100%)` }}>
-      <div className="absolute inset-0 pointer-events-none" style={{ background: `radial-gradient(ellipse at center, ${ac(style)}18 0%, transparent 70%)` }}/>
-      <div className="relative max-w-5xl mx-auto px-4 md:px-10 grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-10">
-        {stats.map((s, i) => {
-          const Icon = TRUST_ICON_MAP[s.i] || Star;
-          return (
-            <div key={i} className="text-center space-y-2">
-              <Icon className="w-6 h-6 mx-auto mb-2" style={{ color: ac(style) + 'aa' }}/>
-              <JackpotNumber target={s.v} visible={visible} delay={i * 130}
-                className="block text-4xl md:text-5xl font-light tabular-nums text-white"
-                style={{ fontFamily: hf(style) }}/>
-              <p className="text-[9px] font-black uppercase tracking-[0.2em]" style={{ color: ac(style) + 'aa', fontFamily: bf(style) }}>{s.l}</p>
-            </div>
-          );
-        })}
+         style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b3a 100%)' }}>
+      <div className="absolute inset-0 pointer-events-none"
+           style={{ background: `radial-gradient(ellipse at center, ${ac(style)}18 0%, transparent 70%)` }}/>
+      <div className="relative max-w-5xl mx-auto px-4 md:px-10">
+        <div className="overflow-x-auto md:overflow-visible"
+             style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none' }}>
+          <div className="flex md:grid md:grid-cols-4 gap-6 md:gap-10 w-max md:w-auto snap-x snap-mandatory">
+            {stats.map((s, i) => {
+              const Icon = TRUST_ICON_MAP[s.i] || Star;
+              return (
+                <div key={i}
+                     className="text-center space-y-2 snap-start shrink-0 md:shrink px-4 md:px-0"
+                     style={{ minWidth: 120 }}>
+                  <Icon className="w-6 h-6 mx-auto mb-2" style={{ color: ac(style) + 'aa' }}/>
+                  <JackpotNumber target={s.v} visible={visible} delay={i * 130}
+                    className="block text-4xl md:text-5xl font-light tabular-nums text-white"
+                    style={{ fontFamily: hf(style) }}/>
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em]"
+                     style={{ color: ac(style) + 'aa', fontFamily: bf(style) }}>{s.l}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
 
+  // ── TICKER (already a strip — no changes needed) ───────────────────────────
   if (layout === 'ticker') return (
     <div className="py-3 border-y overflow-hidden" style={{ borderColor: ac(style) + '18' }}>
       <div className="flex" style={{ animation: 'cf-marquee 24s linear infinite', width: 'max-content' }}>
@@ -1263,51 +1325,72 @@ function TrustSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
     </div>
   );
 
+  // ── COUNTER ───────────────────────────────────────────────────────────────
   if (layout === 'counter') return (
     <div ref={ref} className={py(style)} style={{ background: style.bgColor }}>
       <div className="max-w-5xl mx-auto px-4 md:px-10">
-        <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0">
-          {stats.map((s, i) => {
-            const Icon = TRUST_ICON_MAP[s.i] || Star;
-            return (
-              <div key={i} className="flex flex-col items-center gap-3 p-8 text-center group">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110"
-                     style={{ background: ac(style) + '10' }}>
-                  <Icon className="w-6 h-6" style={{ color: ac(style) }}/>
+        <div className="overflow-x-auto md:overflow-visible"
+             style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none' }}>
+          <div className="flex md:grid md:grid-cols-4 md:divide-x md:divide-y-0 w-max md:w-auto snap-x snap-mandatory"
+               style={{ '--tw-divide-opacity': 1 } as any}>
+            {stats.map((s, i) => {
+              const Icon = TRUST_ICON_MAP[s.i] || Star;
+              return (
+                <div key={i}
+                     className="flex flex-col items-center gap-3 p-6 md:p-8 text-center group snap-start shrink-0 md:shrink"
+                     style={{
+                       minWidth: 130,
+                       borderRight: i < stats.length - 1
+                         ? `1px solid ${ac(style)}12`
+                         : 'none',
+                     }}>
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center
+                                  transition-all duration-300 group-hover:scale-110"
+                       style={{ background: ac(style) + '10' }}>
+                    <Icon className="w-6 h-6" style={{ color: ac(style) }}/>
+                  </div>
+                  <JackpotNumber target={s.v} visible={visible} delay={i * 140}
+                    className="block font-light tabular-nums leading-none"
+                    style={{ fontSize: 'clamp(28px,5vw,56px)', fontFamily: hf(style), color: '#0f172a' }}/>
+                  <div className="h-0.5 w-8 mx-auto rounded-full transition-all duration-500 group-hover:w-14"
+                       style={{ background: ac(style) }}/>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400"
+                     style={{ fontFamily: bf(style) }}>{s.l}</p>
                 </div>
-                <JackpotNumber target={s.v} visible={visible} delay={i * 140}
-                  className="block font-light tabular-nums leading-none"
-                  style={{ fontSize: 'clamp(32px, 6vw, 56px)', fontFamily: hf(style), color: '#0f172a' }}/>
-                <div className="h-0.5 w-8 mx-auto rounded-full transition-all duration-500 group-hover:w-14" style={{ background: ac(style) }}/>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400" style={{ fontFamily: bf(style) }}>{s.l}</p>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
   );
 
+  // ── FALLBACK ──────────────────────────────────────────────────────────────
   return (
     <div ref={ref} className="py-12 border-y" style={{ borderColor: ac(style) + '18' }}>
-      <div className="max-w-5xl mx-auto px-4 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-        {stats.map((s, i) => {
-          const Icon = TRUST_ICON_MAP[s.i] || Star;
-          return (
-            <div key={i}>
-              <Icon className="w-5 h-5 mx-auto mb-2" style={{ color: ac(style), opacity: 0.6 }}/>
-              <JackpotNumber target={s.v} visible={visible} delay={i * 120}
-                className="block text-3xl md:text-4xl font-light tabular-nums"
-                style={{ fontFamily: hf(style), color: ac(style) }}/>
-              <p className="text-[9px] font-black uppercase tracking-widest mt-1 text-slate-400" style={{ fontFamily: bf(style) }}>{s.l}</p>
-            </div>
-          );
-        })}
+      <div className="max-w-5xl mx-auto px-4">
+        <div className="overflow-x-auto md:overflow-visible"
+             style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none' }}>
+          <div className="flex md:grid md:grid-cols-4 gap-6 text-center w-max md:w-auto snap-x snap-mandatory">
+            {stats.map((s, i) => {
+              const Icon = TRUST_ICON_MAP[s.i] || Star;
+              return (
+                <div key={i} className="snap-start shrink-0 md:shrink" style={{ minWidth: 120 }}>
+                  <Icon className="w-5 h-5 mx-auto mb-2" style={{ color: ac(style), opacity: 0.6 }}/>
+                  <JackpotNumber target={s.v} visible={visible} delay={i * 120}
+                    className="block text-3xl md:text-4xl font-light tabular-nums"
+                    style={{ fontFamily: hf(style), color: ac(style) }}/>
+                  <p className="text-[9px] font-black uppercase tracking-widest mt-1 text-slate-400"
+                     style={{ fontFamily: bf(style) }}>{s.l}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
 // ─── ServicesSection ──────────────────────────────────────────────────────────
 function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const layout = config.layout || 'cards';
