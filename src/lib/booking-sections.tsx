@@ -403,29 +403,32 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
   // ── Hamburger ──────────────────────────────────────────────────────────────
   const HamburgerBtn = ({ className = '' }: { className?: string }) => {
     const iconStyle = (config.drawerIconStyle as string) || 'hamburger';
+    // Give the button a subtle background pill so it's always legible
+    const btnBg = isDark ? 'rgba(255,255,255,0.12)' : `${ac(style)}0e`;
     return (
       <button
         onClick={() => setDrawerOpen(true)}
-        className={cn('w-10 h-10 flex items-center justify-center rounded-lg transition-colors', className)}
+        className={cn('w-10 h-10 flex items-center justify-center rounded-xl transition-all active:scale-95', className)}
+        style={{ background: btnBg }}
         aria-label="Open menu">
         {iconStyle === 'hamburger' && (
           <div className="flex flex-col items-center gap-[5px]">
-            <span className="w-5 h-0.5 block transition-all" style={{ background: textColor }}/>
-            <span className="w-3.5 h-0.5 block transition-all" style={{ background: textColor }}/>
-            <span className="w-5 h-0.5 block transition-all" style={{ background: textColor }}/>
+            <span className="w-5 h-0.5 block rounded-full transition-all" style={{ background: textColor }}/>
+            <span className="w-3.5 h-0.5 block rounded-full transition-all" style={{ background: textColor }}/>
+            <span className="w-5 h-0.5 block rounded-full transition-all" style={{ background: textColor }}/>
           </div>
         )}
         {iconStyle === 'minimal' && (
-          <div className="flex flex-col items-center gap-1.5">
-            <span className="w-5 h-0.5 block transition-all" style={{ background: textColor }}/>
-            <span className="w-5 h-0.5 block transition-all" style={{ background: textColor }}/>
+          <div className="flex flex-col items-center gap-[6px]">
+            <span className="w-5 h-0.5 block rounded-full" style={{ background: textColor }}/>
+            <span className="w-5 h-0.5 block rounded-full" style={{ background: textColor }}/>
           </div>
         )}
         {iconStyle === 'bold' && (
           <div className="flex flex-col items-center gap-[5px]">
-            <span className="w-5 h-[3px] block rounded-full transition-all" style={{ background: textColor }}/>
-            <span className="w-5 h-[3px] block rounded-full transition-all" style={{ background: textColor }}/>
-            <span className="w-5 h-[3px] block rounded-full transition-all" style={{ background: textColor }}/>
+            <span className="w-5 h-[3px] block rounded-full" style={{ background: textColor }}/>
+            <span className="w-5 h-[3px] block rounded-full" style={{ background: textColor }}/>
+            <span className="w-5 h-[3px] block rounded-full" style={{ background: textColor }}/>
           </div>
         )}
         {iconStyle === 'dots' && (
@@ -437,76 +440,100 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
         )}
         {iconStyle === 'grid' && (
           <div className="grid grid-cols-2 gap-[5px]">
-            <div className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
-            <div className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
-            <div className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
-            <div className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
+            {[0,1,2,3].map(i => (
+              <div key={i} className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
+            ))}
           </div>
         )}
       </button>
     );
   };
+ 
   // ── Drawer ─────────────────────────────────────────────────────────────────
   const Drawer = () => !drawerOpen ? null : (
     <>
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         style={{ zIndex: 200 }}
-        onClick={() => setDrawerOpen(false)} />
-      <div className="fixed inset-y-0 right-0 bg-white flex flex-col"
+        onClick={() => setDrawerOpen(false)}
+      />
+ 
+      {/* Panel */}
+      <div
+        className="fixed inset-y-0 right-0 flex flex-col bg-white"
         style={{
           zIndex: 201,
           width: '100%',
           maxWidth: '360px',
-          boxShadow: '-20px 0 60px rgba(0,0,0,0.18)',
+          boxShadow: '-20px 0 80px rgba(0,0,0,0.20)',
           animation: 'cf-slide-right 0.32s cubic-bezier(0.16,1,0.3,1) both',
         }}>
-
-        {/* Header — always uses dark logo in drawer (white bg) */}
-        <div className="flex items-center justify-between px-6 py-5 border-b shrink-0"
-          style={{ borderColor: ac(style) + '14' }}>
-          {/* Force dark logo in drawer regardless of nav theme */}
+ 
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-6 py-5 shrink-0"
+          style={{ borderBottom: `1.5px solid ${ac(style)}10` }}>
+          {/* Logo */}
           {config.logoDarkUrl || config.logoUrl
             ? <img
                 src={config.logoDarkUrl || config.logoUrl}
                 alt={config.logoText || 'Logo'}
-                style={{ height: logoMaxH, width: 'auto', maxWidth: 160, objectFit: 'contain', display: 'block' }}
+                style={{ height: Math.min(parseInt(config.logoMaxHeight || '40'), 40),
+                  width: 'auto', maxWidth: 160, objectFit: 'contain', display: 'block' }}
               />
-            : <span style={{ fontFamily: hf(style), color: ac(style), fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.05em' }}>
+            : <span style={{ fontFamily: hf(style), color: ac(style), fontSize: '18px',
+                fontWeight: 900, letterSpacing: '-0.04em' }}>
                 {config.logoText || 'Studio'}
-              </span>
-          }
-          <button onClick={() => setDrawerOpen(false)}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-colors"
-            style={{ background: ac(style) + '0a' }}
+              </span>}
+ 
+          {/* Close */}
+          <button
+            onClick={() => setDrawerOpen(false)}
+            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-95"
+            style={{ background: `${ac(style)}0e`, border: `1.5px solid ${ac(style)}18` }}
             aria-label="Close menu">
-            <XIcon className="w-4 h-4" style={{ color: ac(style) }} />
+            <XIcon className="w-4 h-4" style={{ color: ac(style) }}/>
           </button>
         </div>
-
-        {/* Nav links */}
+ 
+        {/* ── Nav links ── */}
         <nav className="flex-1 min-h-0 overflow-y-auto">
-          <div className="px-5 py-2">
+          <div className="px-4 py-3">
             {navLinks.map((link, i) => (
-              <a key={link} href={linkHref(link)}
+              <a
+                key={link}
+                href={linkHref(link)}
                 onClick={() => setDrawerOpen(false)}
-                className="flex items-center justify-between py-4 border-b last:border-0 group active:bg-slate-50 transition-colors rounded-lg px-2 -mx-2"
-                style={{ borderColor: ac(style) + '0d', animation: `cf-fade-up 0.35s ${i * 0.04}s both` }}>
-                <span className="text-base font-black uppercase tracking-tight text-slate-900"
-                  style={{ fontFamily: hf(style) }}>{link}</span>
-                <div className="w-7 h-7 rounded-full flex items-center justify-center opacity-30 group-hover:opacity-100 transition-all"
-                  style={{ background: ac(style) + '10' }}>
-                  <ChevronRight className="w-3.5 h-3.5" style={{ color: ac(style) }} />
+                className="flex items-center justify-between py-4 px-3 -mx-1 rounded-xl
+                           border-b last:border-0 group active:scale-[0.99] transition-all"
+                style={{
+                  borderColor: `${ac(style)}08`,
+                  animation: `cf-fade-up 0.32s ${i * 0.04}s both`,
+                }}>
+                <span
+                  className="text-base font-black uppercase tracking-tight"
+                  style={{ fontFamily: hf(style), color: '#0f172a' }}>
+                  {link}
+                </span>
+                <div
+                  className="w-8 h-8 rounded-xl flex items-center justify-center
+                             opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                  style={{ background: `${ac(style)}12` }}>
+                  <ChevronRight className="w-3.5 h-3.5" style={{ color: ac(style) }}/>
                 </div>
               </a>
             ))}
           </div>
-
-          {/* Extra sections */}
+ 
+          {/* ── Extra / overflow sections ── */}
           {rawEnabledSections && rawEnabledSections.filter(t => t !== 'nav').length > navLinks.length && (
-            <div className="px-5 py-4 border-t" style={{ borderColor: ac(style) + '0d' }}>
-              <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3 px-2"
-                style={{ color: ac(style) + '70' }}>More</p>
-              <div className="flex flex-wrap gap-2">
+            <div className="px-4 py-4"
+              style={{ borderTop: `1px solid ${ac(style)}08` }}>
+              <p className="text-[9px] font-black uppercase tracking-[0.28em] mb-3 px-3"
+                style={{ color: `${ac(style)}70`, fontFamily: bf(style) }}>
+                More
+              </p>
+              <div className="flex flex-wrap gap-1.5">
                 {rawEnabledSections
                   .filter(t => t !== 'nav' && SECTION_LABEL_MAP[t] && !navLinks.includes(SECTION_LABEL_MAP[t]))
                   .map((t, i) => {
@@ -514,10 +541,14 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
                     return (
                       <a key={t} href={`#${t}`}
                         onClick={() => setDrawerOpen(false)}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-colors active:scale-95"
-                        style={{ borderColor: ac(style) + '18', background: ac(style) + '06',
-                          animation: `cf-fade-up 0.3s ${i * 0.03}s both` }}>
-                        {SIcon && <SIcon className="w-3 h-3" style={{ color: ac(style) }} />}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border
+                                   transition-all active:scale-95"
+                        style={{
+                          borderColor: `${ac(style)}18`,
+                          background: `${ac(style)}06`,
+                          animation: `cf-fade-up 0.28s ${i * 0.03}s both`,
+                        }}>
+                        {SIcon && <SIcon className="w-3 h-3" style={{ color: ac(style) }}/>}
                         <span className="text-[11px] font-black uppercase tracking-widest"
                           style={{ color: ac(style), fontFamily: bf(style) }}>
                           {SECTION_LABEL_MAP[t]}
@@ -528,35 +559,52 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
               </div>
             </div>
           )}
-
-          {/* Quick book */}
+ 
+          {/* ── Quick book ── */}
           {config.showQuickBook !== false && data.services.length > 0 && (
-            <div className="px-5 py-4 border-t" style={{ borderColor: ac(style) + '0d' }}>
-              <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-3 px-2"
-                style={{ color: ac(style) }}>Quick Book</p>
-              <div className="space-y-1">
-                {data.services.slice(0, parseInt(config.quickBookLimit || '6')).map((svc: any) => (
-                  <button key={svc.id}
-                    onClick={() => { openBooking(svc); setDrawerOpen(false); }}
-                    className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition-colors text-left"
-                    style={{ WebkitTapHighlightColor: 'transparent' }}>
-                    <span className="text-sm font-bold text-slate-700 truncate"
-                      style={{ fontFamily: bf(style) }}>{svc.name}</span>
-                    {svc.price && (
-                      <span className="text-sm font-black shrink-0 ml-3"
-                        style={{ color: ac(style) }}>${svc.price}</span>
-                    )}
-                  </button>
-                ))}
+            <div className="px-4 py-4"
+              style={{ borderTop: `1px solid ${ac(style)}08` }}>
+              <p className="text-[9px] font-black uppercase tracking-[0.28em] mb-3 px-3"
+                style={{ color: ac(style), fontFamily: bf(style) }}>
+                Quick Book
+              </p>
+              <div className="space-y-0.5">
+                {data.services
+                  .slice(0, parseInt(config.quickBookLimit || '6'))
+                  .map((svc: any) => (
+                    <button key={svc.id}
+                      onClick={() => { openBooking(svc); setDrawerOpen(false); }}
+                      className="w-full flex items-center justify-between px-3 py-3
+                                 rounded-xl hover:bg-slate-50 active:bg-slate-100
+                                 transition-colors text-left group"
+                      style={{ WebkitTapHighlightColor: 'transparent' }}>
+                      <span className="text-sm font-bold text-slate-700 truncate"
+                        style={{ fontFamily: bf(style) }}>
+                        {svc.name}
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0 ml-3">
+                        {svc.price && (
+                          <span className="text-sm font-black" style={{ color: ac(style), fontFamily: hf(style) }}>
+                            ${svc.price}
+                          </span>
+                        )}
+                        <div className="w-6 h-6 rounded-lg flex items-center justify-center
+                                        opacity-0 group-hover:opacity-100 transition-all"
+                          style={{ background: `${ac(style)}10` }}>
+                          <ArrowRight className="w-3 h-3" style={{ color: ac(style) }}/>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
               </div>
             </div>
           )}
         </nav>
-
-        {/* Book CTA */}
-        <div className="px-5 border-t shrink-0"
+ 
+        {/* ── Footer CTA ── */}
+        <div className="px-5 shrink-0"
           style={{
-            borderColor: ac(style) + '0d',
+            borderTop: `1.5px solid ${ac(style)}10`,
             paddingBottom: 'max(24px, env(safe-area-inset-bottom))',
             paddingTop: '16px',
           }}>
@@ -565,13 +613,16 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
               cta(config.ctaAction, config.ctaUrl)({ stopPropagation: () => {} } as any);
               setDrawerOpen(false);
             }}
-            className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 active:scale-[0.98] transition-all"
+            className="w-full py-4 font-black text-sm uppercase tracking-widest
+                       hover:opacity-90 active:scale-[0.99] transition-all whitespace-nowrap"
             style={{ ...btnStyle(style), fontFamily: bf(style), borderRadius: `${Math.min((style.borderRadius || 4), 16)}px` }}>
             {config.ctaText || 'Book Now'}
           </button>
           {data.tenant?.phone && (
             <a href={`tel:${data.tenant.phone}`}
-              className="block w-full py-3 text-center text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 transition-colors">
+              className="block w-full py-3 text-center text-[11px] font-black uppercase
+                         tracking-widest transition-colors"
+              style={{ color: `${ac(style)}60`, fontFamily: bf(style) }}>
               {data.tenant.phone}
             </a>
           )}
