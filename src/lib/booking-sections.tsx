@@ -279,12 +279,15 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
 
   // ── Dynamic nav background ─────────────────────────────────────────────────
   const navBg = (): string => {
+    const custom = config.navBgColor as string | undefined;
+    if (custom) return custom;                         // custom color always wins
     if (!config.transparent) return 'rgba(255,255,255,0.95)';
     if (scrolled)             return 'rgba(255,255,255,0.97)';
     return 'transparent';
   };
 
   const navBorderColor = (): string => {
+    if (config.navBgColor) return 'transparent';        // custom bg: no border needed
     if (!config.transparent || scrolled) return ac(style) + '18';
     return 'transparent';
   };
@@ -398,18 +401,51 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
   );
 
   // ── Hamburger ──────────────────────────────────────────────────────────────
-  const HamburgerBtn = ({ className = '' }: { className?: string }) => (
-    <button
-      onClick={() => setDrawerOpen(true)}
-      className={cn('w-10 h-10 flex flex-col items-center justify-center gap-1.5 rounded-lg transition-colors', className)}
-      style={{ '--hover-bg': isDark ? 'rgba(255,255,255,0.1)' : '#f1f5f9' } as any}
-      aria-label="Open menu">
-      <span className="w-5 h-0.5 transition-all" style={{ background: textColor }}/>
-      <span className="w-3.5 h-0.5 transition-all" style={{ background: textColor }}/>
-      <span className="w-5 h-0.5 transition-all" style={{ background: textColor }}/>
-    </button>
-  );
-
+  const HamburgerBtn = ({ className = '' }: { className?: string }) => {
+    const iconStyle = (config.drawerIconStyle as string) || 'hamburger';
+    return (
+      <button
+        onClick={() => setDrawerOpen(true)}
+        className={cn('w-10 h-10 flex items-center justify-center rounded-lg transition-colors', className)}
+        aria-label="Open menu">
+        {iconStyle === 'hamburger' && (
+          <div className="flex flex-col items-center gap-[5px]">
+            <span className="w-5 h-0.5 block transition-all" style={{ background: textColor }}/>
+            <span className="w-3.5 h-0.5 block transition-all" style={{ background: textColor }}/>
+            <span className="w-5 h-0.5 block transition-all" style={{ background: textColor }}/>
+          </div>
+        )}
+        {iconStyle === 'minimal' && (
+          <div className="flex flex-col items-center gap-1.5">
+            <span className="w-5 h-0.5 block transition-all" style={{ background: textColor }}/>
+            <span className="w-5 h-0.5 block transition-all" style={{ background: textColor }}/>
+          </div>
+        )}
+        {iconStyle === 'bold' && (
+          <div className="flex flex-col items-center gap-[5px]">
+            <span className="w-5 h-[3px] block rounded-full transition-all" style={{ background: textColor }}/>
+            <span className="w-5 h-[3px] block rounded-full transition-all" style={{ background: textColor }}/>
+            <span className="w-5 h-[3px] block rounded-full transition-all" style={{ background: textColor }}/>
+          </div>
+        )}
+        {iconStyle === 'dots' && (
+          <div className="flex flex-col items-center gap-[5px]">
+            <div className="w-1.5 h-1.5 rounded-full" style={{ background: textColor }}/>
+            <div className="w-1.5 h-1.5 rounded-full" style={{ background: textColor }}/>
+            <div className="w-1.5 h-1.5 rounded-full" style={{ background: textColor }}/>
+          </div>
+        )}
+        {iconStyle === 'grid' && (
+          <div className="grid grid-cols-2 gap-[5px]">
+            <div className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
+            <div className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
+            <div className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
+            <div className="w-[7px] h-[7px] rounded-sm" style={{ background: textColor }}/>
+          </div>
+        )}
+      </button>
+    );
+  };
   // ── Drawer ─────────────────────────────────────────────────────────────────
   const Drawer = () => !drawerOpen ? null : (
     <>
@@ -546,11 +582,11 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
 
   // ── Shared nav style object (for layouts that use it) ─────────────────────
   const solidNavStyle: React.CSSProperties = {
-    background: navBg(),
-    borderColor: navBorderColor(),
-    backdropFilter: (!config.transparent || scrolled) ? 'blur(20px) saturate(1.8)' : 'none',
-    WebkitBackdropFilter: (!config.transparent || scrolled) ? 'blur(20px) saturate(1.8)' : 'none',
-    transition: navTransition,
+    background:          navBg(),
+    borderColor:         navBorderColor(),
+    backdropFilter:      !config.navBgColor && (!config.transparent || scrolled) ? 'blur(20px) saturate(1.8)' : 'none',
+    WebkitBackdropFilter:!config.navBgColor && (!config.transparent || scrolled) ? 'blur(20px) saturate(1.8)' : 'none',
+    transition:          navTransition,
   };
 
   // ── floating pill ──────────────────────────────────────────────────────────
