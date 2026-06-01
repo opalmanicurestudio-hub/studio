@@ -1329,7 +1329,7 @@ const handleDrop = (targetId: string) => {
   const sheetTranslate = mobileSheet === 'closed' ? `calc(100% - ${HANDLE_H}px)` : mobileSheet === 'half' ? '42%' : '0%';
   const cycleSheet = () => setMobileSheet(s => s === 'closed' ? 'half' : s === 'half' ? 'full' : 'closed');
 
-  const MobileTabBar = ({ compact = false }: { compact?: boolean }) => (
+const renderMobileTabBar = ({ compact = false }: { compact?: boolean } = {}) => (
     <div className={cn('flex items-center gap-1.5 w-full')}>
       <div className={cn('flex gap-1 flex-1 bg-slate-100 rounded-xl', compact ? 'p-0.5' : 'p-1')}>
         <button onClick={() => { setMobilePanelTab('sections'); setMobileFieldView(false); if (!isLandscape && mobileSheet === 'closed') setMobileSheet('half'); }}
@@ -1355,7 +1355,7 @@ const handleDrop = (targetId: string) => {
     </div>
   );
 
-  const MobilePanelBody = () => (
+const renderMobilePanelBody = () => (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {mobileFieldView && selectedSection && selectedDef ? (
         <>
@@ -1458,7 +1458,7 @@ const handleDrop = (targetId: string) => {
               {drawerOpen && (
                 <>
                   <div className="shrink-0 border-b px-2 py-1.5 flex items-center gap-2">
-                    <MobileTabBar compact/>
+                    {renderMobileTabBar({ compact: true })}
                     <button onClick={() => setDrawerOpen(false)} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-muted shrink-0"><X className="w-3.5 h-3.5"/></button>
                   </div>
                   <div className="flex-1 min-h-0 overflow-hidden flex flex-col"><MobilePanelBody/></div>
@@ -1482,14 +1482,14 @@ const handleDrop = (targetId: string) => {
               <div className="shrink-0 cursor-pointer select-none pt-2.5" style={{ height: `${HANDLE_H}px` }} onClick={cycleSheet}>
                 <div className="flex justify-center mb-2"><div className="w-9 h-1 rounded-full bg-slate-200"/></div>
                 <div className="px-3 flex items-center gap-2">
-                  <MobileTabBar/>
+            {renderMobileTabBar({})}
                   <button onClick={e => { e.stopPropagation(); cycleSheet(); }} className="w-8 h-8 rounded-xl border-2 border-border flex items-center justify-center text-slate-400 shrink-0">
                     {mobileSheet === 'full' ? <ChevronDown className="w-4 h-4"/> : <ChevronUp className="w-4 h-4"/>}
                   </button>
                 </div>
               </div>
               {mobileSheet !== 'closed' && (
-                <div className="flex-1 min-h-0 overflow-hidden flex flex-col border-t border-slate-100"><MobilePanelBody/></div>
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col border-t border-slate-100">{renderMobilePanelBody()}</div>
               )}
             </div>
           </>
