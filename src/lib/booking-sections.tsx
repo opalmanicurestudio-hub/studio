@@ -367,55 +367,71 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
   );
 
   // ── Hamburger button ───────────────────────────────────────────────────────
-  // Always gets a background pill for contrast on any background.
+  // Thinner lines, no border-radius on lines, subtler pill background.
+// ─────────────────────────────────────────────────────────────────────────────
+ 
   const HamburgerBtn = ({ className = '' }: { className?: string }) => {
     const iconStyle = (config.drawerIconStyle as string) || 'hamburger';
-    const pillBg    = isDark ? 'rgba(255,255,255,0.14)' : `${ac(style)}10`;
+    const pillBg    = isDark ? 'rgba(255,255,255,0.10)' : `${ac(style)}08`;
     const iconColor = isDark ? '#ffffff' : '#111827';
-
+ 
     return (
-      <button onClick={() => setDrawerOpen(true)}
-        className={cn('w-11 h-11 flex items-center justify-center rounded-xl transition-all active:scale-95', className)}
+      <button
+        onClick={() => setDrawerOpen(true)}
+        className={cn(
+          'w-10 h-10 flex items-center justify-center rounded-xl transition-all active:scale-95',
+          className
+        )}
         style={{ background: pillBg }}
         aria-label="Open menu">
-
+ 
+        {/* hamburger — 3 thin lines, middle shorter */}
         {(!iconStyle || iconStyle === 'hamburger') && (
-          <div className="flex flex-col items-start gap-[5px]">
-            <span style={{ display: 'block', width: 20, height: 2, borderRadius: 2, background: iconColor }}/>
-            <span style={{ display: 'block', width: 14, height: 2, borderRadius: 2, background: iconColor }}/>
-            <span style={{ display: 'block', width: 20, height: 2, borderRadius: 2, background: iconColor }}/>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span style={{ display: 'block', width: 20, height: 1.5, background: iconColor }}/>
+            <span style={{ display: 'block', width: 13, height: 1.5, background: iconColor }}/>
+            <span style={{ display: 'block', width: 20, height: 1.5, background: iconColor }}/>
           </div>
         )}
+ 
+        {/* minimal — 2 equal thin lines */}
         {iconStyle === 'minimal' && (
-          <div className="flex flex-col items-center gap-[7px]">
-            <span style={{ display: 'block', width: 20, height: 2, borderRadius: 2, background: iconColor }}/>
-            <span style={{ display: 'block', width: 20, height: 2, borderRadius: 2, background: iconColor }}/>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ display: 'block', width: 20, height: 1.5, background: iconColor }}/>
+            <span style={{ display: 'block', width: 20, height: 1.5, background: iconColor }}/>
           </div>
         )}
+ 
+        {/* bold — 3 slightly thicker rounded lines */}
         {iconStyle === 'bold' && (
-          <div className="flex flex-col items-center gap-[5px]">
-            <span style={{ display: 'block', width: 20, height: 3, borderRadius: 3, background: iconColor }}/>
-            <span style={{ display: 'block', width: 20, height: 3, borderRadius: 3, background: iconColor }}/>
-            <span style={{ display: 'block', width: 20, height: 3, borderRadius: 3, background: iconColor }}/>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span style={{ display: 'block', width: 20, height: 2.5, borderRadius: 2, background: iconColor }}/>
+            <span style={{ display: 'block', width: 20, height: 2.5, borderRadius: 2, background: iconColor }}/>
+            <span style={{ display: 'block', width: 20, height: 2.5, borderRadius: 2, background: iconColor }}/>
           </div>
         )}
+ 
+        {/* dots — 3 small circles */}
         {iconStyle === 'dots' && (
-          <div className="flex flex-col items-center gap-[5px]">
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
             {[0,1,2].map(i => (
-              <span key={i} style={{ display: 'block', width: 6, height: 6, borderRadius: '50%', background: iconColor }}/>
+              <span key={i} style={{ display: 'block', width: 4, height: 4, borderRadius: '50%', background: iconColor }}/>
             ))}
           </div>
         )}
+ 
+        {/* grid — 2×2 small squares */}
         {iconStyle === 'grid' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
             {[0,1,2,3].map(i => (
-              <span key={i} style={{ display: 'block', width: 7, height: 7, borderRadius: 2, background: iconColor }}/>
+              <span key={i} style={{ display: 'block', width: 6, height: 6, borderRadius: 1, background: iconColor }}/>
             ))}
           </div>
         )}
       </button>
     );
   };
+ 
 
   // ── Drawer ─────────────────────────────────────────────────────────────────
   const Drawer = () => !drawerOpen ? null : (
@@ -655,186 +671,6 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
     </>
   );
 
-  // ── bottom-bar ─────────────────────────────────────────────────────────────
-  if (layout === 'bottom-bar') {
-    // Gather ALL enabled section types (excluding nav/trust/waitlist)
-    const allBarTypes = (rawEnabledSections ?? [])
-      .filter(t => t !== 'nav' && t !== 'trust' && t !== 'waitlist' && SECTION_ICON_MAP[t]);
-
-    // Priority order for which sections get dedicated tabs
-    const PRIORITY = ['services','hero','team','gallery','reviews','contact','story','events','faq','memberships','packages','giftcards','beforeafter','quote','referral','instagram','waitlist'];
-    const sorted = [...allBarTypes].sort((a, b) => {
-      const ai = PRIORITY.indexOf(a); const bi = PRIORITY.indexOf(b);
-      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-    });
-
-    // If ≤ 4 sections: show all + Book. If > 4: show 4 core tabs + More drawer + Book.
-    const MAX_TABS = 4;
-    const showMore = sorted.length > MAX_TABS;
-    const tabTypes = sorted.slice(0, showMore ? MAX_TABS : sorted.length);
-    const overflowTypes = sorted.slice(MAX_TABS); // go into drawer via More button
-
-    const tabItems = tabTypes.map(t => ({
-      Icon:  SECTION_ICON_MAP[t]!,
-      label: SECTION_LABEL_MAP[t] ?? t,
-      href:  `#${t}`,
-    }));
-
-    const BAR_HEIGHT = 68;
-    const accentCol = ac(style);
-
-    return (
-      <>
-        {/* ── Top header: logo + hamburger ── */}
-        <nav
-          className={cn('flex items-center justify-between px-5 py-3', config.sticky !== false && 'sticky top-0')}
-          style={{ ...navZ, ...solidNavStyle, borderBottom: `1px solid ${navBorderColor()}` }}>
-          <Logo/>
-          <HamburgerBtn/>
-        </nav>
-
-        {/* Drawer handles ALL sections including overflow */}
-        <Drawer/>
-
-        {/* ── Bottom tab bar ──
-            Uses position:fixed so it always sticks to the viewport bottom.
-            The page-builder preview wrapper must have `transform: translateZ(0)`
-            (or will-change: transform) so this fixed child is scoped to it. ── */}
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            zIndex: 110,
-            background: config.navBgColor || 'rgba(255,255,255,0.98)',
-            backdropFilter: 'blur(24px) saturate(1.8)',
-            WebkitBackdropFilter: 'blur(24px) saturate(1.8)',
-            borderTop: `1.5px solid ${accentCol}14`,
-            boxShadow: '0 -2px 20px rgba(0,0,0,0.08)',
-            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-          }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'stretch',
-              height: BAR_HEIGHT,
-              maxWidth: 580,
-              margin: '0 auto',
-              padding: '0 4px',
-            }}>
-
-            {/* Section tabs */}
-            {tabItems.map(item => (
-              <a
-                key={item.href}
-                href={item.href}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
-                  textDecoration: 'none',
-                  color: '#6b7280',
-                  WebkitTapHighlightColor: `${accentCol}22`,
-                  minWidth: 0,
-                  padding: '8px 4px',
-                  transition: 'opacity 0.15s',
-                }}>
-                <item.Icon style={{ width: 23, height: 23, color: '#4b5563', flexShrink: 0 }}/>
-                <span style={{
-                  fontSize: '9px',
-                  fontWeight: 900,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.07em',
-                  fontFamily: bf(style),
-                  color: '#4b5563',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '100%',
-                }}>
-                  {item.label}
-                </span>
-              </a>
-            ))}
-
-            {/* More tab — opens drawer which contains ALL sections */}
-            {showMore && (
-              <button
-                onClick={() => setDrawerOpen(true)}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
-                  border: 'none',
-                  background: 'transparent',
-                  color: '#4b5563',
-                  WebkitTapHighlightColor: `${accentCol}22`,
-                  minWidth: 0,
-                  padding: '8px 4px',
-                  cursor: 'pointer',
-                }}>
-                {/* 3-dots "more" icon */}
-                <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-                  {[0,1,2].map(i => (
-                    <span key={i} style={{ display: 'block', width: 4, height: 4, borderRadius: '50%', background: '#4b5563' }}/>
-                  ))}
-                </div>
-                <span style={{
-                  fontSize: '9px', fontWeight: 900, textTransform: 'uppercase',
-                  letterSpacing: '0.07em', fontFamily: bf(style), color: '#4b5563',
-                }}>
-                  More
-                </span>
-              </button>
-            )}
-
-            {/* Divider */}
-            <div style={{ width: 1, background: `${accentCol}12`, margin: '12px 4px', flexShrink: 0 }}/>
-
-            {/* Book button — accent pill */}
-            <div style={{ display: 'flex', alignItems: 'center', padding: '10px 6px', flexShrink: 0 }}>
-              <button
-                onClick={cta(config.ctaAction, config.ctaUrl)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  background: accentCol,
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: style.buttonStyle === 'pill' ? 999 : Math.min((style.borderRadius || 4) * 2, 20),
-                  padding: '0 16px',
-                  height: 46,
-                  cursor: 'pointer',
-                  boxShadow: `0 4px 20px ${accentCol}45`,
-                  WebkitTapHighlightColor: `${accentCol}44`,
-                  transition: 'transform 0.15s, opacity 0.15s',
-                  whiteSpace: 'nowrap',
-                }}>
-                <span style={{
-                  fontSize: '11px', fontWeight: 900, textTransform: 'uppercase',
-                  letterSpacing: '0.1em', fontFamily: bf(style), color: '#fff',
-                }}>
-                  {config.ctaText || 'Book'}
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Space so page content isn't hidden behind the fixed bar on live page */}
-        <div style={{ height: BAR_HEIGHT + 16, flexShrink: 0, pointerEvents: 'none' }} aria-hidden="true"/>
-      </>
-    );
-  }
 
   // ── centered (default) ─────────────────────────────────────────────────────
   return (
