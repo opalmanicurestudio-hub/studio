@@ -244,8 +244,6 @@ const SECTION_ICON_MAP: Record<string, React.ElementType> = {
 };
 
 // ─── NavSection ────────────────────────────────────────────────────────────────
-// ─── NavSection ────────────────────────────────────────────────────────────────
-// Full replacement. Find `// ─── NavSection` and replace through `// ─── HeroSection`
 function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const layout = config.layout || 'centered';
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -2452,25 +2450,18 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 </p>
               )}
 
-              
               {/* Book button */}
               {showBtn && (
                 <div style={{
-                  animation: soloVis
-                    ? 'cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) 0.6s both'
-                    : 'none',
-                  width: '100%',
-                  display: 'flex',
-                  justifyContent: 'center',
+                  animation: soloVis ? 'cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) 0.6s both' : 'none',
+                  display: 'flex', justifyContent: 'center', width: '100%',
                 }}>
                   <button
                     onClick={e => { e.stopPropagation(); openBooking(); }}
                     className="inline-flex items-center justify-center gap-2 font-black uppercase tracking-widest hover:scale-[1.04] active:scale-[0.97] transition-transform whitespace-nowrap"
                     style={{
-                      background: ac(style),
-                      color: '#fff',
-                      borderRadius: br(style, 3),
-                      fontFamily: bf(style),
+                      background: ac(style), color: '#fff',
+                      borderRadius: br(style, 3), fontFamily: bf(style),
                       fontSize: 'clamp(10px, 2.5vw, 13px)',
                       padding: 'clamp(12px, 3.5vw, 16px) clamp(28px, 8vw, 48px)',
                       boxShadow: `0 12px 40px ${ac(style)}28, 0 4px 12px ${ac(style)}16`,
@@ -2482,245 +2473,65 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 </div>
               )}
 
-  if (layout === 'solo-hero') {
-    const solo      = staff[0];
-    const showBio   = !!(config.showBio && solo?.bio);
-    const showBtn   = !!config.showBookButton;
-    const showSpecs = !!(config.showSpecialties !== false && solo?.specialties?.length > 0);
- 
-    return (
-      <section id="team" className="relative overflow-hidden"
-        style={{ background: style.bgColor, minHeight: 'clamp(520px, 80vh, 900px)' }}>
- 
-        {/* Subtle accent wash behind content side */}
-        <div className="absolute inset-y-0 left-0 w-full md:w-[48%] pointer-events-none"
-          style={{ background: `${ac(style)}04` }}/>
- 
-        <div className="absolute inset-0 grid md:grid-cols-[1fr_1.15fr]">
- 
-          {/* ── Content panel (left) ── */}
-          <div className="relative z-10 flex flex-col justify-center
-                          px-8 md:px-12 lg:px-20
-                          pt-24 pb-16 md:py-0
-                          order-2 md:order-1">
- 
-            {/* Eyebrow */}
-            <div className="flex items-center gap-3 mb-6">
-              <div className="h-px w-8" style={{ background: ac(style) }}/>
-              <span className="text-[10px] font-black uppercase tracking-[0.35em]"
-                style={{ color: ac(style), fontFamily: bf(style) }}>
-                {config.heading || 'The Artist'}
-              </span>
             </div>
- 
-            {/* Name — the hero element */}
-            <h2 className="font-light leading-[0.87] mb-6"
-              style={{
-                fontFamily: hf(style),
-                color: '#0f172a',
-                fontSize: 'clamp(44px, 7vw, 88px)',
-              }}>
-              {solo?.name || 'Artist Name'}
-            </h2>
- 
-            {/* Thick accent rule */}
-            <div className="h-[3px] w-14 mb-8" style={{ background: ac(style) }}/>
- 
-            {/* Specialties */}
-            {showSpecs && (
-              <div className="flex flex-wrap gap-2 mb-7">
-                {solo.specialties.map((s: string, i: number) => (
-                  <span key={i}
-                    className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest whitespace-nowrap"
-                    style={{
-                      background: `${ac(style)}0e`,
-                      color: ac(style),
-                      border: `1.5px solid ${ac(style)}22`,
-                      borderRadius: br(style, 3),
-                      fontFamily: bf(style),
-                    }}>
-                    {s}
-                  </span>
-                ))}
-              </div>
-            )}
- 
-            {/* Bio */}
-            {showBio && (
-              <p className="text-base text-slate-500 leading-relaxed max-w-sm mb-8"
-                style={{ fontFamily: bf(style) }}>
-                {solo.bio}
-              </p>
-            )}
- 
-            {/* Book button */}
-            {showBtn && (
-              <div>
-                <button
-                  onClick={e => { e.stopPropagation(); openBooking(); }}
-                  className="inline-flex items-center gap-3 font-black text-sm uppercase tracking-widest
-                             hover:scale-[1.03] active:scale-[0.97] transition-transform
-                             whitespace-nowrap"
-                  style={{
-                    ...btnStyle(style),
-                    fontFamily: bf(style),
-                    padding: '14px 36px',
-                    boxShadow: `0 12px 40px ${ac(style)}28`,
-                  }}>
-                  {config.bookCta || 'Book with me'}
-                  <ArrowRight className="w-4 h-4 shrink-0"/>
-                </button>
-              </div>
-            )}
-          </div>
- 
-          {/* ── Portrait panel (right) ── */}
-          <div className="relative overflow-hidden order-1 md:order-2"
-            style={{
-              // Mobile: fixed aspect ratio. Desktop: fills the grid cell height.
-              aspectRatio: '4/3',
-              minHeight: 0,
-            }}>
-            <style>{`@media (min-width: 768px) {
-              .solo-hero-portrait { aspect-ratio: unset !important; position: absolute; inset: 0; }
-            }`}</style>
-            <div className="solo-hero-portrait relative w-full h-full"
-              style={{ aspectRatio: '4/3' }}>
-              {solo?.avatarUrl
-                ? <img
-                    src={solo.avatarUrl}
-                    alt={solo?.name || ''}
-                    className="w-full h-full object-cover object-top"
-                    style={{ transform: 'scale(1.01)' }}
-                  />
-                : <div className="absolute inset-0 flex items-center justify-center"
-                    style={{ background: `${ac(style)}0a` }}>
-                    <span className="font-light select-none pointer-events-none"
-                      style={{ fontSize: 'clamp(80px, 18vw, 160px)', fontFamily: hf(style),
-                        color: ac(style) + '20', lineHeight: 1 }}>
-                      {solo?.name?.[0] ?? 'A'}
-                    </span>
-                  </div>}
- 
-              {/* Gradient bleed into content panel — desktop only */}
-              <div className="absolute inset-y-0 left-0 w-16 hidden md:block"
-                style={{ background: `linear-gradient(to right, ${style.bgColor}, transparent)` }}/>
-              {/* Bottom gradient on mobile */}
-              <div className="absolute bottom-0 inset-x-0 h-24 md:hidden"
-                style={{ background: `linear-gradient(to top, ${style.bgColor}, transparent)` }}/>
-            </div>
-          </div>
+          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
         </div>
       </section>
     );
   }
- 
- 
-// ══════════════════════════════════════════════════════════════════════════════
-// SOLO CARD  –  centered portrait card, mat frame, elegant nameplate
-// ══════════════════════════════════════════════════════════════════════════════
-  if (layout === 'solo-card') {
-    const solo      = staff[0];
-    const showBio   = !!(config.showBio && solo?.bio);
-    const showBtn   = !!config.showBookButton;
-    const showSpecs = !!(config.showSpecialties !== false && solo?.specialties?.length > 0);
- 
+
+  if (layout === 'solo-hero') {
+    const solo = staff[0];
     return (
-      <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
-        <div className="max-w-sm mx-auto px-6 md:px-0">
+      <section id="team" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-5xl mx-auto px-6 md:px-16">
           <Header/>
           {solo ? (
-            <div className="bg-white overflow-hidden"
-              style={{
-                borderRadius: br(style, 2),
-                border: `1.5px solid ${ac(style)}18`,
-                boxShadow: `0 32px 80px rgba(0,0,0,0.12), 0 0 0 6px ${ac(style)}06`,
-              }}>
- 
-              {/* Portrait with mat-frame treatment */}
-              <div className="relative overflow-hidden m-3"
-                style={{
-                  aspectRatio: '3/4',
-                  borderRadius: `${Math.max((style.borderRadius || 4) - 2, 2)}px`,
-                  background: `${ac(style)}0a`,
-                }}>
-                {solo.avatarUrl
-                  ? <img
-                      src={solo.avatarUrl}
-                      alt={solo.name}
-                      className="w-full h-full object-cover object-top"
-                    />
-                  : <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="font-light select-none"
-                        style={{ fontSize: 'clamp(60px,22vw,100px)',
-                          fontFamily: hf(style), color: ac(style) + '22', lineHeight: 1 }}>
-                        {solo.name?.[0]}
-                      </span>
-                    </div>}
- 
-                {/* Photography mat inner border */}
-                <div className="absolute inset-[8px] pointer-events-none"
-                  style={{ border: '1px solid rgba(255,255,255,0.30)', borderRadius: '2px' }}/>
- 
-                {/* Bottom gradient */}
-                <div className="absolute bottom-0 inset-x-0"
-                  style={{ height: '40%', background: 'linear-gradient(to top, rgba(0,0,0,0.60) 0%, transparent 100%)' }}/>
- 
-                {/* Name overlaid on portrait bottom */}
-                <div className="absolute bottom-0 inset-x-0 px-5 pb-4 text-center">
-                  <h2 className="font-light text-white leading-tight"
-                    style={{
-                      fontFamily: hf(style),
-                      fontSize: 'clamp(20px, 6vw, 28px)',
-                    }}>
-                    {solo.name}
-                  </h2>
+            <div className="grid md:grid-cols-2 gap-10 md:gap-20 items-center">
+              <div className="relative">
+                <div className="overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2), aspectRatio: '3/4' }}>
+                  {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover object-top"/> : <div className="w-full h-full flex items-center justify-center" style={{ background: ac(style)+'14' }}><span className="text-8xl font-light" style={{ fontFamily: hf(style), color: ac(style)+'40' }}>{solo.name?.[0]}</span></div>}
+                </div>
+                <div className="absolute -bottom-4 -left-4 px-5 py-3 text-white shadow-xl" style={{ background: ac(style), borderRadius: br(style,1.5) }}>
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Artist</p>
+                  <p className="text-sm font-black uppercase tracking-tight">{solo.name}</p>
                 </div>
               </div>
- 
-              {/* Card body below portrait */}
-              <div className="px-6 pb-6 pt-4 space-y-4">
- 
-                {/* Accent rule + specialties */}
-                {showSpecs ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
-                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: ac(style) }}/>
-                      <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
-                    </div>
-                    <p className="text-center text-[10px] font-black uppercase tracking-widest"
-                      style={{ color: ac(style), fontFamily: bf(style) }}>
-                      {solo.specialties.slice(0, 3).join(' · ')}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
-                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: `${ac(style)}40` }}/>
-                    <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
-                  </div>
+              <div className="space-y-6 pt-8 md:pt-0">
+                <div className="w-10 h-px" style={{ background: ac(style) }}/>
+                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'The Artist'}</FieldTap>
+                {config.showSpecialties !== false && solo.specialties?.length > 0 && (
+                  <div className="flex flex-wrap gap-2">{solo.specialties.map((s: string, i: number) => <span key={i} className="px-3 py-1 text-[10px] font-black uppercase tracking-widest" style={{ background: ac(style)+'12', color: ac(style), borderRadius: br(style,2) }}>{s}</span>)}</div>
                 )}
- 
-                {/* Bio */}
-                {showBio && (
-                  <p className="text-sm text-slate-500 leading-relaxed text-center"
-                    style={{ fontFamily: bf(style) }}>
-                    {solo.bio}
-                  </p>
-                )}
- 
-                {/* Book button */}
-                {showBtn && (
-                  <button
-                    onClick={e => { e.stopPropagation(); openBooking(); }}
-                    className="w-full py-4 font-black text-sm uppercase tracking-widest
-                               hover:opacity-90 active:scale-[0.99] transition-all
-                               whitespace-nowrap overflow-hidden"
-                    style={{ ...btnStyle(style), fontFamily: bf(style) }}>
-                    {config.bookCta || 'Book an appointment'}
-                  </button>
-                )}
+                {config.showBio && solo.bio && <p className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
+                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="inline-flex items-center gap-2 px-8 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'} <ArrowRight className="w-3.5 h-3.5"/></button>}
+              </div>
+            </div>
+          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (layout === 'solo-card') {
+    const solo = staff[0];
+    return (
+      <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
+        <div className="max-w-sm mx-auto px-6 md:px-0 text-center">
+          <Header/>
+          {solo ? (
+            <div className="bg-white overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2), border: `2px solid ${ac(style)}15` }}>
+              <div className="relative overflow-hidden" style={{ aspectRatio: '3/4', background: ac(style)+'10' }}>
+                {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover object-top"/> : <div className="absolute inset-0 flex items-center justify-center"><span className="text-9xl font-light" style={{ fontFamily: hf(style), color: ac(style)+'25' }}>{solo.name?.[0]}</span></div>}
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)' }}/>
+                <div className="absolute bottom-0 inset-x-0 p-6 text-left">
+                  <p className="text-xl font-light text-white" style={{ fontFamily: hf(style) }}>{solo.name}</p>
+                  {config.showSpecialties !== false && solo.specialties?.length > 0 && <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mt-1">{solo.specialties.slice(0,3).join(' · ')}</p>}
+                </div>
+              </div>
+              <div className="p-6 space-y-4">
+                {config.showBio && solo.bio && <p className="text-sm text-slate-500 leading-relaxed text-left" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
+                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book an appointment'}</button>}
               </div>
             </div>
           ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
