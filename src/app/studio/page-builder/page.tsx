@@ -210,7 +210,6 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'split',      label: 'Split',      preview: '[ links | LOGO | links+btn ]' },
     { id: 'logo-top',   label: 'Logo Top',   preview: '[ LOGO ]\n[ links ]'          },
     { id: 'drawer',     label: 'Drawer',     preview: '[ logo · (≡) ]'               },
-    { id: 'bottom-bar', label: 'Bottom Bar', preview: '[ ≡ ≡ ≡ ≡ | Book ]'          },
     { id: 'minimal',    label: 'Minimal',    preview: '[ logo · btn ]'               },
   ]},
   hero: { label: 'Hero', icon: ImageIcon, color: '#534AB7', fields: [
